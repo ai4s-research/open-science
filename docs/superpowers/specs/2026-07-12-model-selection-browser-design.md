@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-12
 
-**Status:** Design approved; written specification pending review
+**Status:** Approved for implementation planning
 
 ## Context
 
