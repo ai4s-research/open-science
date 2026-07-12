@@ -1,5 +1,7 @@
 # Progress
 
+2026-07-12 08:01 · fix(settings): PR #13 review fixes on `feat/model-browser-fixes` — the store now owns model-switch failure state (`modelSwitchError`; fixes the null===null first-boot misrender, the retry that collapsed the browser, and the stale-catalog-after-URL-change write hazard), catalog gained a loading state scoped to `listProviders`, the providers card stays collapsible when disconnected, model rows keep focus via aria-disabled, the dead `model.notSet` key is live again, and the two force-added `docs/superpowers/` files are removed; 500/500 tests, typecheck, lint, build pass.
+
 2026-07-12 15:10 · fix(desktop): #12 — the app had no zoom mechanism at all, so WSLg users hit by its HiDPI scale-factor bug (fonts shrink on maximize; upstream wslg#23/#388/#1335) had no way to recover; enabled `zoomHotkeysEnabled` + the `core:webview:allow-set-webview-zoom` capability so Ctrl/Cmd +/- zoom now works on all three platforms; DMG rebuilt.
 
 2026-07-12 11:25 · feat(settings): replaced the large native model dropdown with a searchable two-column browser (all/favorites/recent/provider filters), local favorite/recent persistence, immediate masked switching, and a separate collapsed provider-management card; full frontend tests, typecheck, lint, Windows Tauri build, and visual QA pass.
