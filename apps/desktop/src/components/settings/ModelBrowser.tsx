@@ -56,6 +56,8 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
     setPendingModel(model.key);
     try {
       if (await onSelect(model.key)) updatePreferences(recordRecent(preferences, model.key));
+    } catch {
+      // The caller owns error presentation; a rejection is a failed selection here.
     } finally {
       setPendingModel(null);
     }

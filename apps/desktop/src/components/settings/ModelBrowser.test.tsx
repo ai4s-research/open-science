@@ -84,6 +84,21 @@ describe("ModelBrowser", () => {
     expect(loadModelPreferences().recent).toEqual([]);
   });
 
+  it("contains rejected selections as failed attempts", async () => {
+    const onSelect = vi.fn().mockRejectedValue(new Error("selection failed"));
+    render(<ModelBrowser providers={providers} defaultModel="openai/gpt-5.2" busy={false}
+      onSelect={onSelect} onManageProviders={vi.fn()} />);
+
+    const modelRow = screen.getByRole("button", { name: /^o3/ });
+    const favoriteButton = screen.getByRole("button", { name: "Add o3 to favorites" });
+    await userEvent.click(modelRow);
+
+    expect(onSelect).toHaveBeenCalledWith("openai/o3");
+    await waitFor(() => expect(modelRow).toBeEnabled());
+    expect(favoriteButton).toBeEnabled();
+    expect(loadModelPreferences().recent).toEqual([]);
+  });
+
   it("shows an unavailable configured default and exposes provider management when empty", () => {
     const onManageProviders = vi.fn();
     const { rerender } = render(<ModelBrowser providers={providers} defaultModel="gone/model" busy={false}
