@@ -36,6 +36,7 @@ venv/
 .cache/
 .eslintcache
 .superpowers/
+.worktrees/
 docs/superpowers/
 
 # Local runtime & secrets (never commit)
