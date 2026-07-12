@@ -46,6 +46,7 @@ import { ModalCard } from "@/components/settings/ModalCard";
 import { DataFlowCard } from "@/components/settings/DataFlowCard";
 import { ModelBrowser } from "@/components/settings/ModelBrowser";
 import { ProviderManagerCard } from "@/components/settings/ProviderManagerCard";
+import { inputCls } from "@/components/settings/inputCls";
 import { SCIENCE_CONNECTORS } from "@/lib/scienceConnectors";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
@@ -622,10 +623,11 @@ export function SettingsPage() {
         <ProviderManagerCard
           providers={providers}
           expanded={providerManagerOpen}
-          disabled={!connected || modelControlsBusy}
           onExpandedChange={setProviderManagerOpen}
         >
-          {connected && (
+          {!connected ? (
+            <p className="text-[13px] text-muted">{t("providers.connectPrompt")}</p>
+          ) : (
             <>
               <div className="overflow-hidden rounded-input border border-border">
                 {providers.map((p, i) => (
@@ -1307,12 +1309,6 @@ export function SettingsPage() {
 
 /* ---- Shared bits: one look for every control on this page ---- */
 
-const inputCls = (extra = "") =>
-  cn(
-    "h-9 rounded-input border border-border bg-surface px-3 text-[13px] text-text outline-none",
-    "placeholder:text-muted focus:border-accent/60",
-    extra,
-  );
 
 // Hover/disabled states use background + text COLOR, never `opacity`. The CSS
 // `opacity` property promotes an element to its own GPU compositing layer; in

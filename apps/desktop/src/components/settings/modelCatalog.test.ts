@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderInfo } from "@ai4s/sdk";
 import {
-  countModelOptions,
   filterModelOptions,
   flattenModelOptions,
   type ModelFilter,
@@ -56,13 +55,10 @@ describe("model catalog", () => {
       .toEqual(["ollama-cloud/qwen3-coder", "openai/gpt-5.2"]);
   });
 
-  it("limits a provider filter and counts each available filter", () => {
+  it("limits a provider filter (an empty query filters nothing away)", () => {
     const filter: ModelFilter = { kind: "provider", providerID: "openai" };
     expect(filterModelOptions(options, filter, "", favorites, recent).map((m) => m.key))
       .toEqual(["openai/gpt-5.2", "openai/o3"]);
-    expect(countModelOptions(options, { kind: "all" }, favorites, recent)).toBe(3);
-    expect(countModelOptions(options, { kind: "favorites" }, favorites, recent)).toBe(1);
-    expect(countModelOptions(options, { kind: "recent" }, favorites, recent)).toBe(2);
-    expect(countModelOptions(options, filter, favorites, recent)).toBe(2);
+    expect(filterModelOptions(options, { kind: "all" }, "", favorites, recent)).toHaveLength(3);
   });
 });

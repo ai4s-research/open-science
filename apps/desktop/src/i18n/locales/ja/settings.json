@@ -79,6 +79,7 @@
   "providers": {
     "title": "プロバイダー",
     "hint": "認証、カスタムエンドポイント、インポートした OpenCode ログイン",
+    "connectPrompt": "プロバイダーを管理するにはランタイムに接続してください。",
     "manage": "管理",
     "collapse": "折りたたむ",
     "connectedSummary_one": "{{count}} 件接続済み: {{names}}",

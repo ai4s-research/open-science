@@ -818,6 +818,7 @@ describe("approval mode", () => {
           status: "error",
           error: "Could not open OpenCode event stream",
         });
+        return false;
       }),
     });
 

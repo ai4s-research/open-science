@@ -3,8 +3,8 @@ import { Clock3, Loader2, Search, Star, X } from "lucide-react";
 import type { ProviderInfo } from "@ai4s/sdk";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cn";
+import { inputCls } from "./inputCls";
 import {
-  countModelOptions,
   filterModelOptions,
   flattenModelOptions,
   type ModelFilter,
@@ -63,10 +63,12 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
     }
   };
 
+  const filterCount = (kind: "favorites" | "recent") =>
+    filterModelOptions(options, { kind }, "", preferences.favorites, preferences.recent).length;
   const filters: Array<{ filter: ModelFilter; label: string; count: number; recent?: boolean }> = [
     { filter: { kind: "all" }, label: t("model.allModels"), count: options.length },
-    { filter: { kind: "favorites" }, label: t("model.favorites"), count: countModelOptions(options, { kind: "favorites" }, preferences.favorites, preferences.recent) },
-    { filter: { kind: "recent" }, label: t("model.recent"), count: countModelOptions(options, { kind: "recent" }, preferences.favorites, preferences.recent), recent: true },
+    { filter: { kind: "favorites" }, label: t("model.favorites"), count: filterCount("favorites") },
+    { filter: { kind: "recent" }, label: t("model.recent"), count: filterCount("recent"), recent: true },
   ];
 
   const sameFilter = (a: ModelFilter, b: ModelFilter) =>
@@ -86,6 +88,9 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
         <div className="mb-3 rounded-input border border-warn/30 bg-warn/10 px-3 py-2 font-mono text-xs text-warn">
           {t("model.unavailableDefault", { model: defaultModel })}
         </div>
+      )}
+      {defaultModel === null && options.length > 0 && (
+        <p className="mb-3 text-xs text-muted">{t("model.notSet")}</p>
       )}
       {options.length === 0 ? (
         <div className="rounded-input border border-dashed border-border px-4 py-6 text-center">
@@ -115,7 +120,7 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
               <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -mt-[6.5px] text-muted" />
               <input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
                 aria-label={t("model.searchLabel")} placeholder={t("model.searchPlaceholder")}
-                className="h-9 w-full rounded-input border border-border bg-surface pl-8 pr-8 text-[13px] text-text outline-none placeholder:text-muted focus:border-accent/60" />
+                className={inputCls("w-full pl-8 pr-8")} />
               {query && <button aria-label={t("model.clearSearch")} onClick={() => setQuery("")}
                 className="absolute right-2 top-1/2 -mt-3 rounded p-1 text-muted hover:text-text"><X size={14} /></button>}
             </label>
@@ -131,9 +136,14 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
                 const favorite = preferences.favorites.includes(model.key);
                 return (
                   <div role="listitem" key={model.key} className={cn("flex rounded-input border transition-colors", current ? "border-accent bg-accent/10" : "border-border bg-surface hover:bg-surface-2")}>
-                    <button disabled={disabled} aria-current={current ? "true" : undefined}
+                    {/* Never DOM-disable the rows: a disabled element leaves the
+                        tab order and the browser drops focus to <body>, so a
+                        keyboard user would lose their place on every switch.
+                        aria-disabled + the selectModel guard block interaction. */}
+                    <button aria-current={current ? "true" : undefined}
                       aria-disabled={disabled || current ? "true" : undefined}
-                      onClick={() => void selectModel(model)} className="min-w-0 flex-1 px-3 py-2 text-left disabled:text-muted">
+                      onClick={() => void selectModel(model)}
+                      className={cn("min-w-0 flex-1 px-3 py-2 text-left", disabled && "text-muted")}>
                       <span className="flex items-center gap-2 text-[13px] font-medium text-text">
                         <span className="truncate">{model.modelName}</span>
                         {current && <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">{t("model.currentDefault")}</span>}
@@ -141,10 +151,10 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
                       </span>
                       <span className="mt-0.5 block truncate text-[11px] text-muted">{model.providerName}{model.modelName !== model.modelID ? ` · ${model.modelID}` : ""}</span>
                     </button>
-                    <button aria-pressed={favorite} disabled={disabled}
+                    <button aria-pressed={favorite} aria-disabled={disabled ? "true" : undefined}
                       aria-label={t(favorite ? "model.removeFavorite" : "model.addFavorite", { model: model.modelName })}
-                      onClick={() => updatePreferences(toggleFavorite(preferences, model.key))}
-                      className="m-1.5 rounded-input p-2 text-muted hover:bg-surface-2 hover:text-accent disabled:text-muted">
+                      onClick={() => { if (!disabled) updatePreferences(toggleFavorite(preferences, model.key)); }}
+                      className="m-1.5 rounded-input p-2 text-muted hover:bg-surface-2 hover:text-accent">
                       <Star size={14} className={favorite ? "fill-current text-accent" : ""} />
                     </button>
                   </div>

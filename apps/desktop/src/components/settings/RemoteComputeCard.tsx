@@ -18,6 +18,7 @@ import {
 } from "@/lib/tauri";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
+import { inputCls } from "./inputCls";
 
 /** The `t` type the plain (non-component) helpers below take as a parameter. */
 type TFn = TFunction<["settings", "common"]>;
@@ -376,12 +377,6 @@ function fmtBytes(n: number | null): string {
   return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${u[i]}`;
 }
 
-const inputCls = (extra = "") =>
-  cn(
-    "h-9 rounded-input border border-border bg-surface px-3 text-[13px] text-text outline-none",
-    "placeholder:text-muted focus:border-accent/60",
-    extra,
-  );
 
 // Color-based hover/disabled, never `opacity` (which flickers in WKWebView).
 const btnAccent = (extra = "") =>

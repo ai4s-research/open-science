@@ -79,6 +79,7 @@
   "providers": {
     "title": "Fournisseurs",
     "hint": "Authentification, points de terminaison personnalisés et connexions OpenCode importées",
+    "connectPrompt": "Connectez le runtime pour gérer les fournisseurs.",
     "manage": "Gérer",
     "collapse": "Réduire",
     "connectedSummary_one": "{{count}} connecté : {{names}}",

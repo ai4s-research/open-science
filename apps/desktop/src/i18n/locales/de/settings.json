@@ -79,6 +79,7 @@
   "providers": {
     "title": "Anbieter",
     "hint": "Authentifizierung, benutzerdefinierte Endpunkte und importierte OpenCode-Anmeldungen",
+    "connectPrompt": "Verbinde die Laufzeit, um Anbieter zu verwalten.",
     "manage": "Verwalten",
     "collapse": "Einklappen",
     "connectedSummary_one": "{{count}} verbunden: {{names}}",

@@ -7,7 +7,6 @@ import { cn } from "@/lib/cn";
 interface ProviderManagerCardProps {
   providers: ProviderInfo[];
   expanded: boolean;
-  disabled: boolean;
   onExpandedChange: (expanded: boolean) => void;
   children: ReactNode;
 }
@@ -15,7 +14,6 @@ interface ProviderManagerCardProps {
 export function ProviderManagerCard({
   providers,
   expanded,
-  disabled,
   onExpandedChange,
   children,
 }: ProviderManagerCardProps) {
@@ -33,8 +31,9 @@ export function ProviderManagerCard({
           <p className="mt-0.5 truncate text-xs text-muted">{summary}</p>
           <p className="mt-0.5 text-xs text-muted">{t("providers.hint")}</p>
         </div>
+        {/* The toggle only shows/hides content — it must stay clickable in
+            every runtime state, or a disconnect strands an expanded panel. */}
         <button
-          disabled={disabled}
           aria-expanded={expanded}
           onClick={() => onExpandedChange(!expanded)}
           className="flex h-9 shrink-0 items-center gap-1 rounded-input border border-border bg-surface px-3 text-[13px] text-text transition-colors hover:bg-surface-2 disabled:text-muted"

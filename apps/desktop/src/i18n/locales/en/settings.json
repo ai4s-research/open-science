@@ -79,6 +79,7 @@
   "providers": {
     "title": "Providers",
     "hint": "Authentication, custom endpoints, and imported OpenCode logins",
+    "connectPrompt": "Connect the runtime to manage providers.",
     "manage": "Manage",
     "collapse": "Collapse",
     "connectedSummary_one": "{{count}} connected: {{names}}",

@@ -79,6 +79,7 @@
   "providers": {
     "title": "공급자",
     "hint": "인증, 사용자 지정 엔드포인트 및 가져온 OpenCode 로그인",
+    "connectPrompt": "프로바이더를 관리하려면 런타임에 연결하세요.",
     "manage": "관리",
     "collapse": "접기",
     "connectedSummary_one": "{{count}}개 연결됨: {{names}}",

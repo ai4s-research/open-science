@@ -79,6 +79,7 @@
   "providers": {
     "title": "Proveedores",
     "hint": "Autenticación, endpoints personalizados e inicios de sesión de OpenCode importados",
+    "connectPrompt": "Conecta el runtime para gestionar proveedores.",
     "manage": "Administrar",
     "collapse": "Contraer",
     "connectedSummary_one": "{{count}} conectado: {{names}}",

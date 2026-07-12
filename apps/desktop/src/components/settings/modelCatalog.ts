@@ -64,12 +64,3 @@ export function filterModelOptions(
       .includes(normalized),
   );
 }
-
-export function countModelOptions(
-  options: ModelOption[],
-  filter: ModelFilter,
-  favorites: string[],
-  recent: string[],
-): number {
-  return baseOptions(options, filter, favorites, recent).length;
-}

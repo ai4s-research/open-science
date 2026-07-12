@@ -15,7 +15,6 @@ describe("ProviderManagerCard", () => {
       <ProviderManagerCard
         providers={providers}
         expanded={false}
-        disabled={false}
         onExpandedChange={vi.fn()}
       >
         <div>Provider controls</div>
@@ -30,7 +29,6 @@ describe("ProviderManagerCard", () => {
       <ProviderManagerCard
         providers={[providers[0]]}
         expanded={false}
-        disabled={false}
         onExpandedChange={vi.fn()}
       >
         <div>Provider controls</div>
@@ -45,7 +43,6 @@ describe("ProviderManagerCard", () => {
       <ProviderManagerCard
         providers={providers}
         expanded={false}
-        disabled={false}
         onExpandedChange={onExpandedChange}
       >
         <div>Provider controls</div>
@@ -57,7 +54,6 @@ describe("ProviderManagerCard", () => {
       <ProviderManagerCard
         providers={providers}
         expanded
-        disabled={false}
         onExpandedChange={onExpandedChange}
       >
         <div>Provider controls</div>

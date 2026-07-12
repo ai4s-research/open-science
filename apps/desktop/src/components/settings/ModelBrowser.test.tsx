@@ -110,6 +110,33 @@ describe("ModelBrowser", () => {
     expect(screen.getByRole("button", { name: "Manage providers" })).toBeInTheDocument();
   });
 
+  it("keeps focus on the clicked row through the pending switch (no drop to body)", async () => {
+    let resolveSelection!: (value: boolean) => void;
+    const onSelect = vi.fn(() => new Promise<boolean>((resolve) => { resolveSelection = resolve; }));
+    render(<ModelBrowser providers={providers} defaultModel="openai/gpt-5.2" busy={false}
+      onSelect={onSelect} onManageProviders={vi.fn()} />);
+
+    const row = screen.getByRole("button", { name: /^o3/ });
+    row.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByText("Switching…")).toBeInTheDocument();
+    // A DOM-disabled button leaves the tab order and browsers drop focus to
+    // <body>, stranding keyboard users mid-switch — rows must stay enabled
+    // and block interaction via aria-disabled + the click guard instead.
+    expect(row).toBeEnabled();
+    expect(row).toHaveAttribute("aria-disabled", "true");
+    expect(row).toHaveFocus();
+    resolveSelection(true);
+    await waitFor(() => expect(loadModelPreferences().recent).toEqual(["openai/o3"]));
+    expect(row).toHaveFocus();
+  });
+
+  it("signals when no default model is configured", () => {
+    render(<ModelBrowser providers={providers} defaultModel={null} busy={false}
+      onSelect={vi.fn()} onManageProviders={vi.fn()} />);
+    expect(screen.getByText("Not set — pick a default model")).toBeInTheDocument();
+  });
+
   it("keeps the current model row keyboard-focusable without selecting it again", async () => {
     const onSelect = vi.fn().mockResolvedValue(true);
     render(<ModelBrowser providers={providers} defaultModel="openai/o3" busy={false}

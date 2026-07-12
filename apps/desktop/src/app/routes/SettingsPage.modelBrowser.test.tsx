@@ -146,6 +146,23 @@ describe("Settings model browser integration", () => {
     expect(screen.queryByRole("button", { name: /^o3/ })).not.toBeInTheDocument();
   });
 
+  it("an expanded Providers card stays collapsible and shows a prompt after a disconnect", async () => {
+    vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
+    await renderSettings();
+    await screen.findByRole("button", { name: /^o3/ });
+    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
+
+    act(() => useRuntimeStore.setState({ status: "offline", switching: false }));
+
+    // The old wiring disabled the toggle and rendered an empty body — a
+    // stuck-open blank panel the user could not close until reconnect.
+    expect(screen.getByText("Connect the runtime to manage providers.")).toBeInTheDocument();
+    const collapse = screen.getByRole("button", { name: "Collapse" });
+    expect(collapse).toBeEnabled();
+    await userEvent.click(collapse);
+    expect(screen.queryByText("Connect the runtime to manage providers.")).not.toBeInTheDocument();
+  });
+
   it("shows a localized unavailable state when the initial provider refresh fails", async () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(
       catalogClient(vi.fn().mockRejectedValue(new Error("catalog offline"))),
