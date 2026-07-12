@@ -75,6 +75,13 @@
     "removeFavorite": "从收藏中移除 {{model}}"
   },
   "providers": {
+    "title": "供应商",
+    "hint": "登录认证、自定义端点和导入的 OpenCode 登录信息",
+    "manage": "管理",
+    "collapse": "收起",
+    "connectedSummary_one": "已连接 {{count}} 个：{{names}}",
+    "connectedSummary_other": "已连接 {{count}} 个：{{names}}",
+    "noneConnected": "未连接供应商",
     "modelCount_other": "{{count}} 个模型",
     "builtInFree": "内置 · 免费",
     "removeTitle": "移除该供应商的凭据/配置",

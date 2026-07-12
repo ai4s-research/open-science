@@ -75,6 +75,13 @@
     "removeFavorite": "{{model}}을 즐겨찾기에서 제거"
   },
   "providers": {
+    "title": "공급자",
+    "hint": "인증, 사용자 지정 엔드포인트 및 가져온 OpenCode 로그인",
+    "manage": "관리",
+    "collapse": "접기",
+    "connectedSummary_one": "{{count}}개 연결됨: {{names}}",
+    "connectedSummary_other": "{{count}}개 연결됨: {{names}}",
+    "noneConnected": "연결된 공급자 없음",
     "modelCount_other": "모델 {{count}}개",
     "builtInFree": "기본 제공 · 무료",
     "removeTitle": "이 제공자의 자격 증명/설정 제거",

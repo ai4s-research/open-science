@@ -75,6 +75,13 @@
     "removeFavorite": "Retirer {{model}} des favoris"
   },
   "providers": {
+    "title": "Fournisseurs",
+    "hint": "Authentification, points de terminaison personnalisés et connexions OpenCode importées",
+    "manage": "Gérer",
+    "collapse": "Réduire",
+    "connectedSummary_one": "{{count}} connecté : {{names}}",
+    "connectedSummary_other": "{{count}} connectés : {{names}}",
+    "noneConnected": "Aucun fournisseur connecté",
     "modelCount_one": "{{count}} modèle",
     "modelCount_other": "{{count}} modèles",
     "builtInFree": "intégré · gratuit",

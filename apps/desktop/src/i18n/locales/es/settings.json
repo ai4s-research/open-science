@@ -75,6 +75,13 @@
     "removeFavorite": "Quitar {{model}} de favoritos"
   },
   "providers": {
+    "title": "Proveedores",
+    "hint": "Autenticación, endpoints personalizados e inicios de sesión de OpenCode importados",
+    "manage": "Administrar",
+    "collapse": "Contraer",
+    "connectedSummary_one": "{{count}} conectado: {{names}}",
+    "connectedSummary_other": "{{count}} conectados: {{names}}",
+    "noneConnected": "No hay proveedores conectados",
     "modelCount_one": "{{count}} modelo",
     "modelCount_other": "{{count}} modelos",
     "builtInFree": "incluido · gratis",

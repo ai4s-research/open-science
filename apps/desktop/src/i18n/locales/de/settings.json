@@ -75,6 +75,13 @@
     "removeFavorite": "{{model}} aus Favoriten entfernen"
   },
   "providers": {
+    "title": "Anbieter",
+    "hint": "Authentifizierung, benutzerdefinierte Endpunkte und importierte OpenCode-Anmeldungen",
+    "manage": "Verwalten",
+    "collapse": "Einklappen",
+    "connectedSummary_one": "{{count}} verbunden: {{names}}",
+    "connectedSummary_other": "{{count}} verbunden: {{names}}",
+    "noneConnected": "Keine Anbieter verbunden",
     "modelCount_one": "{{count}} Modell",
     "modelCount_other": "{{count}} Modelle",
     "builtInFree": "integriert · kostenlos",

@@ -75,6 +75,13 @@
     "removeFavorite": "{{model}} をお気に入りから削除"
   },
   "providers": {
+    "title": "プロバイダー",
+    "hint": "認証、カスタムエンドポイント、インポートした OpenCode ログイン",
+    "manage": "管理",
+    "collapse": "折りたたむ",
+    "connectedSummary_one": "{{count}} 件接続済み: {{names}}",
+    "connectedSummary_other": "{{count}} 件接続済み: {{names}}",
+    "noneConnected": "接続済みプロバイダーなし",
     "modelCount_other": "{{count}} 個のモデル",
     "builtInFree": "組み込み・無料",
     "removeTitle": "このプロバイダーの認証情報/設定を削除",

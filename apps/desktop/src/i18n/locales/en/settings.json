@@ -75,6 +75,13 @@
     "removeFavorite": "Remove {{model}} from favorites"
   },
   "providers": {
+    "title": "Providers",
+    "hint": "Authentication, custom endpoints, and imported OpenCode logins",
+    "manage": "Manage",
+    "collapse": "Collapse",
+    "connectedSummary_one": "{{count}} connected: {{names}}",
+    "connectedSummary_other": "{{count}} connected: {{names}}",
+    "noneConnected": "No providers connected",
     "modelCount_one": "{{count}} model",
     "modelCount_other": "{{count}} models",
     "builtInFree": "built-in · free",
