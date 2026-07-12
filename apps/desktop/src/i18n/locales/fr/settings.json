@@ -65,6 +65,7 @@
     "currentDefault": "Modèle par défaut actuel",
     "switching": "Changement…",
     "unavailableDefault": "Modèle configuré indisponible : {{model}}",
+    "catalogUnavailable": "Le catalogue de modèles est actuellement indisponible.",
     "noModels": "Aucun modèle disponible.",
     "manageProviders": "Gérer les fournisseurs",
     "emptyFavorites": "Les modèles favoris apparaissent ici.",

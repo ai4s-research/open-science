@@ -34,4 +34,11 @@ describe("locale key parity (base keys)", () => {
     const extra = [...theirs].filter((k) => !english.has(k));
     expect({ code, missing, extra }).toEqual({ code, missing: [], extra: [] });
   });
+
+  it.each(shippedLocales().map((locale) => locale.code))(
+    "%s includes the model catalog unavailable message",
+    (code) => {
+      expect(i18n.exists("model.catalogUnavailable", { lng: code, ns: "settings" })).toBe(true);
+    },
+  );
 });

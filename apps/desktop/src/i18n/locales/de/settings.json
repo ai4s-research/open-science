@@ -65,6 +65,7 @@
     "currentDefault": "Aktueller Standard",
     "switching": "Wird gewechselt…",
     "unavailableDefault": "Konfiguriertes Modell nicht verfügbar: {{model}}",
+    "catalogUnavailable": "Der Modellkatalog ist derzeit nicht verfügbar.",
     "noModels": "Keine Modelle verfügbar.",
     "manageProviders": "Anbieter verwalten",
     "emptyFavorites": "Favorisierte Modelle erscheinen hier.",

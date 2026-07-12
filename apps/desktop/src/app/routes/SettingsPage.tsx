@@ -104,6 +104,8 @@ export function SettingsPage() {
   const setupGeneration = useSetupStore((s) => s.generation);
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [catalogUnavailable, setCatalogUnavailable] = useState(false);
+  const hasProviderSnapshot = useRef(false);
   const [authMethods, setAuthMethods] = useState<Record<string, ProviderAuthMethod[]>>({});
   const [catalog, setCatalog] = useState<ProviderCatalogEntry[]>([]);
   const [customIds, setCustomIds] = useState<string[]>([]);
@@ -158,13 +160,15 @@ export function SettingsPage() {
         client.listMcpServers().catch(() => []),
       ]);
       setProviders(p);
+      hasProviderSnapshot.current = true;
+      setCatalogUnavailable(false);
       setAuthMethods(m);
       setCatalog(c.all);
       setCustomIds(custom);
       setMcpServers(mcp);
       setJupyter(await jupyterStatus());
     } catch {
-      /* runtime not ready yet */
+      if (!hasProviderSnapshot.current) setCatalogUnavailable(true);
     }
   }, []);
 
@@ -579,6 +583,8 @@ export function SettingsPage() {
         <Card title={t("model.title")} hint={t("model.hint")}>
           {!connected ? (
             <p className="text-[13px] text-muted">{t("model.connectPrompt")}</p>
+          ) : catalogUnavailable ? (
+            <p className="text-[13px] text-muted">{t("model.catalogUnavailable")}</p>
           ) : (
             <ModelBrowser
               providers={providers}

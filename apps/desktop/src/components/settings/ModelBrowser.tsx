@@ -80,17 +80,6 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
         ? t("model.emptyRecent")
         : t("model.noModels");
 
-  if (options.length === 0) {
-    return (
-      <div className="rounded-input border border-dashed border-border px-4 py-6 text-center">
-        <p className="text-[13px] text-muted">{t("model.noModels")}</p>
-        <button className="mt-2 text-xs font-medium text-accent hover:underline" onClick={onManageProviders}>
-          {t("model.manageProviders")}
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div>
       {unavailableDefault && (
@@ -98,63 +87,73 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
           {t("model.unavailableDefault", { model: defaultModel })}
         </div>
       )}
-      <div className="grid overflow-hidden rounded-input border border-border sm:grid-cols-[148px_minmax(0,1fr)]">
-        <nav aria-label={t("model.filtersLabel")} className="border-b border-border bg-surface-2 p-2 sm:border-b-0 sm:border-r">
-          {filters.map((item) => (
-            <FilterButton key={item.filter.kind} label={item.label} count={item.count} recent={item.recent}
-              active={sameFilter(filter, item.filter)} onClick={() => setFilter(item.filter)} />
-          ))}
-          <div className="my-2 h-px bg-border" />
-          {providers.map((provider) => {
-            // eslint-disable-next-line i18next/no-literal-string -- discriminated-union key, not display text
-            const providerFilter: ModelFilter = { kind: "provider", providerID: provider.id };
-            return <FilterButton key={provider.id} label={provider.name} count={provider.models.length}
-              active={sameFilter(filter, providerFilter)} onClick={() => setFilter(providerFilter)} />;
-          })}
-        </nav>
-        <div className="min-w-0 p-3">
-          <label className="relative block">
-            <span className="sr-only">{t("model.searchLabel")}</span>
-            <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -mt-[6.5px] text-muted" />
-            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
-              aria-label={t("model.searchLabel")} placeholder={t("model.searchPlaceholder")}
-              className="h-9 w-full rounded-input border border-border bg-surface pl-8 pr-8 text-[13px] text-text outline-none placeholder:text-muted focus:border-accent/60" />
-            {query && <button aria-label={t("model.clearSearch")} onClick={() => setQuery("")}
-              className="absolute right-2 top-1/2 -mt-3 rounded p-1 text-muted hover:text-text"><X size={14} /></button>}
-          </label>
-          <div role="list" aria-label={t("model.listLabel")} className="mt-3 max-h-80 space-y-1 overflow-y-auto pr-1">
-            {visible.length === 0 ? (
-              <div className="px-3 py-8 text-center text-xs text-muted">
-                <p>{emptyText}</p>
-                {query && <button className="mt-2 text-accent hover:underline" onClick={() => setQuery("")}>{t("model.clearSearch")}</button>}
-              </div>
-            ) : visible.map((model) => {
-              const current = model.key === defaultModel;
-              const pending = model.key === pendingModel;
-              const favorite = preferences.favorites.includes(model.key);
-              return (
-                <div role="listitem" key={model.key} className={cn("flex rounded-input border transition-colors", current ? "border-accent bg-accent/10" : "border-border bg-surface hover:bg-surface-2")}>
-                  <button disabled={disabled || current} aria-current={current ? "true" : undefined}
-                    onClick={() => void selectModel(model)} className="min-w-0 flex-1 px-3 py-2 text-left disabled:text-muted">
-                    <span className="flex items-center gap-2 text-[13px] font-medium text-text">
-                      <span className="truncate">{model.modelName}</span>
-                      {current && <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">{t("model.currentDefault")}</span>}
-                      {pending && <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-accent"><Loader2 size={10} className="animate-spin" />{t("model.switching")}</span>}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11px] text-muted">{model.providerName}{model.modelName !== model.modelID ? ` · ${model.modelID}` : ""}</span>
-                  </button>
-                  <button aria-pressed={favorite} disabled={disabled}
-                    aria-label={t(favorite ? "model.removeFavorite" : "model.addFavorite", { model: model.modelName })}
-                    onClick={() => updatePreferences(toggleFavorite(preferences, model.key))}
-                    className="m-1.5 rounded-input p-2 text-muted hover:bg-surface-2 hover:text-accent disabled:text-muted">
-                    <Star size={14} className={favorite ? "fill-current text-accent" : ""} />
-                  </button>
-                </div>
-              );
+      {options.length === 0 ? (
+        <div className="rounded-input border border-dashed border-border px-4 py-6 text-center">
+          <p className="text-[13px] text-muted">{t("model.noModels")}</p>
+          <button className="mt-2 text-xs font-medium text-accent hover:underline" onClick={onManageProviders}>
+            {t("model.manageProviders")}
+          </button>
+        </div>
+      ) : (
+        <div className="grid overflow-hidden rounded-input border border-border sm:grid-cols-[148px_minmax(0,1fr)]">
+          <nav aria-label={t("model.filtersLabel")} className="border-b border-border bg-surface-2 p-2 sm:border-b-0 sm:border-r">
+            {filters.map((item) => (
+              <FilterButton key={item.filter.kind} label={item.label} count={item.count} recent={item.recent}
+                active={sameFilter(filter, item.filter)} onClick={() => setFilter(item.filter)} />
+            ))}
+            <div className="my-2 h-px bg-border" />
+            {providers.map((provider) => {
+              // eslint-disable-next-line i18next/no-literal-string -- discriminated-union key, not display text
+              const providerFilter: ModelFilter = { kind: "provider", providerID: provider.id };
+              return <FilterButton key={provider.id} label={provider.name} count={provider.models.length}
+                active={sameFilter(filter, providerFilter)} onClick={() => setFilter(providerFilter)} />;
             })}
+          </nav>
+          <div className="min-w-0 p-3">
+            <label className="relative block">
+              <span className="sr-only">{t("model.searchLabel")}</span>
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -mt-[6.5px] text-muted" />
+              <input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
+                aria-label={t("model.searchLabel")} placeholder={t("model.searchPlaceholder")}
+                className="h-9 w-full rounded-input border border-border bg-surface pl-8 pr-8 text-[13px] text-text outline-none placeholder:text-muted focus:border-accent/60" />
+              {query && <button aria-label={t("model.clearSearch")} onClick={() => setQuery("")}
+                className="absolute right-2 top-1/2 -mt-3 rounded p-1 text-muted hover:text-text"><X size={14} /></button>}
+            </label>
+            <div role="list" aria-label={t("model.listLabel")} className="mt-3 max-h-80 space-y-1 overflow-y-auto pr-1">
+              {visible.length === 0 ? (
+                <div className="px-3 py-8 text-center text-xs text-muted">
+                  <p>{emptyText}</p>
+                  {query && <button className="mt-2 text-accent hover:underline" onClick={() => setQuery("")}>{t("model.clearSearch")}</button>}
+                </div>
+              ) : visible.map((model) => {
+                const current = model.key === defaultModel;
+                const pending = model.key === pendingModel;
+                const favorite = preferences.favorites.includes(model.key);
+                return (
+                  <div role="listitem" key={model.key} className={cn("flex rounded-input border transition-colors", current ? "border-accent bg-accent/10" : "border-border bg-surface hover:bg-surface-2")}>
+                    <button disabled={disabled} aria-current={current ? "true" : undefined}
+                      aria-disabled={disabled || current ? "true" : undefined}
+                      onClick={() => void selectModel(model)} className="min-w-0 flex-1 px-3 py-2 text-left disabled:text-muted">
+                      <span className="flex items-center gap-2 text-[13px] font-medium text-text">
+                        <span className="truncate">{model.modelName}</span>
+                        {current && <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">{t("model.currentDefault")}</span>}
+                        {pending && <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-accent"><Loader2 size={10} className="animate-spin" />{t("model.switching")}</span>}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[11px] text-muted">{model.providerName}{model.modelName !== model.modelID ? ` · ${model.modelID}` : ""}</span>
+                    </button>
+                    <button aria-pressed={favorite} disabled={disabled}
+                      aria-label={t(favorite ? "model.removeFavorite" : "model.addFavorite", { model: model.modelName })}
+                      onClick={() => updatePreferences(toggleFavorite(preferences, model.key))}
+                      className="m-1.5 rounded-input p-2 text-muted hover:bg-surface-2 hover:text-accent disabled:text-muted">
+                      <Star size={14} className={favorite ? "fill-current text-accent" : ""} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

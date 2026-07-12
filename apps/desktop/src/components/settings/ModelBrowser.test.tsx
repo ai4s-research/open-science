@@ -104,8 +104,24 @@ describe("ModelBrowser", () => {
     const { rerender } = render(<ModelBrowser providers={providers} defaultModel="gone/model" busy={false}
       onSelect={vi.fn()} onManageProviders={onManageProviders} />);
     expect(screen.getByText(/Configured model unavailable: gone\/model/)).toBeInTheDocument();
-    rerender(<ModelBrowser providers={[]} defaultModel={null} busy={false}
+    rerender(<ModelBrowser providers={[]} defaultModel="gone/model" busy={false}
       onSelect={vi.fn()} onManageProviders={onManageProviders} />);
+    expect(screen.getByText(/Configured model unavailable: gone\/model/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Manage providers" })).toBeInTheDocument();
+  });
+
+  it("keeps the current model row keyboard-focusable without selecting it again", async () => {
+    const onSelect = vi.fn().mockResolvedValue(true);
+    render(<ModelBrowser providers={providers} defaultModel="openai/o3" busy={false}
+      onSelect={onSelect} onManageProviders={vi.fn()} />);
+
+    const currentRow = screen.getByRole("button", { name: /^o3/ });
+    expect(currentRow).toHaveAttribute("aria-current", "true");
+    expect(currentRow).toHaveAttribute("aria-disabled", "true");
+    expect(currentRow).toBeEnabled();
+    currentRow.focus();
+    expect(currentRow).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
