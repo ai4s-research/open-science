@@ -2,6 +2,8 @@
 
 2026-07-12 15:10 · fix(desktop): #12 — the app had no zoom mechanism at all, so WSLg users hit by its HiDPI scale-factor bug (fonts shrink on maximize; upstream wslg#23/#388/#1335) had no way to recover; enabled `zoomHotkeysEnabled` + the `core:webview:allow-set-webview-zoom` capability so Ctrl/Cmd +/- zoom now works on all three platforms; DMG rebuilt.
 
+2026-07-12 11:25 · feat(settings): replaced the large native model dropdown with a searchable two-column browser (all/favorites/recent/provider filters), local favorite/recent persistence, immediate masked switching, and a separate collapsed provider-management card; full frontend tests, typecheck, lint, Windows Tauri build, and visual QA pass.
+
 2026-07-12 01:32 · fix(runtime): serialized the complete OpenCode sidecar lifecycle behind one lock, cleared stale URLs on failed restarts, and deduplicated React StrictMode bootstrap calls so concurrent starts cannot double-spawn, overwrite the owned child, or launch dueling reconnect loops; Rust 87/87 + frontend 448/448 tests and the production build pass.
 
 2026-07-10 21:55 · fix(mcp): #10 root cause — enabling a second Python MCP re-ran `uv venv` on the shared env, and uv deletes + rewrites the interpreter even with `--allow-existing` (verified: inode changes per run); Windows cannot replace the python.exe the first connector's running MCP server holds, so the second enable always died with "uv venv failed". Venv is now created only when the interpreter is missing (science-MCP + jupyter setup); `uv pip install` into the existing env verified end-to-end with the bundled uv.
