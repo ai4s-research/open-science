@@ -95,6 +95,18 @@ describe("Settings model browser integration", () => {
     expect(screen.queryByText("The model catalog is currently unavailable.")).not.toBeInTheDocument();
   });
 
+  it("hides a cached model snapshot after an ordinary runtime disconnect", async () => {
+    vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
+    await renderSettings();
+    expect(await screen.findByRole("searchbox", { name: "Search models" })).toBeInTheDocument();
+
+    act(() => useRuntimeStore.setState({ status: "offline", switching: false }));
+
+    expect(await screen.findByText("Connect the runtime to configure models.")).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox", { name: "Search models" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^o3/ })).not.toBeInTheDocument();
+  });
+
   it("keeps the runtime default and error semantics after a post-write reconnect failure", async () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
     saveModelPreferences({ favorites: [], recent: ["openai/gpt-5.2"] });
@@ -141,5 +153,9 @@ describe("Settings model browser integration", () => {
     expect(screen.getByRole("button", { name: /^GPT-5.2/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Add o3 to favorites" })).toBeEnabled();
     expect(loadModelPreferences().recent).toEqual(["openai/gpt-5.2"]);
+
+    act(() => useRuntimeStore.setState({ status: "offline", switching: false }));
+    expect(await screen.findByText("Connect the runtime to configure models.")).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox", { name: "Search models" })).not.toBeInTheDocument();
   });
 });

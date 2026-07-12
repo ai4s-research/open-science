@@ -125,7 +125,12 @@ export function SettingsPage() {
   const [mTarget, setMTarget] = useState("");
   const [wsPath, setWsPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const modelSurfaceAvailable = connected || switching || hasProviderSnapshot.current;
+  const [modelSwitchInFlight, setModelSwitchInFlight] = useState(false);
+  const [preservedModelReconnectFailure, setPreservedModelReconnectFailure] = useState<string | null>(null);
+  const preservingModelReconnectFailure =
+    status === "error" && preservedModelReconnectFailure === defaultModel;
+  const modelSurfaceAvailable =
+    connected || modelSwitchInFlight || preservingModelReconnectFailure;
   const modelControlsBusy = busy || switching;
 
   // Custom endpoint form (self-hosted / Ollama / OpenAI- or Anthropic-compatible).
@@ -181,6 +186,14 @@ export function SettingsPage() {
   useEffect(() => {
     if (connected) void refresh();
   }, [connected, refresh, setupGeneration]);
+  useEffect(() => {
+    if (status === "ready" || status === "offline") {
+      setPreservedModelReconnectFailure(null);
+    }
+  }, [status]);
+  useEffect(() => {
+    setPreservedModelReconnectFailure(null);
+  }, [serverUrl]);
   useEffect(() => {
     // The BASE folder — the parent every session's dated subfolder is created
     // under. (The per-session active folder shows in the conversation header.)
@@ -275,15 +288,22 @@ export function SettingsPage() {
   };
 
   const saveModel = async (model: string): Promise<boolean> => {
+    setPreservedModelReconnectFailure(null);
+    setModelSwitchInFlight(true);
     setBusy(true);
     try {
       await useRuntimeStore.getState().setDefaultModel(model);
       toast.success(t("toast.defaultModelSet", { model }));
       return true;
     } catch (error) {
+      const runtime = useRuntimeStore.getState();
+      if (runtime.defaultModel === model && runtime.status === "error") {
+        setPreservedModelReconnectFailure(model);
+      }
       toast.error(`${t("toast.couldNotSetModel")}: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     } finally {
+      setModelSwitchInFlight(false);
       setBusy(false);
     }
   };
