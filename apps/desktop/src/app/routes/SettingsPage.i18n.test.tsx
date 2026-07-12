@@ -43,12 +43,16 @@ describe("Settings page strings (i18n)", () => {
 
   it("renders separate model browsing and provider management surfaces when connected", async () => {
     const original = useRuntimeStore.getState();
-    useRuntimeStore.setState({ status: "ready", defaultModel: null });
-    const view = renderAt("/settings");
-    expect(await screen.findByRole("button", { name: "Manage providers" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Providers" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Manage" })).toHaveAttribute("aria-expanded", "false");
-    view.unmount();
-    useRuntimeStore.setState({ status: original.status, defaultModel: original.defaultModel });
+    let view: ReturnType<typeof renderAt> | undefined;
+    try {
+      useRuntimeStore.setState({ status: "ready", defaultModel: null });
+      view = renderAt("/settings");
+      expect(await screen.findByRole("button", { name: "Manage providers" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 2, name: "Providers" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Manage" })).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      view?.unmount();
+      useRuntimeStore.setState({ status: original.status, defaultModel: original.defaultModel });
+    }
   });
 });
