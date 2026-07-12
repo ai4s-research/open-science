@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   Download,
   ExternalLink,
@@ -45,6 +44,8 @@ import { useSetupStore } from "@/lib/setup";
 import { RemoteComputeCard } from "@/components/settings/RemoteComputeCard";
 import { ModalCard } from "@/components/settings/ModalCard";
 import { DataFlowCard } from "@/components/settings/DataFlowCard";
+import { ModelBrowser } from "@/components/settings/ModelBrowser";
+import { ProviderManagerCard } from "@/components/settings/ProviderManagerCard";
 import { SCIENCE_CONNECTORS } from "@/lib/scienceConnectors";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
@@ -131,6 +132,7 @@ export function SettingsPage() {
   const [cModels, setCModels] = useState("");
 
   // Connect-a-provider flow state.
+  const [providerManagerOpen, setProviderManagerOpen] = useState(false);
   const [connectQuery, setConnectQuery] = useState("");
   const [keyInput, setKeyInput] = useState("");
   const [promptInputs, setPromptInputs] = useState<Record<string, string>>({});
@@ -265,14 +267,19 @@ export function SettingsPage() {
     oauthAbort.current = null;
   };
 
-  const saveModel = (model: string) =>
-    run(t("toast.couldNotSetModel"), async () => {
-      // Go through the store, not the client directly: applying a model closes
-      // the event stream server-side, so the store reconnects transparently
-      // (masked by `switching`) — no disconnect, no manual Connect afterward.
-      if (model) await useRuntimeStore.getState().setDefaultModel(model);
+  const saveModel = async (model: string): Promise<boolean> => {
+    setBusy(true);
+    try {
+      await useRuntimeStore.getState().setDefaultModel(model);
       toast.success(t("toast.defaultModelSet", { model }));
-    });
+      return true;
+    } catch (error) {
+      toast.error(`${t("toast.couldNotSetModel")}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const saveKey = (providerID: string) =>
     run(t("toast.couldNotSaveKey"), async () => {
@@ -568,38 +575,30 @@ export function SettingsPage() {
           )}
         </Card>
 
-        {/* ---- Models & providers ---- */}
+        {/* ---- Models ---- */}
         <Card title={t("model.title")} hint={t("model.hint")}>
           {!connected ? (
             <p className="text-[13px] text-muted">{t("model.connectPrompt")}</p>
           ) : (
+            <ModelBrowser
+              providers={providers}
+              defaultModel={defaultModel}
+              busy={busy}
+              onSelect={saveModel}
+              onManageProviders={() => setProviderManagerOpen(true)}
+            />
+          )}
+        </Card>
+
+        {/* ---- Providers ---- */}
+        <ProviderManagerCard
+          providers={providers}
+          expanded={providerManagerOpen}
+          disabled={!connected || busy}
+          onExpandedChange={setProviderManagerOpen}
+        >
+          {connected && (
             <>
-              <div className="relative">
-                <select
-                  value={defaultModel ?? ""}
-                  onChange={(e) => void saveModel(e.target.value)}
-                  disabled={busy}
-                  className={cn(inputCls("w-full appearance-none pr-9"), "cursor-pointer")}
-                >
-                  <option value="">{t("model.notSet")}</option>
-                  {providers.map((p) => (
-                    <optgroup key={p.id} label={p.name}>
-                      {p.models.map((m) => (
-                        <option key={m.id} value={`${p.id}/${m.id}`}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={14}
-                  className="pointer-events-none absolute right-3 top-1/2 -mt-[7px] text-muted"
-                />
-              </div>
-
-              <Divider label={t("model.providersDivider")} />
-
               <div className="overflow-hidden rounded-input border border-border">
                 {providers.map((p, i) => (
                   <div
@@ -839,7 +838,7 @@ export function SettingsPage() {
               )}
             </>
           )}
-        </Card>
+        </ProviderManagerCard>
 
         {/* ---- MCP servers ---- */}
         <Card title={t("mcp.title")} hint={t("mcp.hint")}>
@@ -1325,14 +1324,5 @@ function Card({
       </header>
       <div className="px-5 py-4">{children}</div>
     </section>
-  );
-}
-
-function Divider({ label }: { label: string }) {
-  return (
-    <div className="mb-3 mt-5 flex items-center gap-3">
-      <span className="text-xs font-medium uppercase tracking-wider text-muted">{label}</span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
   );
 }
