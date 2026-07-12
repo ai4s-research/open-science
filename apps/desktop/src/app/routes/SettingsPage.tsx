@@ -105,8 +105,10 @@ export function SettingsPage() {
   const setupGeneration = useSetupStore((s) => s.generation);
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [catalogUnavailable, setCatalogUnavailable] = useState(false);
-  const hasProviderSnapshot = useRef(false);
+  // The Models card's own lifecycle. "ready" is sticky across later refresh
+  // failures (keep the last good list); a server-URL change resets it so a
+  // different runtime can never render the previous runtime's catalog.
+  const [catalogState, setCatalogState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [authMethods, setAuthMethods] = useState<Record<string, ProviderAuthMethod[]>>({});
   const [catalog, setCatalog] = useState<ProviderCatalogEntry[]>([]);
   const [customIds, setCustomIds] = useState<string[]>([]);
@@ -125,12 +127,12 @@ export function SettingsPage() {
   const [mTarget, setMTarget] = useState("");
   const [wsPath, setWsPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [modelSwitchInFlight, setModelSwitchInFlight] = useState(false);
-  const [preservedModelReconnectFailure, setPreservedModelReconnectFailure] = useState<string | null>(null);
-  const preservingModelReconnectFailure =
-    status === "error" && preservedModelReconnectFailure === defaultModel;
+  // The store owns "a model switch failed" (modelSwitchError): after a failed
+  // apply the browser stays on screen for a retry instead of collapsing into
+  // the connect prompt, no matter how the attempt failed.
+  const modelSwitchError = useRuntimeStore((s) => s.modelSwitchError);
   const modelSurfaceAvailable =
-    connected || modelSwitchInFlight || preservingModelReconnectFailure;
+    connected || switching || (status === "error" && modelSwitchError !== null);
   const modelControlsBusy = busy || switching;
 
   // Custom endpoint form (self-hosted / Ollama / OpenAI- or Anthropic-compatible).
@@ -159,24 +161,29 @@ export function SettingsPage() {
   const refresh = useCallback(async () => {
     const client = getClient();
     if (!client) return;
+    // The model catalog (listProviders) is what the Models card renders — only
+    // its failure means "catalog unavailable", and only when there is no last
+    // good list to keep showing. The rest is auxiliary settings data.
     try {
-      const [p, m, c, custom, mcp] = await Promise.all([
-        client.listProviders(),
+      setProviders(await client.listProviders());
+      setCatalogState("ready");
+    } catch {
+      setCatalogState((s) => (s === "ready" ? s : "unavailable"));
+    }
+    try {
+      const [m, c, custom, mcp] = await Promise.all([
         client.listAuthMethods(),
         client.listProviderCatalog(),
         client.listCustomProviderIds(),
         client.listMcpServers().catch(() => []),
       ]);
-      setProviders(p);
-      hasProviderSnapshot.current = true;
-      setCatalogUnavailable(false);
       setAuthMethods(m);
       setCatalog(c.all);
       setCustomIds(custom);
       setMcpServers(mcp);
       setJupyter(await jupyterStatus());
     } catch {
-      if (!hasProviderSnapshot.current) setCatalogUnavailable(true);
+      /* runtime not ready yet */
     }
   }, []);
 
@@ -186,13 +193,11 @@ export function SettingsPage() {
   useEffect(() => {
     if (connected) void refresh();
   }, [connected, refresh, setupGeneration]);
+  // A different server URL means a different runtime: drop the cached catalog
+  // so its models can never be shown against (or written to) the new server.
   useEffect(() => {
-    if (status === "ready" || status === "offline") {
-      setPreservedModelReconnectFailure(null);
-    }
-  }, [status]);
-  useEffect(() => {
-    setPreservedModelReconnectFailure(null);
+    setProviders([]);
+    setCatalogState("loading");
   }, [serverUrl]);
   useEffect(() => {
     // The BASE folder — the parent every session's dated subfolder is created
@@ -288,23 +293,15 @@ export function SettingsPage() {
   };
 
   const saveModel = async (model: string): Promise<boolean> => {
-    setPreservedModelReconnectFailure(null);
-    setModelSwitchInFlight(true);
-    setBusy(true);
+    // The store masks the whole apply with `switching` and records any failure
+    // in `modelSwitchError`; this page only presents the outcome.
     try {
       await useRuntimeStore.getState().setDefaultModel(model);
       toast.success(t("toast.defaultModelSet", { model }));
       return true;
     } catch (error) {
-      const runtime = useRuntimeStore.getState();
-      if (runtime.defaultModel === model && runtime.status === "error") {
-        setPreservedModelReconnectFailure(model);
-      }
       toast.error(`${t("toast.couldNotSetModel")}: ${error instanceof Error ? error.message : String(error)}`);
       return false;
-    } finally {
-      setModelSwitchInFlight(false);
-      setBusy(false);
     }
   };
 
@@ -606,8 +603,10 @@ export function SettingsPage() {
         <Card title={t("model.title")} hint={t("model.hint")}>
           {!modelSurfaceAvailable ? (
             <p className="text-[13px] text-muted">{t("model.connectPrompt")}</p>
-          ) : catalogUnavailable ? (
+          ) : catalogState === "unavailable" ? (
             <p className="text-[13px] text-muted">{t("model.catalogUnavailable")}</p>
+          ) : catalogState === "loading" ? (
+            <p className="text-[13px] text-muted">{t("model.catalogLoading")}</p>
           ) : (
             <ModelBrowser
               providers={providers}

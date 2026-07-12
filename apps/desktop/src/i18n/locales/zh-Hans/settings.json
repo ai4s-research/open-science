@@ -66,6 +66,7 @@
     "switching": "切换中…",
     "unavailableDefault": "已配置的模型不可用：{{model}}",
     "catalogUnavailable": "模型目录当前不可用。",
+    "catalogLoading": "正在加载模型目录…",
     "noModels": "没有可用模型。",
     "manageProviders": "管理供应商",
     "emptyFavorites": "收藏的模型会显示在这里。",

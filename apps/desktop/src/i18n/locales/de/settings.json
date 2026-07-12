@@ -66,6 +66,7 @@
     "switching": "Wird gewechselt…",
     "unavailableDefault": "Konfiguriertes Modell nicht verfügbar: {{model}}",
     "catalogUnavailable": "Der Modellkatalog ist derzeit nicht verfügbar.",
+    "catalogLoading": "Modellkatalog wird geladen…",
     "noModels": "Keine Modelle verfügbar.",
     "manageProviders": "Anbieter verwalten",
     "emptyFavorites": "Favorisierte Modelle erscheinen hier.",

@@ -69,6 +69,83 @@ describe("Settings model browser integration", () => {
     useRuntimeStore.setState(initialRuntime, true);
   });
 
+  it("shows the connect prompt when the runtime errors before any model switch happened", async () => {
+    // First boot with a dead sidecar: status "error", defaultModel null,
+    // modelSwitchError null. The browser must NOT appear (the old page-local
+    // sentinel compared null === null here and showed an empty browser).
+    useRuntimeStore.setState({ status: "error", defaultModel: null, modelSwitchError: null });
+
+    await renderSettings();
+
+    expect(screen.getByText("Connect the runtime to configure models.")).toBeInTheDocument();
+    expect(screen.queryByText("No models available.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the browser up through an immediately-rejected retry after a failed switch", async () => {
+    vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
+    // A dead server per the store contract: every attempt rejects AND records
+    // modelSwitchError (the store owns the failure fact now).
+    const deadSwitch = vi.fn(async () => {
+      useRuntimeStore.setState({ modelSwitchError: "Load failed" });
+      throw new Error("Load failed");
+    });
+    useRuntimeStore.setState({ setDefaultModel: deadSwitch });
+    await renderSettings();
+    await screen.findByRole("button", { name: /^o3/ });
+
+    await userEvent.click(screen.getByRole("button", { name: /^o3/ }));
+    await waitFor(() => expect(deadSwitch).toHaveBeenCalledTimes(1));
+    act(() => useRuntimeStore.setState({ status: "error", switching: false }));
+    expect(screen.getByRole("searchbox", { name: "Search models" })).toBeInTheDocument();
+
+    // Retrying while the server is still down must not collapse the surface.
+    await userEvent.click(screen.getByRole("button", { name: /^o3/ }));
+    await waitFor(() => expect(deadSwitch).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("searchbox", { name: "Search models" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^o3/ })).toBeInTheDocument();
+  });
+
+  it("shows a loading state, not a false unavailable-model warning, while the catalog loads", async () => {
+    let resolveProviders!: (value: ProviderInfo[]) => void;
+    const pending = new Promise<ProviderInfo[]>((resolve) => {
+      resolveProviders = resolve;
+    });
+    vi.spyOn(runtime, "getClient").mockReturnValue(
+      catalogClient(vi.fn().mockReturnValue(pending)),
+    );
+
+    await renderSettings();
+
+    expect(screen.getByText("Loading the model catalog…")).toBeInTheDocument();
+    expect(screen.queryByText(/Configured model unavailable/)).not.toBeInTheDocument();
+    expect(screen.queryByText("No models available.")).not.toBeInTheDocument();
+    await act(async () => resolveProviders(providers));
+    expect(await screen.findByRole("button", { name: /^o3/ })).toBeInTheDocument();
+  });
+
+  it("shows models when the provider list succeeds even if auxiliary settings calls fail", async () => {
+    const client = catalogClient();
+    (client as { listAuthMethods: unknown }).listAuthMethods = vi
+      .fn()
+      .mockRejectedValue(new Error("aux down"));
+    vi.spyOn(runtime, "getClient").mockReturnValue(client);
+
+    await renderSettings();
+
+    expect(await screen.findByRole("button", { name: /^o3/ })).toBeInTheDocument();
+    expect(screen.queryByText("The model catalog is currently unavailable.")).not.toBeInTheDocument();
+  });
+
+  it("drops the cached catalog when the server URL changes (no stale models from the old runtime)", async () => {
+    vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
+    await renderSettings();
+    expect(await screen.findByRole("button", { name: /^o3/ })).toBeInTheDocument();
+
+    act(() => useRuntimeStore.getState().setServerUrl("http://127.0.0.1:9999"));
+
+    expect(screen.queryByRole("button", { name: /^o3/ })).not.toBeInTheDocument();
+  });
+
   it("shows a localized unavailable state when the initial provider refresh fails", async () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(
       catalogClient(vi.fn().mockRejectedValue(new Error("catalog offline"))),
@@ -119,10 +196,12 @@ describe("Settings model browser integration", () => {
         error: null,
       });
       exhaustReconnect = () => {
+        // Per the store contract, a failed switch records modelSwitchError.
         useRuntimeStore.setState({
           switching: false,
           status: "error",
           error: "reconnect failed",
+          modelSwitchError: "reconnect failed",
         });
         reject(new Error("reconnect failed"));
       };

@@ -66,6 +66,7 @@
     "switching": "切り替え中…",
     "unavailableDefault": "設定済みモデルは利用できません: {{model}}",
     "catalogUnavailable": "モデルカタログは現在利用できません。",
+    "catalogLoading": "モデルカタログを読み込み中…",
     "noModels": "利用可能なモデルがありません。",
     "manageProviders": "プロバイダーを管理",
     "emptyFavorites": "お気に入りのモデルがここに表示されます。",

@@ -47,7 +47,9 @@ describe("Settings page strings (i18n)", () => {
     try {
       useRuntimeStore.setState({ status: "ready", defaultModel: null });
       view = renderAt("/settings");
-      expect(await screen.findByRole("button", { name: "Manage providers" })).toBeInTheDocument();
+      // No client behind this render: the Models card sits in its loading
+      // state while the separate Providers card is already on screen.
+      expect(await screen.findByText("Loading the model catalog…")).toBeInTheDocument();
       expect(screen.getByRole("heading", { level: 2, name: "Providers" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Manage" })).toHaveAttribute("aria-expanded", "false");
     } finally {
