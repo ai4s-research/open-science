@@ -66,6 +66,7 @@ export function SettingsPage() {
   // made the native <select>/<input>/<button> controls flicker and blank out on
   // scroll. These are the only fields the page actually reads.
   const status = useRuntimeStore((s) => s.status);
+  const switching = useRuntimeStore((s) => s.switching);
   const serverUrl = useRuntimeStore((s) => s.serverUrl);
   const setServerUrl = useRuntimeStore((s) => s.setServerUrl);
   const connect = useRuntimeStore((s) => s.connect);
@@ -124,6 +125,8 @@ export function SettingsPage() {
   const [mTarget, setMTarget] = useState("");
   const [wsPath, setWsPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const modelSurfaceAvailable = connected || switching || hasProviderSnapshot.current;
+  const modelControlsBusy = busy || switching;
 
   // Custom endpoint form (self-hosted / Ollama / OpenAI- or Anthropic-compatible).
   const [showCustom, setShowCustom] = useState(false);
@@ -581,7 +584,7 @@ export function SettingsPage() {
 
         {/* ---- Models ---- */}
         <Card title={t("model.title")} hint={t("model.hint")}>
-          {!connected ? (
+          {!modelSurfaceAvailable ? (
             <p className="text-[13px] text-muted">{t("model.connectPrompt")}</p>
           ) : catalogUnavailable ? (
             <p className="text-[13px] text-muted">{t("model.catalogUnavailable")}</p>
@@ -589,7 +592,7 @@ export function SettingsPage() {
             <ModelBrowser
               providers={providers}
               defaultModel={defaultModel}
-              busy={busy}
+              busy={modelControlsBusy}
               onSelect={saveModel}
               onManageProviders={() => setProviderManagerOpen(true)}
             />
@@ -600,7 +603,7 @@ export function SettingsPage() {
         <ProviderManagerCard
           providers={providers}
           expanded={providerManagerOpen}
-          disabled={!connected || busy}
+          disabled={!connected || modelControlsBusy}
           onExpandedChange={setProviderManagerOpen}
         >
           {connected && (

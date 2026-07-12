@@ -805,4 +805,45 @@ describe("approval mode", () => {
     expect(useRuntimeStore.getState().switching).toBe(false);
     expect(useRuntimeStore.getState().status).toBe("ready");
   });
+
+  it("setDefaultModel rejects an exhausted reconnect without rolling back the persisted model", async () => {
+    const originalConnectRetry = useRuntimeStore.getState().connectRetry;
+    useRuntimeStore.setState({
+      connectRetry: vi.fn(async () => {
+        useRuntimeStore.setState({
+          status: "error",
+          error: "Could not open OpenCode event stream",
+        });
+      }),
+    });
+
+    try {
+      await expect(
+        useRuntimeStore.getState().setDefaultModel("anthropic/claude-sonnet-5"),
+      ).rejects.toThrow("Could not open OpenCode event stream");
+      const state = useRuntimeStore.getState();
+      expect(state.status).toBe("error");
+      expect(state.defaultModel).toBe("anthropic/claude-sonnet-5");
+      expect(state.switching).toBe(false);
+    } finally {
+      useRuntimeStore.setState({ connectRetry: originalConnectRetry });
+    }
+  });
+
+  it("setDefaultModel uses a stable error when exhausted reconnect has no message", async () => {
+    const originalConnectRetry = useRuntimeStore.getState().connectRetry;
+    useRuntimeStore.setState({
+      connectRetry: vi.fn(async () => {
+        useRuntimeStore.setState({ status: "error", error: null });
+      }),
+    });
+
+    try {
+      await expect(
+        useRuntimeStore.getState().setDefaultModel("anthropic/claude-sonnet-5"),
+      ).rejects.toThrow("Runtime did not reconnect after setting the default model.");
+    } finally {
+      useRuntimeStore.setState({ connectRetry: originalConnectRetry });
+    }
+  });
 });

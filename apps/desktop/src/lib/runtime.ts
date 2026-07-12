@@ -600,6 +600,11 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       await client.setDefaultModel(model);
       set({ defaultModel: model });
       await get().connectRetry();
+      if (get().status !== "ready") {
+        throw new Error(
+          get().error ?? "Runtime did not reconnect after setting the default model.",
+        );
+      }
     } finally {
       set({ switching: false });
     }

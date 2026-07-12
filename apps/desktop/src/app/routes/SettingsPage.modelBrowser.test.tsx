@@ -7,7 +7,7 @@ import * as runtime from "@/lib/runtime";
 import { useRuntimeStore } from "@/lib/runtime";
 import { useSetupStore } from "@/lib/setup";
 import { useToastStore } from "@/lib/toast";
-import { loadModelPreferences } from "@/components/settings/modelPreferences";
+import { loadModelPreferences, saveModelPreferences } from "@/components/settings/modelPreferences";
 import { Toaster } from "@/components/ui/Toaster";
 import { SettingsPage } from "./SettingsPage";
 
@@ -97,12 +97,24 @@ describe("Settings model browser integration", () => {
 
   it("keeps the runtime default and error semantics after a post-write reconnect failure", async () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
-    const reconnectFailure = vi.fn(async (model: string) => {
-      useRuntimeStore.setState({ defaultModel: model, switching: true });
-      await Promise.resolve();
-      useRuntimeStore.setState({ switching: false });
-      throw new Error("reconnect failed");
-    });
+    saveModelPreferences({ favorites: [], recent: ["openai/gpt-5.2"] });
+    let exhaustReconnect!: () => void;
+    const reconnectFailure = vi.fn((model: string) => new Promise<void>((_resolve, reject) => {
+      useRuntimeStore.setState({
+        defaultModel: model,
+        switching: true,
+        status: "connecting",
+        error: null,
+      });
+      exhaustReconnect = () => {
+        useRuntimeStore.setState({
+          switching: false,
+          status: "error",
+          error: "reconnect failed",
+        });
+        reject(new Error("reconnect failed"));
+      };
+    }));
     useRuntimeStore.setState({ setDefaultModel: reconnectFailure });
     await renderSettings();
     const targetRow = await screen.findByRole("button", { name: /^o3/ });
@@ -110,13 +122,24 @@ describe("Settings model browser integration", () => {
     await userEvent.click(targetRow);
 
     await waitFor(() => expect(reconnectFailure).toHaveBeenCalledWith("openai/o3"));
+    expect(useRuntimeStore.getState()).toMatchObject({
+      defaultModel: "openai/o3",
+      switching: true,
+      status: "connecting",
+    });
+    expect(screen.getByRole("searchbox", { name: "Search models" })).toBeInTheDocument();
+    expect(screen.getByText("Switching…")).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: /^o3/ })).getByText("Current default")).toBeInTheDocument();
+
+    await act(async () => exhaustReconnect());
+
+    await waitFor(() => expect(screen.getByText("Could not set the model: reconnect failed")).toBeInTheDocument());
     expect(useRuntimeStore.getState().defaultModel).toBe("openai/o3");
     const currentRow = screen.getByRole("button", { name: /^o3/ });
     expect(within(currentRow).getByText("Current default")).toBeInTheDocument();
     expect(currentRow).toBeEnabled();
     expect(screen.getByRole("button", { name: /^GPT-5.2/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Add o3 to favorites" })).toBeEnabled();
-    expect(loadModelPreferences().recent).toEqual([]);
-    expect(screen.getByText("Could not set the model: reconnect failed")).toBeInTheDocument();
+    expect(loadModelPreferences().recent).toEqual(["openai/gpt-5.2"]);
   });
 });
