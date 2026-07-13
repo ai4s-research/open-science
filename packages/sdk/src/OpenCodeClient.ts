@@ -355,7 +355,11 @@ export class OpenCodeClient {
 
   /** The configured default model ("provider/model"), or null when unset. */
   async getDefaultModel(): Promise<string | null> {
-    const res = await this.fetchImpl(`${this.baseUrl}/config`, { headers: this.headers() });
+    // Read the same global config that setDefaultModel PATCHes. The instance-
+    // scoped /config only reflects a model change after OpenCode rebuilds the
+    // instance (~1s later), so reading it right after a switch returns the
+    // previous model.
+    const res = await this.fetchImpl(`${this.baseUrl}/global/config`, { headers: this.headers() });
     if (!res.ok) throw await this.apiError(res, "Failed to read config");
     const cfg = (await res.json()) as { model?: string };
     return cfg.model ?? null;

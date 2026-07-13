@@ -852,6 +852,24 @@ describe("approval mode", () => {
       useRuntimeStore.setState({ connectRetry: originalConnectRetry });
     }
   });
+
+  it("loadCatalog never clobbers defaultModel while a switch is in flight", async () => {
+    // The switch's reconnect fires loadCatalog, whose config read can still
+    // answer with the pre-switch model while OpenCode rebuilds its instance —
+    // applying it would visibly bounce the UI back to the previous model.
+    try {
+      useRuntimeStore.setState({ defaultModel: "moonshot/kimi-k2-thinking", switching: true });
+      mocks.currentModel = "moonshot/kimi-k2.7-code"; // stale read-back
+      await useRuntimeStore.getState().loadCatalog();
+      expect(useRuntimeStore.getState().defaultModel).toBe("moonshot/kimi-k2-thinking");
+      // Outside a switch the server value is authoritative again.
+      useRuntimeStore.setState({ switching: false });
+      await useRuntimeStore.getState().loadCatalog();
+      expect(useRuntimeStore.getState().defaultModel).toBe("moonshot/kimi-k2.7-code");
+    } finally {
+      useRuntimeStore.setState({ switching: false });
+    }
+  });
 });
 
 // The store — not the Settings page — owns the fact "a model switch failed":

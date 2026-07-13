@@ -548,7 +548,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         client.getDefaultModel().catch(() => null),
         client.listCommands().catch(() => []),
       ]);
-      set({ agents, defaultModel, commands });
+      // A model switch in flight owns `defaultModel`: this read may predate
+      // the switch's config write, and applying it would visibly revert the
+      // just-selected model.
+      set(get().switching ? { agents, commands } : { agents, defaultModel, commands });
       let skills = firstSkills;
       // The first workspace-scoped /api/skill call triggers OpenCode's lazy
       // instance init and can answer before the scan finishes — poll briefly.
