@@ -1,5 +1,7 @@
 # Progress
 
+2026-07-12 23:45 · fix(runtime): model switches no longer flash the page — OpenCode's instance rebuild closes /event ~1s after the PATCH (outside the `switching` mask) and the SDK self-recovers in ~250ms, but the store mirrored the transient ready→connecting flip straight into the UI; a ready→connecting flip is now held for a 2s grace window and surfaced only if the stream stays down (errors still show immediately); 504/504 tests, typecheck pass, DMG rebuilt.
+
 2026-07-12 23:30 · fix(settings): the model picker no longer bounces back to the previous model after a switch — `getDefaultModel` read the instance-scoped `/config`, which lags the `/global/config` PATCH by ~1s while OpenCode rebuilds its instance, so the reconnect's `loadCatalog` could clobber the new selection with a stale read; now the read targets `/global/config` and `loadCatalog` leaves `defaultModel` alone mid-switch; 501/501 tests, typecheck pass, DMG rebuilt.
 
 2026-07-12 08:01 · fix(settings): PR #13 review fixes on `feat/model-browser-fixes` — the store now owns model-switch failure state (`modelSwitchError`; fixes the null===null first-boot misrender, the retry that collapsed the browser, and the stale-catalog-after-URL-change write hazard), catalog gained a loading state scoped to `listProviders`, the providers card stays collapsible when disconnected, model rows keep focus via aria-disabled, the dead `model.notSet` key is live again, and the two force-added `docs/superpowers/` files are removed; 500/500 tests, typecheck, lint, build pass.
