@@ -188,9 +188,20 @@ let bootstrapInFlight: Promise<void> | null = null;
 /** Unhook the current client's status listener BEFORE closing it — teardown
  *  emits "offline", and a reconnect attempt must not flash that at the user. */
 let clientStatusUnsub: (() => void) | null = null;
+/** The SDK recovers a dropped stream in ~250ms (OpenCode closes /event ~1s
+ *  after a config PATCH while rebuilding its instance). Surfacing that blip
+ *  repaints every status consumer, so a ready→connecting flip is held this
+ *  long and only shown if the stream does not come back. */
+const STATUS_BLIP_GRACE_MS = 2000;
+let statusBlipTimer: ReturnType<typeof setTimeout> | null = null;
+function clearStatusBlip() {
+  if (statusBlipTimer !== null) clearTimeout(statusBlipTimer);
+  statusBlipTimer = null;
+}
 function teardownClient() {
   clientStatusUnsub?.();
   clientStatusUnsub = null;
+  clearStatusBlip();
   client?.close();
   client = null;
 }
@@ -642,6 +653,17 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     client = c;
     clientStatusUnsub = c.onStatus((status) => {
       void logDebug(`status → ${status}`);
+      if (status === "connecting" && get().status === "ready") {
+        // Hold the flip for STATUS_BLIP_GRACE_MS: if the SDK's own reconnect
+        // lands first ("ready" clears the timer), the UI never sees the blip.
+        if (statusBlipTimer === null)
+          statusBlipTimer = setTimeout(() => {
+            statusBlipTimer = null;
+            set({ status: "connecting" });
+          }, STATUS_BLIP_GRACE_MS);
+        return;
+      }
+      clearStatusBlip();
       set({ status });
     });
     c.onEvent((event) => {

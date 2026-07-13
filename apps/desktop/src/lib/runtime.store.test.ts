@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   failCreates: 0,
   /** Fire a normalized event into the store, as the SSE stream would. */
   fireEvent: (_e: unknown) => {},
+  /** Fire a client status flip into the store, as the SDK's reconnect would. */
+  fireStatus: (_s: string) => {},
   runShell: vi.fn(),
   runCommand: vi.fn(),
   replyPermission: vi.fn(),
@@ -71,6 +73,7 @@ vi.mock("@ai4s/sdk", () => {
     }
     onStatus(cb: (s: string) => void) {
       this.statusCb = cb;
+      mocks.fireStatus = cb;
       return () => {
         this.statusCb = () => {};
       };
@@ -851,6 +854,39 @@ describe("approval mode", () => {
     } finally {
       useRuntimeStore.setState({ connectRetry: originalConnectRetry });
     }
+  });
+
+  it("holds a ready→connecting blip so a self-recovering stream never repaints the page", async () => {
+    // OpenCode closes /event ~1s after a config PATCH while rebuilding its
+    // instance; the SDK reconnects in ~250ms. That blip must not reach the UI.
+    vi.useFakeTimers();
+    try {
+      mocks.fireStatus("connecting");
+      expect(useRuntimeStore.getState().status).toBe("ready"); // held
+      mocks.fireStatus("ready");
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(useRuntimeStore.getState().status).toBe("ready"); // never flipped
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("surfaces connecting when the stream does not recover within the grace window", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.fireStatus("connecting");
+      expect(useRuntimeStore.getState().status).toBe("ready");
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(useRuntimeStore.getState().status).toBe("connecting");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an error during the hold surfaces immediately", () => {
+    mocks.fireStatus("connecting");
+    mocks.fireStatus("error");
+    expect(useRuntimeStore.getState().status).toBe("error");
   });
 
   it("loadCatalog never clobbers defaultModel while a switch is in flight", async () => {
