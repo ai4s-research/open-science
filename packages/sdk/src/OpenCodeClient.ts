@@ -21,6 +21,7 @@ import type {
   ToolCallStatus,
 } from "./types";
 import { DEFAULT_OPENCODE_URL } from "./types";
+import type { AgentRuntime } from "./runtime";
 
 type EventListener = (event: OpenCodeEvent) => void;
 type StatusListener = (status: RuntimeStatus) => void;
@@ -51,7 +52,7 @@ function errorText(error: unknown): string | undefined {
  * Talks to a running `opencode serve` over its HTTP + SSE API. The UI must go
  * through this class, never the transport directly (see AGENTS.md guardrails).
  */
-export class OpenCodeClient {
+export class OpenCodeClient implements AgentRuntime {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly authHeader: string | null;

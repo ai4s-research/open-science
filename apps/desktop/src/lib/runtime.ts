@@ -3,6 +3,7 @@ import {
   OpenCodeClient,
   DEFAULT_OPENCODE_URL,
   type AgentInfo,
+  type AgentRuntime,
   type CommandInfo,
   type HistoryMessage,
   type OpenCodeEvent,
@@ -185,7 +186,12 @@ interface RuntimeState {
   installSkill: (text: string) => Promise<string | null>;
 }
 
-let client: OpenCodeClient | null = null;
+// The internal store depends only on the runtime-agnostic AgentRuntime contract
+// (see docs/rfc/agent-runtime.md). The concrete reference (opencodeClient) is
+// kept separately so getClient() can hand Settings/setup the full OpenCode
+// provider/MCP surface that lives outside the AgentRuntime contract.
+let client: AgentRuntime | null = null;
+let opencodeClient: OpenCodeClient | null = null;
 let openSessionSeq = 0;
 /** React StrictMode mounts effects twice in development. Share the same boot
  *  promise so duplicate AppShell effects cannot start dueling connect loops. */
@@ -209,6 +215,7 @@ function teardownClient() {
   clearStatusBlip();
   client?.close();
   client = null;
+  opencodeClient = null;
 }
 const emptyThread = (): Thread => ({ blocks: [], index: {}, loaded: false });
 /** Threads key for the draft conversation — its blocks move to the real
@@ -447,7 +454,7 @@ async function performTurn(
 
 /** The live OpenCode client (Settings talks to the runtime's config API directly). */
 export function getClient(): OpenCodeClient | null {
-  return client;
+  return opencodeClient;
 }
 
 export const useRuntimeStore = create<RuntimeState>((set, get) => ({
@@ -656,6 +663,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       directory: directory ?? undefined,
       password: password ?? undefined,
     });
+    opencodeClient = c;
     client = c;
     clientStatusUnsub = c.onStatus((status) => {
       void logDebug(`status → ${status}`);

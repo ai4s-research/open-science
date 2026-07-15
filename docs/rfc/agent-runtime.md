@@ -1,7 +1,7 @@
 # RFC: An `AgentRuntime` boundary
 
-Status: **Proposal — seeking discussion. No code change requested in this PR.**
-Target: post-v0.4.0 (see "Timing").
+Status: **Phase 1 implemented in this PR; Phases 2–3 open for discussion.**
+Target: land before v0.4.0 ACP work (see "Timing").
 
 ## TL;DR
 
@@ -65,14 +65,15 @@ Three reasons, in order of weight:
 - **No event-name neutralization now.** Renaming `message.part.updated` → a neutral
   name is deferred (it is the noisiest part; see "Phases").
 
-## Proposed interface (illustrative, not a patch)
+## Proposed interface (implemented in this PR)
 
-Derived from the **15 runtime methods + 2 listener hooks `lib/runtime.ts` actually
+Derived from the **runtime methods + listener hooks `lib/runtime.ts` actually
 uses today** (verified by grep). Nothing invented; this is the current surface,
-named and contracted.
+named and contracted. The interface lives at `packages/sdk/src/runtime.ts`, and
+`OpenCodeClient` now `implements AgentRuntime`.
 
 ```ts
-// packages/sdk/src/runtime.ts  (proposed, not yet created)
+// packages/sdk/src/runtime.ts
 
 /** The boundary AGENTS.md already mandates. OpenCodeClient is the sole impl. */
 export interface AgentRuntime {
@@ -100,9 +101,16 @@ export interface AgentRuntime {
   getDefaultModel(): Promise<string | null>;
   setDefaultModel(model: string): Promise<void>;
 
+  // agent-driven execution (a full turn, not a single prompt)
+  runShell(sessionId: string, command: string, agent?: string): Promise<void>;
+  runCommand(sessionId: string, command: string, args?: string): Promise<void>;
+
   // interactive requests (agent asks; user must answer)
+  listQuestions(sessionId?: string): Promise<QuestionAskedEvent[]>;
+  listPermissions(sessionId?: string): Promise<PermissionAskedEvent[]>;
   answerQuestion(requestId: string, answers: string[][]): Promise<void>;
   rejectQuestion(requestId: string): Promise<void>;
+  replyPermission(requestId: string, reply: PermissionReply): Promise<void>;
 }
 ```
 
@@ -138,13 +146,13 @@ starts is the main timing argument.
 
 | Phase | Change | Risk | Reversible |
 | --- | --- | --- | --- |
-| **0** (this RFC) | Discussion only. Document the seam, agree on the method set. | None | N/A |
-| **1** | Add `interface AgentRuntime`; `OpenCodeClient implements AgentRuntime`. `lib/runtime.ts` types against the interface, still constructed as `new OpenCodeClient(...)`. No behavior change. | Trivial | Yes |
+| **0** | Discussion only. Document the seam, agree on the method set. | None | N/A |
+| **1** (this PR) ✅ | Add `interface AgentRuntime`; `OpenCodeClient implements AgentRuntime`. `lib/runtime.ts` types its internal `client` against the interface, still constructed as `new OpenCodeClient(...)`. No behavior change. typecheck + lint green; `opencode-client.node.test.ts` (16 tests) green. | Trivial | Yes |
 | **2** | Decide event-name neutralization: alias OpenCode wire names behind `RuntimeEvent`. | Low | Yes |
 | **3** (future, out of scope) | A second runtime, ACP adapter, or a "custom endpoint" provider — only if a concrete need appears. | — | — |
 
-**Phase 1 is the entire ask behind this RFC.** Phases 2–3 are listed so reviewers
-see the trajectory and can object early.
+**Phase 1 is implemented in this PR.** Phases 2–3 are listed so reviewers see the
+trajectory and can object early.
 
 ## Open questions (what I want from discussion)
 
