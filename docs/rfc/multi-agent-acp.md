@@ -1,7 +1,8 @@
 # RFC: Multi-agent via the Agent Client Protocol (ACP)
 
 Status: **Proposal — seeking discussion. No code change in this PR.**
-Depends on: PR #24 (`AgentRuntime` interface boundary).
+Depends on: the `AgentRuntime` interface boundary (merged in #24; on `master` as
+`packages/sdk/src/runtime.ts`).
 Builds on: upstream roadmap v0.4.0 "Agent Client Protocol (ACP) support" (#14).
 
 ## TL;DR
@@ -67,7 +68,7 @@ strongest evidence the interface is the right shape:
 | `connect()` | `initialize` (+ spawn the stdio child) |
 | `createSession()` | `session/new` |
 | `getMessages(id)` | `session/load` + history parts |
-| `sendPrompt(id, text)` | `session/prompt` |
+| `sendPrompt(id, text, agent?, model?)` | `session/prompt` (the `agent?`/`model?` pins map to ACP prompt params) |
 | `abortSession(id)` | `session/cancel` |
 | `listSkills()` / `listAgents()` | agent capabilities from `initialize` |
 | `getDefaultModel()` / `setDefaultModel()` | model selection in `session/new` params (NOT a spec method — see Open Questions) |
@@ -123,7 +124,7 @@ Key points:
 | Phase | Deliverable | Risk |
 | --- | --- | --- |
 | **0** (this RFC) | Agree ACP is the standard; agree the `AcpRuntime` shape. | None |
-| **1** (PR #24) ✅ | `AgentRuntime` interface boundary (landed independently). | Done |
+| **1** (#24) ✅ merged | `AgentRuntime` interface boundary, on `master`. | Done |
 | **2** | `AcpRuntime` skeleton + JSON-RPC stdio transport, proven against one agent with native ACP (e.g. Gemini CLI). Wired behind a dev flag. | Medium |
 | **3** | Settings "Agent" picker; run an ACP agent end-to-end (prompt → stream → tool → idle) through the existing UI. | Medium |
 | **4** | Permission/question flows across the ACP boundary; provenance/run recording unchanged (they listen to `AgentRuntime` events). | Low-medium |
@@ -171,5 +172,5 @@ Key points:
 - [`codex-acp`](https://github.com/agentclientprotocol/codex-acp) — Codex via ACP
 - [Copilot CLI ACP preview (Jan 2026)](https://github.blog/changelog/2026-01-28-acp-support-in-copilot-cli-is-now-in-public-preview/)
 - [ACP explained (MorphLLM)](https://www.morphllm.com/agent-client-protocol) — 25+ agents, Mar 2026
-- PR #24 — `AgentRuntime` interface boundary (dependency)
+- #24 — `AgentRuntime` interface boundary (merged; on `master` as `packages/sdk/src/runtime.ts`)
 - Upstream roadmap v0.4.0 — "ACP support" (#14), LAN web UI (#3), messaging (#20)
