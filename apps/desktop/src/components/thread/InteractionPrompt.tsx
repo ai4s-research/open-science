@@ -106,7 +106,7 @@ function QuestionCard({
         )}
       </header>
 
-      <div className="space-y-4 px-4 py-3.5">
+      <div className="max-h-[45vh] space-y-4 overflow-y-auto px-4 py-3.5">
         {items.map((it, qi) => {
           const multiple = !!it.multiple;
           return (
