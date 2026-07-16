@@ -13,16 +13,14 @@
 //
 // Node-only: StdioJsonRpcClient spawns a child process.
 import { StdioJsonRpcClient } from "./stdio-jsonrpc";
-import type { AgentRuntime } from "./runtime";
+import { BaseAgentRuntime } from "./base-runtime";
 import type {
   AgentInfo,
   CommandInfo,
   HistoryMessage,
-  OpenCodeEvent,
   PermissionAskedEvent,
   PermissionReply,
   QuestionAskedEvent,
-  RuntimeStatus,
   SessionMeta,
   SkillInfo,
 } from "./types";
@@ -56,35 +54,24 @@ interface PendingApproval {
  * `codex app-server` as a child process, drives it over JSON-RPC, and translates
  * its events into the app's normalized `OpenCodeEvent` stream so the rest of the
  * app (store, provenance, runs, UI) is unchanged.
+ *
+ * Also serves as the **reference implementation** for a third-party agent
+ * runtime — see docs/AGENT_INTEGRATION.md. The listener/status plumbing is
+ * inherited from BaseAgentRuntime; this class fills in only codex-specific
+ * protocol translation.
  */
-export class CodexRuntime implements AgentRuntime {
+export class CodexRuntime extends BaseAgentRuntime {
   private rpc: StdioJsonRpcClient | null = null;
-  private status: RuntimeStatus = "offline";
   /** threadId (codex) → accumulated text, so streamed deltas assemble like OpenCode. */
   private readonly textStreams = new Map<string, string>();
   /** threadId → the approval currently blocking it (one at a time per thread). */
   private readonly pendingApprovals = new Map<string, PendingApproval>();
-  private readonly eventListeners = new Set<(e: OpenCodeEvent) => void>();
-  private readonly statusListeners = new Set<(s: RuntimeStatus) => void>();
   private readonly unsubs: Array<() => void> = [];
   private readonly options: CodexRuntimeOptions;
 
   constructor(options: CodexRuntimeOptions = {}) {
+    super();
     this.options = options;
-  }
-
-  getStatus(): RuntimeStatus {
-    return this.status;
-  }
-
-  onEvent(listener: (e: OpenCodeEvent) => void): () => void {
-    this.eventListeners.add(listener);
-    return () => this.eventListeners.delete(listener);
-  }
-
-  onStatus(listener: (s: RuntimeStatus) => void): () => void {
-    this.statusListeners.add(listener);
-    return () => this.statusListeners.delete(listener);
   }
 
   /** Spawn codex app-server and run the JSON-RPC `initialize` handshake. */
@@ -289,7 +276,7 @@ export class CodexRuntime implements AgentRuntime {
   // ---- internals ----
 
   private requireReady(): void {
-    if (this.status !== "ready" || !this.rpc)
+    if (this.getStatus() !== "ready" || !this.rpc)
       throw new Error("Codex runtime is not connected");
   }
 
@@ -375,16 +362,6 @@ export class CodexRuntime implements AgentRuntime {
         this.emit({ type: "session.idle", sessionId: sid });
       }),
     );
-  }
-
-  private emit(event: OpenCodeEvent): void {
-    this.eventListeners.forEach((l) => l(event));
-  }
-
-  private setStatus(status: RuntimeStatus): void {
-    if (this.status === status) return;
-    this.status = status;
-    this.statusListeners.forEach((l) => l(status));
   }
 
   /** Override hook for stderr logging. */

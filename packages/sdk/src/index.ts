@@ -1,5 +1,6 @@
 export { OpenCodeClient } from "./OpenCodeClient";
 export type { AgentRuntime } from "./runtime";
+export { BaseAgentRuntime } from "./base-runtime";
 export { CodexRuntime, type CodexRuntimeOptions } from "./CodexRuntime";
 export { StdioJsonRpcClient, type StdioJsonRpcOptions } from "./stdio-jsonrpc";
 export {
