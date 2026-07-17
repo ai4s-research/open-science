@@ -133,6 +133,177 @@ class Biology(unittest.TestCase):
         )
         self.assertNotIn("biology · strand", tags(src))
 
+    # -- Normalization confusion (CPM/TPM/FPKM) --
+
+    def test_cpm_divides_by_gene_length(self):
+        # Variable says CPM but formula divides by gene length — that's TPM/FPKM.
+        src = (
+            "counts = np.array([100, 200, 300])\n"
+            "gene_lengths = np.array([1000, 2000, 1500])\n"
+            "total = counts.sum()\n"
+            "cpm = counts / gene_lengths / total * 1e6\n"
+        )
+        self.assertIn("biology · normalization", tags(src))
+
+    def test_cpm_formula_ok(self):
+        # Correct CPM: count / total * 1e6, no gene length division.
+        src = (
+            "counts = np.array([100, 200, 300])\n"
+            "total = counts.sum()\n"
+            "cpm = counts / total * 1e6\n"
+        )
+        self.assertNotIn("biology · normalization", tags(src))
+
+    def test_fpkm_without_gene_length(self):
+        # Variable says FPKM but formula has no gene-length division — that's CPM.
+        src = (
+            "counts = np.array([100, 200, 300])\n"
+            "total = counts.sum()\n"
+            "fpkm = counts / total * 1e6\n"
+        )
+        self.assertIn("biology · normalization", tags(src))
+
+    def test_tpm_without_gene_length(self):
+        # Variable says TPM but formula has no gene-length division — that's CPM.
+        src = (
+            "counts = np.array([100, 200, 300])\n"
+            "total = counts.sum()\n"
+            "tpm = counts / total * 1e6\n"
+        )
+        self.assertIn("biology · normalization", tags(src))
+
+    def test_tpm_with_gene_length_ok(self):
+        # TPM with gene-length division is correct.
+        src = (
+            "counts = np.array([100, 200, 300])\n"
+            "gene_lengths = np.array([1000, 2000, 1500])\n"
+            "rpk = counts / gene_lengths\n"
+            "tpm = rpk / rpk.sum() * 1e6\n"
+        )
+        self.assertNotIn("biology · normalization", tags(src))
+
+    # -- log2 fold-change direction --
+
+    def test_log2fc_uses_natural_log(self):
+        # Variable says log2FC but code uses np.log (natural log).
+        src = (
+            "import numpy as np\n"
+            "log2fc = np.log(treatment.mean() / control.mean())\n"
+        )
+        self.assertIn("biology · normalization", tags(src))
+
+    def test_log2fc_uses_log2_ok(self):
+        src = (
+            "import numpy as np\n"
+            "log2fc = np.log2(treatment.mean() / control.mean())\n"
+        )
+        self.assertNotIn("biology · normalization", tags(src))
+
+    def test_lfc_natural_log_flagged(self):
+        # Abbreviated variable name.
+        src = (
+            "import numpy as np\n"
+            "lfc = np.log(mean_t / mean_c)\n"
+        )
+        self.assertIn("biology · normalization", tags(src))
+
+    def test_natural_log_without_lfc_context_ok(self):
+        # np.log without log2FC variable context — not flagged.
+        src = "import numpy as np\ny = np.log(x)\n"
+        self.assertNotIn("biology · normalization", tags(src))
+
+    def test_lfc_substring_not_flagged(self):
+        # 'lfc' inside another word (e.g. 'self_confident') must not trigger.
+        src = "import numpy as np\nself_confident = np.log(x)\n"
+        self.assertNotIn("biology · normalization", tags(src))
+
+    def test_distant_np_log_not_flagged(self):
+        # np.log() far from any lfc variable — likely unrelated.
+        src = (
+            "import numpy as np\n"
+            "log2fc = np.log2(treatment.mean() / control.mean())\n"
+            + "\n" * 200 +
+            "# unrelated log call in a different section\n"
+            "y = np.log(x)\n"
+        )
+        self.assertNotIn("biology · normalization", tags(src))
+
+    def test_np_log_near_lfc_flagged(self):
+        # np.log() close to a lfc variable — should be flagged.
+        src = (
+            "import numpy as np\n"
+            "lfc = np.log(treatment.mean() / control.mean())\n"
+        )
+        self.assertIn("biology · normalization", tags(src))
+
+    # -- Reference genome version mismatch --
+
+    def test_mixed_hg19_hg38(self):
+        src = (
+            "# Using hg38 for alignment\n"
+            "genome = 'hg38'\n"
+            "# But variants are on hg19 coordinates\n"
+            "vcf = read_vcf('variants.vcf', build='hg19')\n"
+        )
+        self.assertIn("biology · genome-version", tags(src))
+
+    def test_single_genome_version_ok(self):
+        src = "genome = 'hg38'\nref = load_reference(genome)\n"
+        self.assertNotIn("biology · genome-version", tags(src))
+
+    def test_grch37_grch38_mixed(self):
+        src = (
+            "ref = 'GRCh37'\n"
+            "new_ref = 'GRCh38'\n"
+        )
+        self.assertIn("biology · genome-version", tags(src))
+
+    # -- Genomics multiple testing --
+
+    def test_de_loop_without_fdr(self):
+        src = (
+            "from scipy import stats\n"
+            "import scanpy as sc\n"
+            "for gene in genes:\n"
+            "    t, p = stats.ttest_ind(group1[gene], group2[gene])\n"
+        )
+        self.assertIn("biology · multiple-testing", tags(src))
+
+    def test_de_with_fdr_correction_ok(self):
+        src = (
+            "from scipy import stats\n"
+            "from statsmodels.stats.multitest import multipletests\n"
+            "import scanpy as sc\n"
+            "pvals = []\n"
+            "for gene in genes:\n"
+            "    t, p = stats.ttest_ind(group1[gene], group2[gene])\n"
+            "    pvals.append(p)\n"
+            "multipletests(pvals, method='fdr_bh')\n"
+        )
+        self.assertNotIn("biology · multiple-testing", tags(src))
+
+    def test_many_de_tests_without_fdr(self):
+        # 3+ tests in bio context without correction.
+        src = (
+            "from scipy import stats\n"
+            "import deseq2\n"
+            "r1 = stats.mannwhitneyu(a, b)\n"
+            "r2 = stats.mannwhitneyu(c, d)\n"
+            "r3 = stats.mannwhitneyu(e, f)\n"
+        )
+        self.assertIn("biology · multiple-testing", tags(src))
+
+    def test_non_bio_context_not_flagged(self):
+        # Same tests but no bio context — neither bio nor social science rule
+        # triggers (social needs a loop or ≥3 tests, bio needs bio keywords).
+        src = (
+            "from scipy import stats\n"
+            "r1 = stats.ttest_ind(a, b)\n"
+            "r2 = stats.pearsonr(x, y)\n"
+            "r3 = stats.f_oneway(g1, g2, g3)\n"
+        )
+        self.assertNotIn("biology · multiple-testing", tags(src))
+
 
 class Chemistry(unittest.TestCase):
     def test_five_bond_carbon_in_smiles_literal(self):

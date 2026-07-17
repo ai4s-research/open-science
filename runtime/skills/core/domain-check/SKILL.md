@@ -1,6 +1,6 @@
 ---
 name: domain-check
-description: Use whenever you write or run scientific analysis code (physics, earth/geo, biology, chemistry, or social science) in this workspace — before executing it and again after generating results. Runs a deterministic domain-correctness gate that catches code which runs but is scientifically wrong (unit/dimension mismatch, Euclidean distance on lat/lon without a CRS, 0-based/1-based coordinate and strand errors, impossible SMILES valence, uncorrected multiple comparisons, averaging a categorical code). Surfaces structured findings; never claims the code is correct.
+description: Use whenever you write or run scientific analysis code (physics, earth/geo, biology, chemistry, or social science) in this workspace — before executing it and again after generating results. Runs a deterministic domain-correctness gate that catches code which runs but is scientifically wrong (unit/dimension mismatch, Euclidean distance on lat/lon without a CRS, 0-based/1-based coordinate and strand errors, CPM/TPM/FPKM confusion, log2FC direction, reference genome version mismatch, genomics multiple-testing, impossible SMILES valence, uncorrected multiple comparisons, averaging a categorical code). Surfaces structured findings; never claims the code is correct.
 ---
 
 # Domain-correctness gate
@@ -43,6 +43,13 @@ It prints exactly one ` ```review ` fenced JSON block on stdout.
   half-open, so length is `end - start`, never `+1`); a sequence sliced from a
   stranded feature file (GFF/GTF/BED) with no reverse-complement for the `-`
   strand.
+- **biology · normalization** — CPM/TPM/FPKM formula mismatch (variable says
+  CPM but code divides by gene length — that's TPM/FPKM); `np.log()` used
+  where `np.log2()` is needed for log2 fold-change.
+- **biology · genome-version** — mixing hg19/hg38 (GRCh37/GRCh38) references
+  in one file; coordinates from different builds are not interchangeable.
+- **biology · multiple-testing** — many differential expression / genomics
+  significance tests in a gene loop with no FDR/BH correction.
 - **chem · valence** — a SMILES string literal (assigned to a `smiles`/`smi`
   variable, or passed to `MolFromSmiles`/`MolFromSmarts`) that cannot be a real
   molecule. **If RDKit is installed it is used as the authoritative judge** —

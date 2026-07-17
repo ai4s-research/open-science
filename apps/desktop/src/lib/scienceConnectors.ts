@@ -105,6 +105,67 @@ export const SCIENCE_CONNECTORS: ScienceConnector[] = [
     bin: "usgs-mcp",
     source: "github.com/mansurjisan/ocean-mcp",
   },
+  // --- Bioinformatics databases ---
+  {
+    id: "uniprot",
+    label: "UniProt proteins",
+    discipline: "biology",
+    description:
+      "UniProtKB protein data — search, retrieve entries, sequences, Gene Ontology annotations, and ID mapping across 200+ databases",
+    pkg: "uniprot-mcp",
+    bin: "uniprot-mcp",
+    source: "github.com/josefdc/Uniprot-MCP",
+  },
+  {
+    id: "ensembl",
+    label: "Ensembl genes",
+    discipline: "biology",
+    description:
+      "Ensembl genome database — gene annotations, transcripts, variants, cross-species comparisons, and ID mapping",
+    pkg: "ensembl-mcp",
+    module: "ensembl_mcp.server",
+    source: "github.com/Ensembl/ensembl-mcp",
+  },
+  {
+    id: "geo-ncbi",
+    label: "GEO datasets",
+    discipline: "biology",
+    description:
+      "NCBI Gene Expression Omnibus (GEO) — search and retrieve gene expression datasets, series, and samples via E-Utils API",
+    pkg: "geo-mcp",
+    module: "geomcp.server",
+    source: "github.com/MCPmed/geomcp",
+  },
+  {
+    id: "ncbi-eutils",
+    label: "NCBI databases",
+    discipline: "biology",
+    description:
+      "NCBI E-utilities — PubMed, Gene, Nucleotide, Protein, SRA, and other NCBI databases via Entrez API",
+    pkg: "ncbi-mcp",
+    module: "ncbi_mcp.server",
+    source: "github.com/QiGoki/ncbi-mcp",
+  },
+  {
+    id: "kegg",
+    label: "KEGG pathways",
+    discipline: "biology",
+    description:
+      "KEGG bioinformatics database — metabolic pathways, disease pathways, drug targets, orthologs, and compound/reaction networks",
+    pkg: "kegg-mcp-server",
+    module: "kegg_mcp_server.server",
+    source: "github.com/Lucas-Servi/kegg-mcp-server-python",
+  },
+  {
+    id: "string-db",
+    label: "STRING interactions",
+    discipline: "biology",
+    description:
+      "STRING protein-protein interaction network — functional associations, interaction partners, network analysis across 5000+ organisms",
+    pkg: "string-mcp",
+    module: "string_mcp.server",
+    source: "github.com/medmcp/STRINGmcp",
+  },
 ];
 
 /** Resolve a console script that sits next to the managed python interpreter

@@ -343,6 +343,198 @@ def check_biology(ctx: Ctx) -> list[Finding]:
             + "\n  features on the '-' strand must be reverse-complemented; no "
             "reverse_complement / strand check found in this file.",
         ))
+
+    # (3) Normalization confusion — CPM / TPM / FPKM formula mismatch.
+    #     Variable name says one thing, code computes another.
+    out.extend(_check_norm_confusion(ctx))
+
+    # (4) log2 fold-change direction — np.log() used where np.log2() is needed.
+    out.extend(_check_log2fc_direction(ctx))
+
+    # (5) Reference genome version mismatch — mixing hg19/hg38 in one file.
+    out.extend(_check_ref_genome_mismatch(ctx))
+
+    # (6) Multiple testing in genomics — many genes tested without FDR correction.
+    out.extend(_check_genomics_multiple_testing(ctx))
+
+    return out
+
+
+# -- Bio sub-rules --------------------------------------------------------- #
+
+# Normalization formula patterns.
+# CPM: count / total_counts * 1e6
+# TPM/FPKM: count / gene_length (then normalize)
+_NORM_VAR = re.compile(
+    r"\b(cpm|tpm|fpkm|rpkm)\b", re.IGNORECASE
+)
+_CPM_FORMULA = re.compile(
+    r"(?:count|expr|raw|\/)[^\n]*(?:1e6|1_000_000|million)", re.IGNORECASE
+)
+_TPM_FORMULA = re.compile(
+    r"(?:\/|divid)[^\n]*(?:gene_?len|feature_?len|tx_?len)", re.IGNORECASE
+)
+
+
+def _check_norm_confusion(ctx: Ctx) -> list[Finding]:
+    """Catch CPM vs TPM/FPKM formula mismatch: variable says CPM but code
+    divides by gene length (that's TPM/FPKM), or variable says FPKM/RPKM but
+    formula has no gene-length division (that's CPM)."""
+    out: list[Finding] = []
+    src = ctx.src
+    for m in _NORM_VAR.finditer(src):
+        norm_type = m.group(1).upper()
+        ln = src[: m.start()].count("\n") + 1
+        # Check a window around the assignment for contradictory formulas.
+        # 200 chars before covers the LHS; 500 chars after covers a typical
+        # multi-line expression (count/total*1e6 or count/len/total*1e6).
+        window_start = max(0, m.start() - 200)
+        window_end = min(len(src), m.end() + 500)
+        window = src[window_start:window_end]
+        if norm_type == "CPM" and _TPM_FORMULA.search(window):
+            out.append(Finding(
+                "error", "biology · normalization",
+                f"Variable named '{norm_type}' but code divides by gene length "
+                "(that's TPM/FPKM, not CPM)",
+                ctx.snippet(ln)
+                + "\n  CPM = count / total_counts × 1e6 — it does NOT divide by "
+                "gene length. Dividing by gene length gives FPKM or TPM.",
+            ))
+        elif norm_type == "TPM" and _CPM_FORMULA.search(window) \
+                and not _TPM_FORMULA.search(window):
+            out.append(Finding(
+                "warn", "biology · normalization",
+                f"Variable named 'TPM' but formula looks like CPM "
+                "(missing gene-length division)",
+                ctx.snippet(ln)
+                + "\n  TPM requires dividing by gene length first, then "
+                "normalizing to 1e6 per sample. Without gene-length division, "
+                "you're computing CPM, not TPM.",
+            ))
+        elif norm_type in ("FPKM", "RPKM") and not _TPM_FORMULA.search(window) \
+                and _CPM_FORMULA.search(window):
+            out.append(Finding(
+                "warn", "biology · normalization",
+                f"Variable named '{norm_type}' but formula looks like CPM "
+                "(missing gene-length division)",
+                ctx.snippet(ln)
+                + f"\n  {norm_type} requires dividing by gene length in kb. "
+                "Without that step, you're computing CPM, not FPKM/RPKM.",
+            ))
+    return out
+
+
+# log2 fold-change: variable name says log2FC/lfc but code uses natural log.
+_LFC_VAR = re.compile(
+    r"\blog2_?fold_?change\b|\blog2fc\b|\blfc\b|\blog2_?fc\b", re.IGNORECASE
+)
+_LOG_CALL = re.compile(r"\bnp\.log\b(?!2)|\bnumpy\.log\b(?!2)|\bmath\.log\b(?!2)")
+
+
+def _check_log2fc_direction(ctx: Ctx) -> list[Finding]:
+    """Catch np.log() used where np.log2() is needed for log2 fold-change.
+
+    Only flags np.log() calls that appear NEAR a log2fc variable assignment
+    (within a 300-char window) — a distant np.log() in the same file is
+    likely unrelated."""
+    out: list[Finding] = []
+    src = ctx.src
+    # Collect all log2fc variable positions.
+    lfc_positions = [m.start() for m in _LFC_VAR.finditer(src)]
+    if not lfc_positions:
+        return out
+    for m in _LOG_CALL.finditer(src):
+        # Only flag if a log2fc variable appears within 300 chars.
+        nearby = any(abs(m.start() - pos) < 300 for pos in lfc_positions)
+        if not nearby:
+            continue
+        ln = src[: m.start()].count("\n") + 1
+        out.append(Finding(
+            "error", "biology · normalization",
+            "Natural log (np.log) used in a log2 fold-change context",
+            ctx.snippet(ln)
+            + "\n  a variable named log2fc/lfc is nearby, but np.log() "
+            "computes the natural logarithm. Use np.log2() for log2FC.",
+        ))
+    return out
+
+
+# Reference genome version mismatch.
+_HG19 = re.compile(r"\b(?:hg19|GRCh37)\b", re.IGNORECASE)
+_HG38 = re.compile(r"\b(?:hg38|GRCh38)\b", re.IGNORECASE)
+
+
+def _check_ref_genome_mismatch(ctx: Ctx) -> list[Finding]:
+    """Catch mixed hg19/hg38 (GRCh37/GRCh38) references in one file."""
+    out: list[Finding] = []
+    src = ctx.src
+    m_hg19 = _HG19.search(src)
+    m_hg38 = _HG38.search(src)
+    if m_hg19 and m_hg38:
+        # Point at the first hg38 mention (the likely mistake).
+        ln = src[: m_hg38.start()].count("\n") + 1
+        out.append(Finding(
+            "error", "biology · genome-version",
+            "Mixed reference genome versions (hg19/GRCh37 and hg38/GRCh38)",
+            ctx.snippet(ln)
+            + "\n  this file references both hg19 (GRCh37) and hg38 (GRCh38). "
+            "Coordinates from different genome builds are NOT interchangeable — "
+            "liftover is required. Verify which build your data uses.",
+        ))
+    return out
+
+
+# Genomics multiple testing: many differential expression tests in a loop
+# without FDR/BH correction.
+_DE_TESTS = re.compile(
+    r"\b(?:ttest_ind|ttest_rel|ttest_1samp|mannwhitneyu|wilcoxon|"
+    r"kruskal|f_oneway|ranksums|pearsonr|spearmanr)\b"
+)
+_DE_LOOP = re.compile(
+    r"for\s+\w+\s+in\s+.*(?:genes?|features?|transcripts?|peak|marker)",
+    re.IGNORECASE,
+)
+_BIO_CONTEXT = re.compile(
+    r"\b(?:deseq2|edger|limma|scanpy|anndata|scrna|rnaseq|rna_seq|"
+    r"differential.*express|DESeq|featureCounts|salmon|kallisto|"
+    r"star.*align|hisat)\b",
+    re.IGNORECASE,
+)
+_FDR_CORRECTION = re.compile(
+    r"multipletests|fdrcorrection|false_discovery|bonferroni|p_adjust|"
+    r"\bpadj\b|fdr_bh|fdr_by|benjamini|holm\b|qvalue|q_value|"
+    r"adjust_p|p\.adjust|pval_?adj",
+    re.IGNORECASE,
+)
+
+
+def _check_genomics_multiple_testing(ctx: Ctx) -> list[Finding]:
+    """Catch differential expression tests in a gene loop without FDR
+    correction — same pattern as social science, but triggered by bio context."""
+    out: list[Finding] = []
+    src = ctx.src
+    # Only trigger in bioinformatics context.
+    if not _BIO_CONTEXT.search(src):
+        return out
+    # Count significance tests.
+    tests = list(_DE_TESTS.finditer(src))
+    if len(tests) < 3 and not (tests and _DE_LOOP.search(src)):
+        return out
+    if _FDR_CORRECTION.search(src):
+        return out  # correction present — ok
+    first = tests[0]
+    ln = src[: first.start()].count("\n") + 1
+    how = f"{len(tests)} significance tests"
+    if _DE_LOOP.search(src):
+        how = "significance tests inside a gene loop"
+    out.append(Finding(
+        "warn", "biology · multiple-testing",
+        f"{how} in genomics context, no FDR correction found",
+        ctx.snippet(ln)
+        + "\n  differential expression / genomics analyses test thousands of "
+        "features — without FDR/BH correction the family-wise false-positive "
+        "rate is massively inflated. Use multipletests(fdr_bh) or equivalent.",
+    ))
     return out
 
 

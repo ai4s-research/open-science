@@ -92,4 +92,35 @@ describe("connectorConfig", () => {
     const cfg = connectorConfig(byId("usgs-water"), "/env/bin/python");
     expect(cfg.type === "local" && cfg.command).toEqual(["/env/bin/usgs-mcp"]);
   });
+
+  it("launches UniProt as a console script (biology, no key)", () => {
+    const cfg = connectorConfig(byId("uniprot"), "/env/bin/python");
+    expect(cfg.type === "local" && cfg.command).toEqual(["/env/bin/uniprot-mcp"]);
+  });
+
+  it("launches Ensembl as a -m module connector (biology, no key)", () => {
+    const cfg = connectorConfig(byId("ensembl"), "/env/bin/python");
+    expect(cfg.type === "local" && cfg.command).toEqual([
+      "/env/bin/python", "-m", "ensembl_mcp.server",
+    ]);
+  });
+
+  it("launches KEGG as a -m module connector (biology, no key)", () => {
+    const cfg = connectorConfig(byId("kegg"), "/env/bin/python");
+    expect(cfg.type === "local" && cfg.command).toEqual([
+      "/env/bin/python", "-m", "kegg_mcp_server.server",
+    ]);
+  });
+
+  it("launches UniProt on Windows with .exe", () => {
+    const cfg = connectorConfig(byId("uniprot"), "C:\\env\\Scripts\\python.exe");
+    expect(cfg.type === "local" && cfg.command).toEqual([
+      "C:\\env\\Scripts\\uniprot-mcp.exe",
+    ]);
+  });
+
+  it("has biology discipline coverage for new bio connectors", () => {
+    const bioConnectors = SCIENCE_CONNECTORS.filter((c) => c.discipline === "biology");
+    expect(bioConnectors.length).toBeGreaterThanOrEqual(7); // biomcp + 6 new
+  });
 });
