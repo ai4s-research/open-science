@@ -1049,7 +1049,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => {
           const key = `${event.callId}:${input.path}`;
           if (recordedProvenance.has(key)) continue;
           remember(recordedProvenance, key);
-          void recordProvenance(input, sid, selectionForSession(get(), sid)?.model ?? null);
+          void recordProvenance(input, sid, selectionForSession(get(), sid)?.model ?? null, selectionForSession(get(), sid)?.variant ?? null);
         }
       }
       // A completed experiment execution (bash running code) becomes a run —
@@ -1058,7 +1058,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => {
         const run = runInputFromEvent(event);
         if (run) {
           remember(recordedRuns, event.callId);
-          void recordRun(run, sid, selectionForSession(get(), sid)?.model ?? null);
+          void recordRun(run, sid, selectionForSession(get(), sid)?.model ?? null, selectionForSession(get(), sid)?.variant ?? null);
         }
       }
       if (event.type === "session.idle") {

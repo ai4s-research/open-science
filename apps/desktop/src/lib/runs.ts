@@ -224,6 +224,7 @@ export async function recordRun(
   input: RunInput,
   sessionId: string | undefined,
   model: string | null,
+  variant: string | null = null,
 ): Promise<void> {
   if (!isTauri) return;
   try {
@@ -237,6 +238,7 @@ export async function recordRun(
       surface: input.surface,
       sessionId: sessionId ?? null,
       model: model ?? null,
+      variant: variant ?? null,
     });
     void logDebug(`run ✓ ${input.command.slice(0, 60)}`);
   } catch (e) {

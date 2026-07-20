@@ -85,6 +85,7 @@ export async function recordProvenance(
   input: ProvenanceInput,
   sessionId: string | undefined,
   model: string | null,
+  variant: string | null = null,
 ): Promise<void> {
   if (!isTauri) return;
   try {
@@ -97,6 +98,7 @@ export async function recordProvenance(
       log: input.log,
       sessionId: sessionId ?? null,
       model: model ?? null,
+      variant: variant ?? null,
     });
     void logDebug(`provenance ✓ ${input.path}`);
   } catch (e) {
