@@ -264,9 +264,11 @@ export class CodexRuntime extends BaseAgentRuntime {
   async replyPermission(requestId: string, reply: PermissionReply): Promise<void> {
     this.requireReady();
     const approved = reply !== "reject";
-    // Remove from pending regardless of outcome.
-    for (const [, a] of [...this.pendingApprovals])
-      if (a.id === requestId) this.pendingApprovals.delete(requestId);
+    // pendingApprovals is keyed by thread id, so find the entry whose approval
+    // id matches requestId, then delete by THAT key (not requestId).
+    for (const [sid, a] of [...this.pendingApprovals]) {
+      if (a.id === requestId) this.pendingApprovals.delete(sid);
+    }
     // codex expects a decision on the approval id. Field name best-effort.
     await this.rpc!
       .request("approveCommand", { id: requestId, approved })

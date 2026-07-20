@@ -21,7 +21,7 @@ your agent binary  ←─ your protocol ─→  YourRuntime  ──→  app (unc
 
 ## The two building blocks
 
-Everything you need is exported from `@ai4s/sdk`:
+The base class and types are exported from `@ai4s/sdk`:
 
 | Export | Role |
 | --- | --- |
@@ -29,7 +29,10 @@ Everything you need is exported from `@ai4s/sdk`:
 | `AgentRuntime` (type) | The interface your class satisfies. `extends BaseAgentRuntime` covers the listener methods; you implement the rest. |
 
 If your agent speaks **JSON-RPC over stdio** (Codex's `app-server`, or any ACP
-agent), you also get a transport for free:
+agent), you also get a transport for free. It spawns a child process
+(`node:child_process`), so it lives in the **node-only subpath**
+`@ai4s/sdk/node-runtime` — never import it from the main barrel (it would pull
+Node internals into the browser build):
 
 | Export | Role |
 | --- | --- |
@@ -40,7 +43,8 @@ agent), you also get a transport for free:
 ### 1. Extend `BaseAgentRuntime`
 
 ```ts
-import { BaseAgentRuntime, StdioJsonRpcClient } from "@ai4s/sdk";
+import { BaseAgentRuntime } from "@ai4s/sdk";
+import { StdioJsonRpcClient } from "@ai4s/sdk/node-runtime";
 import type { OpenCodeEvent } from "@ai4s/sdk";
 
 export class MyAgentRuntime extends BaseAgentRuntime {

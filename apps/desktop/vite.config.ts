@@ -16,6 +16,7 @@ export default defineConfig({
       "@": r("./src"),
       "@ai4s/shared": r("../../packages/shared/src/index.ts"),
       "@ai4s/sdk/mock-server": r("../../packages/sdk/src/mockServer.ts"),
+      "@ai4s/sdk/node-runtime": r("../../packages/sdk/src/node-runtime.ts"),
       "@ai4s/sdk": r("../../packages/sdk/src/index.ts"),
     },
   },

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
-import { CodexRuntime, type OpenCodeEvent } from "@ai4s/sdk";
+import { CodexRuntime } from "@ai4s/sdk/node-runtime";
+import type { OpenCodeEvent } from "@ai4s/sdk";
 
 /**
  * A mock codex app-server for protocol-translation tests. Speaks the JSON-RPC
@@ -157,8 +158,11 @@ describe("CodexRuntime — protocol translation", () => {
     expect(pending.length).toBe(1);
     expect(pending[0].resources).toEqual(["rm -rf /tmp/x"]);
 
-    // Replying clears it without throwing.
+    // Replying must CLEAR the pending approval. (Regression guard: an earlier
+    // version deleted by requestId while the map is keyed by thread id, so the
+    // entry never cleared — listPermissions kept reporting it forever.)
     await approvalRt.replyPermission("appr-1", "reject");
+    expect((await approvalRt.listPermissions()).length).toBe(0);
     approvalRt.close();
   });
 

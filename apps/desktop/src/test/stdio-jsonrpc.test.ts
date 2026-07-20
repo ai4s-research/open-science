@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { StdioJsonRpcClient } from "@ai4s/sdk";
+import { StdioJsonRpcClient } from "@ai4s/sdk/node-runtime";
 
 /**
  * A tiny "JSON-RPC echo" child: reads newline-delimited requests on stdin and,

@@ -1,8 +1,9 @@
 export { OpenCodeClient } from "./OpenCodeClient";
 export type { AgentRuntime } from "./runtime";
 export { BaseAgentRuntime } from "./base-runtime";
-export { CodexRuntime, type CodexRuntimeOptions } from "./CodexRuntime";
-export { StdioJsonRpcClient, type StdioJsonRpcOptions } from "./stdio-jsonrpc";
+// CodexRuntime / StdioJsonRpcClient live in the "./node-runtime" subpath — they
+// spawn child processes (node:child_process) and must never enter the browser
+// barrel. Import them from "@ai4s/sdk/node-runtime".
 export {
   OPENCODE_VERSION,
   DEFAULT_OPENCODE_URL,
