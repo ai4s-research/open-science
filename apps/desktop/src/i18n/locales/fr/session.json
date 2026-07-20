@@ -68,6 +68,16 @@
     "error": {
       "paste": "Impossible d'enregistrer le collage : {{message}}",
       "addFiles": "Impossible d'ajouter les fichiers : {{message}}"
+    },
+    "modelSelector": {
+      "aria": "Model selector",
+      "title": "Model and reasoning level",
+      "menuAria": "Model selector",
+      "menuTitle": "Select model",
+      "modelSection": "Model",
+      "variantSection": "Reasoning",
+      "defaultVariant": "Default",
+      "notSet": "Not set"
     }
   },
   "localCommand": {

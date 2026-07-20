@@ -68,6 +68,16 @@
     "error": {
       "paste": "无法保存粘贴内容：{{message}}",
       "addFiles": "无法添加文件：{{message}}"
+    },
+    "modelSelector": {
+      "aria": "模型选择",
+      "title": "模型与推理级别",
+      "menuAria": "模型选择",
+      "menuTitle": "选择模型",
+      "modelSection": "模型",
+      "variantSection": "推理级别",
+      "defaultVariant": "默认",
+      "notSet": "未设置"
     }
   },
   "localCommand": {

@@ -68,6 +68,16 @@
     "error": {
       "paste": "No se pudo guardar el contenido pegado: {{message}}",
       "addFiles": "No se pudieron añadir los archivos: {{message}}"
+    },
+    "modelSelector": {
+      "aria": "Model selector",
+      "title": "Model and reasoning level",
+      "menuAria": "Model selector",
+      "menuTitle": "Select model",
+      "modelSection": "Model",
+      "variantSection": "Reasoning",
+      "defaultVariant": "Default",
+      "notSet": "Not set"
     }
   },
   "localCommand": {

@@ -68,6 +68,16 @@
     "error": {
       "paste": "붙여넣기를 저장할 수 없습니다: {{message}}",
       "addFiles": "파일을 추가할 수 없습니다: {{message}}"
+    },
+    "modelSelector": {
+      "aria": "Model selector",
+      "title": "Model and reasoning level",
+      "menuAria": "Model selector",
+      "menuTitle": "Select model",
+      "modelSection": "Model",
+      "variantSection": "Reasoning",
+      "defaultVariant": "Default",
+      "notSet": "Not set"
     }
   },
   "localCommand": {

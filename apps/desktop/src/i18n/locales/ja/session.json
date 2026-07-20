@@ -68,6 +68,16 @@
     "error": {
       "paste": "貼り付けを保存できませんでした: {{message}}",
       "addFiles": "ファイルを追加できませんでした: {{message}}"
+    },
+    "modelSelector": {
+      "aria": "モデル選択",
+      "title": "モデルと推論レベル",
+      "menuAria": "モデル選択",
+      "menuTitle": "モデルを選択",
+      "modelSection": "モデル",
+      "variantSection": "推論レベル",
+      "defaultVariant": "デフォルト",
+      "notSet": "未設定"
     }
   },
   "localCommand": {
