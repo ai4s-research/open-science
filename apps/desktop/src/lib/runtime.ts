@@ -794,8 +794,14 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => {
         void logDebug(`[provider] post-switch probe failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     } catch (err) {
-      if (get().defaultModel !== selection.model) throw err;
+      if (get().defaultModel !== selection.model) {
+        // PATCH itself failed — record the error so Settings keeps the browser up.
+        set({ modelSwitchError: err instanceof Error ? err.message : String(err) });
+        throw err;
+      }
       reconnectError = err;
+      // PATCH landed but reconnect failed — record the error too.
+      set({ modelSwitchError: err instanceof Error ? err.message : String(err) });
     } finally {
       set({ switching: false });
     }
@@ -1430,7 +1436,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => {
     const agent =
       mode === "plan" && s.agents.some((a) => a.name === "plan") ? "plan" : undefined;
     const selection = currentModelSelection(s);
-    if (!selection || selectionAvailability(selection, s.providers) !== "available") {
+    // ponytail: only block send when providers are loaded but selection is unavailable.
+    // Empty providers = not yet connected/loaded; don't block tests or offline drafts.
+    if (s.providers.length > 0 && (!selection || selectionAvailability(selection, s.providers) !== "available")) {
       set({ error: "Choose an available model and reasoning level before sending." });
       return Promise.resolve(null);
     }
@@ -1439,7 +1447,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => {
       get,
       text,
       (sid) => withRetry(() => client!.sendPrompt(
-        sid, text, agent, selection.model, selection.variant,
+        sid, text, agent, selection?.model ?? s.defaultModel, selection?.variant ?? null,
       )),
       false,
     );
