@@ -23,6 +23,7 @@ import {
 } from "@/lib/tauri";
 import { useRuntimeStore, type AgentMode } from "@/lib/runtime";
 import { WorkspaceChip } from "@/components/thread/WorkspaceChip";
+import { ModelEffortSelector } from "@/components/thread/ModelEffortSelector";
 import { useUiStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
@@ -730,6 +731,7 @@ export function Composer({
             </button>
           </div>
         )}
+        <ModelEffortSelector />
         <span className="flex-1" />
         {working && onStop ? (
           // Same spot, same shape, one action: the send button becomes Stop
