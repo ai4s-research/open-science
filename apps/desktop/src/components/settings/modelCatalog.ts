@@ -6,6 +6,7 @@ export interface ModelOption {
   providerName: string;
   modelID: string;
   modelName: string;
+  variants: string[];
 }
 
 export type ModelFilter =
@@ -22,6 +23,7 @@ export function flattenModelOptions(providers: ProviderInfo[]): ModelOption[] {
       providerName: provider.name,
       modelID: model.id,
       modelName: model.name,
+      variants: model.variants ?? [],
     })),
   );
 }
