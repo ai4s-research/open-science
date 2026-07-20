@@ -49,6 +49,14 @@ import { notifyPermissionRequest } from "./systemNotification";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { toast } from "@/lib/toast";
 import i18n from "@/i18n";
+import {
+  loadSelectionPreferences,
+  resolveSelection,
+  saveSelectionPreferences,
+  selectionAvailability,
+  type ModelSelection,
+} from "./modelSelection";
+import type { ProviderInfo } from "@ai4s/sdk";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const URL_KEY = "ai4s.opencodeUrl";
@@ -203,6 +211,18 @@ interface RuntimeState {
   deleteSession: (id: string) => Promise<void>;
   hideExample: (id: string) => void;
   installSkill: (text: string) => Promise<string | null>;
+  /** Providers catalog loaded from the runtime. */
+  providers: ProviderInfo[];
+  /** Initial selection for new conversations. */
+  defaultSelection: ModelSelection | null;
+  /** Per-session selections keyed by session ID. */
+  sessionSelections: Record<string, ModelSelection>;
+  /** Selection for the not-yet-created draft. */
+  draftSelection: ModelSelection | null;
+  /** Apply a selection to the current conversation only. */
+  setCurrentSelection: (selection: ModelSelection) => void;
+  /** Apply a selection as the current conversation choice AND future default. */
+  setDefaultSelection: (selection: ModelSelection) => Promise<void>;
 }
 
 // The internal store depends only on the runtime-agnostic AgentRuntime contract
@@ -416,6 +436,8 @@ async function performTurn(
         }
       }
       id = await withRetry(() => client!.createSession());
+      const sessionSelections = { ...get().sessionSelections };
+      if (get().draftSelection) sessionSelections[id!] = get().draftSelection!;
       set((s) => {
         // Graft the draft conversation (and its pane) onto the real session id.
         const threads = { ...s.threads, [id!]: s.threads[DRAFT_KEY] ?? emptyThread() };
@@ -430,7 +452,7 @@ async function performTurn(
           sessionAgents[id!] = sessionAgents[DRAFT_KEY];
           delete sessionAgents[DRAFT_KEY];
         }
-        return { currentId: id, threads, panes, sessionAgents };
+        return { currentId: id, threads, panes, sessionAgents, sessionSelections, draftSelection: null };
       });
       moveScrollMemory(`chat:${DRAFT_KEY}`, `chat:${id}`);
       void get().refreshSessions();
@@ -511,7 +533,9 @@ export function getClient(): OpenCodeClient | null {
   return opencodeClient;
 }
 
-export const useRuntimeStore = create<RuntimeState>((set, get) => ({
+export const useRuntimeStore = create<RuntimeState>((set, get) => {
+  const initialSelectionPreferences = loadSelectionPreferences();
+  return ({
   status: "offline",
   serverUrl: initialUrl(),
   sessions: [],
@@ -541,6 +565,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   runningSessions: {},
   shellTurns: {},
   retryNotices: {},
+  providers: [],
+  defaultSelection: initialSelectionPreferences.defaultSelection,
+  sessionSelections: initialSelectionPreferences.sessionSelections,
+  draftSelection: initialSelectionPreferences.draftSelection,
 
   // These write the CURRENT session's pane (DRAFT_KEY on a draft), keeping the
   // artifact inspector, the Files browser, and the Runs pane mutually exclusive
@@ -636,6 +664,18 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // the switch's config write, and applying it would visibly revert the
       // just-selected model.
       set(get().switching ? { agents, commands } : { agents, defaultModel, commands });
+      // Reconcile the runtime's authoritative default model with any saved variant.
+      {
+        const saved = get().defaultSelection;
+        const defaultSelection = defaultModel
+          ? { model: defaultModel, variant: saved?.model === defaultModel ? saved.variant : null }
+          : null;
+        if (!get().switching) {
+          set({ defaultSelection, providers });
+        } else {
+          set({ providers });
+        }
+      }
       // Self-heal a dangling default model. It can go stale out-of-band — its
       // provider removed, its id renamed, or the config edited outside the app
       // — and then every send fails with "model not found". Settings only
@@ -707,35 +747,41 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     }
   },
 
-  setDefaultModel: async (model) => {
+  setDefaultModel: (model) => get().setDefaultSelection({ model, variant: null }),
+
+  setCurrentSelection: (selection) => {
+    set((s) => s.currentId
+      ? { sessionSelections: { ...s.sessionSelections, [s.currentId]: selection } }
+      : { draftSelection: selection });
+    saveSelectionPreferences(get());
+  },
+
+  setDefaultSelection: async (selection) => {
     if (!client) throw new Error("Not connected to the OpenCode runtime.");
-    // #37 diagnostics: record what we ask for so a repro (e.g. switching after a
-    // plan's quota runs out) shows the exact target model.
-    void logDebug(`[provider] setDefaultModel → ${model}`);
-    // Mark this as a deliberate switch so the reconnect's self-heal (loadCatalog)
-    // won't revert it against a still-warming provider list (#37).
-    lastSwitchModel = model;
+    void logDebug(`[provider] setDefaultSelection → ${selection.model}`);
+    lastSwitchModel = selection.model;
     lastSwitchAt = Date.now();
-    // Applying the model PATCHes OpenCode's global config, which closes the
-    // event stream server-side. EventSource's own reconnect does not reliably
-    // recover from that — it strands the app in "connecting"/disconnected until
-    // a manual Connect. So do a deliberate masked reconnect (a fresh stream,
-    // exactly what the manual Connect did): `switching` keeps the UI connected,
-    // so switching models never flips the status or blocks the composer.
+    const previous = get().defaultSelection;
+    const preserved = { ...get().sessionSelections };
+    if (previous) {
+      for (const session of get().sessions) {
+        if (session.id !== get().currentId && !preserved[session.id]) {
+          preserved[session.id] = previous;
+        }
+      }
+    }
+
+    let reconnectError: unknown;
     set({ switching: true });
     try {
-      await client.setDefaultModel(model);
-      set({ defaultModel: model });
+      await client.setDefaultModel(selection.model);
+      set({ defaultModel: selection.model });
       if (!(await get().connectRetry())) {
         throw new Error(
           get().error ?? "Runtime did not reconnect after setting the default model.",
         );
       }
       set({ modelSwitchError: null });
-      // #37 diagnostics: confirm the switch actually persisted and which providers
-      // the runtime now recognizes — pinpoints "switch doesn't take" / "provider
-      // not recognized" vs. a stale config-vs-auth mismatch. Best-effort, never
-      // fails the switch.
       try {
         const oc = opencodeClient;
         if (oc) {
@@ -748,12 +794,21 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         void logDebug(`[provider] post-switch probe failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     } catch (err) {
-      void logDebug(`[provider] setDefaultModel FAILED (${model}): ${err instanceof Error ? err.message : String(err)}`);
-      set({ modelSwitchError: err instanceof Error ? err.message : String(err) });
-      throw err;
+      if (get().defaultModel !== selection.model) throw err;
+      reconnectError = err;
     } finally {
       set({ switching: false });
     }
+
+    set((s) => ({
+      defaultSelection: selection,
+      sessionSelections: s.currentId
+        ? { ...preserved, [s.currentId]: selection }
+        : preserved,
+      draftSelection: s.currentId ? s.draftSelection : selection,
+    }));
+    saveSelectionPreferences(get());
+    if (reconnectError) throw reconnectError;
   },
 
   connect: async () => {
@@ -994,7 +1049,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           const key = `${event.callId}:${input.path}`;
           if (recordedProvenance.has(key)) continue;
           remember(recordedProvenance, key);
-          void recordProvenance(input, sid, get().defaultModel);
+          void recordProvenance(input, sid, selectionForSession(get(), sid)?.model ?? null);
         }
       }
       // A completed experiment execution (bash running code) becomes a run —
@@ -1003,7 +1058,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         const run = runInputFromEvent(event);
         if (run) {
           remember(recordedRuns, event.callId);
-          void recordRun(run, sid, get().defaultModel);
+          void recordRun(run, sid, selectionForSession(get(), sid)?.model ?? null);
         }
       }
       if (event.type === "session.idle") {
@@ -1126,7 +1181,14 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       delete panes[DRAFT_KEY]; // a fresh draft starts with a closed pane
       const sessionAgents = { ...s.sessionAgents };
       delete sessionAgents[DRAFT_KEY]; // and in Build mode
-      return { currentId: null, workspacePinned: false, threads, panes, sessionAgents };
+      return {
+        currentId: null,
+        workspacePinned: false,
+        threads,
+        panes,
+        sessionAgents,
+        draftSelection: s.defaultSelection,
+      };
     }),
 
   // Local /new and /clear: clear the visible chat context, but keep the active
@@ -1151,7 +1213,14 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       delete panes[DRAFT_KEY];
       const sessionAgents = { ...s.sessionAgents };
       delete sessionAgents[DRAFT_KEY];
-      return { currentId: null, workspacePinned: true, threads, panes, sessionAgents };
+      return {
+        currentId: null,
+        workspacePinned: true,
+        threads,
+        panes,
+        sessionAgents,
+        draftSelection: s.defaultSelection,
+      };
     }),
 
   refreshProjects: async () => {
@@ -1250,7 +1319,13 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         delete panes[DRAFT_KEY];
         const sessionAgents = { ...s.sessionAgents };
         delete sessionAgents[DRAFT_KEY];
-        return { currentId: null, panes, workspacePinned: true, sessionAgents };
+        return {
+          currentId: null,
+          panes,
+          workspacePinned: true,
+          sessionAgents,
+          draftSelection: s.defaultSelection,
+        };
       });
       await get().connectRetry();
       await Promise.all([get().refreshSessions(), get().loadCatalog()]);
@@ -1350,21 +1425,22 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   // The send lifecycle (new → input → send → response) is shared by plain
   // prompts, "!" shell commands and "/" slash commands — see performTurn.
   sendPrompt: (text) => {
-    // Capture the mode BEFORE performTurn: on a draft, currentId is still null
-    // here (the session is created inside), so this reads DRAFT_KEY correctly.
-    // Pin "plan" only when the catalog actually has it — a stale mode against
-    // an older/custom sidecar must not fail every send with "Agent not found".
     const s = get();
     const mode = s.sessionAgents[s.currentId ?? DRAFT_KEY];
     const agent =
       mode === "plan" && s.agents.some((a) => a.name === "plan") ? "plan" : undefined;
+    const selection = currentModelSelection(s);
+    if (!selection || selectionAvailability(selection, s.providers) !== "available") {
+      set({ error: "Choose an available model and reasoning level before sending." });
+      return Promise.resolve(null);
+    }
     return performTurn(
       set,
       get,
       text,
-      // Pass the current default model so an old session (which OpenCode bound
-      // to its creation-time model) follows a later model switch, per #8.
-      (sid) => withRetry(() => client!.sendPrompt(sid, text, agent, get().defaultModel)),
+      (sid) => withRetry(() => client!.sendPrompt(
+        sid, text, agent, selection.model, selection.variant,
+      )),
       false,
     );
   },
@@ -1483,15 +1559,19 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       delete panes[id];
       const sessionAgents = { ...s.sessionAgents };
       delete sessionAgents[id];
+      const sessionSelections = { ...s.sessionSelections };
+      delete sessionSelections[id];
       return {
         sessions: s.sessions.filter((x) => x.id !== id),
         threads,
         runningSessions,
         panes,
         sessionAgents,
+        sessionSelections,
         currentId: s.currentId === id ? null : s.currentId,
       };
     });
+    saveSelectionPreferences(get());
   },
 
   hideExample: (id) => {
@@ -1524,19 +1604,43 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           },
         };
       });
-      await client.sendPrompt(id, prompt, undefined, get().defaultModel);
+      const selection = currentModelSelection(get());
+      await client.sendPrompt(
+        id, prompt, undefined,
+        selection?.model ?? get().defaultModel,
+        selection?.variant ?? null,
+      );
       return id;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
       return null;
     }
   },
-}));
+  });
+});
 
 /** Dated folder name like `2026-07-04-1615` for a fresh per-session workspace. */
 export function datedWorkspaceName(now = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}`;
+}
+
+/** Resolve the effective selection for the current active conversation/draft. */
+export function currentModelSelection(state: Pick<RuntimeState, "currentId" | "defaultSelection" | "sessionSelections" | "draftSelection">): ModelSelection | null {
+  return resolveSelection({
+    currentId: state.currentId,
+    defaultSelection: state.defaultSelection,
+    sessionSelections: state.sessionSelections,
+    draftSelection: state.draftSelection,
+  });
+}
+
+/** Resolve the selection for a specific session ID (used by provenance/run events). */
+export function selectionForSession(
+  state: Pick<RuntimeState, "defaultSelection" | "sessionSelections">,
+  sessionId: string,
+): ModelSelection | null {
+  return state.sessionSelections[sessionId] ?? state.defaultSelection;
 }
 
 export interface FoldState {
