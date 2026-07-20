@@ -421,12 +421,16 @@ export class OpenCodeClient implements AgentRuntime {
     });
     if (!res.ok) throw await this.apiError(res, "Failed to list providers");
     const body = (await res.json()) as {
-      providers?: Array<{ id: string; name?: string; models?: Record<string, { name?: string }> }>;
+      providers?: Array<{ id: string; name?: string; models?: Record<string, { name?: string; variants?: Record<string, unknown> }> }>
     };
     return (body.providers ?? []).map((p) => ({
       id: p.id,
       name: p.name ?? p.id,
-      models: Object.entries(p.models ?? {}).map(([id, m]) => ({ id, name: m.name ?? id })),
+      models: Object.entries(p.models ?? {}).map(([id, m]) => ({
+        id,
+        name: m.name ?? id,
+        variants: Object.keys(m.variants ?? {}),
+      })),
     }));
   }
 
@@ -680,7 +684,7 @@ export class OpenCodeClient implements AgentRuntime {
    *  default on every turn overrides that stale binding without mutating the
    *  server's stored rows. Omitted/unparseable, the key is left out and the
    *  server falls back to the session/global default. */
-  async sendPrompt(sessionId: string, text: string, agent?: string, model?: string | null): Promise<void> {
+  async sendPrompt(sessionId: string, text: string, agent?: string, model?: string | null, variant?: string | null): Promise<void> {
     const m = parseModel(model);
     const res = await this.fetchWithTimeout(
       `${this.baseUrl}/session/${encodeURIComponent(sessionId)}/prompt_async`,
@@ -691,6 +695,7 @@ export class OpenCodeClient implements AgentRuntime {
           parts: [{ type: "text", text }],
           ...(agent ? { agent } : {}),
           ...(m ? { model: m } : {}),
+          ...(variant ? { variant } : {}),
         }),
       },
     );

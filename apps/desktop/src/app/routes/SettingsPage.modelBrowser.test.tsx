@@ -17,8 +17,8 @@ const providers: ProviderInfo[] = [
     id: "openai",
     name: "OpenAI",
     models: [
-      { id: "gpt-5.2", name: "GPT-5.2" },
-      { id: "o3", name: "o3" },
+      { id: "gpt-5.2", name: "GPT-5.2", variants: [] },
+      { id: "o3", name: "o3", variants: [] },
     ],
   },
 ];

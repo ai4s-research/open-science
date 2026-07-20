@@ -345,3 +345,34 @@ describe("per-prompt model pinning (#8: old sessions follow the current default)
     client.close();
   });
 });
+
+describe("model reasoning variants", () => {
+  it("preserves variants from /config/providers and sends them with prompt", async () => {
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    await client.connect();
+
+    const providers = await client.listProviders();
+    expect(providers[0].models[0]).toMatchObject({
+      id: "mock-model",
+      name: "Mock Model",
+      variants: ["low", "high"],
+    });
+
+    const sessionId = await client.createSession();
+    const before = server.promptBodies.length;
+
+    await client.sendPrompt(sessionId, "deep analysis", undefined, "mock/mock-model", "high");
+    await client.sendPrompt(sessionId, "provider default", undefined, "mock/mock-model", null);
+
+    const bodies = server.promptBodies.slice(before) as Array<Record<string, unknown>>;
+    expect(bodies[0]).toMatchObject({
+      model: { providerID: "mock", modelID: "mock-model" },
+      variant: "high",
+    });
+    expect(bodies[1]).toMatchObject({
+      model: { providerID: "mock", modelID: "mock-model" },
+    });
+    expect(bodies[1]).not.toHaveProperty("variant");
+    client.close();
+  });
+});

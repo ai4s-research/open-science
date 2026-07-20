@@ -7,11 +7,11 @@ import { ModelBrowser } from "./ModelBrowser";
 
 const providers: ProviderInfo[] = [
   { id: "openai", name: "OpenAI", models: [
-    { id: "gpt-5.2", name: "GPT-5.2" },
-    { id: "o3", name: "o3" },
+    { id: "gpt-5.2", name: "GPT-5.2", variants: [] },
+    { id: "o3", name: "o3", variants: [] },
   ] },
   { id: "ollama", name: "Ollama Cloud", models: [
-    { id: "qwen3-coder", name: "Qwen3 Coder" },
+    { id: "qwen3-coder", name: "Qwen3 Coder", variants: [] },
   ] },
 ];
 

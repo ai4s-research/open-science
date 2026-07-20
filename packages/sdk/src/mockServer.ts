@@ -144,7 +144,7 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
       res.end(
         JSON.stringify({
           providers: [
-            { id: "mock", name: "Mock Provider", models: { "mock-model": { name: "Mock Model" } } },
+            { id: "mock", name: "Mock Provider", models: { "mock-model": { name: "Mock Model", variants: { low: {}, high: {} } } } },
           ],
         }),
       );

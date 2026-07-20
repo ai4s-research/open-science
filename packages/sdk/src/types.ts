@@ -237,6 +237,7 @@ export interface OpenCodeClientOptions {
 export interface ProviderModelInfo {
   id: string;
   name: string;
+  variants: string[];
 }
 
 /** A provider OpenCode can use right now (auth present or public). */
