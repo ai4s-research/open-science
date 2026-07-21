@@ -1,5 +1,4 @@
 import "@testing-library/jest-dom/vitest";
-import "@/i18n";
 
 // DOM stubs — only in a browser-like (jsdom) environment. The node-env tests
 // (e.g. the OpenCode integration test) skip these.
@@ -59,3 +58,9 @@ if (typeof window !== "undefined") {
     });
   }
 }
+
+// Import i18n AFTER the localStorage shim is installed: `@/i18n` calls
+// `detectInitialLocale()` at module init, which reads localStorage. A static
+// top-of-file `import "@/i18n"` is hoisted above the shim and crashes under
+// jsdom 25 / Node 25 where `window.localStorage.getItem` is not yet a function.
+await import("@/i18n");
