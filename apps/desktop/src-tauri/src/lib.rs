@@ -134,6 +134,7 @@ pub fn run() {
             artifact_file::list_notebooks,
             artifact_file::list_dir,
             artifact_file::write_workspace_file,
+            artifact_file::delete_workspace_file,
             provenance::record_provenance,
             provenance::list_provenance,
             provenance::read_env_lockfile,

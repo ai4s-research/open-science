@@ -673,15 +673,17 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime, Wo
     return a.encoding === "utf8" ? { text: a.data } : { artifact: a };
   }
 
-  // Stubs: `implements WorkspaceOps` requires all four members, but the
-  // mutating half (writeFile/deleteFile) lands in Task 1.3. They are deliberately
-  // NOT wired to Tauri here — callers get a loud error rather than a silent no-op.
-  async writeFile(_relPath: string, _content: string): Promise<void> {
-    throw new Error("OpenCodeClient.writeFile not implemented yet (Task 1.3)");
+  async writeFile(relPath: string, content: string): Promise<void> {
+    // TODO(binary): requires extending write_workspace_file Rust command to
+    // accept bytes. Text-only for now (covers notebook autosave, provenance
+    // writes, generated reports — the common case).
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("write_workspace_file", { path: relPath, content, root: "workspace" });
   }
 
-  async deleteFile(_relPath: string): Promise<void> {
-    throw new Error("OpenCodeClient.deleteFile not implemented yet (Task 1.3)");
+  async deleteFile(relPath: string): Promise<void> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("delete_workspace_file", { path: relPath, root: "workspace" });
   }
 
   /** Run a shell command directly in the session's workspace — no model turn.

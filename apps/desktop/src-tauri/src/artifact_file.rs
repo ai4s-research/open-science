@@ -459,6 +459,34 @@ pub fn write_workspace_file(
     Ok(())
 }
 
+/// Delete a workspace file at a root-relative path. Refuses absolute paths,
+/// `..` traversal, and directory targets (only files). Triggers the debounced
+/// git snapshot on success. `root: None` = the active workspace folder.
+#[tauri::command(async)]
+pub fn delete_workspace_file(
+    app: AppHandle,
+    path: String,
+    root: Option<String>,
+) -> Result<(), String> {
+    let scope = scope_root(&app, root.as_deref())?;
+    let rel = Path::new(&path);
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err("path must be a plain workspace-relative path".into());
+    }
+    let full = scope.join(rel);
+    let meta = std::fs::metadata(&full).map_err(|e| format!("delete failed: {e}"))?;
+    if meta.is_dir() {
+        return Err("delete_workspace_file refuses directories; only files".into());
+    }
+    std::fs::remove_file(&full).map_err(|e| format!("delete failed: {e}"))?;
+    crate::git_snapshot::request_snapshot(&scope);
+    Ok(())
+}
+
 /// Pick local files via the native open dialog and copy them into the agent
 /// workspace so the agent can read them. Returns workspace-relative names
 /// (deduplicated as name-1.ext, name-2.ext on collision); empty on cancel.

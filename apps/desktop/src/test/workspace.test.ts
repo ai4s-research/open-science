@@ -58,3 +58,25 @@ describe("OpenCodeClient WorkspaceOps forwarding", () => {
     vi.doUnmock("@tauri-apps/api/core");
   });
 });
+
+describe("OpenCodeClient WorkspaceOps write/delete", () => {
+  it("writeFile forwards to invoke('write_workspace_file', { path, content, root: 'workspace' })", async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
+
+    const c = new OpenCodeClient({ baseUrl: "http://x" });
+    await c.writeFile("notes.txt", "hi");
+    expect(invoke).toHaveBeenCalledWith("write_workspace_file", { path: "notes.txt", content: "hi", root: "workspace" });
+    vi.doUnmock("@tauri-apps/api/core");
+  });
+
+  it("deleteFile forwards to invoke('delete_workspace_file', { path, root: 'workspace' })", async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
+
+    const c = new OpenCodeClient({ baseUrl: "http://x" });
+    await c.deleteFile("notes.txt");
+    expect(invoke).toHaveBeenCalledWith("delete_workspace_file", { path: "notes.txt", root: "workspace" });
+    vi.doUnmock("@tauri-apps/api/core");
+  });
+});
