@@ -5,6 +5,7 @@ export { AcpStdioEngine } from "./engines/acp-stdio";
 export type { WorkspaceOps } from "./workspace";
 export type { RuntimeDef, TransportSpec, ResumeStrategy } from "./runtime-def";
 export { opencodeDef, type OpenCodeDefOptions } from "./defs/opencode";
+export { kimiDef, KimiRuntime } from "./defs/kimi";
 export type { DirEntry, ArtifactFile, FileRoot } from "@ai4s/shared";
 export {
   OPENCODE_VERSION,
