@@ -87,7 +87,7 @@ export function ModelEffortSelector() {
 
   const modelLabel = activeOption ? activeOption.modelName : t("composer.modelSelector.notSet");
   const variantLabel = selection?.variant
-    ? selection.variant
+    ? EFFORT_LEVELS.find(([v]) => v === selection.variant)?.[1] ?? selection.variant
     : t("composer.modelSelector.defaultVariant");
 
   const toggleProvider = (id: string) => {
@@ -123,7 +123,7 @@ export function ModelEffortSelector() {
         <div
           role="menu"
           aria-label={t("composer.modelSelector.menuAria")}
-          className="absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-72 rounded-card border border-border bg-surface shadow-card"
+          className="absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-80 overflow-hidden rounded-card border border-border bg-surface shadow-card"
         >
           {/* Left: model list */}
           <div className="flex w-44 flex-col border-r border-border">
@@ -149,7 +149,7 @@ export function ModelEffortSelector() {
                   <div key={provider.id}>
                     <button
                       onClick={() => toggleProvider(provider.id)}
-                      className="flex w-full items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted hover:bg-surface-2"
+                      className="flex w-full items-center gap-1 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted hover:bg-surface-2"
                     >
                       {collapsed ? (
                         <ChevronRight size={11} className="shrink-0" />
@@ -185,7 +185,7 @@ export function ModelEffortSelector() {
 
           {/* Right: effort panel — always visible for current selection */}
           <div className="flex w-40 flex-col">
-            <div className="px-2 py-1.5 text-xs text-muted">
+            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
               {t("composer.modelSelector.variantSection")}
             </div>
             {/* Thinking toggle */}
