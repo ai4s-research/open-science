@@ -53,7 +53,6 @@ import {
   loadSelectionPreferences,
   resolveSelection,
   saveSelectionPreferences,
-  selectionAvailability,
   type ModelSelection,
 } from "./modelSelection";
 import type { ProviderInfo } from "@ai4s/sdk";
@@ -1436,12 +1435,6 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => {
     const agent =
       mode === "plan" && s.agents.some((a) => a.name === "plan") ? "plan" : undefined;
     const selection = currentModelSelection(s);
-    // ponytail: only block send when providers are loaded but selection is unavailable.
-    // Empty providers = not yet connected/loaded; don't block tests or offline drafts.
-    if (s.providers.length > 0 && (!selection || selectionAvailability(selection, s.providers) !== "available")) {
-      set({ error: "Choose an available model and reasoning level before sending." });
-      return Promise.resolve(null);
-    }
     return performTurn(
       set,
       get,

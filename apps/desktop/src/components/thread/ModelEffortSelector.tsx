@@ -4,8 +4,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cn";
 import { useRuntimeStore } from "@/lib/runtime";
 import { flattenModelOptions, type ModelOption } from "@/components/settings/modelCatalog";
-import { resolveSelection, selectionAvailability } from "@/lib/modelSelection";
-import type { ModelSelection } from "@/lib/modelSelection";
+import { resolveSelection } from "@/lib/modelSelection";
 import type { ProviderInfo } from "@ai4s/sdk";
 
 const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "extra_high", "max", "ultra"];
@@ -15,7 +14,6 @@ export function ModelEffortSelector() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(new Set());
-  const [activeModel, setActiveModel] = useState<string | null>(null);
   const [thinkingOn, setThinkingOn] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -32,7 +30,9 @@ export function ModelEffortSelector() {
   const options = useMemo(() => flattenModelOptions(providers), [providers]);
   const currentModelKey = selection?.model ?? null;
   const currentOption = options.find((o) => o.key === currentModelKey) ?? null;
-  const availability = selectionAvailability(selection, providers);
+
+  // The effort panel always shows for the current selection
+  const activeOption = currentOption;
 
   // Group by provider
   const grouped = useMemo(() => {
@@ -56,7 +56,6 @@ export function ModelEffortSelector() {
     const onDown = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
-        setActiveModel(null);
       }
     };
     document.addEventListener("mousedown", onDown);
@@ -70,7 +69,6 @@ export function ModelEffortSelector() {
       if (e.key === "Escape") {
         e.preventDefault();
         setOpen(false);
-        setActiveModel(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -79,10 +77,7 @@ export function ModelEffortSelector() {
 
   if (options.length === 0) return null;
 
-  const modelLabel = currentOption
-    ? currentOption.modelName
-    : t("composer.modelSelector.notSet");
-
+  const modelLabel = activeOption ? activeOption.modelName : t("composer.modelSelector.notSet");
   const variantLabel = selection?.variant
     ? selection.variant
     : t("composer.modelSelector.defaultVariant");
@@ -96,26 +91,23 @@ export function ModelEffortSelector() {
     });
   };
 
+  // Click model: switch to it, keep popup open so user can pick effort
   const handlePickModel = async (modelKey: string) => {
-    const newSelection: ModelSelection = { model: modelKey, variant: null };
+    if (modelKey === currentModelKey) return;
     try {
-      await setDefaultSelection(newSelection);
-      setOpen(false);
-      setActiveModel(null);
+      await setDefaultSelection({ model: modelKey, variant: null });
     } catch {
-      // error already in store.error
+      // error in store
     }
   };
 
+  // Pick effort: set on current session, then close
   const handlePickVariant = (variant: string | null) => {
-    if (!selection) return;
-    setCurrentSelection({ ...selection, variant });
+    const target = currentModelKey;
+    if (!target) return;
+    setCurrentSelection({ model: target, variant });
     setOpen(false);
-    setActiveModel(null);
   };
-
-  const isActiveCurrent = activeModel === currentModelKey;
-  const showEffortPanel = activeModel !== null;
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
@@ -127,7 +119,6 @@ export function ModelEffortSelector() {
         >
           {/* Left: model list */}
           <div className="flex w-44 flex-col border-r border-border">
-            {/* Search */}
             <div className="border-b border-border p-2">
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted" />
@@ -140,7 +131,6 @@ export function ModelEffortSelector() {
                 />
               </div>
             </div>
-            {/* Providers */}
             <div className="min-h-0 flex-1 overflow-y-auto">
               {grouped.length === 0 && (
                 <div className="p-3 text-xs text-muted italic">No matches</div>
@@ -164,30 +154,17 @@ export function ModelEffortSelector() {
                     {!collapsed &&
                       models.map((opt) => {
                         const isCurrent = opt.key === currentModelKey;
-                        const isActive = opt.key === activeModel;
                         return (
                           <button
                             key={opt.key}
-                            role="menuitemradio"
-                            aria-checked={isCurrent}
                             className={cn(
                               "flex w-full items-center gap-1.5 py-1.5 pl-7 pr-2 text-left text-xs",
-                              isActive ? "bg-surface-2" : "",
-                              isCurrent ? "text-accent" : "text-text",
+                              isCurrent ? "bg-surface-2 text-accent" : "text-text hover:bg-surface-2",
                             )}
-                            onClick={() => {
-                              if (isActive) {
-                                setActiveModel(null);
-                              } else {
-                                setActiveModel(opt.key);
-                              }
-                            }}
+                            onClick={() => void handlePickModel(opt.key)}
                           >
                             <Cpu size={12} className="shrink-0 text-muted" />
                             <span className="min-w-0 flex-1 truncate">{opt.modelName}</span>
-                            {opt.variants.length > 0 && (
-                              <Brain size={10} className="shrink-0 text-muted/60" />
-                            )}
                             {isCurrent && <span className="shrink-0 text-accent">✓</span>}
                           </button>
                         );
@@ -198,93 +175,69 @@ export function ModelEffortSelector() {
             </div>
           </div>
 
-          {/* Right: effort panel (shown when a model is clicked) */}
-          {showEffortPanel && (
-            <div className="flex w-40 flex-col">
-              <div className="px-2 py-1.5 text-xs text-muted">
-                {t("composer.modelSelector.variantSection")}
-              </div>
-              {/* Thinking toggle */}
-              <button
-                className="flex w-full items-center gap-2 px-2 py-1.5 text-xs hover:bg-surface-2"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setThinkingOn((v) => !v);
-                }}
+          {/* Right: effort panel — always visible for current selection */}
+          <div className="flex w-40 flex-col">
+            <div className="px-2 py-1.5 text-xs text-muted">
+              {t("composer.modelSelector.variantSection")}
+            </div>
+            {/* Thinking toggle */}
+            <button
+              className="flex w-full items-center gap-2 px-2 py-1.5 text-xs hover:bg-surface-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                setThinkingOn((v) => !v);
+              }}
+            >
+              <Brain size={12} className="text-muted" />
+              <span className="flex-1 text-text">Thinking</span>
+              <span
+                className={cn(
+                  "relative h-4 w-7 rounded-full transition-colors",
+                  thinkingOn ? "bg-accent" : "bg-muted/30",
+                )}
               >
-                <Brain size={12} className="text-muted" />
-                <span className="flex-1 text-text">Thinking</span>
                 <span
                   className={cn(
-                    "relative h-4 w-7 rounded-full transition-colors",
-                    thinkingOn ? "bg-accent" : "bg-muted/30",
+                    "absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform",
+                    thinkingOn ? "left-3.5" : "left-0.5",
                   )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform",
-                      thinkingOn ? "left-3.5" : "left-0.5",
-                    )}
-                  />
-                </span>
-              </button>
-              <div className="border-t border-border" />
-              {/* Effort levels */}
-              {EFFORT_LEVELS.map((v) => (
-                <button
-                  key={v}
-                  className="flex w-full items-center gap-2 px-2 py-1 text-xs hover:bg-surface-2"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (isActiveCurrent) {
-                      handlePickVariant(selection?.variant === v ? null : v);
-                    } else {
-                      void setDefaultSelection({
-                        model: activeModel!,
-                        variant: v,
-                      }).then(() => {
-                        setOpen(false);
-                        setActiveModel(null);
-                      });
-                    }
-                  }}
-                >
-                  <span className="flex-1 capitalize text-text">{v}</span>
-                  {isActiveCurrent && selection?.variant === v && (
-                    <span className="text-accent">✓</span>
-                  )}
-                </button>
-              ))}
-              {/* Default (clear variant) */}
-              <div className="border-t border-border" />
+                />
+              </span>
+            </button>
+            <div className="border-t border-border" />
+            {/* Default (no variant) */}
+            <button
+              className="flex w-full items-center gap-2 px-2 py-1 text-xs hover:bg-surface-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePickVariant(null);
+              }}
+            >
+              <span className="flex-1 text-muted">{t("composer.modelSelector.defaultVariant")}</span>
+              {!selection?.variant && <span className="text-accent">✓</span>}
+            </button>
+            {/* Effort levels */}
+            {EFFORT_LEVELS.map((v) => (
               <button
+                key={v}
                 className="flex w-full items-center gap-2 px-2 py-1 text-xs hover:bg-surface-2"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (isActiveCurrent) {
-                    handlePickVariant(null);
-                  } else {
-                    void handlePickModel(activeModel!);
-                  }
+                  handlePickVariant(v);
                 }}
               >
-                <span className="flex-1 text-muted">{t("composer.modelSelector.defaultVariant")}</span>
-                {isActiveCurrent && !selection?.variant && (
-                  <span className="text-accent">✓</span>
-                )}
+                <span className="flex-1 capitalize text-text">{v}</span>
+                {selection?.variant === v && <span className="text-accent">✓</span>}
               </button>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       )}
       <button
         aria-label={t("composer.modelSelector.aria")}
         title={t("composer.modelSelector.title")}
         className={cn(
-          "flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs",
-          availability !== "available"
-            ? "bg-warn/15 text-warn hover:bg-warn/25"
-            : "text-muted hover:bg-surface-2 hover:text-text",
+          "flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted hover:bg-surface-2 hover:text-text",
         )}
         onClick={() => setOpen((o) => !o)}
         disabled={switching}
