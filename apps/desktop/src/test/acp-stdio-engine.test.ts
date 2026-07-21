@@ -51,26 +51,29 @@ describe("AcpStdioEngine", () => {
 });
 
 describe("AcpStdioEngine event normalization", () => {
-  it("session/update with TextDelta → text.updated", () => {
+  it("session/update with kimi's actual shape: agent_message_chunk + content.text", () => {
+    // Verified by live probe against kimi-code 0.27 — the payload is NOT
+    // { type: "agent", message: { parts: [...] } } (the generic ACP sketch),
+    // but { sessionUpdate: "agent_message_chunk", content: { type, text } }.
     const engine = new AcpStdioEngine({ kind: "acp-stdio", command: "x", args: [] });
     const events: any[] = [];
     engine.onEvent((e) => events.push(e));
-    // Access protected method via any-cast for testing.
     (engine as any).handleNotification("session/update", {
       sessionId: "s1",
-      update: { type: "agent", message: { parts: [{ type: "text", text: "hi" }] } },
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi" } },
     });
-    expect(events.some((e) => e.type === "text.updated")).toBe(true);
+    expect(events.some((e) => e.type === "text.updated" && e.text === "hi")).toBe(true);
   });
 
-  it("session/update end_of_turn → session.idle", () => {
+  it("session.idle is emitted by sendPrompt (after the request response), not by a notification", async () => {
+    // kimi's session/prompt is a REQUEST whose response carries stopReason;
+    // turn-end is the response, not a separate session/update notification.
     const engine = new AcpStdioEngine({ kind: "acp-stdio", command: "x", args: [] });
     const events: any[] = [];
     engine.onEvent((e) => events.push(e));
-    (engine as any).handleNotification("session/update", {
-      sessionId: "s1",
-      update: { type: "agent", stop: { reason: "end_turn" } },
-    });
-    expect(events.some((e) => e.type === "session.idle")).toBe(true);
+    // Stub request() so sendPrompt resolves immediately.
+    (engine as any).request = async () => ({ stopReason: "end_turn" });
+    await engine.sendPrompt("s1", "hi");
+    expect(events.some((e) => e.type === "session.idle" && e.sessionId === "s1")).toBe(true);
   });
 });

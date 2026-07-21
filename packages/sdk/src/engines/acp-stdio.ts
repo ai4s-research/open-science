@@ -48,10 +48,11 @@ export class AcpStdioEngine extends BaseAgentRuntime {
 
   async connect(): Promise<void> {
     this.setStatus("connecting");
-    const { command, args, env } = this.transport;
+    const { command, args, env, cwd } = this.transport;
     this.child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, ...env },
+      ...(cwd ? { cwd } : {}),
     });
     const rl = createInterface({ input: this.child.stdout! });
     rl.on("line", (line) => this.onLine(line));
@@ -112,7 +113,15 @@ export class AcpStdioEngine extends BaseAgentRuntime {
   // ---- ACP session methods (the minimum subset for a working turn, RFC §3.3) ----
 
   async createSession(): Promise<string> {
-    const result = await this.request("session/new", { mcpServers: [] }) as { sessionId: string };
+    // kimi-code 0.27 (and the ACP schema generally) requires `cwd` on
+    // session/new — it fails with `Invalid params { cwd: ... }` otherwise.
+    // Default to the child process's cwd (which is `transport.cwd` if set,
+    // else process.cwd()).
+    const cwd = this.transport.cwd ?? process.cwd();
+    const result = await this.request("session/new", {
+      cwd,
+      mcpServers: [],
+    }) as { sessionId: string };
     this.sessionId = result.sessionId;
     return result.sessionId;
   }
@@ -120,7 +129,13 @@ export class AcpStdioEngine extends BaseAgentRuntime {
   async sendPrompt(sessionId: string, text: string, _agent?: string, _model?: string | null): Promise<void> {
     // _agent and _model are ignored on ACP for now — ACP's session/prompt takes
     // a prompt and the model is set via session/set_model (TODO follow-up).
+    //
+    // kimi-code's session/prompt is a REQUEST whose response ({stopReason:
+    // "end_turn"}) signals the turn is over. Text/reasoning chunks arrive as
+    // session/update notifications WHILE the request is in flight; we await
+    // the response, then emit session.idle so the store folds the turn closed.
     await this.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] });
+    this.emit({ type: "session.idle", sessionId });
   }
 
   async abortSession(sessionId: string): Promise<void> {
@@ -198,49 +213,48 @@ export class AcpStdioEngine extends BaseAgentRuntime {
   }
 
   /** Translate an ACP `session/update` notification into one or more
-   *  normalized OpenCodeEvent values. The store's `foldEvent` reducer keys
-   *  text/reasoning blocks by `partId` and upserts, so the synthesized ids
-   *  below must be STABLE across deltas of the same part — a counter would
-   *  fragment the stream into one block per token. ACP text/reasoning parts
-   *  don't carry ids, so we use a fixed per-part-kind prefix scoped to this
-   *  session. Tool-call parts are logged but NOT normalized here (TODO, RFC
-   *  §3.5 — deferred to a follow-up that can map ACP's tool shape onto
-   *  ToolUpdatedEvent). */
+   *  normalized OpenCodeEvent values.
+   *
+   *  kimi-code 0.27's actual shape (verified by live probe, not from the
+   *  spec's generic sketch):
+   *  ```
+   *  { sessionId, update: { sessionUpdate: "agent_message_chunk",
+   *                         content: { type: "text" | "reasoning", text } } }
+   *  ```
+   *  The `sessionUpdate` enum discriminates the payload kind; `content` is the
+   *  chunk. Other known `sessionUpdate` values (available_commands_update,
+   *  etc.) are not normalized in this PR — TODO follow-up.
+   *
+   *  Turn-end is NOT a notification: `session/prompt` is a REQUEST whose
+   *  response (`{ stopReason: "end_turn" }`) signals the turn is over. That's
+   *  handled in `sendPrompt`, which emits `session.idle` after the response.
+   *
+   *  The store's `foldEvent` reducer keys text/reasoning blocks by `partId`
+   *  and upserts, so the synthesized ids below must be STABLE across deltas
+   *  of the same part — a counter would fragment the stream into one block
+   *  per token. */
   protected handleNotification(method: string, params: unknown): void {
     if (method !== "session/update") return;
     const p = params as {
       sessionId?: string;
       update?: {
-        type?: string;
-        message?: { parts?: Array<{ type: string; text?: string; reasoning?: string }> };
-        stop?: { reason?: string };
+        sessionUpdate?: string;
+        content?: { type?: string; text?: string };
       };
     };
     const sid = p.sessionId ?? this.sessionId ?? "";
     const update = p.update ?? {};
 
-    // Text + reasoning deltas — one event per matching part.
-    if (update.type === "agent" && update.message?.parts) {
-      for (const part of update.message.parts) {
-        if (part.type === "text" && part.text !== undefined) {
-          this.emit({ type: "text.updated", sessionId: sid, partId: "acp-text", text: part.text });
-        } else if (part.type === "reasoning" && part.reasoning !== undefined) {
-          this.emit({
-            type: "reasoning.updated",
-            sessionId: sid,
-            partId: "acp-reasoning",
-            text: part.reasoning,
-          });
-        }
-        // TODO: tool calls — log but don't normalize in this PR (RFC §3.5).
+    if (update.sessionUpdate === "agent_message_chunk" && update.content) {
+      const c = update.content;
+      if (c.type === "text" && c.text !== undefined) {
+        this.emit({ type: "text.updated", sessionId: sid, partId: "acp-text", text: c.text });
+      } else if (c.type === "reasoning" && c.text !== undefined) {
+        this.emit({ type: "reasoning.updated", sessionId: sid, partId: "acp-reasoning", text: c.text });
       }
+      // TODO: other content types (tool_call, etc.) — RFC §3.5 defers these.
     }
-
-    // Turn end — presence of stop.reason marks the agent idle, regardless of
-    // the specific reason (end_turn, stop_sequence, max_tokens, …).
-    if (update.type === "agent" && update.stop?.reason) {
-      this.emit({ type: "session.idle", sessionId: sid });
-    }
+    // Other sessionUpdate kinds (available_commands_update, etc.) — TODO.
   }
 }
 

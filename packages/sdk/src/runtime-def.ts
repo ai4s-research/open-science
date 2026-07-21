@@ -10,7 +10,16 @@
 
 export type TransportSpec =
   | { kind: "opencode-http"; baseUrl: string; directory?: string; password?: string }
-  | { kind: "acp-stdio"; command: string; args: string[]; env?: Record<string, string> };
+  | {
+      kind: "acp-stdio";
+      command: string;
+      args: string[];
+      env?: Record<string, string>;
+      /** Working directory the ACP agent operates in. Passed to `session/new`
+       *  as `cwd` (kimi-code 0.27 rejects session/new without it) and used as
+       *  the child process's `cwd` if set. Defaults to process.cwd(). */
+      cwd?: string;
+    };
 
 export type ResumeStrategy = "cli" | "stream-capture" | "acp-load";
 
