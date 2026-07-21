@@ -22,6 +22,17 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { TransportSpec } from "../runtime-def";
 import { BaseAgentRuntime } from "../base-runtime";
+import type {
+  AgentInfo,
+  CommandInfo,
+  HistoryMessage,
+  PermissionAskedEvent,
+  PermissionReply,
+  QuestionAskedEvent,
+  SessionMeta,
+  SkillInfo,
+} from "../types";
+import type { AgentRuntime } from "../runtime";
 
 export type AcpStdioTransport = Extract<TransportSpec, { kind: "acp-stdio" }>;
 
@@ -98,6 +109,70 @@ export class AcpStdioEngine extends BaseAgentRuntime {
     this.child?.stdin?.write(msg);
   }
 
+  // ---- ACP session methods (the minimum subset for a working turn, RFC §3.3) ----
+
+  async createSession(): Promise<string> {
+    const result = await this.request("session/new", { mcpServers: [] }) as { sessionId: string };
+    this.sessionId = result.sessionId;
+    return result.sessionId;
+  }
+
+  async sendPrompt(sessionId: string, text: string, _agent?: string, _model?: string | null): Promise<void> {
+    // _agent and _model are ignored on ACP for now — ACP's session/prompt takes
+    // a prompt and the model is set via session/set_model (TODO follow-up).
+    await this.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] });
+  }
+
+  async abortSession(sessionId: string): Promise<void> {
+    this.notify("session/cancel", { sessionId });
+  }
+
+  // ---- AgentRuntime stubs (side-effecting ops ACP can't sensibly no-op throw) ----
+
+  /** ACP has session/list; TODO follow-up. */
+  async listSessions(): Promise<SessionMeta[]> { return []; }
+  /** No standard ACP method; no-op. */
+  async deleteSession(_sessionId: string): Promise<void> {}
+  /** ACP has session/info; TODO follow-up. */
+  async getMessages(_sessionId: string): Promise<HistoryMessage[]> { return []; }
+  async revert(_sessionId: string, _messageID: string, _partID?: string): Promise<void> {
+    throw new Error("ACP revert not supported");
+  }
+  async unrevert(_sessionId: string): Promise<void> {
+    throw new Error("ACP unrevert not supported");
+  }
+
+  // ---- capability discovery (stubs) ----
+
+  async listSkills(): Promise<SkillInfo[]> { return []; }
+  async listAgents(): Promise<AgentInfo[]> { return []; }
+  async listCommands(): Promise<CommandInfo[]> { return []; }
+
+  // ---- model selection (stubs) ----
+
+  async getDefaultModel(): Promise<string | null> { return null; }
+  async setDefaultModel(_model: string): Promise<void> {
+    throw new Error("ACP model switch TODO");
+  }
+
+  // ---- agent-driven execution (stubs) ----
+
+  async runShell(_sessionId: string, _command: string, _agent?: string): Promise<void> {
+    throw new Error("ACP runShell not supported");
+  }
+  async runCommand(_sessionId: string, _command: string, _args?: string): Promise<void> {
+    throw new Error("ACP runCommand not supported");
+  }
+
+  // ---- interactive requests (stubs) ----
+
+  async listQuestions(_sessionId?: string): Promise<QuestionAskedEvent[]> { return []; }
+  async listPermissions(_sessionId?: string): Promise<PermissionAskedEvent[]> { return []; }
+  async answerQuestion(_requestId: string, _answers: string[][]): Promise<void> {}
+  async rejectQuestion(_requestId: string): Promise<void> {}
+  async replyPermission(_requestId: string, _reply: PermissionReply): Promise<void> {}
+
+
   private onLine(line: string): void {
     let msg: any;
     try { msg = JSON.parse(line); } catch { return; } // skip non-JSON
@@ -168,3 +243,10 @@ export class AcpStdioEngine extends BaseAgentRuntime {
     }
   }
 }
+
+// Compile-time proof that AcpStdioEngine structurally satisfies AgentRuntime.
+// Inherited from BaseAgentRuntime: getStatus, onEvent, onStatus. Implemented
+// here: connect, close, createSession, sendPrompt, abortSession, + stubs.
+const _satisfiesAgentRuntime: AgentRuntime = null as unknown as AcpStdioEngine;
+void _satisfiesAgentRuntime;
+
