@@ -1,6 +1,7 @@
 export { OpenCodeClient } from "./OpenCodeClient";
 export type { AgentRuntime } from "./runtime";
 export { BaseAgentRuntime } from "./base-runtime";
+export { AcpStdioEngine } from "./engines/acp-stdio";
 export type { WorkspaceOps } from "./workspace";
 export type { RuntimeDef, TransportSpec, ResumeStrategy } from "./runtime-def";
 export { opencodeDef, type OpenCodeDefOptions } from "./defs/opencode";
