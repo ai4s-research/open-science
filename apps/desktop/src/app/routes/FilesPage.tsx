@@ -17,7 +17,7 @@ import {
 import { extOf, extToKind, previewKindForName, type PreviewKind } from "@/lib/artifacts";
 import { listDir, type DirEntry } from "@/lib/artifactFile";
 import { isTauri, workspaceBase } from "@/lib/tauri";
-import { useRuntimeStore } from "@/lib/runtime";
+import { getClient, useRuntimeStore } from "@/lib/runtime";
 import { baseName } from "@/components/thread/WorkspaceChip";
 import { NotebookEditor } from "@/components/notebook/NotebookEditor";
 import { FilePreviewInspector } from "@/components/inspector/FilePreviewInspector";
@@ -72,6 +72,8 @@ export function FilesPage() {
     setEntries(null);
     setError(null);
     try {
+      // base-rooted listing — stays on the host layer per RFC §4.2 Decision 2
+      // (the seam exposes only the runtime's working dir, not the projects root).
       setEntries(await listDir(rel, "base"));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -228,7 +230,9 @@ export function SessionFilesPane({
     let cancelled = false;
     setEntries(null);
     setError(null);
-    listDir(dir, "workspace")
+    const client = getClient();
+    const listing = client ? client.listDir(dir) : Promise.resolve([]);
+    listing
       .then((e) => {
         if (!cancelled) setEntries(e);
       })
