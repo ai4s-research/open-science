@@ -2,19 +2,14 @@
 // browser these return null / no-op so the app still runs in `pnpm dev`.
 // Paths are root-relative; `root` picks the tree ("workspace" = the active
 // session folder, default; "base" = the folder all session workspaces live under).
-import type { FileRoot } from "@ai4s/shared";
+import type { FileRoot, ArtifactFile, DirEntry } from "@ai4s/shared";
 import { isTauri } from "./tauri";
 
-export type { FileRoot };
-
-export interface ArtifactFile {
-  path: string;
-  mime: string;
-  /** "utf8" for text, "base64" for binary. */
-  encoding: "utf8" | "base64";
-  data: string;
-  size: number;
-}
+// `FileRoot`, `ArtifactFile`, and `DirEntry` live in `@ai4s/shared` so the SDK
+// runtime seam (`WorkspaceOps`) can reference the same shape. Re-exported here
+// to keep the existing `import { ArtifactFile } from "@/lib/artifactFile"`
+// callsites working unchanged.
+export type { FileRoot, ArtifactFile, DirEntry };
 
 /** Read a root-relative file. Returns null outside the desktop app or on error paths. */
 export async function readArtifact(path: string, root?: FileRoot): Promise<ArtifactFile | null> {
@@ -116,15 +111,6 @@ export async function listNotebooks(root?: FileRoot): Promise<NotebookEntry[]> {
   if (!isTauri) return [];
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<NotebookEntry[]>("list_notebooks", { root });
-}
-
-export interface DirEntry {
-  path: string;
-  name: string;
-  isDir: boolean;
-  size: number;
-  /** Seconds since the epoch. */
-  modified: number;
 }
 
 /** List one directory under the root (non-recursive; "" = the root). Desktop only. */

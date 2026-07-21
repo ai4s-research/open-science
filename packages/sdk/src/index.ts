@@ -1,6 +1,8 @@
 export { OpenCodeClient } from "./OpenCodeClient";
 export type { AgentRuntime } from "./runtime";
 export { BaseAgentRuntime } from "./base-runtime";
+export type { WorkspaceOps } from "./workspace";
+export type { DirEntry, ArtifactFile, FileRoot } from "@ai4s/shared";
 export {
   OPENCODE_VERSION,
   DEFAULT_OPENCODE_URL,

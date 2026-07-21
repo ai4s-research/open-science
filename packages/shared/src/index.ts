@@ -222,6 +222,29 @@ export type Inspector =
  *  workspace (default) or the base folder all session workspaces live under. */
 export type FileRoot = "workspace" | "base";
 
+/** A workspace file read for preview / forwarded across the runtime seam.
+ *  `data` is UTF-8 text when `encoding === "utf8"`, base64 when binary. Carries
+ *  enough to rebuild a `data:` URL (`toDataUrl`) or raw bytes (`base64ToBytes`)
+ *  on the consumer side. */
+export interface ArtifactFile {
+  path: string;
+  mime: string;
+  /** "utf8" for text, "base64" for binary. */
+  encoding: "utf8" | "base64";
+  data: string;
+  size: number;
+}
+
+/** One non-recursive entry from listing a workspace directory. */
+export interface DirEntry {
+  path: string;
+  name: string;
+  isDir: boolean;
+  size: number;
+  /** Seconds since the epoch. */
+  modified: number;
+}
+
 /** A real .ipynb in the workspace, opened in the runnable notebook editor. */
 export interface NotebookFileInspector {
   variant: "notebook-file";
