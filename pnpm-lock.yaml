@@ -200,6 +200,9 @@ importers:
       '@ai4s/shared':
         specifier: workspace:*
         version: link:../shared
+      '@tauri-apps/api':
+        specifier: ^2.1.1
+        version: 2.11.1
 
   packages/shared: {}
 

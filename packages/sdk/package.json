@@ -10,6 +10,7 @@
     "./mock-server": "./src/mockServer.ts"
   },
   "dependencies": {
-    "@ai4s/shared": "workspace:*"
+    "@ai4s/shared": "workspace:*",
+    "@tauri-apps/api": "^2.1.1"
   }
 }

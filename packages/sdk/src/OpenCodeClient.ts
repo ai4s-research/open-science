@@ -21,6 +21,7 @@ import type {
 import { DEFAULT_OPENCODE_URL } from "./types";
 import type { AgentRuntime } from "./runtime";
 import { BaseAgentRuntime } from "./base-runtime";
+import type { WorkspaceOps, DirEntry, ArtifactFile } from "./workspace";
 
 function mapToolStatus(status: string): ToolCallStatus {
   switch (status) {
@@ -59,7 +60,7 @@ function parseModel(model?: string | null): { providerID: string; modelID: strin
  * Talks to a running `opencode serve` over its HTTP + SSE API. The UI must go
  * through this class, never the transport directly (see AGENTS.md guardrails).
  */
-export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
+export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime, WorkspaceOps {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly authHeader: string | null;
@@ -655,6 +656,32 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       agent: c.agent,
       template: typeof c.template === "string" ? c.template : undefined,
     }));
+  }
+
+  // ---- WorkspaceOps (RFC runtime-evolution.md §4) ----
+  // The desktop host owns the filesystem, so OpenCodeClient exposes file ops
+  // by forwarding to the existing Tauri commands. No Rust changes. A remote
+  // runtime would implement these over its own transport.
+  async listDir(relPath: string): Promise<DirEntry[]> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<DirEntry[]>("list_dir", { rel: relPath, root: "workspace" });
+  }
+
+  async readFile(relPath: string): Promise<{ text: string } | { artifact: ArtifactFile }> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const a = await invoke<ArtifactFile>("read_artifact", { path: relPath, root: "workspace" });
+    return a.encoding === "utf8" ? { text: a.data } : { artifact: a };
+  }
+
+  // Stubs: `implements WorkspaceOps` requires all four members, but the
+  // mutating half (writeFile/deleteFile) lands in Task 1.3. They are deliberately
+  // NOT wired to Tauri here — callers get a loud error rather than a silent no-op.
+  async writeFile(_relPath: string, _content: string): Promise<void> {
+    throw new Error("OpenCodeClient.writeFile not implemented yet (Task 1.3)");
+  }
+
+  async deleteFile(_relPath: string): Promise<void> {
+    throw new Error("OpenCodeClient.deleteFile not implemented yet (Task 1.3)");
   }
 
   /** Run a shell command directly in the session's workspace — no model turn.
