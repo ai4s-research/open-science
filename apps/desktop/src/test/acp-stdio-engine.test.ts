@@ -49,3 +49,28 @@ describe("AcpStdioEngine", () => {
     engine.close();
   });
 });
+
+describe("AcpStdioEngine event normalization", () => {
+  it("session/update with TextDelta → text.updated", () => {
+    const engine = new AcpStdioEngine({ kind: "acp-stdio", command: "x", args: [] });
+    const events: any[] = [];
+    engine.onEvent((e) => events.push(e));
+    // Access protected method via any-cast for testing.
+    (engine as any).handleNotification("session/update", {
+      sessionId: "s1",
+      update: { type: "agent", message: { parts: [{ type: "text", text: "hi" }] } },
+    });
+    expect(events.some((e) => e.type === "text.updated")).toBe(true);
+  });
+
+  it("session/update end_of_turn → session.idle", () => {
+    const engine = new AcpStdioEngine({ kind: "acp-stdio", command: "x", args: [] });
+    const events: any[] = [];
+    engine.onEvent((e) => events.push(e));
+    (engine as any).handleNotification("session/update", {
+      sessionId: "s1",
+      update: { type: "agent", stop: { reason: "end_turn" } },
+    });
+    expect(events.some((e) => e.type === "session.idle")).toBe(true);
+  });
+});

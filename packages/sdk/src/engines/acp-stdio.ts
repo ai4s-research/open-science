@@ -122,8 +122,49 @@ export class AcpStdioEngine extends BaseAgentRuntime {
     }
   }
 
-  /** Handle an agent notification — to be filled in by Task 3.2. */
-  protected handleNotification(_method: string, _params: unknown): void {
-    // Implemented in Task 3.2.
+  /** Translate an ACP `session/update` notification into one or more
+   *  normalized OpenCodeEvent values. The store's `foldEvent` reducer keys
+   *  text/reasoning blocks by `partId` and upserts, so the synthesized ids
+   *  below must be STABLE across deltas of the same part — a counter would
+   *  fragment the stream into one block per token. ACP text/reasoning parts
+   *  don't carry ids, so we use a fixed per-part-kind prefix scoped to this
+   *  session. Tool-call parts are logged but NOT normalized here (TODO, RFC
+   *  §3.5 — deferred to a follow-up that can map ACP's tool shape onto
+   *  ToolUpdatedEvent). */
+  protected handleNotification(method: string, params: unknown): void {
+    if (method !== "session/update") return;
+    const p = params as {
+      sessionId?: string;
+      update?: {
+        type?: string;
+        message?: { parts?: Array<{ type: string; text?: string; reasoning?: string }> };
+        stop?: { reason?: string };
+      };
+    };
+    const sid = p.sessionId ?? this.sessionId ?? "";
+    const update = p.update ?? {};
+
+    // Text + reasoning deltas — one event per matching part.
+    if (update.type === "agent" && update.message?.parts) {
+      for (const part of update.message.parts) {
+        if (part.type === "text" && part.text !== undefined) {
+          this.emit({ type: "text.updated", sessionId: sid, partId: "acp-text", text: part.text });
+        } else if (part.type === "reasoning" && part.reasoning !== undefined) {
+          this.emit({
+            type: "reasoning.updated",
+            sessionId: sid,
+            partId: "acp-reasoning",
+            text: part.reasoning,
+          });
+        }
+        // TODO: tool calls — log but don't normalize in this PR (RFC §3.5).
+      }
+    }
+
+    // Turn end — presence of stop.reason marks the agent idle, regardless of
+    // the specific reason (end_turn, stop_sequence, max_tokens, …).
+    if (update.type === "agent" && update.stop?.reason) {
+      this.emit({ type: "session.idle", sessionId: sid });
+    }
   }
 }
