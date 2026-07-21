@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "codex-local/codex-cli",
+  "provider": {
+    "codex-local": {
+      "name": "Local Codex CLI",
+      "npm": "@ai-sdk/openai-compatible",
+      "models": {
+        "codex-cli": {
+          "name": "Codex CLI"
+        }
+      },
+      "options": {
+        "apiKey": "replace-with-the-same-local-secret",
+        "baseURL": "http://127.0.0.1:17891/v1"
+      }
+    }
+  }
+}
