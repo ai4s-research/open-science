@@ -38,7 +38,7 @@ export function selectionAvailability(
   const modelID = modelParts.join("/");
   const model = providers.find((p) => p.id === providerID)?.models.find((m) => m.id === modelID);
   if (!model) return "model-unavailable";
-  if (selection.variant && !model.variants.includes(selection.variant)) return "variant-unavailable";
+  if (selection.variant && model.variants.length > 0 && !model.variants.includes(selection.variant)) return "variant-unavailable";
   return "available";
 }
 

@@ -61,11 +61,18 @@ describe("selectionAvailability", () => {
     expect(selectionAvailability({ model: "q/deep", variant: "high" }, providers)).toBe("available");
   });
 
-  it("returns variant-unavailable when variant is missing", () => {
+  it("returns variant-unavailable when variant is missing from non-empty list", () => {
+    expect(selectionAvailability(
+      { model: "q/deep", variant: "max" },
+      [{ id: "q", name: "Q", models: [{ id: "deep", name: "Deep", variants: ["low", "high"] }] }],
+    )).toBe("variant-unavailable");
+  });
+
+  it("returns available for any variant when provider returns empty variants", () => {
     expect(selectionAvailability(
       { model: "p/base", variant: "high" },
       [{ id: "p", name: "P", models: [{ id: "base", name: "Base", variants: [] }] }],
-    )).toBe("variant-unavailable");
+    )).toBe("available");
   });
 
   it("returns model-unavailable when model does not exist", () => {

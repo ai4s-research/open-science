@@ -15,7 +15,7 @@ export function ModelEffortSelector() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(new Set());
-  const [hoveredModel, setHoveredModel] = useState<string | null>(null);
+  const [activeModel, setActiveModel] = useState<string | null>(null);
   const [thinkingOn, setThinkingOn] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -56,7 +56,7 @@ export function ModelEffortSelector() {
     const onDown = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
-        setHoveredModel(null);
+        setActiveModel(null);
       }
     };
     document.addEventListener("mousedown", onDown);
@@ -70,7 +70,7 @@ export function ModelEffortSelector() {
       if (e.key === "Escape") {
         e.preventDefault();
         setOpen(false);
-        setHoveredModel(null);
+        setActiveModel(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -101,7 +101,7 @@ export function ModelEffortSelector() {
     try {
       await setDefaultSelection(newSelection);
       setOpen(false);
-      setHoveredModel(null);
+      setActiveModel(null);
     } catch {
       // error already in store.error
     }
@@ -110,10 +110,12 @@ export function ModelEffortSelector() {
   const handlePickVariant = (variant: string | null) => {
     if (!selection) return;
     setCurrentSelection({ ...selection, variant });
+    setOpen(false);
+    setActiveModel(null);
   };
 
-  const isHoveredCurrent = hoveredModel === currentModelKey;
-  const showEffortPanel = hoveredModel !== null;
+  const isActiveCurrent = activeModel === currentModelKey;
+  const showEffortPanel = activeModel !== null;
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
@@ -162,7 +164,7 @@ export function ModelEffortSelector() {
                     {!collapsed &&
                       models.map((opt) => {
                         const isCurrent = opt.key === currentModelKey;
-                        const isHovered = opt.key === hoveredModel;
+                        const isActive = opt.key === activeModel;
                         return (
                           <button
                             key={opt.key}
@@ -170,17 +172,22 @@ export function ModelEffortSelector() {
                             aria-checked={isCurrent}
                             className={cn(
                               "flex w-full items-center gap-1.5 py-1.5 pl-7 pr-2 text-left text-xs",
-                              isHovered ? "bg-surface-2" : "",
+                              isActive ? "bg-surface-2" : "",
                               isCurrent ? "text-accent" : "text-text",
                             )}
-                            onMouseEnter={() => setHoveredModel(opt.key)}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              if (!isCurrent) void handlePickModel(opt.key);
+                            onClick={() => {
+                              if (isActive) {
+                                setActiveModel(null);
+                              } else {
+                                setActiveModel(opt.key);
+                              }
                             }}
                           >
                             <Cpu size={12} className="shrink-0 text-muted" />
                             <span className="min-w-0 flex-1 truncate">{opt.modelName}</span>
+                            {opt.variants.length > 0 && (
+                              <Brain size={10} className="shrink-0 text-muted/60" />
+                            )}
                             {isCurrent && <span className="shrink-0 text-accent">✓</span>}
                           </button>
                         );
@@ -191,7 +198,7 @@ export function ModelEffortSelector() {
             </div>
           </div>
 
-          {/* Right: effort panel (shown when a model is hovered) */}
+          {/* Right: effort panel (shown when a model is clicked) */}
           {showEffortPanel && (
             <div className="flex w-40 flex-col">
               <div className="px-2 py-1.5 text-xs text-muted">
@@ -200,8 +207,7 @@ export function ModelEffortSelector() {
               {/* Thinking toggle */}
               <button
                 className="flex w-full items-center gap-2 px-2 py-1.5 text-xs hover:bg-surface-2"
-                onMouseDown={(e) => {
-                  e.preventDefault();
+                onClick={(e) => {
                   e.stopPropagation();
                   setThinkingOn((v) => !v);
                 }}
@@ -228,28 +234,45 @@ export function ModelEffortSelector() {
                 <button
                   key={v}
                   className="flex w-full items-center gap-2 px-2 py-1 text-xs hover:bg-surface-2"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
+                  onClick={(e) => {
                     e.stopPropagation();
-                    if (isHoveredCurrent) {
+                    if (isActiveCurrent) {
                       handlePickVariant(selection?.variant === v ? null : v);
                     } else {
                       void setDefaultSelection({
-                        model: hoveredModel!,
+                        model: activeModel!,
                         variant: v,
                       }).then(() => {
                         setOpen(false);
-                        setHoveredModel(null);
+                        setActiveModel(null);
                       });
                     }
                   }}
                 >
                   <span className="flex-1 capitalize text-text">{v}</span>
-                  {isHoveredCurrent && selection?.variant === v && (
+                  {isActiveCurrent && selection?.variant === v && (
                     <span className="text-accent">✓</span>
                   )}
                 </button>
               ))}
+              {/* Default (clear variant) */}
+              <div className="border-t border-border" />
+              <button
+                className="flex w-full items-center gap-2 px-2 py-1 text-xs hover:bg-surface-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isActiveCurrent) {
+                    handlePickVariant(null);
+                  } else {
+                    void handlePickModel(activeModel!);
+                  }
+                }}
+              >
+                <span className="flex-1 text-muted">{t("composer.modelSelector.defaultVariant")}</span>
+                {isActiveCurrent && !selection?.variant && (
+                  <span className="text-accent">✓</span>
+                )}
+              </button>
             </div>
           )}
         </div>
