@@ -7,7 +7,15 @@ import { flattenModelOptions, type ModelOption } from "@/components/settings/mod
 import { resolveSelection } from "@/lib/modelSelection";
 import type { ProviderInfo } from "@ai4s/sdk";
 
-const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "extra_high", "max", "ultra"];
+const EFFORT_LEVELS: [string, string][] = [
+  ["minimal", "Minimal"],
+  ["low", "Low"],
+  ["medium", "Medium"],
+  ["high", "High"],
+  ["extra_high", "Extra High"],
+  ["max", "Max"],
+  ["ultra", "Ultra"],
+];
 
 export function ModelEffortSelector() {
   const { t } = useTranslation("session");
@@ -115,7 +123,7 @@ export function ModelEffortSelector() {
         <div
           role="menu"
           aria-label={t("composer.modelSelector.menuAria")}
-          className="absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-[28rem] rounded-card border border-border bg-surface shadow-card"
+          className="absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-72 rounded-card border border-border bg-surface shadow-card"
         >
           {/* Left: model list */}
           <div className="flex w-44 flex-col border-r border-border">
@@ -217,17 +225,17 @@ export function ModelEffortSelector() {
               {!selection?.variant && <span className="text-accent">✓</span>}
             </button>
             {/* Effort levels */}
-            {EFFORT_LEVELS.map((v) => (
+            {EFFORT_LEVELS.map(([value, label]) => (
               <button
-                key={v}
+                key={value}
                 className="flex w-full items-center gap-2 px-2 py-1 text-xs hover:bg-surface-2"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handlePickVariant(v);
+                  handlePickVariant(value);
                 }}
               >
-                <span className="flex-1 capitalize text-text">{v}</span>
-                {selection?.variant === v && <span className="text-accent">✓</span>}
+                <span className="flex-1 text-text">{label}</span>
+                {selection?.variant === value && <span className="text-accent">✓</span>}
               </button>
             ))}
           </div>
