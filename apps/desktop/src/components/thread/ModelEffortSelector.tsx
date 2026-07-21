@@ -8,6 +8,8 @@ import { resolveSelection, selectionAvailability } from "@/lib/modelSelection";
 import type { ModelSelection } from "@/lib/modelSelection";
 import type { ProviderInfo } from "@ai4s/sdk";
 
+const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "extra_high", "max", "ultra"];
+
 export function ModelEffortSelector() {
   const { t } = useTranslation("session");
   const [open, setOpen] = useState(false);
@@ -112,8 +114,6 @@ export function ModelEffortSelector() {
     setHoveredModel(null);
   };
 
-  const hoveredOption = hoveredModel ? options.find((o) => o.key === hoveredModel) : null;
-  const hoveredVariants = hoveredOption?.variants ?? [];
   const isHoveredCurrent = hoveredModel === currentModelKey;
 
   return (
@@ -223,41 +223,35 @@ export function ModelEffortSelector() {
                                 </span>
                               </button>
                               {/* Effort levels */}
-                              {hoveredVariants.length > 0 ? (
-                                hoveredVariants.map((v) => (
-                                  <button
-                                    key={v}
-                                    className="flex w-full items-center gap-2 px-2 py-1 text-xs hover:bg-surface-2"
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      if (isHoveredCurrent) {
-                                        handlePickVariant(
-                                          selection?.variant === v ? null : v,
-                                        );
-                                      } else {
-                                        // Select model + variant
-                                        void setDefaultSelection({
-                                          model: opt.key,
-                                          variant: v,
-                                        }).then(() => {
-                                          setOpen(false);
-                                          setHoveredModel(null);
-                                        });
-                                      }
-                                    }}
-                                  >
-                                    <span className="flex-1 capitalize text-text">{v}</span>
-                                    {isHoveredCurrent && selection?.variant === v && (
-                                      <span className="text-accent">✓</span>
-                                    )}
-                                  </button>
-                                ))
-                              ) : (
-                                <div className="px-2 py-1 text-xs text-muted italic">
-                                  No variants
-                                </div>
-                              )}
+                              {EFFORT_LEVELS.map((v) => (
+                                <button
+                                  key={v}
+                                  className="flex w-full items-center gap-2 px-2 py-1 text-xs hover:bg-surface-2"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (isHoveredCurrent) {
+                                      handlePickVariant(
+                                        selection?.variant === v ? null : v,
+                                      );
+                                    } else {
+                                      // Select model + variant
+                                      void setDefaultSelection({
+                                        model: hoveredModel!,
+                                        variant: v,
+                                      }).then(() => {
+                                        setOpen(false);
+                                        setHoveredModel(null);
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <span className="flex-1 capitalize text-text">{v}</span>
+                                  {isHoveredCurrent && selection?.variant === v && (
+                                    <span className="text-accent">✓</span>
+                                  )}
+                                </button>
+                              ))}
                             </div>
                           )}
                         </div>
