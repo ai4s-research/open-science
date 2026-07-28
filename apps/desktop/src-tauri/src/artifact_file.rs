@@ -462,6 +462,7 @@ pub fn write_workspace_file(
 /// Pick local files via the native open dialog and copy them into the agent
 /// workspace so the agent can read them. Returns workspace-relative names
 /// (deduplicated as name-1.ext, name-2.ext on collision); empty on cancel.
+/// Files already inside the workspace attach in place without copying.
 #[tauri::command]
 pub async fn add_files_to_workspace(app: AppHandle) -> Result<Vec<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -469,9 +470,19 @@ pub async fn add_files_to_workspace(app: AppHandle) -> Result<Vec<String>, Strin
         return Ok(Vec::new()); // user cancelled
     };
     let ws = workspace_dir(&app)?;
+    // Canonicalize once so we can tell whether a picked path already resolves
+    // to somewhere inside the workspace (through symlinks / `..` / case).
+    let ws_canon = ws.canonicalize().unwrap_or_else(|_| ws.clone());
     let mut added = Vec::new();
+    let mut copied = false;
     for file in picked {
         let src = file.into_path().map_err(|e| e.to_string())?;
+        // Already inside the workspace → attach its workspace-relative path in
+        // place rather than copying it to the root.
+        if let Some(rel) = workspace_relative(&ws_canon, &src) {
+            added.push(rel);
+            continue;
+        }
         let name = src
             .file_name()
             .ok_or("picked path has no file name")?
@@ -480,8 +491,9 @@ pub async fn add_files_to_workspace(app: AppHandle) -> Result<Vec<String>, Strin
         let dst_name = unique_name(&ws, &name);
         std::fs::copy(&src, ws.join(&dst_name)).map_err(|e| format!("copy failed: {e}"))?;
         added.push(dst_name);
+        copied = true;
     }
-    if !added.is_empty() {
+    if copied {
         crate::git_snapshot::request_snapshot(&ws);
     }
     Ok(added)
