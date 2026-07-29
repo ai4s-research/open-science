@@ -26,6 +26,9 @@ tar -xzf "$TMP"/*.tgz -C "$TMP"
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
+# Give npm an explicit project boundary. Installing from an empty directory
+# otherwise walks up to the monorepo root and mutates (or fails against) it.
+(cd "$OUT_DIR" && npm init --yes --silent > /dev/null)
 ESBUILD_VERSION="0.24.2"
 npm exec --yes --package="esbuild@${ESBUILD_VERSION}" -- esbuild "$TMP/package/dist/server.js" \
   --bundle --format=esm --platform=node \
@@ -41,7 +44,7 @@ echo "$GOAL_PLUGIN_VERSION" > "$OUT_DIR/.version"
 # This script runs on every release target, so optional native packages match
 # that platform.
 (cd "$OUT_DIR" && npm install --silent --no-fund --no-audit --omit=dev --ignore-scripts \
-  "@opencode-ai/plugin@${OPENCODE_PLUGIN_VERSION}" > /dev/null)
+  --save-exact "@opencode-ai/plugin@${OPENCODE_PLUGIN_VERSION}" > /dev/null)
 echo "$OPENCODE_PLUGIN_VERSION" > "$OUT_DIR/.opencode-plugin-version"
 
 echo "Placed ${PKG}@${GOAL_PLUGIN_VERSION} in $OUT_DIR:"

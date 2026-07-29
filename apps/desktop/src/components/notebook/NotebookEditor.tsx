@@ -75,6 +75,10 @@ export function NotebookEditor({
   const cellsRef = useRef<NotebookCell[] | null>(null);
   cellsRef.current = cells;
   const rawRef = useRef<string | null>(null);
+  const revisionRef = useRef(0);
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const targetRef = useRef({ path, root });
+  targetRef.current = { path, root };
   const savedRef = useRef(true);
   savedRef.current = saved;
 
@@ -101,6 +105,7 @@ export function NotebookEditor({
       const raw = await readRaw();
       if (raw === null) throw new Error("could not read the notebook");
       rawRef.current = raw;
+      revisionRef.current += 1;
       setLanguage(notebookLanguage(raw));
       setCells(parseIpynb(raw));
       setSaved(true);
@@ -166,6 +171,7 @@ export function NotebookEditor({
           const raw = await readRaw();
           if (raw !== null && rawRef.current !== null && raw !== rawRef.current) {
             rawRef.current = raw;
+            revisionRef.current += 1;
             setLanguage(notebookLanguage(raw));
             setCells(parseIpynb(raw));
           }
@@ -180,11 +186,31 @@ export function NotebookEditor({
   const save = useCallback(async () => {
     const current = cellsRef.current;
     if (!current) return;
+    const revision = revisionRef.current;
+    const target = { path, root };
+    const out = serializeIpynb(current);
+
+    // Preserve write order. Without a single queue, an older slow write can
+    // finish after a newer one and leave stale notebook bytes on disk.
+    const pending = writeQueueRef.current.then(() =>
+      writeWorkspaceFile(target.path, out, target.root),
+    );
+    // A failed write must not poison the queue: a later edit should still save.
+    writeQueueRef.current = pending.catch(() => undefined);
     try {
-      const out = serializeIpynb(current);
-      await writeWorkspaceFile(path, out, root);
-      rawRef.current = out; // our own write is not an external change
-      setSaved(true);
+      await pending;
+      const activeTarget = targetRef.current;
+      // An edit made during the await owns a newer revision. Keeping it
+      // Unsaved also keeps its debounce alive for the next queued write.
+      if (
+        activeTarget.path === target.path &&
+        activeTarget.root === target.root &&
+        revisionRef.current === revision &&
+        cellsRef.current === current
+      ) {
+        rawRef.current = out; // our own current write is not an external change
+        setSaved(true);
+      }
     } catch (e) {
       toast.error(`Could not save: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -199,6 +225,7 @@ export function NotebookEditor({
   }, [cells, saved, save]);
 
   const update = (index: number, patch: Partial<NotebookCell>) => {
+    revisionRef.current += 1;
     setCells((c) => c?.map((cell) => (cell.index === index ? { ...cell, ...patch } : cell)) ?? null);
     setSaved(false);
   };
@@ -241,6 +268,7 @@ export function NotebookEditor({
   };
 
   const addCell = () => {
+    revisionRef.current += 1;
     setCells((c) => {
       const next = (c?.[c.length - 1]?.index ?? 0) + 1;
       return [...(c ?? []), { index: next, language, code: "" }];
@@ -249,6 +277,7 @@ export function NotebookEditor({
   };
 
   const removeCell = (index: number) => {
+    revisionRef.current += 1;
     setCells((c) => c?.filter((cell) => cell.index !== index) ?? null);
     setSaved(false);
   };

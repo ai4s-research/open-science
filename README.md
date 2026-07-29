@@ -239,10 +239,12 @@ git clone https://github.com/ai4s-research/open-science
 cd open-science
 pnpm install
 
-# Fetch pinned sidecars and bundled skills. These are git-ignored.
+# Fetch pinned sidecars, bundled skills, and runtime resources. These are git-ignored.
 bash scripts/dev/fetch-opencode.sh
 bash scripts/dev/fetch-uv.sh
 bash scripts/dev/fetch-skills.sh
+bash scripts/dev/fetch-agent-browser.sh
+bash scripts/dev/fetch-goal-plugin.sh
 
 # Run in development or build installers.
 pnpm --filter @ai4s/desktop tauri dev
