@@ -581,7 +581,9 @@ fn fs_base(ctx: &Ctx, req: &Request) -> Result<PathBuf, String> {
             .canonicalize()
             .map_err(|e| e.to_string())?;
         let canon = PathBuf::from(&dir).canonicalize().map_err(|_| "dir not found".to_string())?;
-        if canon.starts_with(&base_root) {
+        if canon.starts_with(&base_root)
+            || crate::project::is_registered_project_path(&ctx.app, &canon)
+        {
             return Ok(canon);
         }
         return Err("dir is outside the workspace".into());

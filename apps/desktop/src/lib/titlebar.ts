@@ -10,11 +10,19 @@ export const TRAFFIC_LIGHT_INSET_PX = 78; // clears the three-button cluster
 
 /** Inline style for a macOS overlay-titlebar strip. When `clearsLights` is
  *  true the strip insets past the traffic lights; otherwise it uses a small pad
- *  (matches pl-2). Both dimensions divide by --zoom so the strip stays a fixed
- *  physical size regardless of page zoom. */
+ *  (matches pl-2). Both dimensions divide by --zoom so the strip covers the same
+ *  PHYSICAL area (where the lights actually are) at every page zoom.
+ *
+ *  The height is a MINIMUM, not a fixed size. Page zoom leaves CSS pixel values
+ *  untouched — it only scales rendering — so above 100% the counter-scaled
+ *  height shrinks below what the strip's own buttons and text need, and a fixed
+ *  height made them spill over the row below (#63: the chat header distorting
+ *  after a zoom change). As a minimum it still grows the strip to clear the
+ *  lights when zoomed OUT, and simply yields to the content when zoomed in —
+ *  where the lights need less CSS space anyway. */
 export function overlayTitlebarStyle(clearsLights: boolean): CSSProperties {
   return {
-    height: `calc(${TITLEBAR_HEIGHT_PX}px / var(--zoom))`,
+    minHeight: `calc(${TITLEBAR_HEIGHT_PX}px / var(--zoom))`,
     paddingLeft: clearsLights
       ? `calc(${TRAFFIC_LIGHT_INSET_PX}px / var(--zoom))`
       : "calc(0.5rem / var(--zoom))",

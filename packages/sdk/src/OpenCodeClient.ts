@@ -15,6 +15,8 @@ import type {
   QuestionAskedEvent,
   PermissionAskedEvent,
   SessionMeta,
+  SessionPage,
+  SessionQuery,
   SkillInfo,
   ToolCallStatus,
 } from "./types";
@@ -95,6 +97,39 @@ function orderVariants(names: string[]): string[] {
   };
   return [...names].sort((a, b) => rank(a) - rank(b) || names.indexOf(a) - names.indexOf(b));
 }
+
+/** Sessions requested per `/experimental/session` page. Above the server's own
+ *  unparameterized default (100), so the usual case is one round trip. */
+const SESSION_PAGE = 200;
+
+/** Recent conversations kept in memory for the sidebar. Deliberately small: a
+ *  session costs ~645 bytes on the wire, so a multi-year history is megabytes
+ *  (measured: 3.1 MB at 5k) and re-fetching it on every refresh would grow
+ *  without bound. Everything beyond this window is reached through the
+ *  History page, which pages and searches on the server. */
+const RECENT_WINDOW = 200;
+
+/** Pages the recent window will walk looking for enough NON-archived
+ *  conversations before giving up. Only bites if a user has archived
+ *  thousands of consecutive sessions. */
+const RECENT_MAX_PAGES = 5;
+
+/** Smallest page actually requested from the server, whatever the caller asked
+ *  for. The cursor overlaps the millisecond it stopped in, so a page has to be
+ *  bigger than the run of sessions sharing that millisecond or the walk cannot
+ *  advance at all. 50 is far past anything real (the 5k load test averaged ~1.5
+ *  per millisecond) and costs ~32 KB. */
+const MIN_FETCH = 50;
+
+/** Our own bookkeeping on a session, kept in OpenCode's `metadata`. The server
+ *  returns it with the session list (no extra request), it survives a
+ *  reinstall, and it reaches the gateway web client like everything else.
+ *
+ *  OpenCode's OWN `time.archived` is deliberately NOT used: verified against
+ *  the pinned 1.17.13 that once set it cannot be cleared through the API
+ *  (`null`, `0` and `{}` all leave the session hidden, and there is no
+ *  unarchive route), which would make archiving a one-way door. */
+const META_NS = "ai4s";
 
 /**
  * The single boundary between the app and the OpenCode agent runtime.
@@ -324,18 +359,67 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     return json.id;
   }
 
-  /** List existing sessions (conversation history), newest first — across ALL
-   *  workspace folders. The plain `/session` list is scoped to the project the
-   *  sidecar's cwd resolves to, so history would appear to change when the user
-   *  switches folders; `/experimental/session` lists every project's sessions
-   *  (each item still carries its `directory`). The OpenCode version is pinned,
-   *  so the experimental route is stable for us; fall back to `/session` if a
-   *  server ever lacks it. */
+  /** The recent conversations the sidebar shows: newest first, across every
+   *  workspace folder, archived ones excluded. Bounded by RECENT_WINDOW — the
+   *  whole history is never held in memory (see the constant). */
   async listSessions(): Promise<SessionMeta[]> {
-    let res = await this.fetchWithTimeout(`${this.baseUrl}/experimental/session`, {
+    const page = await this.querySessions({ limit: RECENT_WINDOW });
+    return page.sessions.slice(0, RECENT_WINDOW);
+  }
+
+  /** One page of conversation history, newest first, across every workspace
+   *  folder. Searching and paging happen on the SERVER (measured against 5038
+   *  live sessions: a 200-row page in 18 ms, a title search in 1 ms, the whole
+   *  history in 26 gap-free pages), so the app never holds a multi-year
+   *  history to find something in it.
+   *
+   *  Archived conversations are dropped unless `archived` is set. That filter
+   *  runs here, not on the server: the server's own `archived` flag is
+   *  one-way (see META_NS), so ours lives in `metadata`, which the list
+   *  already returns. Pages are topped up so filtering never hands back a
+   *  nearly-empty page and makes the user click "load more" repeatedly. */
+  async querySessions(query: SessionQuery = {}): Promise<SessionPage> {
+    const limit = query.limit ?? SESSION_PAGE;
+    const out: SessionMeta[] = [];
+    const seen = new Set<string>();
+    let cursor = query.cursor ?? null;
+    for (let attempt = 0; attempt < RECENT_MAX_PAGES; attempt++) {
+      const raw = await this.rawSessionPage({
+        ...query,
+        limit: Math.max(limit, MIN_FETCH),
+        cursor,
+      });
+      // The +1 cursor deliberately re-reads the shared millisecond it stopped
+      // in, so a top-up round always overlaps the previous one by at least a
+      // row — dedupe here or the loop can spin without making progress.
+      const fresh = raw.sessions.filter((s) => !seen.has(s.id));
+      fresh.forEach((s) => seen.add(s.id));
+      out.push(...(query.archived ? fresh : fresh.filter((s) => s.archived == null)));
+      cursor = raw.nextCursor;
+      if (cursor === null || out.length >= limit || fresh.length === 0) break;
+    }
+    return { sessions: out, nextCursor: cursor };
+  }
+
+  /** One HTTP page, unfiltered.
+   *
+   *  The plain `/session` list is scoped to the folder the sidecar's cwd
+   *  resolves to, so history would appear to change when the user switches
+   *  projects; `/experimental/session` lists every project's sessions. Falls
+   *  back to `/session` on a server without the experimental route. */
+  private async rawSessionPage(query: SessionQuery): Promise<SessionPage> {
+    const limit = query.limit ?? SESSION_PAGE;
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (query.cursor != null) params.set("cursor", String(query.cursor));
+    if (query.search) params.set("search", query.search);
+
+    let res = await this.fetchWithTimeout(`${this.baseUrl}/experimental/session?${params}`, {
       headers: this.headers(),
     });
     if (!res.ok) {
+      // No experimental route means no paging either: answer its one list and
+      // report no next page.
+      if (query.cursor != null) return { sessions: [], nextCursor: null };
       res = await this.fetchWithTimeout(`${this.baseUrl}/session`, { headers: this.headers() });
     }
     if (!res.ok) throw await this.apiError(res, "Failed to list sessions");
@@ -345,17 +429,89 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       slug?: string;
       directory?: string;
       parentID?: string | null;
+      metadata?: Record<string, unknown>;
       time?: { created?: number; updated?: number };
     }>;
-    return arr.map((s) => ({
-      id: s.id,
-      title: s.title ?? "Untitled",
-      slug: s.slug,
-      directory: s.directory,
-      parentId: s.parentID ?? undefined,
-      created: s.time?.created,
-      updated: s.time?.updated,
-    }));
+    const sessions = arr.map((s) => {
+      const mine = (s.metadata?.[META_NS] ?? {}) as { archived?: number };
+      return {
+        id: s.id,
+        title: s.title ?? "Untitled",
+        slug: s.slug,
+        directory: s.directory,
+        parentId: s.parentID ?? undefined,
+        created: s.time?.created,
+        updated: s.time?.updated,
+        ...(typeof mine.archived === "number" ? { archived: mine.archived } : {}),
+        ...(s.metadata ? { metadata: s.metadata } : {}),
+      } satisfies SessionMeta;
+    });
+
+    // The cursor is exclusive ("strictly older than"), and thousands of
+    // sessions can share one millisecond — 1699 of 5038 did in the load test.
+    // Cursoring on the last row's own timestamp therefore DROPS the rest of
+    // that millisecond (8 sessions vanished); +1 re-reads the run instead, and
+    // callers dedupe by id. Same page count, no silent loss.
+    const last = sessions[sessions.length - 1]?.updated;
+    const nextCursor = sessions.length < limit || last == null ? null : last + 1;
+    return { sessions, nextCursor };
+  }
+
+  /** Archive a conversation (or restore it with `false`). Recorded in the
+   *  session's `metadata`, preserving anything else stored there. */
+  async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/session/${encodeURIComponent(sessionId)}`,
+      { headers: this.headers() },
+    );
+    if (!res.ok) throw await this.apiError(res, "Failed to read the session");
+    const current = (await res.json()) as { metadata?: Record<string, unknown> };
+    // PATCH replaces `metadata` wholesale, so merge rather than overwrite —
+    // another client's keys must survive our edit.
+    const metadata: Record<string, unknown> = { ...(current.metadata ?? {}) };
+    const mine = { ...((metadata[META_NS] as Record<string, unknown>) ?? {}) };
+    if (archived) mine.archived = Date.now();
+    else delete mine.archived;
+    if (Object.keys(mine).length > 0) metadata[META_NS] = mine;
+    else delete metadata[META_NS];
+
+    const patch = await this.fetchWithTimeout(
+      `${this.baseUrl}/session/${encodeURIComponent(sessionId)}`,
+      { method: "PATCH", headers: this.headers(true), body: JSON.stringify({ metadata }) },
+    );
+    if (!patch.ok) throw await this.apiError(patch, "Failed to archive the session");
+  }
+
+  /** Rename a session (PATCH /session/:id). OpenCode titles a new session
+   *  "New session - <timestamp>" and only replaces that once the model has
+   *  summarized the first turn — which can silently not happen (#63), leaving
+   *  an unreadable history. This is the user's own way out. */
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/session/${encodeURIComponent(sessionId)}`,
+      {
+        method: "PATCH",
+        headers: this.headers(true),
+        body: JSON.stringify({ title }),
+      },
+    );
+    if (!res.ok) throw await this.apiError(res, "Failed to rename session");
+  }
+
+  /** Re-home an existing session into another workspace folder, so a
+   *  conversation that started loose can be filed under a project (#62).
+   *  `moveChanges: false` — the session's workspace files stay where they are;
+   *  only the conversation moves, which is what "add to project" means here. */
+  async moveSession(sessionId: string, directory: string): Promise<void> {
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/experimental/control-plane/move-session`,
+      {
+        method: "POST",
+        headers: this.headers(true),
+        body: JSON.stringify({ sessionID: sessionId, destination: { directory }, moveChanges: false }),
+      },
+    );
+    if (!res.ok) throw await this.apiError(res, "Failed to move session");
   }
 
   /** Delete a session. */
@@ -1069,6 +1225,18 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
           const r = part as unknown as { id: string; text?: string };
           this.reasoningStreams.set(r.id, { sessionId, text: r.text ?? "" });
           this.emit({ type: "reasoning.updated", sessionId, partId: r.id, text: r.text ?? "" });
+        } else if (part.type === "compaction") {
+          // The runtime summarized the older turns to stay inside the context
+          // window and kept going. Surface it as a marker so the conversation
+          // reads continuously instead of ending in an "exceeds context
+          // window" abort (#62).
+          const c = part as unknown as { auto?: boolean; overflow?: boolean };
+          this.emit({
+            type: "session.compacted",
+            sessionId,
+            auto: c.auto !== false,
+            ...(c.overflow ? { overflow: true } : {}),
+          });
         } else if (part.type === "step-start") {
           // A new model step began — count it (deduped) so the UI can show
           // "step N" and prove the turn is progressing rather than hung.

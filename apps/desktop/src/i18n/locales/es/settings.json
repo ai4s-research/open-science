@@ -9,7 +9,8 @@
     "compute": "Cómputo",
     "privacy": "Privacidad",
     "browser": "Navegador",
-    "remote": "Acceso remoto"
+    "remote": "Acceso remoto",
+    "memory": "Memoria"
   },
   "appearance": {
     "title": "Apariencia",
@@ -195,7 +196,7 @@
   },
   "workspace": {
     "title": "Espacio de trabajo",
-    "hint": "Local-first — cada sesión trabaja en su propia subcarpeta con fecha, creada aquí",
+    "hint": "Local-first — los proyectos están en projects/ y las sesiones independientes en sessions/",
     "unavailable": "disponible en la app de escritorio",
     "change": "Cambiar…",
     "reveal": "Mostrar"
@@ -344,5 +345,30 @@
     "error": "Error al cambiar el acceso remoto",
     "connect": "Conectar",
     "connectPrompt": "Introduce el token de acceso de la app de escritorio → Ajustes → Acceso remoto."
+  },
+  "memory": {
+    "title": "Memoria",
+    "hint": "Contexto duradero que el agente lee antes de cada conversación, para que no tengas que reexplicar un proyecto.",
+    "enableLabel": "Aplicar la memoria a las conversaciones",
+    "enableHint": "Desactivado no carga ninguna capa: útil para una pregunta puntual. Tus archivos se conservan igualmente.",
+    "globalTitle": "Memoria global",
+    "globalHint": "Se aplica a todos los proyectos: quién eres, tus herramientas, cómo quieres las respuestas.",
+    "globalPlaceholder": "# Sobre mí\n- Trabajo en …\n- Usa unidades del SI y cita las fuentes.",
+    "projectTitle": "Memoria del proyecto — {{name}}",
+    "projectHint": "Solo se aplica a las conversaciones de este proyecto: objetivos, terminología, rutas de datos, decisiones.",
+    "projectPlaceholder": "# Proyecto\nObjetivo: …\n\n# Decisiones\n- …",
+    "projectNoneTitle": "Memoria del proyecto",
+    "projectNoneHint": "Cada proyecto tiene su propio archivo de memoria.",
+    "projectNoneBody": "Abre un proyecto para editar su memoria.",
+    "saved": "Guardado",
+    "disabledNote": "La memoria está desactivada, así que este archivo no se carga ahora mismo."
+  },
+  "agentModels": {
+    "title": "Modelo por agente",
+    "hint": "Ejecuta un revisor o explorador en un modelo rápido mientras el agente principal razona en uno potente.",
+    "noModels": "Conecta un proveedor para elegir modelos.",
+    "followDefault": "Modelo predeterminado",
+    "followDefaultNamed": "Predeterminado ({{model}})",
+    "modelFor": "Modelo para {{agent}}"
   }
 }

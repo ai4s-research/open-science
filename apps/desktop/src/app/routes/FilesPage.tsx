@@ -89,7 +89,8 @@ function humanSize(n: number): string {
 
 /**
  * GLOBAL file explorer: browses from the base folder (Settings → Workspace),
- * which holds every session's dated folder — not the active session only.
+ * which contains the structured `projects/` and `sessions/` collections — not
+ * the active session only.
  * Directories are navigable via a breadcrumb; files open in the same viewers
  * used elsewhere (figures, tables, PDF, molecule, genome tracks, notebooks),
  * so all past work is reachable in one place.

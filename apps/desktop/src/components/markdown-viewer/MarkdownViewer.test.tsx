@@ -1,8 +1,20 @@
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MarkdownViewer } from "./MarkdownViewer";
 
+const { openExternalMock } = vi.hoisted(() => ({
+  openExternalMock: vi.fn(),
+}));
+
+vi.mock("@/lib/tauri", () => ({
+  openExternal: openExternalMock,
+}));
+
 describe("MarkdownViewer", () => {
+  beforeEach(() => {
+    openExternalMock.mockReset();
+  });
+
   it("renders inline and block LaTeX via KaTeX", () => {
     const { container } = render(
       <MarkdownViewer>{"Mass–energy: $E = mc^2$.\n\n$$\\int_0^1 x^2\\,dx$$"}</MarkdownViewer>,
@@ -62,5 +74,26 @@ describe("MarkdownViewer", () => {
     expect(container.querySelector("strong")?.textContent).toBe("works");
     expect(container.querySelector(".katex")).toBeNull();
     expect(container.textContent).toContain("$5");
+  });
+
+  it("opens an http(s) link externally without navigating the application", () => {
+    const { getByRole } = render(
+      <MarkdownViewer>{"[Open Science](https://example.com/research)"}</MarkdownViewer>,
+    );
+    const link = getByRole("link");
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+
+    expect(link.dispatchEvent(click)).toBe(false);
+    expect(openExternalMock).toHaveBeenCalledOnce();
+    expect(openExternalMock).toHaveBeenCalledWith("https://example.com/research");
+  });
+
+  it("blocks a relative document link from becoming an application route", () => {
+    const { getByRole } = render(<MarkdownViewer>{"[Notes](other-notes.md)"}</MarkdownViewer>);
+    const link = getByRole("link");
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+
+    expect(link.dispatchEvent(click)).toBe(false);
+    expect(openExternalMock).not.toHaveBeenCalled();
   });
 });

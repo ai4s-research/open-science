@@ -1,13 +1,12 @@
-// Projects: a named workspace folder under the base dir, marked by
+// Projects: a named workspace folder under `<base>/projects`, marked by
 // `<folder>/.openscience/project.json`. The folder IS the workspace — sessions
-// group under a project by their `directory`, so no registry or database
-// exists to drift out of sync. Folders without the marker stay plain dated
-// session workspaces.
+// group under a project by their `directory`, so no registry or database exists
+// to drift out of sync. Legacy root-level projects remain readable in place.
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
-use crate::runtime::{base_workspace_dir, random_hex};
+use crate::runtime::{base_workspace_dir, projects_dir, random_hex, PROJECTS_DIR_NAME};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ProjectMeta {
@@ -46,16 +45,19 @@ pub struct ProjectInfo {
     #[serde(rename = "createdAt")]
     pub created_at: u64,
     /// Absolute workspace folder (canonical, matches session `directory`). For a
-    /// legacy in-place import this is the external repo; for a copy-import and every
+    /// in-place import this is the external repo; for a copy-import and every
     /// app-created project it is the project's own base-dir folder.
     pub path: String,
     /// True when this project was brought in from elsewhere (a copy-import, or a
-    /// legacy in-place import) — drives the sidebar "imported" badge.
+    /// in-place import) — drives the sidebar "imported" badge.
     pub imported: bool,
     /// Where an imported project was brought in from (shown as a hint). Absent for
     /// app-created projects.
     #[serde(rename = "importedFrom", skip_serializing_if = "Option::is_none")]
     pub imported_from: Option<String>,
+    /// How an imported project is stored. Absent for app-created projects.
+    #[serde(rename = "importMode", skip_serializing_if = "Option::is_none")]
+    pub import_mode: Option<String>,
     /// Whether this project is pinned to the sidebar.
     pub pinned: bool,
 }
@@ -114,7 +116,7 @@ fn folder_slug(name: &str) -> String {
 }
 
 fn info_of(meta: ProjectMeta, dir: &Path) -> ProjectInfo {
-    // A legacy in-place import's workspace is its external source; a copy-import and
+    // An in-place import's workspace is its external source; a copy-import and
     // every app-created project operate in their own base-dir folder.
     let imported = meta.source_path.is_some() || meta.imported_from.is_some();
     let target = meta
@@ -123,6 +125,13 @@ fn info_of(meta: ProjectMeta, dir: &Path) -> ProjectInfo {
         .map(PathBuf::from)
         .unwrap_or_else(|| dir.to_path_buf());
     let canon = target.canonicalize().unwrap_or(target);
+    let import_mode = if meta.source_path.is_some() {
+        Some("in-place".into())
+    } else if meta.imported_from.is_some() {
+        Some("copy".into())
+    } else {
+        None
+    };
     let imported_from = meta.imported_from.or(meta.source_path);
     ProjectInfo {
         id: meta.id,
@@ -132,6 +141,7 @@ fn info_of(meta: ProjectMeta, dir: &Path) -> ProjectInfo {
         path: canon.to_string_lossy().to_string(),
         imported,
         imported_from,
+        import_mode,
         pinned: meta.pinned.unwrap_or(false),
     }
 }
@@ -168,14 +178,13 @@ fn create_in(base: &Path, name: &str) -> Result<(PathBuf, ProjectMeta), String> 
     Ok((dir, meta))
 }
 
-/// Create a project: a fresh folder under the base dir with project metadata,
+/// Create a project: a fresh folder under `<base>/projects` with project metadata,
 /// the agent harness, and an initial git snapshot — the same scaffold a dated
 /// session workspace gets. Does NOT switch the active workspace; the frontend
 /// decides when to move into it.
 #[tauri::command(async)]
 pub fn create_project(app: AppHandle, name: String) -> Result<ProjectInfo, String> {
-    let base = base_workspace_dir(&app)?;
-    let (dir, meta) = create_in(&base, &name)?;
+    let (dir, meta) = create_in(&projects_dir(&app)?, &name)?;
     crate::harness::seed_harness(&app, &dir);
     crate::git_snapshot::commit_best_effort(&dir, "Initialize project");
     Ok(info_of(meta, &dir))
@@ -279,24 +288,23 @@ fn restore_write_recursive(dir: &Path) {
     }
 }
 
-/// Import an EXISTING repo/folder as a project by making a FAITHFUL copy of it
-/// under the base dir (full contents, `.git` history, symlinks, permissions — see
-/// `copy_tree`). The copy — not the original — is what the app and the sandboxed
-/// sidecar operate on, so the sidecar only ever touches an app-created path. This
-/// is the fix for issue #31: the ad-hoc-signed sidecar cannot reliably access user
-/// folders under `~/Documents`/`~/Desktop`/`~/Downloads` through macOS TCC (the
-/// child hits `EPERM`), but it CAN access folders the app itself creates under the
-/// base dir. The user's original folder is never moved or written to, and the copy
-/// is treated as the user's existing work: the app never scaffolds its harness into
-/// it or rewrites its files. The only additions are the app's `.openscience/` dir
-/// (project.json) and one clearly-marked import-provenance section appended to the
-/// copy's AGENTS.md — kept there, where agents read it, so a reference to a path
-/// outside the copy can be traced back to the source. Snapshots run to the dedicated
-/// per-branch ref (a copied git repo's branch/working tree stay byte-for-byte
-/// intact); a non-repo copy gets a fresh app-managed snapshot repo.
+/// Import an existing repo/folder as a project.
+///
+/// `mode = "copy"` makes a faithful managed copy under `projects/`. It is an
+/// explicit storage/isolation option; it is not the permission model for macOS.
+///
+/// `mode = "in-place"` stores only a pointer under `projects/` and works directly
+/// on the original folder. It avoids duplication, and the agent edits the original
+/// files. Distributed macOS builds sign the app and nested sidecars under one
+/// Developer ID so TCC can attribute the folder-picker grant consistently.
 #[tauri::command(async)]
-pub fn import_project(app: AppHandle, path: String) -> Result<ProjectInfo, String> {
+pub fn import_project(
+    app: AppHandle,
+    path: String,
+    mode: Option<String>,
+) -> Result<ProjectInfo, String> {
     let base = base_workspace_dir(&app)?;
+    let project_root = projects_dir(&app)?;
     let source = PathBuf::from(path.trim());
     if path.trim().is_empty() || !source.is_dir() {
         return Err("the selected folder does not exist".into());
@@ -324,16 +332,35 @@ pub fn import_project(app: AppHandle, path: String) -> Result<ProjectInfo, Strin
         .map(|n| n.to_string_lossy().to_string())
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "imported".into());
-    // Reserve the folder, then populate it. ANY failure after the folder exists
-    // (copy, marker write) rolls it back, so a broken import never strands a partial
-    // (possibly multi-GB) tree or a half-written project under the base dir.
-    let (dir, meta) = create_in(&base, &name)?;
-    match populate_import(&source, &dir, meta) {
-        Ok(info) => Ok(info),
-        Err(e) => {
-            let _ = force_remove_dir_all(&dir);
-            Err(e)
+    match mode.as_deref().unwrap_or("in-place") {
+        "copy" => {
+            // Reserve the folder, then populate it. ANY failure after the folder
+            // exists rolls it back, so a broken import never strands a partial
+            // (possibly multi-GB) tree or half-written project.
+            let (dir, meta) = create_in(&project_root, &name)?;
+            match populate_import(&source, &dir, meta) {
+                Ok(info) => Ok(info),
+                Err(e) => {
+                    let _ = force_remove_dir_all(&dir);
+                    Err(e)
+                }
+            }
         }
+        "in-place" => {
+            // Only this lightweight stub is app-owned. The workspace path
+            // resolves to `source`, so subsequent agent operations happen there.
+            let (dir, mut meta) = create_in(&project_root, &name)?;
+            meta.source_path = Some(source.to_string_lossy().to_string());
+            if let Err(e) = write_meta(&dir, &meta) {
+                let _ = force_remove_dir_all(&dir);
+                return Err(e);
+            }
+            // A user repo snapshots to the app's shadow ref; a plain folder is
+            // marked so the app never silently turns it into a git repository.
+            crate::git_snapshot::mark_imported(&source);
+            Ok(info_of(meta, &dir))
+        }
+        _ => Err("invalid import mode; expected \"copy\" or \"in-place\"".into()),
     }
 }
 
@@ -427,28 +454,54 @@ fn record_import_provenance(dir: &Path, source: &Path) {
     }
 }
 
-/// Every project under the base dir (first-level folders carrying a readable
-/// project.json), sorted by name for a stable sidebar.
+/// New projects live under `<base>/projects`. Root-level project folders from
+/// older versions remain readable without being moved, so their stored absolute
+/// session paths stay valid.
+fn project_parent_dirs(base: &Path) -> [PathBuf; 2] {
+    [base.join(PROJECTS_DIR_NAME), base.to_path_buf()]
+}
+
+fn project_dirs(base: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    for parent in project_parent_dirs(base) {
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let dir = entry.path();
+                if dir.is_dir() && read_meta(&dir).is_some() {
+                    dirs.push(dir);
+                }
+            }
+        }
+    }
+    dirs
+}
+
+pub(crate) fn project_workspace_dirs(base: &Path) -> Vec<PathBuf> {
+    project_dirs(base)
+        .into_iter()
+        .filter_map(|dir| {
+            let meta = read_meta(&dir)?;
+            let target = meta.source_path.map(PathBuf::from).unwrap_or(dir);
+            Some(target.canonicalize().unwrap_or(target))
+        })
+        .collect()
+}
+
+/// Every structured or legacy project, sorted by name for a stable sidebar.
 #[tauri::command(async)]
 pub fn list_projects(app: AppHandle) -> Result<Vec<ProjectInfo>, String> {
     let base = base_workspace_dir(&app)?;
     let mut out: Vec<ProjectInfo> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&base) {
-        for entry in entries.flatten() {
-            let dir = entry.path();
-            if !dir.is_dir() {
-                continue;
-            }
-            if let Some(meta) = read_meta(&dir) {
-                // An imported project whose external source has since been moved
-                // or deleted is unusable — drop it rather than list a dead entry.
-                if let Some(src) = meta.source_path.as_ref() {
-                    if !Path::new(src).is_dir() {
-                        continue;
-                    }
+    for dir in project_dirs(&base) {
+        if let Some(meta) = read_meta(&dir) {
+            // An in-place project's external source may have been moved or
+            // deleted. Drop the dead entry instead of listing an unusable item.
+            if let Some(src) = meta.source_path.as_ref() {
+                if !Path::new(src).is_dir() {
+                    continue;
                 }
-                out.push(info_of(meta, &dir));
             }
+            out.push(info_of(meta, &dir));
         }
     }
     out.sort_by_key(|p| p.name.to_lowercase());
@@ -458,12 +511,27 @@ pub fn list_projects(app: AppHandle) -> Result<Vec<ProjectInfo>, String> {
 /// The base-dir folder holding the metadata for project `id` (its stub, for an
 /// imported project — NOT the external source, which never carries a project.json).
 fn project_dir_by_id(base: &Path, id: &str) -> Option<PathBuf> {
-    std::fs::read_dir(base).ok()?.flatten().find_map(|entry| {
-        let dir = entry.path();
+    project_dirs(base).into_iter().find_map(|dir| {
         match read_meta(&dir) {
             Some(meta) if meta.id == id => Some(dir),
             _ => None,
         }
+    })
+}
+
+/// Gateway file access normally stays under the base directory. An explicitly
+/// registered in-place project is the one safe exception: accept its exact
+/// canonical workspace root, never an arbitrary external path.
+pub(crate) fn is_registered_project_path(app: &AppHandle, path: &Path) -> bool {
+    let Ok(base) = base_workspace_dir(app) else {
+        return false;
+    };
+    project_dirs(&base).into_iter().any(|dir| {
+        let Some(meta) = read_meta(&dir) else {
+            return false;
+        };
+        let target = meta.source_path.map(PathBuf::from).unwrap_or(dir);
+        target.canonicalize().map(|p| p == path).unwrap_or(false)
     })
 }
 
@@ -498,8 +566,8 @@ pub fn set_project_pinned(app: AppHandle, id: String, pinned: bool) -> Result<()
 }
 
 /// Remove a project from the app's index.
-/// - Imported project (copy-import or legacy in-place stub): the base-dir folder is
-///   app-owned — a full copy for a copy-import, a bare stub for a legacy in-place
+/// - Imported project (copy-import or in-place stub): the base-dir folder is
+///   app-owned — a full copy for a copy-import, a bare stub for an in-place
 ///   import — so remove it entirely. The user's ORIGINAL source folder is never
 ///   touched (a copy-import left it untouched at import time; a legacy stub only
 ///   ever pointed at it).
@@ -603,6 +671,7 @@ mod tests {
         // …and info_of resolves the workspace to the EXTERNAL source, flagged imported.
         let info = info_of(reloaded, &stub);
         assert!(info.imported);
+        assert_eq!(info.import_mode.as_deref(), Some("in-place"));
         assert_eq!(info.path, ext.canonicalize().unwrap().to_string_lossy());
 
         // Nothing was written into the user's repo (metadata lives in the stub).
@@ -612,6 +681,7 @@ mod tests {
         let (own, own_meta) = create_in(&base, "My Study").unwrap();
         let own_info = info_of(read_meta(&own).unwrap(), &own);
         assert!(!own_info.imported);
+        assert_eq!(own_info.import_mode, None);
         assert_eq!(own_info.path, own.canonicalize().unwrap().to_string_lossy());
         let _ = own_meta;
 
@@ -642,6 +712,30 @@ mod tests {
         write_meta(&stub, &m).unwrap();
         assert_eq!(read_meta(&stub).unwrap().name, "Renamed");
         assert!(!ext.join(".openscience").join("project.json").exists());
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn project_lookup_reads_structured_and_legacy_locations() {
+        use super::project_dir_by_id;
+        let base =
+            std::env::temp_dir().join(format!("os-project-layout-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("projects")).unwrap();
+
+        let (structured, structured_meta) =
+            create_in(&base.join("projects"), "Structured").unwrap();
+        let (legacy, legacy_meta) = create_in(&base, "Legacy").unwrap();
+
+        assert_eq!(
+            project_dir_by_id(&base, &structured_meta.id).as_deref(),
+            Some(structured.as_path())
+        );
+        assert_eq!(
+            project_dir_by_id(&base, &legacy_meta.id).as_deref(),
+            Some(legacy.as_path())
+        );
 
         let _ = fs::remove_dir_all(&base);
     }

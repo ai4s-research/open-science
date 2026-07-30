@@ -16,6 +16,11 @@
       "body": "Cela retire uniquement le volet de cet écran. La session, l’historique de conversation et les fichiers de l’espace de travail sont conservés.",
       "action": "Fermer le volet"
     },
+    "confirmCloseScreen": {
+      "title": "Fermer cet écran ?",
+      "body": "Cela supprime l’écran et tous ses volets. Les sessions, l’historique de conversation et les fichiers de l’espace de travail sont conservés.",
+      "action": "Fermer l’écran"
+    },
     "zoom": "Zoom de ce volet",
     "empty": {
       "title": "Écran vide",
@@ -108,6 +113,13 @@
       "reasoningDefault": "Défaut du modèle",
       "faster": "Plus rapide",
       "smarter": "Plus intelligent"
+    },
+    "reference": {
+      "filesAria": "Fichiers de l’espace de travail",
+      "sessionsAria": "Conversations précédentes",
+      "scanning": "Lecture de l’espace de travail…",
+      "chipTitle": "Cette conversation sera citée pour l’agent",
+      "removeAria": "Retirer la référence à {{title}}"
     }
   },
   "localCommand": {
@@ -331,5 +343,30 @@
       "edit": "Modifier et renvoyer",
       "revert": "Revenir ici"
     }
+  },
+  "compaction": {
+    "label": "Contexte compacté",
+    "autoBody": "L’exécution a résumé les tours précédents pour rester dans la fenêtre de contexte du modèle, et la conversation a continué ici.",
+    "manualBody": "Vous avez demandé de résumer les tours précédents ; la conversation a continué ici.",
+    "overflowBody": "Cela s’est produit parce que le contexte était déjà saturé.",
+    "at": "Quand : {{time}}",
+    "originalKept": "La conversation d’origine complète reste stockée en local."
+  },
+  "selection": {
+    "aria": "Actions sur le texte sélectionné",
+    "quote": "Citer",
+    "explain": "Expliquer",
+    "explainPrompt": "Explique ce passage plus en détail.",
+    "remember": "Enregistrer dans la mémoire",
+    "savedProject": "Enregistré dans la mémoire de {{name}}",
+    "savedGlobal": "Enregistré dans la mémoire globale"
+  },
+  "subagents": {
+    "title": "Sous-agents",
+    "toggleTitle": "Voir ce que font les sous-agents",
+    "closeAria": "Fermer le panneau des sous-agents",
+    "count_one": "{{count}} tâche",
+    "count_other": "{{count}} tâches",
+    "empty": "Aucun sous-agent dans cette conversation pour l’instant."
   }
 }

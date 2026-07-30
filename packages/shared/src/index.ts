@@ -38,7 +38,23 @@ export type ThreadBlock =
   | FigureBlock
   | ArtifactBlock
   | RunningJobsBlock
+  | CompactionBlock
   | StatusLineBlock;
+
+/** The runtime summarized the older turns to stay inside the model's context
+ *  window and carried on in the same conversation. Rendered as one quiet line
+ *  the reader can expand — the conversation stays visually continuous, and the
+ *  compaction is still auditable (#62). */
+export interface CompactionBlock {
+  kind: "compaction";
+  /** True when the runtime did it on its own; false when the user asked. */
+  auto: boolean;
+  /** True when it happened because the context had already overflowed, rather
+   *  than pre-emptively at the threshold. */
+  overflow?: boolean;
+  /** Epoch ms, when known. */
+  at?: number;
+}
 
 export interface UserMessageBlock {
   kind: "user";

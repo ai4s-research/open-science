@@ -56,10 +56,40 @@ fn active_workspace_file(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(runtime_root(app)?.join("active-workspace.txt"))
 }
 
-/// File recording the user's chosen BASE folder — the parent every new dated
-/// session workspace is created under (Settings → Workspace).
+/// File recording the user's chosen BASE folder — it contains the managed
+/// `projects/` and `sessions/` collections (Settings → Workspace).
 fn base_workspace_file(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(runtime_root(app)?.join("base-workspace.txt"))
+}
+
+pub(crate) const PROJECTS_DIR_NAME: &str = "projects";
+pub(crate) const SESSIONS_DIR_NAME: &str = "sessions";
+
+/// Keep the user-visible workspace root predictable:
+///
+/// ```text
+/// OpenScience/
+///   projects/
+///   sessions/
+///   .openscience/
+/// ```
+///
+/// Existing root-level workspaces are left where they are and remain readable.
+/// Moving them would invalidate absolute session directories stored by OpenCode.
+fn ensure_base_layout(dir: PathBuf) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    for child in [PROJECTS_DIR_NAME, SESSIONS_DIR_NAME] {
+        std::fs::create_dir_all(dir.join(child)).map_err(|e| e.to_string())?;
+    }
+    Ok(dir)
+}
+
+pub(crate) fn projects_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(base_workspace_dir(app)?.join(PROJECTS_DIR_NAME))
+}
+
+pub(crate) fn sessions_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(base_workspace_dir(app)?.join(SESSIONS_DIR_NAME))
 }
 
 /// The active workspace folder OpenCode / the kernel / previews / provenance all
@@ -70,15 +100,15 @@ pub fn workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
         if let Ok(s) = std::fs::read_to_string(&f) {
             let dir = PathBuf::from(s.trim());
             if dir.is_dir() {
-                return Ok(dir);
+                return ensure_base_layout(dir);
             }
         }
     }
     base_workspace_dir(app)
 }
 
-/// The workspace root new dated session folders are created under. A folder
-/// the user picked in Settings wins; the default is `~/Documents/OpenScience`
+/// The workspace root containing the `projects/` and `sessions/` collections.
+/// A folder the user picked in Settings wins; the default is `~/Documents/OpenScience`
 /// (no space — the agent runs shell commands against this path, and unquoted
 /// spaces break them), falling back to `$HOME/Documents`.
 pub fn base_workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -109,12 +139,11 @@ pub fn base_workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
                 if std::fs::rename(&old, &dir).is_ok() {
                     break;
                 }
-                return Ok(old);
+                return ensure_base_layout(old);
             }
         }
     }
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
+    ensure_base_layout(dir)
 }
 
 /// Path OpenCode reads when XDG_CONFIG_HOME points at our private dir.
@@ -969,6 +998,31 @@ fn spawn_sidecar(app: &AppHandle, port: u16) -> Result<CommandChild, String> {
         }
         std::fs::write(&cfg_file, seeded).map_err(|e| e.to_string())?;
     }
+    // Long conversations must not die on "Input exceeds context window" (#62):
+    // turn OpenCode's automatic compaction on for a config that has never
+    // said either way, and register the memory layers (global MEMORY.md +
+    // each project's own AGENTS.md) the same one-time way. Both respect a
+    // later choice by the user — they only seed what is absent.
+    {
+        let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+        if let Some(updated) = crate::opencode_config::seed_compaction(&existing) {
+            std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+        }
+        let global_memory = global_memory_file(app)?.to_string_lossy().replace('\\', "/");
+        let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+        // Absent `instructions` means a fresh profile: switch memory on. A
+        // config that already lists instructions is the user's, left alone.
+        let untouched = serde_json::from_str::<serde_json::Value>(&existing)
+            .ok()
+            .is_none_or(|v| v.get("instructions").is_none());
+        if untouched {
+            if let Some(updated) =
+                crate::opencode_config::set_memory_enabled(&existing, &global_memory, true)
+            {
+                std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+            }
+        }
+    }
     // Goal mode (/goal): register the bundled plugin under its deployed path.
     // Forward slashes everywhere — Windows accepts them, and the config stays
     // portable for opencode's path-spec detection.
@@ -1111,22 +1165,22 @@ pub fn workspace_path(app: AppHandle) -> Result<String, String> {
     Ok(workspace_dir(&app)?.to_string_lossy().to_string())
 }
 
-/// The base folder new dated workspaces are created under (`~/Documents/OpenScience`).
+/// The base folder containing projects and sessions (`~/Documents/OpenScience`).
 #[tauri::command]
 pub fn workspace_base(app: AppHandle) -> Result<String, String> {
     Ok(base_workspace_dir(&app)?.to_string_lossy().to_string())
 }
 
-/// Choose the base folder (Settings → Workspace → Change). Creates it if
-/// needed and persists the choice; every NEW session's dated folder is created
-/// under it. Existing sessions keep their folders.
+/// Choose the base folder (Settings → Workspace → Change). Creates its
+/// `projects/` and `sessions/` collections and persists the choice. Existing
+/// workspaces keep their folders.
 #[tauri::command]
 pub fn set_workspace_base(app: AppHandle, path: String) -> Result<String, String> {
     let dir = PathBuf::from(&path);
     if !dir.is_absolute() {
         return Err("workspace base must be absolute".into());
     }
-    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create folder: {e}"))?;
+    ensure_base_layout(dir.clone()).map_err(|e| format!("could not create folder: {e}"))?;
     let canon = dir.canonicalize().map_err(|e| e.to_string())?;
     std::fs::write(base_workspace_file(&app)?, canon.to_string_lossy().as_bytes())
         .map_err(|e| e.to_string())?;
@@ -1203,8 +1257,9 @@ pub fn mark_session(app: AppHandle, session_id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Create a new dated folder `<base>/<name>` and switch to it. `name` is a
-/// single path segment (the frontend supplies a timestamp); rejects separators.
+/// Create a new dated folder `<base>/sessions/<name>` and switch to it. `name`
+/// is a single path segment (the frontend supplies a timestamp); rejects
+/// separators.
 #[tauri::command(async)]
 pub fn new_dated_workspace(
     app: AppHandle,
@@ -1214,7 +1269,7 @@ pub fn new_dated_workspace(
     if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err("invalid folder name".into());
     }
-    let dir = base_workspace_dir(&app)?.join(&name);
+    let dir = sessions_dir(&app)?.join(&name);
     // `set_workspace` moves `app`; keep a handle to seed the harness afterwards.
     let seed_app = app.clone();
     let canon = set_workspace(app, state, dir.to_string_lossy().to_string())?;
@@ -1236,6 +1291,69 @@ pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
     };
     let path = picked.into_path().map_err(|e| e.to_string())?;
     Ok(Some(path.to_string_lossy().to_string()))
+}
+
+/// Characters a file name cannot carry on Windows/macOS/Linux, plus control
+/// characters. Conversation titles are free text, so a title becomes a file
+/// name only after this.
+fn safe_file_stem(title: &str, fallback: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    // Windows also rejects a trailing dot or space.
+    let trimmed = cleaned.trim().trim_end_matches('.').trim();
+    // 80 chars leaves room for the id suffix and the extension inside the
+    // 255-byte limit every mainstream filesystem enforces.
+    let capped: String = trimmed.chars().take(80).collect();
+    let capped = capped.trim().to_string();
+    if capped.is_empty() {
+        return fallback.to_string();
+    }
+    // Windows refuses these device names whatever the extension.
+    const RESERVED: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+        "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED.iter().any(|r| capped.eq_ignore_ascii_case(r)) {
+        return format!("{capped}-");
+    }
+    capped
+}
+
+/// Write one exported conversation into a folder the user picked in a native
+/// dialog. Confined to that folder: the file name is derived from the title
+/// (never used as a path), so a conversation called "../../.ssh/authorized_keys"
+/// cannot escape it.
+#[tauri::command]
+pub fn write_export_file(
+    directory: String,
+    name: String,
+    contents: String,
+) -> Result<String, String> {
+    let dir = PathBuf::from(&directory);
+    if !dir.is_dir() {
+        return Err(format!("{directory} is not a folder"));
+    }
+    let stem = safe_file_stem(&name, "conversation");
+    let mut path = dir.join(format!("{stem}.md"));
+    // Two conversations can share a title; never silently overwrite one.
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{stem} ({n}).md"));
+        n += 1;
+        if n > 999 {
+            return Err("too many files with that name".to_string());
+        }
+    }
+    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 /// Kill the bundled OpenCode if running.
@@ -1260,8 +1378,9 @@ pub fn kill_child(state: &RuntimeState) {
 mod tests {
     use super::{
         auth_has_provider, deploy_goal_plugin_dependencies, parse_scutil_proxy,
-        prune_stale_skills, random_hex, remove_key_from_config, resolve_proxy_env,
-        skill_name_from_markdown, sync_skill_pack, validate_proxy_url, workspace_skill_dirs,
+        ensure_base_layout, prune_stale_skills, random_hex, remove_key_from_config,
+        resolve_proxy_env, skill_name_from_markdown, sync_skill_pack, validate_proxy_url,
+        workspace_skill_dirs,
     };
     use std::fs;
 
@@ -1272,6 +1391,19 @@ mod tests {
         assert!(!auth_has_provider(auth, "anthropic"));
         assert!(!auth_has_provider("", "openai")); // empty/corrupt store
         assert!(!auth_has_provider("not json", "openai"));
+    }
+
+    #[test]
+    fn base_layout_has_separate_project_and_session_collections() {
+        let root =
+            std::env::temp_dir().join(format!("os-workspace-layout-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(ensure_base_layout(root.clone()).unwrap(), root);
+        assert!(root.join("projects").is_dir());
+        assert!(root.join("sessions").is_dir());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1636,6 +1768,156 @@ pub fn set_approval_mode(
         .unwrap_or_else(|| path.to_string_lossy().to_string()))
 }
 
+/// The global memory file: one Markdown document that OpenCode loads into
+/// every conversation, in the app-private profile next to the config.
+fn global_memory_file(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(xdg_config_home(app)?.join("opencode").join("MEMORY.md"))
+}
+
+/// Absolute path of a memory file, forward-slashed so the config stays
+/// portable. `scope` is "global" (the profile file) or "project" (that
+/// folder's own AGENTS.md — the file OpenCode loads for sessions inside it).
+fn memory_file(app: &AppHandle, scope: &str, directory: Option<&str>) -> Result<PathBuf, String> {
+    match scope {
+        "global" => global_memory_file(app),
+        "project" => {
+            let dir = directory.filter(|d| !d.is_empty()).ok_or("no project folder")?;
+            Ok(PathBuf::from(dir).join(crate::opencode_config::PROJECT_MEMORY_FILE))
+        }
+        other => Err(format!("unknown memory scope \"{other}\"")),
+    }
+}
+
+/// Read a memory layer. A file that was never written reads as empty — the
+/// editor opens blank rather than erroring.
+#[tauri::command]
+pub fn read_memory(
+    app: AppHandle,
+    scope: String,
+    directory: Option<String>,
+) -> Result<String, String> {
+    let path = memory_file(&app, &scope, directory.as_deref())?;
+    Ok(std::fs::read_to_string(path).unwrap_or_default())
+}
+
+/// Replace a memory layer's contents. Writing an empty document deletes the
+/// file, so "cleared" and "never set" stay the same state.
+#[tauri::command]
+pub fn write_memory(
+    app: AppHandle,
+    scope: String,
+    directory: Option<String>,
+    text: String,
+) -> Result<(), String> {
+    let path = memory_file(&app, &scope, directory.as_deref())?;
+    if text.trim().is_empty() {
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, text).map_err(|e| e.to_string())
+}
+
+/// Append a block to a memory layer, keeping what is already there. This is
+/// what "save this to memory" from a conversation does.
+#[tauri::command]
+pub fn append_memory(
+    app: AppHandle,
+    scope: String,
+    directory: Option<String>,
+    text: String,
+) -> Result<(), String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let path = memory_file(&app, &scope, directory.as_deref())?;
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut out = existing.trim_end().to_string();
+    if !out.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(trimmed);
+    out.push('\n');
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, out).map_err(|e| e.to_string())
+}
+
+/// Whether the memory layers are currently applied to conversations.
+#[tauri::command]
+pub fn get_memory_enabled(app: AppHandle) -> Result<bool, String> {
+    let global = global_memory_file(&app)?.to_string_lossy().replace('\\', "/");
+    let existing = std::fs::read_to_string(effective_config_file(&app)?).unwrap_or_default();
+    Ok(crate::opencode_config::memory_enabled(&existing, &global))
+}
+
+/// Apply or stop applying the memory layers, restarting the sidecar so the
+/// change takes effect (instructions are read when a session's context is built).
+#[tauri::command(async)]
+pub fn set_memory_enabled(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    enabled: bool,
+) -> Result<(), String> {
+    let global = global_memory_file(&app)?.to_string_lossy().replace('\\', "/");
+    let path = effective_config_file(&app)?;
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let Some(updated) = crate::opencode_config::set_memory_enabled(&existing, &global, enabled)
+    else {
+        return Ok(()); // already in the requested state — no restart
+    };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    tighten_private(&path);
+    restart_sidecar_if_running(&app, &state)?;
+    Ok(())
+}
+
+/// Per-agent model overrides as `{ agent: "provider/model" }`.
+#[tauri::command]
+pub fn get_agent_models(app: AppHandle) -> Result<serde_json::Value, String> {
+    let existing = std::fs::read_to_string(effective_config_file(&app)?).unwrap_or_default();
+    let map: serde_json::Map<String, serde_json::Value> =
+        crate::opencode_config::agent_models(&existing)
+            .into_iter()
+            .map(|(k, v)| (k, serde_json::Value::String(v)))
+            .collect();
+    Ok(serde_json::Value::Object(map))
+}
+
+/// Pin one agent to its own model, or clear the override with an empty model.
+/// Restarts the sidecar: agent definitions are built when it loads its config.
+#[tauri::command(async)]
+pub fn set_agent_model(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    agent: String,
+    model: String,
+) -> Result<(), String> {
+    let path = effective_config_file(&app)?;
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let want = if model.is_empty() { None } else { Some(model.as_str()) };
+    let updated = crate::opencode_config::set_agent_model(&existing, &agent, want);
+    if updated == existing {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    tighten_private(&path);
+    restart_sidecar_if_running(&app, &state)?;
+    Ok(())
+}
+
 /// The persisted proxy setting plus the proxy the sidecar would use right now.
 #[tauri::command]
 pub fn get_proxy_setting(app: AppHandle) -> Result<serde_json::Value, String> {
@@ -1725,4 +2007,47 @@ pub fn configure_opencode(
     // Restart so the running server reloads the new provider config.
     Ok(restart_sidecar_if_running(&app, &state)?
         .unwrap_or_else(|| path.to_string_lossy().to_string()))
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::safe_file_stem;
+
+    #[test]
+    fn a_title_can_never_become_a_path() {
+        // Separators become dashes, so the result can only ever be a leaf name.
+        assert_eq!(
+            safe_file_stem("../../.ssh/authorized_keys", "x"),
+            "..-..-.ssh-authorized_keys"
+        );
+        assert_eq!(safe_file_stem("C:\\Windows\\System32", "x"), "C--Windows-System32");
+    }
+
+    #[test]
+    fn keeps_ordinary_titles_readable_including_non_latin() {
+        assert_eq!(safe_file_stem("Spike sorting — pass 2", "x"), "Spike sorting — pass 2");
+        assert_eq!(safe_file_stem("脑机接口趋势分析", "x"), "脑机接口趋势分析");
+    }
+
+    #[test]
+    fn falls_back_when_a_title_leaves_nothing_usable() {
+        assert_eq!(safe_file_stem("   ", "conversation"), "conversation");
+        // Nothing but separators still yields a harmless leaf name.
+        assert_eq!(safe_file_stem("///", "conversation"), "---");
+        // Windows rejects a trailing dot.
+        assert_eq!(safe_file_stem("results.", "x"), "results");
+    }
+
+    #[test]
+    fn sidesteps_windows_device_names() {
+        assert_eq!(safe_file_stem("CON", "x"), "CON-");
+        assert_eq!(safe_file_stem("nul", "x"), "nul-");
+        assert_eq!(safe_file_stem("console", "x"), "console");
+    }
+
+    #[test]
+    fn caps_the_length_so_the_filesystem_accepts_it() {
+        let long = "n".repeat(500);
+        assert_eq!(safe_file_stem(&long, "x").chars().count(), 80);
+    }
 }

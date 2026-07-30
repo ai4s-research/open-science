@@ -9,7 +9,8 @@
     "compute": "计算",
     "privacy": "隐私",
     "browser": "浏览器",
-    "remote": "远程访问"
+    "remote": "远程访问",
+    "memory": "记忆"
   },
   "appearance": {
     "title": "外观",
@@ -194,7 +195,7 @@
   },
   "workspace": {
     "title": "工作区",
-    "hint": "本地优先——每个会话都在此创建的独立日期子文件夹中工作",
+    "hint": "本地优先——项目位于 projects/，独立会话位于 sessions/",
     "unavailable": "该功能在桌面应用中可用",
     "change": "更改…",
     "reveal": "在文件管理器中显示"
@@ -342,5 +343,30 @@
     "error": "远程访问设置修改失败",
     "connect": "连接",
     "connectPrompt": "输入桌面应用中的访问令牌:设置 → 远程访问。"
+  },
+  "memory": {
+    "title": "记忆",
+    "hint": "智能体在每次对话前都会读取的长期上下文，免去反复解释同一个项目。",
+    "enableLabel": "在对话中应用记忆",
+    "enableHint": "关闭后两层都不会加载，适合临时提问。文件本身仍然保留。",
+    "globalTitle": "全局记忆",
+    "globalHint": "对所有项目生效：你是谁、常用工具、希望回答如何组织。",
+    "globalPlaceholder": "# 关于我\n- 我在做 …\n- 使用国际单位制并注明出处。",
+    "projectTitle": "项目记忆 — {{name}}",
+    "projectHint": "只对该项目的对话生效：目标、术语、数据路径、既定决策。",
+    "projectPlaceholder": "# 项目\n目标：…\n\n# 决策\n- …",
+    "projectNoneTitle": "项目记忆",
+    "projectNoneHint": "每个项目都有自己的记忆文件。",
+    "projectNoneBody": "打开一个项目即可编辑它的记忆。",
+    "saved": "已保存",
+    "disabledNote": "记忆已关闭，该文件当前不会被加载。"
+  },
+  "agentModels": {
+    "title": "各智能体的模型",
+    "hint": "让主智能体用强模型推理，同时把审阅、探索类子智能体放在快模型上。",
+    "noModels": "请先接入一个供应商再选择模型。",
+    "followDefault": "默认模型",
+    "followDefaultNamed": "默认（{{model}}）",
+    "modelFor": "{{agent}} 使用的模型"
   }
 }

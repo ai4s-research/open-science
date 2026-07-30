@@ -14,5 +14,13 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@9.4.0"
+  "packageManager": "pnpm@9.4.0",
+  "//overrides": {
+    "brace-expansion@1": "Dependabot #4 (high): brace-expansion < 1.1.16 expands consecutive empty {} groups in exponential time. It reaches a PRODUCTION install through exceljs → archiver → glob@7 → minimatch@3, none of which we can bump directly. Scoped to the 1.x line so the 2.x and 5.x copies other packages depend on are left alone. Drop this once exceljs ships a modern archiver."
+  },
+  "pnpm": {
+    "overrides": {
+      "brace-expansion@1": "^1.1.16"
+    }
+  }
 }

@@ -82,10 +82,43 @@ jobs:
         shell: bash
         run: bash scripts/dev/fetch-goal-plugin.sh
 
+      - name: Configure macOS release signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "MACOS_SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "::error::A macOS release must be Developer ID-signed and notarized. Missing secrets: ${missing[*]}"
+            exit 1
+          else
+            echo "MACOS_SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+            echo "::notice::Unsigned macOS development artifact; tagged releases require Developer ID signing."
+          fi
+
       - name: Build the app (Tauri)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
           # Linux: deb+rpm only. AppImage is off because linuxdeploy runs ldd
@@ -97,20 +130,15 @@ jobs:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: ${{ github.ref_type == 'tag' && format('Open Science {0}', github.ref_name) || '' }}
           releaseDraft: true
-          # Standing install/first-launch notes — every draft is born with these
-          # (the builds are unsigned/un-notarized, so users must clear Gatekeeper /
-          # SmartScreen once). Prepend the per-version changelog before publishing.
+          # Standing install/first-launch notes. Tagged macOS releases are blocked
+          # above unless Developer ID signing + notarization credentials are
+          # present; Windows remains unsigned for now.
           releaseBody: |
-            ## ⚠️ Install & first launch — unsigned builds
-
-            These installers are **not code-signed or notarized**, so your OS warns on first launch. This is expected; clear it once:
+            ## Install & first launch
 
             **macOS** — Apple Silicon: `…_aarch64.dmg` · Intel: `…_x64.dmg` (requires macOS 13+)
-            1. Open the DMG and drag **Open Science** into Applications.
-            2. If you see *"… is damaged and can't be opened"* or *"unidentified developer"*, clear the quarantine attribute in Terminal, then open normally:
-               ```
-               xattr -cr "/Applications/Open Science.app"
-               ```
+            - Developer ID-signed and notarized. Open the DMG and drag **Open Science** into Applications.
+            - When you use an existing project in place, allow access to its folder if macOS asks.
 
             **Windows** — `…_x64-setup.exe` or `…_x64_en-US.msi`
             - SmartScreen shows *"Windows protected your PC"* → **More info** → **Run anyway**.
@@ -123,6 +151,13 @@ jobs:
             ---
 
             <!-- Prepend this release's changelog above this line before publishing. -->
+
+      - name: Verify macOS release signatures
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_ENABLED == 'true'
+        shell: bash
+        run: |
+          app_path=$(find "apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)
+          bash scripts/release/verify-macos-signing.sh "$app_path"
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

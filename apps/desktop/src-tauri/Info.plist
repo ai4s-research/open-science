@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
+  <key>NSNetworkVolumesUsageDescription</key>
+  <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
+  <key>NSFileProviderDomainUsageDescription</key>
+  <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
+</dict>
+</plist>

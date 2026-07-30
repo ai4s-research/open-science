@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Hammer,
   Hand,
+  MessageSquare,
   Paperclip,
   Square,
   Terminal,
@@ -22,7 +23,16 @@ import {
   logDebug,
   type ApprovalMode,
 } from "@/lib/tauri";
-import { useRuntimeStore, type AgentMode } from "@/lib/runtime";
+import { getClient, useRuntimeStore, type AgentMode } from "@/lib/runtime";
+import {
+  applyRef,
+  condenseTranscript,
+  matchPaths,
+  matchSessions,
+  referenceBlock,
+  refTriggerAt,
+  walkWorkspace,
+} from "@/components/thread/references";
 import { ModelPicker } from "@/components/thread/ModelPicker";
 import { WorkspaceChip } from "@/components/thread/WorkspaceChip";
 import { useUiStore } from "@/lib/store";
@@ -127,6 +137,8 @@ export function Composer({
   showModelPicker,
   modelSessionId,
   showWorkspaceChip = true,
+  sessionDir,
+  currentSessionId,
   onInteract,
 }: {
   onSend?: (text: string) => void;
@@ -156,6 +168,11 @@ export function Composer({
   /** Show the draft workspace-folder chip. Only the draft pane opts in — in a
    *  split layout the other panes already have a bound session/folder. */
   showWorkspaceChip?: boolean;
+  /** Workspace folder the `@` picker lists files from; omit to offer none. */
+  sessionDir?: string;
+  /** This pane's session, excluded from the `#` picker (referencing the
+   *  conversation you are already in adds nothing). */
+  currentSessionId?: string | null;
   /** Fired when the user edits the input — used to pin a tentative screen (#3)
    *  the moment they start typing, so it isn't reused/lost on the next click. */
   onInteract?: () => void;
@@ -224,6 +241,17 @@ export function Composer({
     return () => document.removeEventListener("mousedown", onDown);
   }, [agentOpen]);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // Caret position, tracked so an "@"/"#" being typed can be recognized in
+  // place — mid-sentence references matter as much as ones at the start.
+  const [caret, setCaret] = useState(0);
+  /** Workspace paths for the "@" picker, walked once per folder on first use. */
+  const [refFiles, setRefFiles] = useState<string[] | null>(null);
+  /** Conversations attached with "#": chips above the input, resolved to a
+   *  quoted excerpt when the prompt is sent. */
+  const [refSessions, setRefSessions] = useState<{ id: string; title: string }[]>([]);
+  const [refSel, setRefSel] = useState(0);
+  const [refClosed, setRefClosed] = useState(false);
+  const allSessions = useRuntimeStore((s) => s.sessions);
   const composerDraft = useUiStore((s) => s.composerDraft);
   const setComposerDraft = useUiStore((s) => s.setComposerDraft);
 
@@ -244,10 +272,64 @@ export function Composer({
   const paletteOpen = matches.length > 0 && !paletteClosed && !disabled;
   const selIndex = Math.min(sel, Math.max(matches.length - 1, 0));
 
+  // "@" a workspace file, "#" a past conversation (#63). Only in a real
+  // session: a static mock has no runtime to read files or history from.
+  const trigger = onSend && !shellMode && !command && !refClosed
+    ? refTriggerAt(value, caret)
+    : null;
+  const fileMatches =
+    trigger?.kind === "file" ? matchPaths(refFiles ?? [], trigger.query) : [];
+  const sessionMatches =
+    trigger?.kind === "session"
+      ? matchSessions(allSessions, currentSessionId ?? null, trigger.query)
+      : [];
+  const refCount = trigger?.kind === "file" ? fileMatches.length : sessionMatches.length;
+  const refOpen = !!trigger && refCount > 0 && !disabled;
+  const refIndex = Math.min(refSel, Math.max(refCount - 1, 0));
+
+  // The file list is only worth walking once the user actually types "@".
+  useEffect(() => {
+    if (trigger?.kind !== "file" || refFiles !== null) return;
+    let live = true;
+    void walkWorkspace(sessionDir).then((paths) => {
+      if (live) setRefFiles(paths);
+    });
+    return () => {
+      live = false;
+    };
+  }, [trigger?.kind, refFiles, sessionDir]);
+
+  // A folder switch invalidates the cached listing.
+  useEffect(() => setRefFiles(null), [sessionDir]);
+
+  /** Put the chosen reference in place of the "@…"/"#…" being typed. */
+  const takeRef = (insert: string) => {
+    if (!trigger) return;
+    const next = applyRef(value, trigger, caret, insert);
+    setValue(next.value);
+    setCaret(next.caret);
+    setRefSel(0);
+    const el = taRef.current;
+    // The caret must land after the inserted text, not where React put it.
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(next.caret, next.caret);
+    });
+  };
+
+  const pickFile = (path: string) => takeRef(`@${path}`);
+  const pickSession = (s: { id: string; title: string }) => {
+    setRefSessions((prev) => (prev.some((x) => x.id === s.id) ? prev : [...prev, s]));
+    // The chip carries the reference; the typed "#…" has done its job.
+    takeRef("");
+  };
+
   // Each edit resets the palette: selection back to the top, Esc-close undone.
   useEffect(() => {
     setSel(0);
     setPaletteClosed(false);
+    setRefSel(0);
+    setRefClosed(false);
   }, [value]);
 
   // Committing a command turns it into a chip; the input then holds only the
@@ -333,13 +415,44 @@ export function Composer({
         return;
       }
     }
-    if (!text && files.length === 0) return;
+    if (!text && files.length === 0 && refSessions.length === 0) return;
     const fileNote =
       files.length > 0 ? `Files added to the workspace: ${files.join(", ")}` : "";
-    onSend?.(text && fileNote ? `${text}\n\n${fileNote}` : text || fileNote);
+    const base = text && fileNote ? `${text}\n\n${fileNote}` : text || fileNote;
+    if (refSessions.length > 0) {
+      // Referenced conversations are fetched and condensed before sending, so
+      // the agent gets the earlier context without the user copy-pasting it.
+      const attached = [...refSessions];
+      setRefSessions([]);
+      void buildReferences(attached).then((blocks) =>
+        onSend?.(blocks ? `${blocks}\n\n${base}` : base),
+      );
+    } else {
+      onSend?.(base);
+    }
     if (text) recordHistory(text);
     setValue("");
     setFiles([]);
+  };
+
+  /** Quote each referenced conversation down to its ask and its conclusion.
+   *  A conversation that cannot be read is skipped rather than failing the
+   *  send — the user's own message still goes through. */
+  const buildReferences = async (refs: { id: string; title: string }[]): Promise<string> => {
+    const client = getClient();
+    if (!client) return "";
+    const blocks = await Promise.all(
+      refs.map(async (r) => {
+        try {
+          const messages = await client.getMessages(r.id);
+          const excerpt = condenseTranscript(messages);
+          return excerpt ? referenceBlock(r.title, excerpt) : "";
+        } catch {
+          return "";
+        }
+      }),
+    );
+    return blocks.filter(Boolean).join("\n\n");
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -366,6 +479,33 @@ export function Composer({
       if (e.key === "Tab" || e.key === "Enter") {
         e.preventDefault();
         pick(matches[selIndex]);
+        return;
+      }
+    }
+    // The "@"/"#" picker takes the same keys as the "/" palette while it is up.
+    if (refOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setRefSel((i) => Math.min(i + 1, refCount - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setRefSel((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setRefClosed(true);
+        return;
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault();
+        if (trigger?.kind === "file") pickFile(fileMatches[refIndex]!);
+        else {
+          const s = sessionMatches[refIndex]!;
+          pickSession({ id: s.id, title: s.title });
+        }
         return;
       }
     }
@@ -548,6 +688,63 @@ export function Composer({
         dragOver && "border-accent ring-2 ring-accent/40",
       )}
     >
+      {refOpen && (
+        <div
+          role="listbox"
+          aria-label={
+            trigger?.kind === "file"
+              ? t("composer.reference.filesAria")
+              : t("composer.reference.sessionsAria")
+          }
+          className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-card border border-border bg-surface p-1 shadow-card"
+        >
+          {trigger?.kind === "file"
+            ? fileMatches.map((path, i) => (
+                <button
+                  key={path}
+                  role="option"
+                  aria-selected={i === refIndex}
+                  className={cn(
+                    "flex w-full items-baseline gap-2 rounded-input px-2 py-1.5 text-left",
+                    i === refIndex ? "bg-surface-2" : "hover:bg-surface-2",
+                  )}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickFile(path);
+                  }}
+                >
+                  <span className="shrink-0 font-mono text-xs text-text">
+                    {path.split(/[\\/]/).pop()}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">
+                    {path}
+                  </span>
+                </button>
+              ))
+            : sessionMatches.map((m, i) => (
+                <button
+                  key={m.id}
+                  role="option"
+                  aria-selected={i === refIndex}
+                  className={cn(
+                    "flex w-full items-baseline gap-2 rounded-input px-2 py-1.5 text-left",
+                    i === refIndex ? "bg-surface-2" : "hover:bg-surface-2",
+                  )}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickSession({ id: m.id, title: m.title });
+                  }}
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs text-text">{m.title}</span>
+                </button>
+              ))}
+          {trigger?.kind === "file" && refFiles === null && (
+            <div className="px-2 py-1.5 text-xs text-muted">
+              {t("composer.reference.scanning")}
+            </div>
+          )}
+        </div>
+      )}
       {paletteOpen && (
         <div
           role="listbox"
@@ -602,11 +799,38 @@ export function Composer({
           ))}
         </div>
       )}
+      {refSessions.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-1 pb-2">
+          {refSessions.map((r) => (
+            <span
+              key={r.id}
+              className="flex items-center gap-1.5 rounded-input bg-surface-2 py-1 pl-2 pr-1 text-xs text-text ring-1 ring-border"
+              title={t("composer.reference.chipTitle")}
+            >
+              <MessageSquare size={11} className="shrink-0 text-accent" />
+              <span className="max-w-[220px] truncate">{r.title}</span>
+              <button
+                className="rounded p-0.5 text-muted hover:bg-border hover:text-text"
+                aria-label={t("composer.reference.removeAria", { title: r.title })}
+                onClick={() => setRefSessions((prev) => prev.filter((x) => x.id !== r.id))}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <textarea
         ref={taRef}
         rows={1}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          setCaret(e.target.selectionStart ?? e.target.value.length);
+          onChange(e.target.value);
+        }}
+        // Clicking or arrowing elsewhere moves the caret out of a half-typed
+        // "@…", which must close the picker rather than leave it stranded.
+        onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         placeholder={

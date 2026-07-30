@@ -16,6 +16,12 @@ const mocks = vi.hoisted(() => ({
   /** Fire a client status flip into the store, as the SDK's reconnect would. */
   fireStatus: (_s: string) => {},
   runShell: vi.fn(),
+  renameSessionSpy: vi.fn(),
+  /** What listSessions() answers — the runtime's whole history. */
+  sessionList: [] as { id: string; title: string; directory?: string }[],
+  moveSessionSpy: vi.fn(),
+  /** Next renameSession call is rejected by the server. */
+  failRename: false,
   createSessionSpy: vi.fn(),
   sendPromptSpy: vi.fn(),
   /** Captures the FULL sendPrompt arg list (incl. model + variant) — the plain
@@ -119,7 +125,14 @@ vi.mock("@ai4s/sdk", () => {
       this.statusCb("ready");
     }
     async listSessions() {
-      return [];
+      return mocks.sessionList;
+    }
+    async renameSession(id: string, title: string) {
+      mocks.renameSessionSpy(id, title);
+      if (mocks.failRename) throw new Error("rename rejected");
+    }
+    async moveSession(id: string, directory: string) {
+      mocks.moveSessionSpy(id, directory);
     }
     async listSkills() {
       return [{ name: "stub" }];
@@ -247,6 +260,8 @@ beforeEach(async () => {
   mocks.currentModel = null;
   mocks.providers = [];
   mocks.failSetModel = false;
+  mocks.failRename = false;
+  mocks.sessionList = [];
   mocks.notifyPermissionRequest.mockResolvedValue(true);
   mocks.createSessionSpy.mockClear();
   useRuntimeStore.setState({
@@ -1099,10 +1114,10 @@ describe("per-session right pane", () => {
     useRuntimeStore.setState({ currentId: "ses_1" });
     useRuntimeStore.getState().openArtifact(artifact("report.pdf"));
     useRuntimeStore.getState().setShowFiles(true);
-    expect(useRuntimeStore.getState().panes["ses_1"]).toEqual({ artifact: null, showFiles: true, showRuns: false });
+    expect(useRuntimeStore.getState().panes["ses_1"]).toEqual({ artifact: null, showFiles: true, showRuns: false, showAgents: false });
     // Opening Runs closes Files; opening an artifact closes Runs.
     useRuntimeStore.getState().setShowRuns(true);
-    expect(useRuntimeStore.getState().panes["ses_1"]).toEqual({ artifact: null, showFiles: false, showRuns: true });
+    expect(useRuntimeStore.getState().panes["ses_1"]).toEqual({ artifact: null, showFiles: false, showRuns: true, showAgents: false });
     useRuntimeStore.getState().openArtifact(artifact("report.pdf"));
     const p = useRuntimeStore.getState().panes["ses_1"];
     expect(p?.showFiles).toBe(false);
@@ -1613,5 +1628,67 @@ describe("skill install", () => {
     mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
     await new Promise((r) => setTimeout(r, 0));
     expect(mocks.adoptWorkspaceSkills).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("session rename and project filing", () => {
+  it("renameSession retitles the row without re-listing (and so reordering) history", async () => {
+    await useRuntimeStore.getState().connect();
+    useRuntimeStore.setState({
+      sessions: [
+        { id: "ses_1", title: "New session - 2026-07-28T09:37:15.952Z" },
+        { id: "ses_2", title: "other" },
+      ],
+    });
+
+    // Leading/trailing whitespace is the user's typing, not part of the title.
+    expect(await useRuntimeStore.getState().renameSession("ses_1", "  Spike sorting  ")).toBe(true);
+
+    expect(mocks.renameSessionSpy).toHaveBeenCalledWith("ses_1", "Spike sorting");
+    expect(useRuntimeStore.getState().sessions.map((s) => s.title)).toEqual([
+      "Spike sorting",
+      "other",
+    ]);
+  });
+
+  it("renameSession ignores an empty or unchanged title", async () => {
+    await useRuntimeStore.getState().connect();
+    useRuntimeStore.setState({ sessions: [{ id: "ses_1", title: "Spike sorting" }] });
+
+    expect(await useRuntimeStore.getState().renameSession("ses_1", "   ")).toBe(false);
+    expect(await useRuntimeStore.getState().renameSession("ses_1", "Spike sorting")).toBe(false);
+    expect(mocks.renameSessionSpy).not.toHaveBeenCalled();
+  });
+
+  it("renameSession keeps the old title when the runtime rejects it", async () => {
+    await useRuntimeStore.getState().connect();
+    useRuntimeStore.setState({ sessions: [{ id: "ses_1", title: "before" }] });
+    mocks.failRename = true;
+
+    expect(await useRuntimeStore.getState().renameSession("ses_1", "after")).toBe(false);
+    expect(useRuntimeStore.getState().sessions[0]!.title).toBe("before");
+    expect(useRuntimeStore.getState().error).toBe("rename rejected");
+  });
+
+  it("moveSessionToWorkspace re-homes the conversation so it groups under the project", async () => {
+    await useRuntimeStore.getState().connect();
+    useRuntimeStore.setState({ sessions: [{ id: "ses_1", title: "loose work" }] });
+    // The move also re-homes the session's subagent children, so the store
+    // re-lists afterwards; the server reports both in the destination folder.
+    mocks.sessionList = [
+      { id: "ses_1", title: "loose work", directory: "/work/projects/bci" },
+      { id: "ses_2", title: "subagent", directory: "/work/projects/bci" },
+    ];
+
+    expect(
+      await useRuntimeStore.getState().moveSessionToWorkspace("ses_1", "/work/projects/bci"),
+    ).toBe(true);
+    await vi.waitFor(() => expect(useRuntimeStore.getState().sessions).toHaveLength(2));
+
+    expect(mocks.moveSessionSpy).toHaveBeenCalledWith("ses_1", "/work/projects/bci");
+    expect(useRuntimeStore.getState().sessions.map((s) => s.directory)).toEqual([
+      "/work/projects/bci",
+      "/work/projects/bci",
+    ]);
   });
 });

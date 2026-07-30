@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   ArrowDown,
+  Bot,
   FlaskConical,
   FolderOpen,
   Loader2,
@@ -26,6 +27,8 @@ import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { fileInspectorFromBlock } from "@/lib/artifacts";
 import { useChatScroll } from "@/lib/scrollMemory";
 import { BlockList, type BlockHandlers } from "@/components/thread/BlockList";
+import { SubagentPane } from "@/components/thread/SubagentPane";
+import { SelectionActions } from "@/components/thread/SelectionActions";
 import { Elapsed } from "@/components/thread/ToolGroup";
 import { Composer } from "@/components/thread/Composer";
 import { GOAL_RESUME_NUDGE, GoalPill } from "@/components/thread/GoalPill";
@@ -113,6 +116,7 @@ export function SessionView({
   const closeArtifact = useRuntimeStore((s) => s.closeArtifact);
   const setShowFiles = useRuntimeStore((s) => s.setShowFiles);
   const setShowRuns = useRuntimeStore((s) => s.setShowRuns);
+  const setShowAgents = useRuntimeStore((s) => s.setShowAgents);
   const answerQuestion = useRuntimeStore((s) => s.answerQuestion);
   const rejectQuestion = useRuntimeStore((s) => s.rejectQuestion);
   const replyPermission = useRuntimeStore((s) => s.replyPermission);
@@ -258,7 +262,8 @@ export function SessionView({
   const activeArtifact = pane?.artifact ?? null;
   const showFiles = !activeArtifact && !!pane?.showFiles;
   const showRuns = !activeArtifact && !showFiles && !!pane?.showRuns;
-  const inspectorActive = !!activeArtifact || showFiles || showRuns;
+  const showAgents = !activeArtifact && !showFiles && !showRuns && !!pane?.showAgents;
+  const inspectorActive = !!activeArtifact || showFiles || showRuns || showAgents;
   const compactNotebooks = !solo || isMobile;
   const openNotebook = (notebook: (typeof uniqueNotebooks)[number]) => {
     pinEphemeral();
@@ -270,6 +275,12 @@ export function SessionView({
   // The folder shown in the Files toggle: this session's own directory (falling
   // back to the active workspace on a draft that has none yet).
   const sessionDir = sessions.find((s) => s.id === eid)?.directory ?? workspace;
+
+  // Offer the subagent panel only once this conversation has actually spawned
+  // one — a plain chat should not carry a control for something it never does.
+  const hasSubagents = (thread?.blocks ?? []).some(
+    (b) => b.kind === "tool-call" && (b.tool === "task" || !!b.childSessionId),
+  );
 
   const [hasRuns, setHasRuns] = useState(false);
   useEffect(() => {
@@ -336,6 +347,12 @@ export function SessionView({
     />
   ) : showRuns ? (
     <RunsPane sessionId={eid!} onClose={() => setShowRuns(false, sid ?? undefined)} controls={<MaximizePaneButton />} />
+  ) : showAgents ? (
+    <SubagentPane
+      sessionId={eid!}
+      onClose={() => setShowAgents(false, sid ?? undefined)}
+      controls={<MaximizePaneButton />}
+    />
   ) : showFiles ? (
     <SessionFilesPane
       key={`files:${eid}`}
@@ -429,6 +446,25 @@ export function SessionView({
             >
               <FlaskConical size={13} />
               {solo && <span>{t("live.runsToggle.label")}</span>}
+            </button>
+          )}
+          {/* Subagents: only offered once this conversation has spawned one,
+              so a plain single-agent chat keeps a clean header. */}
+          {eid && hasSubagents && (
+            <button
+              onClick={() => {
+                pinEphemeral();
+                setShowAgents(!showAgents, sid ?? undefined);
+              }}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-surface-2",
+                showAgents ? "bg-surface-2 text-text" : "text-muted",
+              )}
+              title={t("subagents.toggleTitle")}
+              aria-pressed={showAgents}
+            >
+              <Bot size={13} />
+              {solo && <span>{t("subagents.title")}</span>}
             </button>
           )}
           {/* Split this pane — the visible, discoverable way to tile (no
@@ -597,6 +633,8 @@ export function SessionView({
                 workspaceDirectory={sessionDir ?? undefined}
               />
             )}
+            {/* Acts on a text selection anywhere in this pane's answers. */}
+            {!webReadOnly && <SelectionActions sessionId={eid} />}
             {working && (
               <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
                 <Loader2 size={14} className="shrink-0 animate-spin" />
@@ -728,6 +766,8 @@ export function SessionView({
               showModelPicker={connected && !webReadOnly}
               modelSessionId={key}
               showWorkspaceChip={eid === null}
+              sessionDir={sessionDir ?? undefined}
+              currentSessionId={eid}
             />
           </div>
         </div>
@@ -744,7 +784,9 @@ export function SessionView({
               ? () => closeArtifact(sid ?? undefined)
               : showRuns
                 ? () => setShowRuns(false, sid ?? undefined)
-                : () => setShowFiles(false, sid ?? undefined)
+                : showAgents
+                  ? () => setShowAgents(false, sid ?? undefined)
+                  : () => setShowFiles(false, sid ?? undefined)
           }
         >
           {inspectorNode}

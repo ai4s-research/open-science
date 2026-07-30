@@ -9,6 +9,7 @@ import { StepSummaryRow } from "./StepSummaryRow";
 import { FigureBlock } from "./FigureBlock";
 import { ArtifactCard } from "./ArtifactCard";
 import { InlineArtifact } from "./InlineArtifact";
+import { CompactionRow } from "./CompactionRow";
 
 export interface BlockHandlers {
   /** Open an artifact in the inspector (live session). */
@@ -62,6 +63,8 @@ export function renderBlock(
       );
     case "running-jobs":
       return <RunningJobsOverlay key={i} block={block} />;
+    case "compaction":
+      return <CompactionRow key={i} block={block} />;
     case "status-line":
       return <StatusLine key={i} block={block} />;
   }

@@ -64,6 +64,8 @@ import { DataFlowCard } from "@/components/settings/DataFlowCard";
 import { ModelBrowser } from "@/components/settings/ModelBrowser";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { ProviderManagerCard } from "@/components/settings/ProviderManagerCard";
+import { AgentModelsCard } from "@/components/settings/AgentModelsCard";
+import { MemoryCard } from "@/components/settings/MemoryCard";
 import { Row, Section, Switch } from "@/components/settings/Section";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { resolveSection } from "@/components/settings/sections";
@@ -256,8 +258,8 @@ export function SettingsPage() {
     setCatalogState("loading");
   }, [serverUrl]);
   useEffect(() => {
-    // The BASE folder — the parent every session's dated subfolder is created
-    // under. (The per-session active folder shows in the conversation header.)
+    // The BASE folder — contains projects/ and sessions/. (The per-session
+    // active folder shows in the conversation header.)
     void workspaceBase().then(setWsPath);
   }, []);
   const refreshPython = useCallback(() => {
@@ -959,6 +961,12 @@ export function SettingsPage() {
           )}
         </Section>
         )}
+
+        {/* ---- One model per agent (a fast reviewer, a strong main agent) ---- */}
+        {section === "models" && isTauri && <AgentModelsCard providers={providers} />}
+
+        {/* ---- Persistent memory layers ---- */}
+        {section === "memory" && <MemoryCard />}
 
         {/* ---- Providers ---- */}
         {section === "models" && (

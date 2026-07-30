@@ -139,9 +139,22 @@ export interface RuntimeErrorEvent {
   message: string;
 }
 
+/** The runtime compacted the conversation's older turns to stay inside the
+ *  model's context window. Emitted so the thread can show one quiet marker
+ *  instead of the user hitting "Input exceeds context window". */
+export interface CompactedEvent {
+  type: "session.compacted";
+  sessionId: string;
+  /** True when the runtime decided on its own, false when the user asked. */
+  auto: boolean;
+  /** The context had already overflowed rather than merely neared the limit. */
+  overflow?: boolean;
+}
+
 export type OpenCodeEvent =
   | TextUpdatedEvent
   | ReasoningUpdatedEvent
+  | CompactedEvent
   | StepUpdatedEvent
   | ToolUpdatedEvent
   | SessionIdleEvent
@@ -170,6 +183,31 @@ export interface SessionMeta {
    *  Drives "Updated" timestamps and recency ordering. */
   created?: number;
   updated?: number;
+  /** Epoch ms the user archived this conversation; absent when active.
+   *  Archived conversations are kept and searchable — just out of the way. */
+  archived?: number;
+  /** The runtime's whole metadata object, so a write can merge instead of
+   *  clobbering keys another client owns. */
+  metadata?: Record<string, unknown>;
+}
+
+/** One page of conversation history. Both the filter and the paging run on the
+ *  server so a multi-year history never has to be held in memory. */
+export interface SessionQuery {
+  /** Rows per page. */
+  limit?: number;
+  /** Page from here (an epoch-ms `updated`); omit for the newest page. */
+  cursor?: number | null;
+  /** Server-side title search. */
+  search?: string;
+  /** Include archived conversations (they are excluded by default). */
+  archived?: boolean;
+}
+
+export interface SessionPage {
+  sessions: SessionMeta[];
+  /** Cursor for the next page, or null when the history is exhausted. */
+  nextCursor: number | null;
 }
 
 export interface SkillInfo {

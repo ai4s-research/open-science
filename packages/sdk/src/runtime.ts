@@ -8,6 +8,8 @@ import type {
   QuestionAskedEvent,
   RuntimeStatus,
   SessionMeta,
+  SessionPage,
+  SessionQuery,
   SkillInfo,
 } from "./types";
 
@@ -39,8 +41,18 @@ export interface AgentRuntime {
   // ---- sessions (a conversation) ----
   /** Create a session, optionally giving the runtime a concise initial title. */
   createSession(title?: string): Promise<string>;
+  /** The RECENT conversations, newest first, across every workspace folder,
+   *  archived ones excluded. Bounded — a multi-year history is never held in
+   *  memory; reach the rest through `querySessions`. */
   listSessions(): Promise<SessionMeta[]>;
+  /** One page of conversation history, searched and paged on the server. */
+  querySessions(query?: SessionQuery): Promise<SessionPage>;
+  /** Archive a conversation, or restore it with `false`. Archiving never
+   *  deletes anything — the conversation stays searchable. */
+  setSessionArchived(sessionId: string, archived: boolean): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
+  /** Give a session a title of the user's choosing. */
+  renameSession(sessionId: string, title: string): Promise<void>;
   getMessages(sessionId: string): Promise<HistoryMessage[]>;
   /** `agent` pins a specific agent for the turn (e.g. the read-only "plan"
    *  agent); omit for the runtime default. `model` ("provider/model") pins the

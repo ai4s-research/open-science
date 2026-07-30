@@ -9,7 +9,8 @@
     "compute": "컴퓨팅",
     "privacy": "개인정보",
     "browser": "브라우저",
-    "remote": "원격 접속"
+    "remote": "원격 접속",
+    "memory": "메모리"
   },
   "appearance": {
     "title": "화면 모드",
@@ -194,7 +195,7 @@
   },
   "workspace": {
     "title": "워크스페이스",
-    "hint": "로컬 우선 — 각 세션은 여기에 생성된 자체 날짜별 하위 폴더에서 작동합니다",
+    "hint": "로컬 우선 — 프로젝트는 projects/, 독립 세션은 sessions/에 저장됩니다",
     "unavailable": "데스크톱 앱에서 사용 가능",
     "change": "변경…",
     "reveal": "표시"
@@ -342,5 +343,30 @@
     "error": "원격 접속 변경 실패",
     "connect": "연결",
     "connectPrompt": "데스크톱 앱의 접속 토큰을 입력하세요 → 설정 → 원격 접속."
+  },
+  "memory": {
+    "title": "메모리",
+    "hint": "에이전트가 모든 대화 전에 읽는 지속적인 컨텍스트입니다. 프로젝트를 매번 다시 설명하지 않아도 됩니다.",
+    "enableLabel": "대화에 메모리 적용",
+    "enableHint": "끄면 어느 계층도 불러오지 않습니다(일회성 질문에 유용). 파일은 그대로 보존됩니다.",
+    "globalTitle": "전역 메모리",
+    "globalHint": "모든 프로젝트에 적용: 사용자 소개, 사용하는 도구, 원하는 답변 방식.",
+    "globalPlaceholder": "# 소개\n- 하는 일 …\n- SI 단위를 쓰고 출처를 밝힐 것.",
+    "projectTitle": "프로젝트 메모리 — {{name}}",
+    "projectHint": "이 프로젝트의 대화에만 적용: 목표, 용어, 데이터 경로, 결정 사항.",
+    "projectPlaceholder": "# 프로젝트\n목표: …\n\n# 결정 사항\n- …",
+    "projectNoneTitle": "프로젝트 메모리",
+    "projectNoneHint": "프로젝트마다 고유한 메모리 파일이 있습니다.",
+    "projectNoneBody": "프로젝트를 열면 메모리를 편집할 수 있습니다.",
+    "saved": "저장됨",
+    "disabledNote": "메모리가 꺼져 있어 이 파일은 지금 불러오지 않습니다."
+  },
+  "agentModels": {
+    "title": "에이전트별 모델",
+    "hint": "메인 에이전트가 강력한 모델로 추론하는 동안 검토·탐색 에이전트는 빠른 모델로 실행하세요.",
+    "noModels": "모델을 고르려면 공급자를 연결하세요.",
+    "followDefault": "기본 모델",
+    "followDefaultNamed": "기본값 ({{model}})",
+    "modelFor": "{{agent}}의 모델"
   }
 }

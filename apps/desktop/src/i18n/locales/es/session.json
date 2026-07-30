@@ -16,6 +16,11 @@
       "body": "Esto solo quita el panel de esta pantalla. La sesión, el historial de conversación y los archivos del espacio de trabajo se conservan.",
       "action": "Cerrar panel"
     },
+    "confirmCloseScreen": {
+      "title": "¿Cerrar esta pantalla?",
+      "body": "Esto elimina la pantalla y todos sus paneles. Las sesiones, el historial de conversación y los archivos del espacio de trabajo se conservan.",
+      "action": "Cerrar pantalla"
+    },
     "zoom": "Zoom de este panel",
     "empty": {
       "title": "Pantalla vacía",
@@ -108,6 +113,13 @@
       "reasoningDefault": "Predeterminado del modelo",
       "faster": "Más rápido",
       "smarter": "Más inteligente"
+    },
+    "reference": {
+      "filesAria": "Archivos del espacio de trabajo",
+      "sessionsAria": "Conversaciones anteriores",
+      "scanning": "Leyendo el espacio de trabajo…",
+      "chipTitle": "Esta conversación se citará para el agente",
+      "removeAria": "Quitar la referencia a {{title}}"
     }
   },
   "localCommand": {
@@ -331,5 +343,30 @@
       "edit": "Editar y reenviar",
       "revert": "Revertir aquí"
     }
+  },
+  "compaction": {
+    "label": "Contexto compactado",
+    "autoBody": "El entorno resumió los turnos anteriores para no salirse de la ventana de contexto del modelo, y la conversación siguió aquí.",
+    "manualBody": "Pediste resumir los turnos anteriores; la conversación siguió aquí.",
+    "overflowBody": "Ocurrió porque el contexto ya se había llenado.",
+    "at": "Cuándo: {{time}}",
+    "originalKept": "La conversación original completa sigue guardada en local."
+  },
+  "selection": {
+    "aria": "Acciones para el texto seleccionado",
+    "quote": "Citar",
+    "explain": "Explicar",
+    "explainPrompt": "Explica esta parte con más detalle.",
+    "remember": "Guardar en la memoria",
+    "savedProject": "Guardado en la memoria de {{name}}",
+    "savedGlobal": "Guardado en la memoria global"
+  },
+  "subagents": {
+    "title": "Subagentes",
+    "toggleTitle": "Ver qué están haciendo los subagentes",
+    "closeAria": "Cerrar el panel de subagentes",
+    "count_one": "{{count}} tarea",
+    "count_other": "{{count}} tareas",
+    "empty": "Todavía no hay subagentes en esta conversación."
   }
 }

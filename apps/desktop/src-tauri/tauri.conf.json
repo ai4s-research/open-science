@@ -39,6 +39,8 @@
       "binaries/agent-browser"
     ],
     "macOS": {
+      "hardenedRuntime": true,
+      "infoPlist": "./Info.plist",
       "minimumSystemVersion": "13.0"
     },
     "resources": {

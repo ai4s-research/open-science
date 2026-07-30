@@ -141,21 +141,44 @@ fn get_wm(conn: &Connection, key: &str) -> i64 {
         .unwrap_or(0)
 }
 
-/// Every runs log under the base folder: the base's own `.openscience/` plus
-/// each session subfolder's. This is what makes the index GLOBAL — one DB over
-/// all sessions, with per-session views being just a `session_id` filter.
+/// Every runs log under the base folder: the base's own `.openscience/`, new
+/// workspaces under `projects/` and `sessions/`, plus legacy root-level
+/// workspaces. This is what makes the index GLOBAL — one DB over all sessions,
+/// with per-session views being just a `session_id` filter.
 fn source_files(base: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![base.to_path_buf()];
     if let Ok(entries) = std::fs::read_dir(base) {
         for e in entries.flatten() {
             let name = e.file_name();
-            // Session folders are immediate children; skip hidden dirs (our own
-            // .openscience store lives there) and files.
-            if e.path().is_dir() && !name.to_string_lossy().starts_with('.') {
-                dirs.push(e.path());
+            let path = e.path();
+            if !path.is_dir() || name.to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if matches!(
+                name.to_string_lossy().as_ref(),
+                crate::runtime::PROJECTS_DIR_NAME | crate::runtime::SESSIONS_DIR_NAME
+            ) {
+                if let Ok(children) = std::fs::read_dir(path) {
+                    dirs.extend(children.flatten().map(|child| child.path()).filter(|p| p.is_dir()));
+                }
+            } else {
+                // Compatibility: releases before the structured layout created
+                // every project/session directly under the base directory.
+                dirs.push(path);
             }
         }
     }
+    // An in-place import is intentionally outside the base tree. It is still a
+    // registered workspace, so include its run logs without opening arbitrary
+    // external directories.
+    let base_canon = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
+    dirs.extend(
+        crate::project::project_workspace_dirs(base)
+            .into_iter()
+            .filter(|dir| !dir.starts_with(&base_canon)),
+    );
+    dirs.sort();
+    dirs.dedup();
     dirs.into_iter()
         .flat_map(|d| [RUNS_FILE, REMOTE_RUNS_FILE].map(|f| d.join(".openscience").join(f)))
         .collect()
@@ -506,9 +529,13 @@ mod tests {
     #[test]
     fn indexes_runs_across_session_subfolders_and_filters_by_session() {
         let root = temp_root("global");
-        // Two sessions, each with its own dated folder + logs (like real workspaces).
-        for (sess, ts) in [("ses_a", 100), ("ses_b", 200)] {
-            let dir = root.join(sess).join(".openscience");
+        // Structured project + session, plus one legacy root-level workspace.
+        for (workspace, sess, ts) in [
+            ("projects/study", "ses_a", 100),
+            ("sessions/2026-07-28-0900", "ses_b", 200),
+            ("2026-07-01-0800", "ses_legacy", 300),
+        ] {
+            let dir = root.join(workspace).join(".openscience");
             std::fs::create_dir_all(&dir).unwrap();
             let line = format!(
                 r#"{{"runId":"run_{sess}","ts":{ts},"status":"ok","command":"python x.py","sessionId":"{sess}","code":[],"outputs":[]}}"#
@@ -519,8 +546,8 @@ mod tests {
         let conn = open_index(&root).unwrap();
         sync_index(&conn, &root).unwrap();
 
-        // Global view: both sessions' runs.
-        assert_eq!(query_runs(&conn, &RunQuery::default()).unwrap().total, 2);
+        // Global view: structured and legacy workspaces are all indexed.
+        assert_eq!(query_runs(&conn, &RunQuery::default()).unwrap().total, 3);
         // Per-session view: only that session's runs.
         let q = RunQuery { session_id: Some("ses_a".into()), ..Default::default() };
         let page = query_runs(&conn, &q).unwrap();

@@ -5,6 +5,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { cn } from "@/lib/cn";
+import { openExternal } from "@/lib/tauri";
 
 /** Two contexts render markdown: chat bubbles (theme colors, compact) and the
  *  file-preview "paper" (document-neutral black-on-white, editorial scale —
@@ -13,18 +14,20 @@ type Variant = "chat" | "document";
 
 const STYLES: Record<Variant, Record<string, string>> = {
   chat: {
+    // Block gaps are ~a blank line apart, not a half one: long answers were
+    // hard to scan because paragraphs ran together (#63).
     root: "text-[15px] leading-relaxed text-text",
-    p: "my-2 first:mt-0 last:mb-0",
+    p: "my-3.5 first:mt-0 last:mb-0",
     a: "text-link underline underline-offset-2",
     code: "rounded bg-surface-2 px-1 py-0.5 font-mono text-[13px] text-link",
-    pre: "my-3 overflow-x-auto rounded-input bg-surface-2 p-3 font-mono text-[13px] leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-text",
-    ul: "my-2 ml-5 list-disc space-y-1",
-    ol: "my-2 ml-5 list-decimal space-y-1",
-    h1: "mb-3 mt-5 text-2xl font-semibold first:mt-0",
-    h2: "mb-2 mt-5 text-xl font-semibold first:mt-0",
-    h3: "mb-2 mt-4 text-lg font-semibold first:mt-0",
-    h4: "mb-1.5 mt-3 text-base font-semibold first:mt-0",
-    blockquote: "my-2 border-l-2 border-border pl-3 text-muted",
+    pre: "my-4 overflow-x-auto rounded-input bg-surface-2 p-3 font-mono text-[13px] leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-text",
+    ul: "my-3.5 ml-5 list-disc space-y-1.5",
+    ol: "my-3.5 ml-5 list-decimal space-y-1.5",
+    h1: "mb-3 mt-6 text-2xl font-semibold first:mt-0",
+    h2: "mb-2.5 mt-6 text-xl font-semibold first:mt-0",
+    h3: "mb-2 mt-5 text-lg font-semibold first:mt-0",
+    h4: "mb-1.5 mt-4 text-base font-semibold first:mt-0",
+    blockquote: "my-3.5 border-l-2 border-border pl-3 text-muted",
     hr: "my-4 border-border",
     table: "border-collapse text-sm",
     th: "border border-border bg-surface-2 px-3 py-1.5 text-left font-semibold",
@@ -100,7 +103,19 @@ export function MarkdownViewer({
         components={{
           p: ({ children }) => <p className={s.p}>{children}</p>,
           a: ({ children, href }) => (
-            <a href={href} className={s.a}>
+            <a
+              href={href}
+              className={s.a}
+              onClick={(event) => {
+                // Never let a document link navigate the application WebView:
+                // even a relative or unsupported URL would replace the current
+                // Screen with an invalid app route. Only approved http(s) URLs
+                // are handed to the system browser by openExternal.
+                event.preventDefault();
+                event.stopPropagation();
+                if (href && /^https?:\/\//i.test(href)) void openExternal(href);
+              }}
+            >
               {children}
             </a>
           ),

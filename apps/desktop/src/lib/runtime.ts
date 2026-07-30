@@ -39,6 +39,7 @@ import {
   workspacePath,
   workspaceSkillNames,
   type ApprovalMode,
+  type ProjectImportMode,
   type ProjectInfo,
   type ProxyMode,
   type ToolStatus,
@@ -121,6 +122,8 @@ export interface PaneState {
   artifact: ArtifactBlock | null;
   showFiles: boolean;
   showRuns: boolean;
+  /** The subagent panel: what this conversation's subagents are doing (#63). */
+  showAgents: boolean;
 }
 
 interface RuntimeState {
@@ -196,6 +199,7 @@ interface RuntimeState {
   closeArtifact: (sessionId?: string) => void;
   setShowFiles: (show: boolean, sessionId?: string) => void;
   setShowRuns: (show: boolean, sessionId?: string) => void;
+  setShowAgents: (show: boolean, sessionId?: string) => void;
   answerQuestion: (requestId: string, answers: string[][]) => Promise<void>;
   rejectQuestion: (requestId: string) => Promise<void>;
   replyPermission: (requestId: string, reply: PermissionReply) => Promise<void>;
@@ -210,13 +214,13 @@ interface RuntimeState {
   refreshSessions: () => Promise<void>;
   startDraft: () => void;
   startDraftInCurrentWorkspace: (key?: string) => void;
-  /** Projects: named shared-workspace folders under the base dir. Sessions
-   *  group under a project by `directory`; multiple sessions share the folder. */
+  /** Projects: named shared workspaces under `<base>/projects`. Sessions group
+   *  under a project by `directory`; multiple sessions share the folder. */
   projects: ProjectInfo[];
   refreshProjects: () => Promise<void>;
   /** Create a project folder and move into it with a fresh pinned draft. */
   createProject: (name: string) => Promise<ProjectInfo | null>;
-  importProject: (path: string) => Promise<ProjectInfo | null>;
+  importProject: (path: string, mode: ProjectImportMode) => Promise<ProjectInfo | null>;
   setProjectPinned: (id: string, pinned: boolean) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   /** Fresh draft pinned inside `path` (a project folder), so the next new
@@ -299,6 +303,15 @@ interface RuntimeState {
    *  directory-scoped event stream), reload the missed history and unlock. */
   reconcileRunning: () => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
+  /** Retitle a session. Resolves false when the runtime rejected the rename
+   *  (the old title stays); the caller shows nothing else. */
+  renameSession: (id: string, title: string) => Promise<boolean>;
+  /** File an existing conversation under a project folder (#62): the session
+   *  moves, its workspace files stay put. Resolves false on failure. */
+  moveSessionToWorkspace: (id: string, directory: string) => Promise<boolean>;
+  /** Archive a conversation (or restore it). Nothing is deleted — archiving
+   *  only takes it out of the sidebar and the default history view. */
+  setSessionArchived: (id: string, archived: boolean) => Promise<boolean>;
   hideExample: (id: string) => void;
   /** Install a skill. A pasted SKILL.md is written straight into the profile's
    *  user skills dir (`installed`); anything else (a URL, a description) hands
@@ -534,6 +547,35 @@ function clearLiveFolds(sessionId: string) {
 
 /** Resolve a (possibly nested) subagent session to its top-level session —
  *  a subagent's question/permission belongs to the conversation the user sees. */
+/** Turn exactly one right-pane view on (and every other one off) for a pane.
+ *  Turning a view off leaves the rest as they were. An open artifact is closed
+ *  whenever a view opens — the pane shows one thing at a time. */
+function showOnly(
+  s: { panes: Record<string, PaneState>; currentId: string | null },
+  sessionId: string | undefined,
+  view: "showFiles" | "showRuns" | "showAgents",
+  show: boolean,
+): { panes: Record<string, PaneState> } {
+  const key = sessionId ?? s.currentId ?? DRAFT_KEY;
+  const p = s.panes[key];
+  const base: PaneState = {
+    artifact: show ? null : (p?.artifact ?? null),
+    showFiles: false,
+    showRuns: false,
+    showAgents: false,
+  };
+  const next: PaneState = show
+    ? { ...base, [view]: true }
+    : {
+        ...base,
+        showFiles: p?.showFiles ?? false,
+        showRuns: p?.showRuns ?? false,
+        showAgents: p?.showAgents ?? false,
+        [view]: false,
+      };
+  return { panes: { ...s.panes, [key]: next } };
+}
+
 export function rootSessionOf(parents: Record<string, string>, sessionId: string): string {
   let cur = sessionId;
   for (let hop = 0; parents[cur] && hop < 10; hop++) cur = parents[cur];
@@ -619,7 +661,7 @@ async function performTurn(
     if (!id) {
       // Lazy-create the session on the first message (#3). Unless the user
       // pinned a folder via the workspace switcher, a new session gets its
-      // own fresh dated folder (~/Documents/OpenScience/<date-time>) first,
+      // own fresh dated folder (~/Documents/OpenScience/sessions/<date-time>) first,
       // so its files never pile up in the bare base folder.
       if (isTauri && !get().workspacePinned) {
         set({ switching: true });
@@ -922,36 +964,36 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   // — one pane at a time.
   openArtifact: (artifact, sessionId) =>
     set((s) => ({
-      panes: { ...s.panes, [sessionId ?? s.currentId ?? DRAFT_KEY]: { artifact, showFiles: false, showRuns: false } },
+      panes: {
+        ...s.panes,
+        [sessionId ?? s.currentId ?? DRAFT_KEY]: {
+          artifact,
+          showFiles: false,
+          showRuns: false,
+          showAgents: false,
+        },
+      },
     })),
   closeArtifact: (sessionId) =>
     set((s) => {
       const key = sessionId ?? s.currentId ?? DRAFT_KEY;
       const p = s.panes[key];
-      return { panes: { ...s.panes, [key]: { artifact: null, showFiles: p?.showFiles ?? false, showRuns: p?.showRuns ?? false } } };
-    }),
-  setShowFiles: (show, sessionId) =>
-    set((s) => {
-      const key = sessionId ?? s.currentId ?? DRAFT_KEY;
-      const p = s.panes[key];
       return {
         panes: {
           ...s.panes,
-          [key]: { artifact: show ? null : (p?.artifact ?? null), showFiles: show, showRuns: show ? false : (p?.showRuns ?? false) },
+          [key]: {
+            artifact: null,
+            showFiles: p?.showFiles ?? false,
+            showRuns: p?.showRuns ?? false,
+            showAgents: p?.showAgents ?? false,
+          },
         },
       };
     }),
-  setShowRuns: (show, sessionId) =>
-    set((s) => {
-      const key = sessionId ?? s.currentId ?? DRAFT_KEY;
-      const p = s.panes[key];
-      return {
-        panes: {
-          ...s.panes,
-          [key]: { artifact: show ? null : (p?.artifact ?? null), showFiles: show ? false : (p?.showFiles ?? false), showRuns: show },
-        },
-      };
-    }),
+  // The right pane holds ONE thing: opening any view closes the others.
+  setShowFiles: (show, sessionId) => set((s) => showOnly(s, sessionId, "showFiles", show)),
+  setShowRuns: (show, sessionId) => set((s) => showOnly(s, sessionId, "showRuns", show)),
+  setShowAgents: (show, sessionId) => set((s) => showOnly(s, sessionId, "showAgents", show)),
 
   answerQuestion: async (requestId, answers) => {
     const q = get().questions.find((x) => x.requestId === requestId);
@@ -1827,9 +1869,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     }
   },
 
-  importProject: async (path) => {
+  importProject: async (path, mode) => {
     try {
-      const project = await importProjectFolder(path);
+      const project = await importProjectFolder(path, mode);
       void get().refreshProjects();
       await get().switchWorkspace({ path: project.path });
       return project;
@@ -2222,6 +2264,59 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     });
   },
 
+  renameSession: async (id, title) => {
+    const trimmed = title.trim();
+    const current = get().sessions.find((s) => s.id === id);
+    if (!client || !trimmed || !current || trimmed === current.title) return false;
+    try {
+      await client.renameSession(id, trimmed);
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+      return false;
+    }
+    // Rename locally rather than re-listing: the sidebar row must change under
+    // the pointer, and a full refresh would also reorder the list.
+    set((s) => ({
+      sessions: s.sessions.map((x) => (x.id === id ? { ...x, title: trimmed } : x)),
+    }));
+    return true;
+  },
+
+  moveSessionToWorkspace: async (id, directory) => {
+    const oc = getClient();
+    // Re-homing a session is OpenCode control-plane surface, not part of the
+    // runtime-agnostic port — go through the concrete client.
+    if (!oc) return false;
+    try {
+      await oc.moveSession(id, directory);
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+      return false;
+    }
+    set((s) => ({
+      sessions: s.sessions.map((x) => (x.id === id ? { ...x, directory } : x)),
+    }));
+    // The move also re-parents the session's own children; re-list so their
+    // grouping follows instead of pointing at the old folder.
+    void get().refreshSessions();
+    return true;
+  },
+
+  setSessionArchived: async (id, archived) => {
+    if (!client) return false;
+    try {
+      await client.setSessionArchived(id, archived);
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+      return false;
+    }
+    // The sidebar's window holds only ACTIVE conversations, so an archived one
+    // leaves it at once; a restored one comes back with the next refresh.
+    set((s) => ({ sessions: s.sessions.filter((x) => x.id !== id) }));
+    if (!archived) void get().refreshSessions();
+    return true;
+  },
+
   hideExample: (id) => {
     const next = Array.from(new Set([...get().hiddenExamples, id]));
     if (typeof window !== "undefined") window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(next));
@@ -2552,6 +2647,17 @@ export function foldEvent(
       }
       return { blocks, index };
     }
+    case "session.compacted": {
+      // One marker per compaction, appended where it happened so the reader
+      // can see which stretch of the conversation was summarized away.
+      blocks.push({
+        kind: "compaction",
+        auto: event.auto,
+        ...(event.overflow ? { overflow: true } : {}),
+        at: Date.now(),
+      });
+      return { blocks, index };
+    }
     case "session.idle": {
       const last = blocks[blocks.length - 1];
       if (last?.kind === "status-line" && last.tone === "done") {
@@ -2666,6 +2772,16 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
         }
         else if (p.type === "reasoning" && p.text?.trim()) {
           blocks.push({ kind: "reasoning", text: p.text });
+        }
+        else if (p.type === "compaction") {
+          // Reloading a compacted conversation must show the same marker the
+          // live stream did — otherwise history looks like turns went missing.
+          const c = p as unknown as { auto?: boolean; overflow?: boolean };
+          blocks.push({
+            kind: "compaction",
+            auto: c.auto !== false,
+            ...(c.overflow ? { overflow: true } : {}),
+          });
         }
         else if (p.type === "tool") {
           // Interactive tools are surfaced by InteractionPrompt, not the thread;

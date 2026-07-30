@@ -125,6 +125,87 @@ export async function setApprovalMode(mode: ApprovalMode): Promise<void> {
   await invoke("set_approval_mode", { mode });
 }
 
+/** Write one exported conversation into a folder the user picked. Returns the
+ *  file that was actually written — the name is derived from the title and
+ *  de-duplicated, so nothing is silently overwritten. */
+export async function writeExportFile(
+  directory: string,
+  name: string,
+  contents: string,
+): Promise<string> {
+  if (!isTauri) throw new Error("Exporting needs the desktop app");
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("write_export_file", { directory, name, contents });
+}
+
+/** The two memory layers. "global" is one Markdown file the runtime loads into
+ *  every conversation; "project" is that folder's own AGENTS.md, loaded only
+ *  for sessions working inside it. Session-only context is the conversation
+ *  itself — it needs no file. */
+export type MemoryScope = "global" | "project";
+
+/** A memory layer's text; "" when it was never written. */
+export async function readMemory(
+  scope: MemoryScope,
+  directory?: string | null,
+): Promise<string> {
+  if (!isTauri) return "";
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("read_memory", { scope, directory: directory ?? null });
+}
+
+/** Replace a memory layer. Saving an empty document clears it. */
+export async function writeMemory(
+  scope: MemoryScope,
+  directory: string | null,
+  text: string,
+): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("write_memory", { scope, directory, text });
+}
+
+/** Add a block to a memory layer, keeping what is already there. */
+export async function appendMemory(
+  scope: MemoryScope,
+  directory: string | null,
+  text: string,
+): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("append_memory", { scope, directory, text });
+}
+
+/** Whether memory is applied to conversations at all. */
+export async function getMemoryEnabled(): Promise<boolean> {
+  if (!isTauri) return false;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<boolean>("get_memory_enabled");
+}
+
+/** Apply / stop applying memory; the sidecar restarts, so the caller reconnects. */
+export async function setMemoryEnabled(enabled: boolean): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_memory_enabled", { enabled });
+}
+
+/** Per-agent model overrides, `{ agent: "provider/model" }`. Agents that are
+ *  absent follow the default model. */
+export async function getAgentModels(): Promise<Record<string, string>> {
+  if (!isTauri) return {};
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<Record<string, string>>("get_agent_models");
+}
+
+/** Pin one agent to a model, or pass "" to clear the override. Restarts the
+ *  sidecar — agents are built when it loads its config. */
+export async function setAgentModel(agent: string, model: string): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_agent_model", { agent, model });
+}
+
 /** Network proxy for the sidecar: follow the OS, a fixed URL, or direct. */
 export type ProxyMode = "system" | "custom" | "none";
 export interface ProxySetting {
@@ -490,7 +571,7 @@ export async function workspacePath(): Promise<string | null> {
   }
 }
 
-/** The base folder new dated workspaces are created under (desktop only). */
+/** The base folder containing `projects/` and `sessions/` (desktop only). */
 export async function workspaceBase(): Promise<string | null> {
   if (!isTauri) return null;
   try {
@@ -567,29 +648,31 @@ export async function adoptWorkspaceSkills(known: string[]): Promise<string[]> {
   return invoke<string[]>("adopt_workspace_skills", { known });
 }
 
-/** Create a new dated folder under the base workspace and switch to it. */
+/** Create a new dated folder under `<base>/sessions` and switch to it. */
 export async function newDatedWorkspace(name: string): Promise<string> {
   if (!isTauri) throw new Error("not running in the desktop app");
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<string>("new_dated_workspace", { name });
 }
 
-/** A project: a named workspace folder under the base dir, marked by its
- *  `.openscience/project.json`. Sessions group under it by `directory`. */
+/** A project: a named workspace folder under `<base>/projects`, marked by its
+ *  `.openscience/project.json`. Legacy root-level projects remain readable. */
 export interface ProjectInfo {
   id: string;
   name: string;
   description?: string;
   createdAt: number;
   /** Absolute workspace folder (canonical, matches session `directory`). For a
-   *  copy-import this is the local copy under the base dir. */
+   *  copy import this is the managed copy; for in-place it is the source. */
   path: string;
   /** True when this project was brought in from elsewhere (a copy-import, or a
-   *  legacy in-place import) — drives the "imported" badge. */
+   *  in-place import) — drives the "imported" badge. */
   imported: boolean;
   /** Where an imported project was brought in from (shown as a hint). Absent for
    *  app-created projects. */
   importedFrom?: string;
+  /** Whether an imported project is a managed copy or used in place. */
+  importMode?: ProjectImportMode;
   /** Whether this project is pinned to the sidebar. */
   pinned: boolean;
 }
@@ -602,15 +685,19 @@ export async function createProject(name: string): Promise<ProjectInfo> {
   return invoke<ProjectInfo>("create_project", { name });
 }
 
-/** Import an existing repo/folder as a project, referenced in place: the repo
- *  is not moved, not scaffolded, and never auto-committed into. */
-export async function importProject(path: string): Promise<ProjectInfo> {
+export type ProjectImportMode = "copy" | "in-place";
+
+/** Import an existing folder as either a managed copy or an in-place project. */
+export async function importProject(
+  path: string,
+  mode: ProjectImportMode,
+): Promise<ProjectInfo> {
   if (!isTauri) throw new Error("not running in the desktop app");
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<ProjectInfo>("import_project", { path });
+  return invoke<ProjectInfo>("import_project", { path, mode });
 }
 
-/** Every project under the base dir, sorted by name. */
+/** Every structured or legacy project, sorted by name. */
 export async function listProjects(): Promise<ProjectInfo[]> {
   if (isGatewayWeb) return (await gatewayGet<ProjectInfo[]>("/v1/projects")) ?? [];
   if (!isTauri) return [];

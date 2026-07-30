@@ -16,6 +16,11 @@
       "body": "This only removes the panel from this Screen. The session, conversation history, and workspace files are kept.",
       "action": "Close panel"
     },
+    "confirmCloseScreen": {
+      "title": "Close this Screen?",
+      "body": "This removes the Screen and every panel in it. Sessions, conversation history, and workspace files are kept.",
+      "action": "Close Screen"
+    },
     "zoom": "Zoom this pane",
     "empty": {
       "title": "Empty screen",
@@ -108,6 +113,13 @@
       "reasoningDefault": "Model default",
       "faster": "Faster",
       "smarter": "Smarter"
+    },
+    "reference": {
+      "filesAria": "Workspace files",
+      "sessionsAria": "Past conversations",
+      "scanning": "Reading the workspace…",
+      "chipTitle": "This conversation will be quoted for the agent",
+      "removeAria": "Remove the reference to {{title}}"
     }
   },
   "localCommand": {
@@ -331,5 +343,30 @@
       "edit": "Edit & resend",
       "revert": "Revert here"
     }
+  },
+  "compaction": {
+    "label": "Context compacted",
+    "autoBody": "The runtime summarized the earlier turns to stay inside this model's context window, and the conversation continued here.",
+    "manualBody": "You asked the runtime to summarize the earlier turns; the conversation continued here.",
+    "overflowBody": "It happened because the context had already filled up.",
+    "at": "When: {{time}}",
+    "originalKept": "The full original conversation is still stored locally."
+  },
+  "selection": {
+    "aria": "Actions for the selected text",
+    "quote": "Quote",
+    "explain": "Explain",
+    "explainPrompt": "Explain this part in more detail.",
+    "remember": "Save to memory",
+    "savedProject": "Saved to {{name}}'s memory",
+    "savedGlobal": "Saved to global memory"
+  },
+  "subagents": {
+    "title": "Subagents",
+    "toggleTitle": "Show what the subagents are doing",
+    "closeAria": "Close the subagent panel",
+    "count_one": "{{count}} task",
+    "count_other": "{{count}} tasks",
+    "empty": "No subagents in this conversation yet."
   }
 }

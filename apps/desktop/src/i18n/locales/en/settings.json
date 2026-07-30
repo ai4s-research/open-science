@@ -9,7 +9,8 @@
     "compute": "Compute",
     "privacy": "Privacy",
     "browser": "Browser",
-    "remote": "Remote Access"
+    "remote": "Remote Access",
+    "memory": "Memory"
   },
   "appearance": {
     "title": "Appearance",
@@ -195,7 +196,7 @@
   },
   "workspace": {
     "title": "Workspace",
-    "hint": "Local-first — each session works in its own dated subfolder created here",
+    "hint": "Local-first — projects live in projects/ and standalone sessions in sessions/",
     "unavailable": "available in the desktop app",
     "change": "Change…",
     "reveal": "Reveal"
@@ -344,5 +345,30 @@
     "error": "Remote access change failed",
     "connect": "Connect",
     "connectPrompt": "Enter the access token from the desktop app → Settings → Remote Access."
+  },
+  "memory": {
+    "title": "Memory",
+    "hint": "Lasting context the agent reads before every conversation, so you stop re-explaining a project.",
+    "enableLabel": "Apply memory to conversations",
+    "enableHint": "Off means neither layer is loaded — useful for a throwaway question. Your files are kept either way.",
+    "globalTitle": "Global memory",
+    "globalHint": "Applies to every project: who you are, your tools, how you want answers written.",
+    "globalPlaceholder": "# About me\n- I work on …\n- Prefer SI units and cite sources.",
+    "projectTitle": "Project memory — {{name}}",
+    "projectHint": "Applies only to conversations in this project: goals, terminology, data paths, decisions.",
+    "projectPlaceholder": "# Project\nGoal: …\n\n# Decisions\n- …",
+    "projectNoneTitle": "Project memory",
+    "projectNoneHint": "Each project keeps its own memory file.",
+    "projectNoneBody": "Open a project to edit its memory.",
+    "saved": "Saved",
+    "disabledNote": "Memory is switched off, so this file is not loaded right now."
+  },
+  "agentModels": {
+    "title": "Model per agent",
+    "hint": "Run a reviewer or explorer on a fast model while the main agent reasons on a strong one.",
+    "noModels": "Connect a provider to choose models.",
+    "followDefault": "Default model",
+    "followDefaultNamed": "Default ({{model}})",
+    "modelFor": "Model for {{agent}}"
   }
 }

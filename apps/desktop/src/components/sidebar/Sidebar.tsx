@@ -21,7 +21,12 @@ import {
 import type { Project } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
 import { rootSessionOf, useRuntimeStore } from "@/lib/runtime";
-import { pickFolder, renameProject, type ProjectInfo } from "@/lib/tauri";
+import {
+  pickFolder,
+  renameProject,
+  type ProjectImportMode,
+  type ProjectInfo,
+} from "@/lib/tauri";
 import {
   SIDEBAR_MAX,
   SIDEBAR_MIN,
@@ -50,6 +55,11 @@ interface Row {
 /** Dragging the divider below this pointer x collapses the sidebar; dragging
  *  back past it re-expands. Sits below SIDEBAR_MIN so there is a clear "snap". */
 const COLLAPSE_BELOW = 140;
+
+/** Session rows shown per group in the rail. The runtime now hands the app its
+ *  WHOLE history (it used to stop at 100 — #65), which would otherwise turn the
+ *  sidebar into an endless list; the overflow is one click away on /history. */
+const ROW_LIMIT = 12;
 
 /** Projects the user folded shut (ids). Projects default to open — a
  *  researcher has a handful, and their sessions ARE the sidebar's content. */
@@ -84,6 +94,7 @@ export function Sidebar({ project }: { project: Project }) {
   const importProject = useRuntimeStore((s) => s.importProject);
   const refreshProjects = useRuntimeStore((s) => s.refreshProjects);
   const deleteSession = useRuntimeStore((s) => s.deleteSession);
+  const renameSession = useRuntimeStore((s) => s.renameSession);
   const hideExample = useRuntimeStore((s) => s.hideExample);
   // Which sessions are working right now — so a background session (or its
   // subagent) shows it's busy without opening it. A running subagent surfaces
@@ -149,7 +160,9 @@ export function Sidebar({ project }: { project: Project }) {
   const [namingProject, setNamingProject] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  const [pendingImportPath, setPendingImportPath] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamingSession, setRenamingSession] = useState<string | null>(null);
 
   const toggleProject = (id: string) =>
     setCollapsedProjects((prev) => {
@@ -174,18 +187,22 @@ export function Sidebar({ project }: { project: Project }) {
     if (created) navigate("/live");
   };
 
-  // Import an existing repo/folder as a project: pick a folder, then make a
-  // faithful copy of it (files, git history, symlinks) into the app's base dir,
-  // leaving the original untouched. The copy lives where the sandboxed sidecar
-  // can reach it — a folder left in place under ~/Documents would fail macOS
-  // TCC (#31). Its AGENTS.md records where it was imported from.
+  // Pick first, then make the copy-vs-in-place tradeoff explicit. In-place is
+  // primary: users choose their project location, and the signed macOS app asks
+  // for access there. Copy remains an explicit storage/isolation alternative.
   const handleImport = async () => {
     if (importBusy) return;
     const path = await pickFolder();
     if (!path) return;
+    setPendingImportPath(path);
+  };
+
+  const submitImport = async (mode: ProjectImportMode) => {
+    if (importBusy || !pendingImportPath) return;
     setImportBusy(true);
-    const imported = await importProject(path);
+    const imported = await importProject(pendingImportPath, mode);
     setImportBusy(false);
+    setPendingImportPath(null);
     if (imported) navigate("/live");
   };
 
@@ -282,6 +299,21 @@ export function Sidebar({ project }: { project: Project }) {
 
   const sessionRow = (row: Row) => {
     const running = row.kind === "session" && activeRoots.has(row.id);
+    // A session the runtime never auto-titled stays "New session - <stamp>"
+    // (#63); double-clicking the row is the way out, matching project rename.
+    if (renamingSession === row.id)
+      return (
+        <div key={row.to} className="py-0.5 pl-2 pr-1">
+          <InlineNameInput
+            defaultValue={row.title}
+            onSubmit={(v) => {
+              setRenamingSession(null);
+              void renameSession(row.id, v);
+            }}
+            onCancel={() => setRenamingSession(null)}
+          />
+        </div>
+      );
     return (
     <div key={row.to} className="group relative">
       <NavLink
@@ -321,9 +353,12 @@ export function Sidebar({ project }: { project: Project }) {
           }
         }}
         className={cn(
+          // The selected row was only a shade of the hover background, which
+          // several themes made near-invisible (#63): give it the accent tint,
+          // an inset accent ring and medium weight so it reads at a glance.
           "flex items-center gap-2 rounded-input py-1 pl-2 pr-8 text-[13px] hover:bg-surface-2",
           location.pathname === row.to
-            ? "bg-surface-2 text-text"
+            ? "bg-accent/15 font-medium text-text ring-1 ring-inset ring-accent/40"
             : "text-text/90",
         )}
       >
@@ -341,7 +376,18 @@ export function Sidebar({ project }: { project: Project }) {
             )}
           />
         )}
-        <span className="flex-1 truncate">{row.title}</span>
+        <span
+          className="flex-1 truncate"
+          title={row.kind === "session" ? t("history.renameHint") : undefined}
+          onDoubleClick={(e) => {
+            if (row.kind !== "session" || webReadOnly) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setRenamingSession(row.id);
+          }}
+        >
+          {row.title}
+        </span>
         {row.kind === "example" && (
           <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-[10px] uppercase tracking-wide text-muted ring-1 ring-border">
             {t("history.exampleTag")}
@@ -557,6 +603,16 @@ export function Sidebar({ project }: { project: Project }) {
               }}
             />
           )}
+          {pendingImportPath && (
+            <ImportProjectDialog
+              path={pendingImportPath}
+              busy={importBusy}
+              onImport={(mode) => void submitImport(mode)}
+              onCancel={() => {
+                if (!importBusy) setPendingImportPath(null);
+              }}
+            />
+          )}
           {projects.length === 0 && !namingProject && (
             <button
               onClick={() => setNamingProject(true)}
@@ -665,7 +721,14 @@ export function Sidebar({ project }: { project: Project }) {
                           {t("projects.noSessions")}
                         </div>
                       )}
-                      {rows.map(sessionRow)}
+                      {rows.slice(0, ROW_LIMIT).map(sessionRow)}
+                      {rows.length > ROW_LIMIT && (
+                        <MoreRow
+                          count={rows.length - ROW_LIMIT}
+                          label={t("history.seeAll")}
+                          onClick={() => navigate("/history")}
+                        />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -681,15 +744,36 @@ export function Sidebar({ project }: { project: Project }) {
               <span className="text-[10px] tabular-nums text-muted">+{hiddenProjectCount}</span>
             </button>
           )}
-          <div className="mt-3 px-2 py-1 text-xs font-medium uppercase tracking-wider text-muted">
-            {t("history.heading")}
+          <div className="mt-3 flex items-center gap-1 px-2 py-1">
+            <span className="flex-1 truncate text-xs font-medium uppercase tracking-wider text-muted">
+              {t("history.heading")}
+            </span>
+            {/* Every conversation ever, searchable — the rail only shows recent
+                work, so this is how older sessions are found (#65). */}
+            <button
+              onClick={() => navigate("/history")}
+              title={t("history.seeAll")}
+              className={cn(
+                "shrink-0 rounded px-1 text-[11px] outline-none hover:bg-surface-2 hover:text-text",
+                location.pathname === "/history" ? "text-text" : "text-muted",
+              )}
+            >
+              {t("history.seeAll")}
+            </button>
           </div>
           {looseRows.length === 0 && exampleRows.length === 0 && (
             <div className="px-2 py-2 text-xs text-muted">
               {t("history.empty")}
             </div>
           )}
-          {looseRows.map(sessionRow)}
+          {looseRows.slice(0, ROW_LIMIT).map(sessionRow)}
+          {looseRows.length > ROW_LIMIT && (
+            <MoreRow
+              count={looseRows.length - ROW_LIMIT}
+              label={t("history.seeAll")}
+              onClick={() => navigate("/history")}
+            />
+          )}
           {exampleRows.map(sessionRow)}
         </div>
 
@@ -756,6 +840,106 @@ export function Sidebar({ project }: { project: Project }) {
         />
       </div>
     </div>
+  );
+}
+
+function ImportProjectDialog({
+  path,
+  busy,
+  onImport,
+  onCancel,
+}: {
+  path: string;
+  busy: boolean;
+  onImport: (mode: ProjectImportMode) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation(["nav", "common"]);
+  const pathParts = path.split(/[\\/]/).filter(Boolean);
+  const name = pathParts[pathParts.length - 1] ?? path;
+  useEffect(() => {
+    if (busy) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [busy, onCancel]);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+      onClick={() => !busy && onCancel()}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-label={t("nav:projects.importTitle")}
+        className="w-[520px] max-w-[calc(100vw-2rem)] rounded-card border border-border bg-surface p-5 shadow-card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-base font-semibold text-text">{t("nav:projects.importTitle")}</div>
+        <p className="mt-1 text-sm text-muted">
+          {t("nav:projects.importSubtitle", { name })}
+        </p>
+        <div className="mt-4 grid gap-2">
+          <button
+            autoFocus
+            disabled={busy}
+            onClick={() => onImport("in-place")}
+            className="rounded-card border border-accent bg-surface-2 p-3 text-left hover:bg-surface disabled:opacity-50"
+          >
+            <span className="block text-sm font-medium text-text">
+              {t("nav:projects.importInPlace")}
+            </span>
+            <span className="mt-1 block text-xs leading-relaxed text-muted">
+              {t("nav:projects.importInPlaceHint")}
+            </span>
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => onImport("copy")}
+            className="rounded-card border border-border p-3 text-left hover:bg-surface-2 disabled:opacity-50"
+          >
+            <span className="block text-sm font-medium text-text">
+              {t("nav:projects.importCopy")}
+            </span>
+            <span className="mt-1 block text-xs leading-relaxed text-muted">
+              {t("nav:projects.importCopyHint")}
+            </span>
+          </button>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            disabled={busy}
+            onClick={onCancel}
+            className="rounded-input border border-border px-3 py-1.5 text-sm text-text hover:bg-surface-2 disabled:opacity-50"
+          >
+            {t("common:actions.cancel")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** "+N · All sessions" tail of a truncated session list. */
+function MoreRow({
+  count,
+  label,
+  onClick,
+}: {
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-input py-1 pl-2 pr-2 text-[13px] text-muted hover:bg-surface-2 hover:text-text"
+    >
+      <span className="truncate">{label}</span>
+      <span className="ml-auto shrink-0 text-[10px] tabular-nums">+{count}</span>
+    </button>
   );
 }
 

@@ -9,7 +9,8 @@
     "compute": "Calcul",
     "privacy": "Confidentialité",
     "browser": "Navigateur",
-    "remote": "Accès distant"
+    "remote": "Accès distant",
+    "memory": "Mémoire"
   },
   "appearance": {
     "title": "Apparence",
@@ -195,7 +196,7 @@
   },
   "workspace": {
     "title": "Espace de travail",
-    "hint": "Local par défaut — chaque session travaille dans son propre sous-dossier daté, créé ici",
+    "hint": "Local par défaut — les projets sont dans projects/ et les sessions indépendantes dans sessions/",
     "unavailable": "disponible dans l'application de bureau",
     "change": "Changer…",
     "reveal": "Afficher"
@@ -344,5 +345,30 @@
     "error": "Échec de la modification de l'accès distant",
     "connect": "Se connecter",
     "connectPrompt": "Saisis le jeton d'accès de l'app de bureau → Réglages → Accès distant."
+  },
+  "memory": {
+    "title": "Mémoire",
+    "hint": "Un contexte durable que l’agent lit avant chaque conversation, pour ne plus réexpliquer un projet.",
+    "enableLabel": "Appliquer la mémoire aux conversations",
+    "enableHint": "Désactivé, aucune couche n’est chargée — pratique pour une question ponctuelle. Vos fichiers sont conservés.",
+    "globalTitle": "Mémoire globale",
+    "globalHint": "S’applique à tous les projets : qui vous êtes, vos outils, la forme des réponses attendue.",
+    "globalPlaceholder": "# À propos de moi\n- Je travaille sur …\n- Utilise les unités SI et cite les sources.",
+    "projectTitle": "Mémoire du projet — {{name}}",
+    "projectHint": "Ne s’applique qu’aux conversations de ce projet : objectifs, terminologie, chemins de données, décisions.",
+    "projectPlaceholder": "# Projet\nObjectif : …\n\n# Décisions\n- …",
+    "projectNoneTitle": "Mémoire du projet",
+    "projectNoneHint": "Chaque projet a son propre fichier de mémoire.",
+    "projectNoneBody": "Ouvrez un projet pour modifier sa mémoire.",
+    "saved": "Enregistré",
+    "disabledNote": "La mémoire est désactivée : ce fichier n’est pas chargé pour l’instant."
+  },
+  "agentModels": {
+    "title": "Modèle par agent",
+    "hint": "Faites tourner un relecteur ou un explorateur sur un modèle rapide pendant que l’agent principal raisonne sur un modèle puissant.",
+    "noModels": "Connectez un fournisseur pour choisir des modèles.",
+    "followDefault": "Modèle par défaut",
+    "followDefaultNamed": "Par défaut ({{model}})",
+    "modelFor": "Modèle pour {{agent}}"
   }
 }

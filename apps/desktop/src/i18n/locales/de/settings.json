@@ -9,7 +9,8 @@
     "compute": "Rechenleistung",
     "privacy": "Datenschutz",
     "browser": "Browser",
-    "remote": "Fernzugriff"
+    "remote": "Fernzugriff",
+    "memory": "Gedächtnis"
   },
   "appearance": {
     "title": "Erscheinungsbild",
@@ -195,7 +196,7 @@
   },
   "workspace": {
     "title": "Arbeitsbereich",
-    "hint": "Local-first — jede Sitzung arbeitet in ihrem eigenen, hier erstellten, datierten Unterordner",
+    "hint": "Local-first — Projekte liegen in projects/, eigenständige Sitzungen in sessions/",
     "unavailable": "in der Desktop-App verfügbar",
     "change": "Ändern…",
     "reveal": "Anzeigen"
@@ -344,5 +345,30 @@
     "error": "Ändern des Fernzugriffs fehlgeschlagen",
     "connect": "Verbinden",
     "connectPrompt": "Gib das Zugriffstoken aus der Desktop-App ein → Einstellungen → Fernzugriff."
+  },
+  "memory": {
+    "title": "Gedächtnis",
+    "hint": "Dauerhafter Kontext, den der Agent vor jeder Unterhaltung liest — damit Sie ein Projekt nicht immer neu erklären.",
+    "enableLabel": "Gedächtnis auf Unterhaltungen anwenden",
+    "enableHint": "Aus heißt: keine der Ebenen wird geladen — praktisch für eine kurze Zwischenfrage. Ihre Dateien bleiben erhalten.",
+    "globalTitle": "Globales Gedächtnis",
+    "globalHint": "Gilt für jedes Projekt: wer Sie sind, Ihre Werkzeuge, wie Antworten aussehen sollen.",
+    "globalPlaceholder": "# Über mich\n- Ich arbeite an …\n- Bitte SI-Einheiten und Quellenangaben.",
+    "projectTitle": "Projektgedächtnis — {{name}}",
+    "projectHint": "Gilt nur für Unterhaltungen in diesem Projekt: Ziele, Begriffe, Datenpfade, Entscheidungen.",
+    "projectPlaceholder": "# Projekt\nZiel: …\n\n# Entscheidungen\n- …",
+    "projectNoneTitle": "Projektgedächtnis",
+    "projectNoneHint": "Jedes Projekt hat seine eigene Gedächtnisdatei.",
+    "projectNoneBody": "Öffnen Sie ein Projekt, um dessen Gedächtnis zu bearbeiten.",
+    "saved": "Gespeichert",
+    "disabledNote": "Das Gedächtnis ist ausgeschaltet, diese Datei wird derzeit nicht geladen."
+  },
+  "agentModels": {
+    "title": "Modell je Agent",
+    "hint": "Lassen Sie Prüf- oder Rechercheagenten auf einem schnellen Modell laufen, während der Hauptagent auf einem starken denkt.",
+    "noModels": "Verbinden Sie einen Anbieter, um Modelle zu wählen.",
+    "followDefault": "Standardmodell",
+    "followDefaultNamed": "Standard ({{model}})",
+    "modelFor": "Modell für {{agent}}"
   }
 }

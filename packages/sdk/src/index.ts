@@ -13,6 +13,8 @@ export {
   type RuntimeStatus,
   type ToolCallStatus,
   type SessionMeta,
+  type SessionQuery,
+  type SessionPage,
   type SkillInfo,
   type AgentInfo,
   type CommandInfo,

@@ -14,28 +14,10 @@ import type { SessionMeta } from "@ai4s/sdk";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { cn } from "@/lib/cn";
 import { useRuntimeStore } from "@/lib/runtime";
+import { timeAgo } from "@/lib/relativeTime";
 import { openProjectFolder, renameProject, type ProjectInfo } from "@/lib/tauri";
 import { isGatewayWeb } from "@/lib/webMode";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-
-/** Compact "time ago" like the reference UI: 37m · 18h · 3d · 1w · 9mo · 2y.
- *  Under a minute reads as "now". `now` is passed so a list renders consistently. */
-function timeAgo(ms: number | undefined, now: number): string {
-  if (!ms) return "";
-  const s = Math.max(0, Math.floor((now - ms) / 1000));
-  if (s < 60) return "now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d`;
-  const w = Math.floor(d / 7);
-  if (d < 30) return `${w}w`;
-  const mo = Math.floor(d / 30);
-  if (mo < 12) return `${mo}mo`;
-  return `${Math.floor(d / 365)}y`;
-}
 
 /** The last path segment (folder name) of an absolute workspace path. */
 function baseName(path: string): string {
@@ -281,7 +263,11 @@ export function ProjectsPage() {
       {confirmRemove && (
         <ConfirmDialog
           title={t("projects.removeTitle", { name: confirmRemove.name })}
-          body={t("projects.removeBody")}
+          body={t(
+            confirmRemove.importMode === "copy"
+              ? "projects.removeCopyBody"
+              : "projects.removeBody",
+          )}
           confirmLabel={t("projects.remove")}
           onConfirm={() => {
             void deleteProject(confirmRemove.id);

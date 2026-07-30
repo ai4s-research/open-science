@@ -16,6 +16,11 @@
       "body": "현재 화면에서 패널만 제거합니다. 세션, 대화 기록 및 작업 공간 파일은 유지됩니다.",
       "action": "패널 닫기"
     },
+    "confirmCloseScreen": {
+      "title": "이 화면을 닫을까요?",
+      "body": "이 화면과 화면 안의 모든 패널을 제거합니다. 세션, 대화 기록 및 작업 공간 파일은 유지됩니다.",
+      "action": "화면 닫기"
+    },
     "zoom": "이 창 확대/축소",
     "empty": {
       "title": "빈 화면",
@@ -108,6 +113,13 @@
       "reasoningDefault": "모델 기본값",
       "faster": "더 빠르게",
       "smarter": "더 똑똑하게"
+    },
+    "reference": {
+      "filesAria": "작업 공간 파일",
+      "sessionsAria": "이전 대화",
+      "scanning": "작업 공간을 읽는 중…",
+      "chipTitle": "이 대화를 에이전트에게 인용합니다",
+      "removeAria": "{{title}} 참조 제거"
     }
   },
   "localCommand": {
@@ -323,5 +335,29 @@
       "edit": "편집 후 다시 보내기",
       "revert": "여기로 되돌리기"
     }
+  },
+  "compaction": {
+    "label": "컨텍스트 압축됨",
+    "autoBody": "모델의 컨텍스트 창을 넘지 않도록 런타임이 앞선 대화를 요약했고, 대화는 여기서 이어졌습니다.",
+    "manualBody": "앞선 대화의 요약을 요청하셔서, 대화는 여기서 이어졌습니다.",
+    "overflowBody": "컨텍스트가 이미 가득 차 있었기 때문에 실행되었습니다.",
+    "at": "시각: {{time}}",
+    "originalKept": "원본 대화 전체는 로컬에 그대로 저장되어 있습니다."
+  },
+  "selection": {
+    "aria": "선택한 텍스트에 대한 작업",
+    "quote": "인용",
+    "explain": "설명",
+    "explainPrompt": "이 부분을 더 자세히 설명해 주세요.",
+    "remember": "메모리에 저장",
+    "savedProject": "{{name}}의 메모리에 저장했습니다",
+    "savedGlobal": "전역 메모리에 저장했습니다"
+  },
+  "subagents": {
+    "title": "서브에이전트",
+    "toggleTitle": "서브에이전트가 무엇을 하는지 보기",
+    "closeAria": "서브에이전트 패널 닫기",
+    "count_other": "작업 {{count}}개",
+    "empty": "이 대화에는 아직 서브에이전트가 없습니다."
   }
 }

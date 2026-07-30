@@ -66,3 +66,47 @@ describe("Sidebar sessions, away from the session route", () => {
     expect(leaves(layout.groups[0].tree!).map((l) => l.sessionId)).toEqual(["A"]);
   });
 });
+
+describe("Sidebar session history", () => {
+  it("keeps the rail short and points at the full list once it overflows", async () => {
+    // The runtime now hands over the WHOLE history (it used to stop at 100 —
+    // #65), so the rail must cap what it renders instead of growing forever.
+    useRuntimeStore.setState({
+      sessions: Array.from({ length: 20 }, (_, i) => ({
+        id: `s${i}`,
+        title: `session ${i}`,
+        updated: 20 - i,
+      })),
+      projects: [],
+    });
+    renderAt("/skills");
+
+    expect(await screen.findByText("session 0")).toBeInTheDocument();
+    expect(screen.getByText("session 11")).toBeInTheDocument();
+    expect(screen.queryByText("session 12")).not.toBeInTheDocument();
+    // The overflow is one click away, not lost.
+    expect(screen.getByText("+8")).toBeInTheDocument();
+    await userEvent.click(screen.getAllByTitle("All sessions")[0]!);
+    expect(navigateSpy).toHaveBeenCalledWith("/history");
+  });
+
+  it("renames a session in place on double-click", async () => {
+    const renameSession = vi.fn(async () => true);
+    useRuntimeStore.setState({
+      sessions: [{ id: "A", title: "New session - 2026-07-28T09:37:15.952Z" }],
+      projects: [],
+      renameSession,
+    });
+    renderAt("/skills");
+
+    // The runtime leaves some sessions on their generated timestamp title (#63);
+    // the rail is where the user fixes that.
+    const row = await screen.findByText("New session - 2026-07-28T09:37:15.952Z");
+    await userEvent.dblClick(row);
+    const input = await screen.findByDisplayValue("New session - 2026-07-28T09:37:15.952Z");
+    await userEvent.clear(input);
+    await userEvent.type(input, "Spike sorting{Enter}");
+
+    expect(renameSession).toHaveBeenCalledWith("A", "Spike sorting");
+  });
+});

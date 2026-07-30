@@ -173,9 +173,207 @@ pub fn ensure_goal_plugin(existing: &str, plugin_path: &str) -> Option<String> {
     serde_json::to_string_pretty(&root).ok()
 }
 
+/// Project memory: OpenCode resolves a relative `instructions` entry against
+/// the session's working directory, so this one entry gives every project its
+/// own memory file without any per-project config.
+pub const PROJECT_MEMORY_FILE: &str = "AGENTS.md";
+
+fn as_object(existing: &str) -> Value {
+    let mut root: Value = if existing.trim().is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(existing).unwrap_or_else(|_| json!({}))
+    };
+    if !root.is_object() {
+        root = json!({});
+    }
+    root
+}
+
+/// Turn OpenCode's automatic context compaction on the first time we see a
+/// config without a `compaction` block. Without it a long conversation ends in
+/// "Input exceeds context window" (#62); with it the runtime summarizes the
+/// older turns and carries on in the same session. Set explicitly rather than
+/// relying on the runtime default, and never overridden once the key exists —
+/// a user who turned it off keeps it off. Returns None when nothing to do.
+pub fn seed_compaction(existing: &str) -> Option<String> {
+    let mut root = as_object(existing);
+    let obj = root.as_object_mut().unwrap();
+    if obj.contains_key("compaction") {
+        return None;
+    }
+    obj.insert("compaction".to_string(), json!({ "auto": true }));
+    serde_json::to_string_pretty(&root).ok()
+}
+
+/// Whether the memory layers are applied to conversations: true when BOTH the
+/// global memory file and the per-project entry are listed in `instructions`.
+pub fn memory_enabled(existing: &str, global_path: &str) -> bool {
+    let root = as_object(existing);
+    let Some(arr) = root.get("instructions").and_then(|v| v.as_array()) else {
+        return false;
+    };
+    let has = |want: &str| arr.iter().any(|v| v.as_str() == Some(want));
+    has(global_path) && has(PROJECT_MEMORY_FILE)
+}
+
+/// Add (or remove) the memory instruction entries, leaving any instruction the
+/// user added themselves untouched. Returns None when the config already says
+/// what we want — no write, no sidecar restart.
+pub fn set_memory_enabled(existing: &str, global_path: &str, enabled: bool) -> Option<String> {
+    if memory_enabled(existing, global_path) == enabled {
+        return None;
+    }
+    let mut root = as_object(existing);
+    let obj = root.as_object_mut().unwrap();
+    let list = obj.entry("instructions").or_insert_with(|| json!([]));
+    if !list.is_array() {
+        *list = json!([]);
+    }
+    let arr = list.as_array_mut().unwrap();
+    // Drop any stale copy first: the global path moves with the profile dir,
+    // so an old absolute path must not linger and load someone else's memory.
+    arr.retain(|v| {
+        let s = v.as_str().unwrap_or_default();
+        s != PROJECT_MEMORY_FILE && !s.ends_with("/MEMORY.md") && !s.ends_with("\\MEMORY.md")
+    });
+    if enabled {
+        arr.push(json!(global_path));
+        arr.push(json!(PROJECT_MEMORY_FILE));
+    }
+    if arr.is_empty() {
+        obj.remove("instructions");
+    }
+    serde_json::to_string_pretty(&root).ok()
+}
+
+/// Which model each agent runs, from `agent.<name>.model`. Agents with no
+/// override are absent — they follow the global default model.
+pub fn agent_models(existing: &str) -> Vec<(String, String)> {
+    let root = as_object(existing);
+    let Some(agents) = root.get("agent").and_then(|v| v.as_object()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(String, String)> = agents
+        .iter()
+        .filter_map(|(name, cfg)| {
+            let model = cfg.get("model")?.as_str()?;
+            Some((name.clone(), model.to_string()))
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// Pin one agent to its own model (`None` clears the override so it follows the
+/// default again). Lets a reviewer subagent run a fast model while the main
+/// agent reasons on a strong one (#63).
+pub fn set_agent_model(existing: &str, agent: &str, model: Option<&str>) -> String {
+    let mut root = as_object(existing);
+    let obj = root.as_object_mut().unwrap();
+    let agents = obj.entry("agent").or_insert_with(|| json!({}));
+    if !agents.is_object() {
+        *agents = json!({});
+    }
+    let aobj = agents.as_object_mut().unwrap();
+    match model {
+        Some(m) if !m.is_empty() => {
+            let entry = aobj.entry(agent).or_insert_with(|| json!({}));
+            if !entry.is_object() {
+                *entry = json!({});
+            }
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("model".to_string(), json!(m));
+        }
+        _ => {
+            // Clearing the model must not delete an agent config the user
+            // wrote — only the key we own, and the wrapper only if it empties.
+            if let Some(entry) = aobj.get_mut(agent).and_then(|v| v.as_object_mut()) {
+                entry.remove("model");
+                if entry.is_empty() {
+                    aobj.remove(agent);
+                }
+            }
+        }
+    }
+    if aobj.is_empty() {
+        obj.remove("agent");
+    }
+    serde_json::to_string_pretty(&root).unwrap_or_else(|_| existing.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seeds_auto_compaction_once_and_respects_the_user_turning_it_off() {
+        let seeded = seed_compaction("{}").expect("seeds into an empty config");
+        let v: Value = serde_json::from_str(&seeded).unwrap();
+        assert_eq!(v["compaction"]["auto"], json!(true));
+        // Already present — including a deliberate off — is left alone.
+        assert!(seed_compaction(&seeded).is_none());
+        assert!(seed_compaction(r#"{"compaction":{"auto":false}}"#).is_none());
+    }
+
+    #[test]
+    fn memory_entries_go_in_and_come_back_out_without_touching_the_user_list() {
+        let start = r#"{"instructions":["docs/style.md"]}"#;
+        let on = set_memory_enabled(start, "/profile/MEMORY.md", true).unwrap();
+        let v: Value = serde_json::from_str(&on).unwrap();
+        assert_eq!(
+            v["instructions"],
+            json!(["docs/style.md", "/profile/MEMORY.md", "AGENTS.md"])
+        );
+        assert!(memory_enabled(&on, "/profile/MEMORY.md"));
+        // Idempotent: no rewrite (and so no sidecar restart) when already on.
+        assert!(set_memory_enabled(&on, "/profile/MEMORY.md", true).is_none());
+
+        let off = set_memory_enabled(&on, "/profile/MEMORY.md", false).unwrap();
+        let v: Value = serde_json::from_str(&off).unwrap();
+        assert_eq!(v["instructions"], json!(["docs/style.md"]));
+        assert!(!memory_enabled(&off, "/profile/MEMORY.md"));
+    }
+
+    #[test]
+    fn a_moved_profile_replaces_the_stale_global_memory_path() {
+        let old = set_memory_enabled("{}", "/old/MEMORY.md", true).unwrap();
+        let new = set_memory_enabled(&old, "/new/MEMORY.md", true).unwrap();
+        let v: Value = serde_json::from_str(&new).unwrap();
+        assert_eq!(v["instructions"], json!(["/new/MEMORY.md", "AGENTS.md"]));
+    }
+
+    #[test]
+    fn dropping_instructions_entirely_removes_the_empty_key() {
+        let on = set_memory_enabled("{}", "/p/MEMORY.md", true).unwrap();
+        let off = set_memory_enabled(&on, "/p/MEMORY.md", false).unwrap();
+        let v: Value = serde_json::from_str(&off).unwrap();
+        assert!(v.get("instructions").is_none());
+    }
+
+    #[test]
+    fn per_agent_models_are_set_read_and_cleared() {
+        let out = set_agent_model("{}", "general", Some("anthropic/claude-haiku-4-5"));
+        assert_eq!(
+            agent_models(&out),
+            vec![("general".to_string(), "anthropic/claude-haiku-4-5".to_string())]
+        );
+        let cleared = set_agent_model(&out, "general", None);
+        assert!(agent_models(&cleared).is_empty());
+        // The whole `agent` map goes away rather than lingering empty.
+        let v: Value = serde_json::from_str(&cleared).unwrap();
+        assert!(v.get("agent").is_none());
+    }
+
+    #[test]
+    fn clearing_a_model_keeps_the_rest_of_that_agents_config() {
+        let start = r#"{"agent":{"plan":{"model":"a/b","temperature":0.2}}}"#;
+        let cleared = set_agent_model(start, "plan", None);
+        let v: Value = serde_json::from_str(&cleared).unwrap();
+        assert_eq!(v["agent"]["plan"], json!({ "temperature": 0.2 }));
+    }
 
     #[test]
     fn writes_provider_key_model_into_empty_config() {

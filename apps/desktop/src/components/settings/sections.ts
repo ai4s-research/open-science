@@ -1,4 +1,5 @@
 import {
+  BookMarked,
   Cloud,
   Cpu,
   Globe,
@@ -19,6 +20,8 @@ export const SETTINGS_SECTIONS = [
   { key: "general", icon: Settings },
   { key: "appearance", icon: Palette },
   { key: "models", icon: Shapes },
+  // Memory is edited as files in the app profile / project folder — Tauri IPC.
+  { key: "memory", icon: BookMarked, desktopOnly: true },
   { key: "runtime", icon: Cpu, desktopOnly: true },
   { key: "connectors", icon: Plug, desktopOnly: true },
   { key: "browser", icon: Globe, desktopOnly: true },
