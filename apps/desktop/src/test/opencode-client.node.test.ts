@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OpenCodeClient, type OpenCodeEvent } from "@ai4s/sdk";
+import {
+  MINIMAX_CUSTOM_PROVIDER_PRESETS,
+  OpenCodeClient,
+  type OpenCodeEvent,
+} from "@ai4s/sdk";
 import { startMockOpenCode, type MockOpenCode } from "@ai4s/sdk/mock-server";
 
 let server: MockOpenCode;
@@ -485,6 +489,40 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
       name: "sol",
       limit: { context: 1_500_000, output: 0 },
     });
+  });
+
+  it("serializes the curated MiniMax model metadata", async () => {
+    const { fetchImpl, patches } = mockGlobalConfig();
+    const preset = MINIMAX_CUSTOM_PROVIDER_PRESETS.find((p) => p.id === "minimax-global-anthropic")!;
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.addCustomProvider(preset.providerId, {
+      name: preset.name,
+      npm: preset.npm,
+      baseURL: preset.baseURL,
+      models: preset.models,
+    });
+
+    const models = patches[patches.length - 1].provider.minimax.models!;
+    expect(models["MiniMax-M3"]).toMatchObject({
+      name: "MiniMax-M3",
+      limit: { context: 1_000_000, output: 0 },
+      cost: { input: 0.6, output: 2.4, cache_read: 0.12 },
+      modalities: { input: ["text", "image", "video"] },
+      reasoning: true,
+      variants: {
+        adaptive: { thinking: { type: "adaptive" } },
+        disabled: { thinking: { type: "disabled" } },
+      },
+    });
+    expect(models["MiniMax-M2.7"]).toMatchObject({
+      name: "MiniMax-M2.7",
+      limit: { context: 204_800, output: 0 },
+      cost: { input: 0.3, output: 1.2, cache_read: 0.06, cache_write: 0.375 },
+      modalities: { input: ["text"] },
+      reasoning: true,
+    });
+    expect(models["MiniMax-M2.7"]).not.toHaveProperty("variants");
   });
 
   it("keeps a hand-set limit when no window is provided", async () => {

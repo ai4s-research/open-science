@@ -1,4 +1,12 @@
 export { OpenCodeClient } from "./OpenCodeClient";
+export { MINIMAX_CUSTOM_PROVIDER_PRESETS } from "./customProviderPresets";
+export type {
+  CustomProviderCompatibility,
+  CustomProviderModality,
+  CustomProviderModel,
+  CustomProviderPreset,
+  CustomProviderPresetLabelKey,
+} from "./customProviderPresets";
 export type { AgentRuntime } from "./runtime";
 export { BaseAgentRuntime } from "./base-runtime";
 export {

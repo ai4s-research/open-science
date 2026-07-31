@@ -13,12 +13,14 @@ import {
   Search,
 } from "lucide-react";
 import type {
+  CustomProviderModel,
   McpServer,
   OAuthAuthorization,
   ProviderAuthMethod,
   ProviderCatalogEntry,
   ProviderInfo,
 } from "@ai4s/sdk";
+import { MINIMAX_CUSTOM_PROVIDER_PRESETS } from "@ai4s/sdk";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
 import { useUiStore, ZOOM_MAX, ZOOM_MIN } from "@/lib/store";
@@ -195,6 +197,8 @@ export function SettingsPage() {
   const [cDetected, setCDetected] = useState<ProbedModel[] | null>(null);
   const [cDetecting, setCDetecting] = useState(false);
   const [cContexts, setCContexts] = useState<Record<string, number>>({});
+  const [cPresetId, setCPresetId] = useState("");
+  const [cModelMetadata, setCModelMetadata] = useState<Record<string, CustomProviderModel>>({});
 
   // Connect-a-provider flow state.
   const [providerManagerOpen, setProviderManagerOpen] = useState(false);
@@ -648,6 +652,29 @@ export function SettingsPage() {
 
   const modelList = (s: string) => s.split(",").map((v) => v.trim()).filter(Boolean);
 
+  const applyCustomPreset = (presetId: string) => {
+    setCPresetId(presetId);
+    const preset = MINIMAX_CUSTOM_PROVIDER_PRESETS.find((p) => p.id === presetId);
+    if (!preset) {
+      setCModelMetadata({});
+      return;
+    }
+    setCName(preset.name);
+    setCNpm(preset.npm);
+    setCUrl(preset.baseURL);
+    setCModels(preset.models.map((m) => m.id).join(", "));
+    setCCtx("");
+    setCContexts(
+      Object.fromEntries(
+        preset.models
+          .filter((m) => m.context !== undefined)
+          .map((m) => [m.id, m.context as number]),
+      ),
+    );
+    setCModelMetadata(Object.fromEntries(preset.models.map((m) => [m.id, m])));
+    setCDetected(null);
+  };
+
   const toggleDetectedModel = (id: string) => {
     const models = modelList(cModels);
     const next = models.includes(id) ? models.filter((m) => m !== id) : [...models, id];
@@ -669,12 +696,13 @@ export function SettingsPage() {
         const ctx = cContexts[m] ?? (Number.isFinite(typedCtx) && typedCtx > 0 ? typedCtx : 0);
         if (ctx > 0) contexts[m] = ctx;
       }
+      const modelSpecs = models.map((m) => cModelMetadata[m] ?? m);
       await getClient()!.addCustomProvider(id, {
         name: cName.trim(),
         npm: cNpm,
         baseURL: cUrl.trim(),
         apiKey: cKey.trim() || undefined,
-        models,
+        models: modelSpecs,
         contexts,
       });
       toast.success(t("toast.endpointAdded", { name: cName.trim() }));
@@ -686,6 +714,8 @@ export function SettingsPage() {
       setCCtx("");
       setCDetected(null);
       setCContexts({});
+      setCPresetId("");
+      setCModelMetadata({});
     });
 
   const addMcp = () =>
@@ -1177,6 +1207,24 @@ export function SettingsPage() {
                   </button>
                   {showCustom && (
                     <div className="space-y-2 px-3 pb-3">
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-muted">
+                          {t("providers.customPresetLabel")}
+                        </span>
+                        <select
+                          aria-label={t("providers.customPresetLabel")}
+                          value={cPresetId}
+                          onChange={(e) => applyCustomPreset(e.target.value)}
+                          className={selectCls("w-full")}
+                        >
+                          <option value="">{t("providers.customPresetPlaceholder")}</option>
+                          {MINIMAX_CUSTOM_PROVIDER_PRESETS.map((preset) => (
+                            <option key={preset.id} value={preset.id}>
+                              {t(preset.labelKey)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <div className="flex gap-2">
                         <input
                           value={cName}
