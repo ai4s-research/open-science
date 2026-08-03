@@ -121,7 +121,8 @@ export function HistoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, showArchived, status]);
 
-  const projectByPath = useMemo(() => new Map(projects.map((p) => [p.path, p])), [projects]);
+  const normPath = (p: string) => p.replace(/[\\/]+$/, "");
+  const projectByPath = useMemo(() => new Map(projects.map((p) => [normPath(p.path), p])), [projects]);
 
   const now = Date.now();
   const byBucket = new Map<TimeBucket, SessionMeta[]>();
@@ -276,7 +277,7 @@ export function HistoryPage() {
               </h2>
               <div className="divide-y divide-border border-t border-border">
                 {group.map((s) => {
-                  const owner = s.directory ? projectByPath.get(s.directory) : undefined;
+                  const owner = s.directory ? projectByPath.get(normPath(s.directory)) : undefined;
                   return (
                     <div
                       key={s.id}
@@ -373,14 +374,14 @@ export function HistoryPage() {
                                     {projects.map((p) => (
                                       <DropdownMenu.Item
                                         key={p.id}
-                                        disabled={p.path === s.directory}
+                                        disabled={s.directory != null && normPath(p.path) === normPath(s.directory)}
                                         onSelect={() => {
                                           patchRow(s.id, { directory: p.path });
                                           void moveSessionToWorkspace(s.id, p.path);
                                         }}
                                         className={cn(
                                           "flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2",
-                                          p.path === s.directory &&
+                                          s.directory != null && normPath(p.path) === normPath(s.directory) &&
                                             "cursor-default text-muted opacity-60",
                                         )}
                                       >

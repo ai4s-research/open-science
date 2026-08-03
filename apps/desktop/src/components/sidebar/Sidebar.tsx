@@ -267,7 +267,12 @@ export function Sidebar({ project }: { project: Project }) {
   // Subagent child sessions are internals of their parent conversation —
   // their asks and progress surface there, so they get no row of their own.
   const topSessions = sessions.filter((s) => !s.parentId);
-  const projectByPath = new Map(projects.map((p) => [p.path, p]));
+  // Normalize paths for reliable matching: the project path (from Tauri) and
+  // the session directory (from OpenCode) may differ in trailing slashes or
+  // separator style. Strip trailing separators so "/w/proj" and "/w/proj/"
+  // match — the same normalization isInside() uses internally.
+  const normPath = (p: string) => p.replace(/[\\/]+$/, "");
+  const projectByPath = new Map(projects.map((p) => [normPath(p.path), p]));
   const sessionsByProject = new Map<string, Row[]>(
     projects.map((p) => [p.id, []]),
   );
@@ -279,7 +284,8 @@ export function Sidebar({ project }: { project: Project }) {
       to: `/live/${s.id}`,
       kind: "session",
     };
-    const owner = s.directory ? projectByPath.get(s.directory) : undefined;
+    const dir = s.directory ? normPath(s.directory) : undefined;
+    const owner = dir ? projectByPath.get(dir) : undefined;
     if (owner) sessionsByProject.get(owner.id)!.push(row);
     else looseRows.push(row);
   }
@@ -287,7 +293,7 @@ export function Sidebar({ project }: { project: Project }) {
   const updatedByProject = new Map<string, number>();
   for (const s of topSessions) {
     if (!s.directory || s.updated == null) continue;
-    const owner = projectByPath.get(s.directory);
+    const owner = projectByPath.get(normPath(s.directory));
     if (owner)
       updatedByProject.set(owner.id, Math.max(updatedByProject.get(owner.id) ?? 0, s.updated));
   }

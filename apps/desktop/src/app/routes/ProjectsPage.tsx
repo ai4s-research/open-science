@@ -47,13 +47,17 @@ export function ProjectsPage() {
   const now = Date.now();
 
   // Top-level sessions grouped by their workspace path, newest first.
+  // Normalize paths so trailing slashes don't split a project's sessions
+  // into a separate bucket that never matches the project path.
+  const normPath = (p: string) => p.replace(/[\\/]+$/, "");
   const sessionsByPath = useMemo(() => {
     const map = new Map<string, SessionMeta[]>();
     for (const s of sessions) {
       if (s.parentId || !s.directory) continue;
-      const list = map.get(s.directory) ?? [];
+      const key = normPath(s.directory);
+      const list = map.get(key) ?? [];
       list.push(s);
-      map.set(s.directory, list);
+      map.set(key, list);
     }
     for (const list of map.values()) {
       list.sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
@@ -65,7 +69,7 @@ export function ProjectsPage() {
     const q = query.trim().toLowerCase();
     return projects
       .map((p) => {
-        const projectSessions = sessionsByPath.get(p.path) ?? [];
+        const projectSessions = sessionsByPath.get(normPath(p.path)) ?? [];
         const latest = projectSessions[0]?.updated ?? 0;
         return { ...p, sessions: projectSessions, updated: Math.max(latest, p.createdAt) };
       })
