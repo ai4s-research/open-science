@@ -114,7 +114,14 @@
       "reasoning": "Denkaufwand",
       "reasoningDefault": "Modellstandard",
       "faster": "Schneller",
-      "smarter": "Klüger"
+      "smarter": "Klüger",
+      "contextLimit": "Kontextfenster",
+      "contextAuto": "Auto",
+      "contextSave": "Speichern",
+      "contextHint": "Kontextlimit des Modells (k Tokens). Wird es gesenkt, komprimiert die Sitzung beim nächsten Überlauf automatisch. Leer = Modellstandard.",
+      "contextSaved": "Kontextfenster aktualisiert",
+      "contextSaveError": "Speichern fehlgeschlagen",
+      "kSuffix": "k"
     },
     "reference": {
       "filesAria": "Dateien im Arbeitsbereich",
@@ -122,6 +129,10 @@
       "scanning": "Arbeitsbereich wird gelesen…",
       "chipTitle": "Diese Unterhaltung wird für den Agenten zitiert",
       "removeAria": "Verweis auf {{title}} entfernen"
+    },
+    "compact": {
+      "aria": "Kontext komprimieren",
+      "title": "Fasst frühere Turns zusammen; die nächste Antwort nutzt den komprimierten Kontext"
     }
   },
   "localCommand": {
@@ -376,5 +387,10 @@
     "count_one": "{{count}} Aufgabe",
     "count_other": "{{count}} Aufgaben",
     "empty": "In dieser Unterhaltung gibt es noch keine Subagenten."
+  },
+  "usage": {
+    "thisTurn": "diese Runde",
+    "total": "gesamt",
+    "tooltip": "↑ Eingabe-Tokens, ↓ Ausgabe-Tokens (diese Runde / Session gesamt)"
   }
 }

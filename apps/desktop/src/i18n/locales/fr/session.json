@@ -114,7 +114,14 @@
       "reasoning": "Effort de raisonnement",
       "reasoningDefault": "Défaut du modèle",
       "faster": "Plus rapide",
-      "smarter": "Plus intelligent"
+      "smarter": "Plus intelligent",
+      "contextLimit": "Fenêtre de contexte",
+      "contextAuto": "Auto",
+      "contextSave": "Enregistrer",
+      "contextHint": "Limite de contexte du modèle (k tokens). La baisser fait compresser l'ancien contexte au prochain dépassement. Vide = défaut du modèle.",
+      "contextSaved": "Fenêtre de contexte mise à jour",
+      "contextSaveError": "Échec de l'enregistrement",
+      "kSuffix": "k"
     },
     "reference": {
       "filesAria": "Fichiers de l’espace de travail",
@@ -122,6 +129,10 @@
       "scanning": "Lecture de l’espace de travail…",
       "chipTitle": "Cette conversation sera citée pour l’agent",
       "removeAria": "Retirer la référence à {{title}}"
+    },
+    "compact": {
+      "aria": "Compresser le contexte",
+      "title": "Résume les tours précédents ; la prochaine réponse utilisera le contexte compressé"
     }
   },
   "localCommand": {
@@ -376,5 +387,10 @@
     "count_one": "{{count}} tâche",
     "count_other": "{{count}} tâches",
     "empty": "Aucun sous-agent dans cette conversation pour l’instant."
+  },
+  "usage": {
+    "thisTurn": "ce tour",
+    "total": "total",
+    "tooltip": "↑ tokens d'entrée, ↓ tokens de sortie (ce tour / cumul de la session)"
   }
 }

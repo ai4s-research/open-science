@@ -114,7 +114,14 @@
       "reasoning": "推論の強度",
       "reasoningDefault": "モデルの既定",
       "faster": "高速",
-      "smarter": "高性能"
+      "smarter": "高性能",
+      "contextLimit": "コンテキストウィンドウ",
+      "contextAuto": "自動",
+      "contextSave": "保存",
+      "contextHint": "モデルのコンテキスト上限(k tokens)。下げると、次のターンで超過した際に自動圧縮されます。空欄 = モデル既定値。",
+      "contextSaved": "コンテキストウィンドウを更新しました",
+      "contextSaveError": "保存に失敗しました",
+      "kSuffix": "k"
     },
     "reference": {
       "filesAria": "ワークスペースのファイル",
@@ -122,6 +129,10 @@
       "scanning": "ワークスペースを読み込み中…",
       "chipTitle": "この会話をエージェント向けに引用します",
       "removeAria": "{{title}} への参照を削除"
+    },
+    "compact": {
+      "aria": "コンテキストを圧縮",
+      "title": "過去のターンを要約し、次の返信を制御されたコンテキストで実行します"
     }
   },
   "localCommand": {
@@ -367,5 +378,10 @@
     "closeAria": "サブエージェントパネルを閉じる",
     "count_other": "{{count}} 件のタスク",
     "empty": "この会話にはまだサブエージェントがいません。"
+  },
+  "usage": {
+    "thisTurn": "今回",
+    "total": "累計",
+    "tooltip": "↑ 入力トークン、↓ 出力トークン（今回分 / セッション累計）"
   }
 }

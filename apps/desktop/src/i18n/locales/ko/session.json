@@ -114,7 +114,14 @@
       "reasoning": "추론 강도",
       "reasoningDefault": "모델 기본값",
       "faster": "더 빠르게",
-      "smarter": "더 똑똑하게"
+      "smarter": "더 똑똑하게",
+      "contextLimit": "컨텍스트 창",
+      "contextAuto": "자동",
+      "contextSave": "저장",
+      "contextHint": "모델 컨텍스트 상한(k tokens). 낮추면 다음 턴이 초과할 때 자동으로 압축됩니다. 비우면 모델 기본값.",
+      "contextSaved": "컨텍스트 창이 업데이트되었습니다",
+      "contextSaveError": "저장에 실패했습니다",
+      "kSuffix": "k"
     },
     "reference": {
       "filesAria": "작업 공간 파일",
@@ -122,6 +129,10 @@
       "scanning": "작업 공간을 읽는 중…",
       "chipTitle": "이 대화를 에이전트에게 인용합니다",
       "removeAria": "{{title}} 참조 제거"
+    },
+    "compact": {
+      "aria": "컨텍스트 압축",
+      "title": "이전 턴을 요약하여 다음 답변이 제한된 컨텍스트에서 실행되도록 합니다"
     }
   },
   "localCommand": {
@@ -367,5 +378,10 @@
     "closeAria": "서브에이전트 패널 닫기",
     "count_other": "작업 {{count}}개",
     "empty": "이 대화에는 아직 서브에이전트가 없습니다."
+  },
+  "usage": {
+    "thisTurn": "이번 턴",
+    "total": "누계",
+    "tooltip": "↑ 입력 토큰, ↓ 출력 토큰(이번 턴 / 세션 누계)"
   }
 }

@@ -114,7 +114,14 @@
       "reasoning": "推理强度",
       "reasoningDefault": "模型默认",
       "faster": "更快",
-      "smarter": "更强"
+      "smarter": "更强",
+      "contextLimit": "上下文窗口",
+      "contextAuto": "自动",
+      "contextSave": "保存",
+      "contextHint": "模型上下文上限(k tokens)。调低后,会话下一次超出上限时会自动压缩旧上下文。留空 = 使用模型默认值。",
+      "contextSaved": "上下文窗口已更新",
+      "contextSaveError": "保存失败",
+      "kSuffix": "k"
     },
     "reference": {
       "filesAria": "工作区文件",
@@ -122,6 +129,10 @@
       "scanning": "正在读取工作区…",
       "chipTitle": "这段会话会作为引用提供给智能体",
       "removeAria": "移除对「{{title}}」的引用"
+    },
+    "compact": {
+      "aria": "压缩上下文",
+      "title": "把较早的对话总结掉，让下一条回复在受控的上下文上运行"
     }
   },
   "localCommand": {
@@ -367,5 +378,10 @@
     "closeAria": "关闭子智能体面板",
     "count_other": "{{count}} 个任务",
     "empty": "这个会话还没有子智能体。"
+  },
+  "usage": {
+    "thisTurn": "本轮",
+    "total": "累计",
+    "tooltip": "↑ 输入 token，↓ 输出 token（本轮增量 / 会话累计）"
   }
 }

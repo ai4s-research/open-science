@@ -3,5 +3,13 @@
     "save": "Speichern",
     "cancel": "Abbrechen",
     "remove": "Entfernen"
+  },
+  "runtime": {
+    "compact": {
+      "busy": "Warten Sie, bis der aktuelle Turn beendet ist, bevor Sie komprimieren.",
+      "error": "Kontext konnte nicht komprimiert werden.",
+      "done": "Kontext komprimiert. Die nächste Antwort nutzt das komprimierte Gespräch.",
+      "triggered": "Bereit: Senden Sie Ihre nächste Nachricht, sie wird zuerst automatisch komprimiert (das Limit wird danach wiederhergestellt)."
+    }
   }
 }

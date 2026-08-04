@@ -186,6 +186,12 @@ export interface SessionMeta {
   /** Epoch ms the user archived this conversation; absent when active.
    *  Archived conversations are kept and searchable — just out of the way. */
   archived?: number;
+  /** Cumulative API token usage for this session (from the list endpoint's
+   *  `tokens`). Lets the UI show per-turn deltas by diffing snapshots. */
+  tokens?: { input?: number; output?: number; reasoning?: number };
+  /** The model this session is bound to (from the list endpoint's `model`),
+   *  e.g. for context-limit controls. */
+  model?: { id?: string; providerID?: string };
   /** The runtime's whole metadata object, so a write can merge instead of
    *  clobbering keys another client owns. */
   metadata?: Record<string, unknown>;

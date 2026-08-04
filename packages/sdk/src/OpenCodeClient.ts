@@ -448,6 +448,8 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       parentID?: string | null;
       metadata?: Record<string, unknown>;
       time?: { created?: number; updated?: number };
+      tokens?: { input?: number; output?: number; reasoning?: number };
+      model?: { id?: string; providerID?: string };
     }>;
     const sessions = arr.map((s) => {
       const mine = (s.metadata?.[META_NS] ?? {}) as { archived?: number };
@@ -459,6 +461,8 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         parentId: s.parentID ?? undefined,
         created: s.time?.created,
         updated: s.time?.updated,
+        ...(s.tokens ? { tokens: s.tokens } : {}),
+        ...(s.model ? { model: s.model } : {}),
         ...(typeof mine.archived === "number" ? { archived: mine.archived } : {}),
         ...(s.metadata ? { metadata: s.metadata } : {}),
       } satisfies SessionMeta;
@@ -647,6 +651,76 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       { method: "POST", headers: this.headers(true), body: "{}" },
     );
     if (!res.ok) throw await this.apiError(res, "Failed to interrupt the session");
+  }
+
+  /** Compact a session's conversation: OpenCode summarizes the older turns
+   *  with the model and replaces them with a "Context compacted" seam, so
+   *  subsequent turns run on a bounded context (the fix for long sessions
+   *  that stall on giant prompts). The POST admits the request; the summary
+   *  is generated asynchronously and arrives as a `compaction` part, folded
+   *  by the client into a `session.compacted` event. NOTE: opencode 1.17.x
+   *  stubs this service (503 "Session compact is not available yet") — the
+   *  route exists but only auto-compaction (context overflow) works there.
+   *  Use the v2 RPC path: the v1-style `/session/:id/compact` is NOT a real
+   *  route and answers the SPA index.html with 200, silently doing nothing. */
+  async compactSession(sessionId: string): Promise<void> {
+    const res = await this.fetchImpl(
+      `${this.baseUrl}/api/session/${encodeURIComponent(sessionId)}/compact`,
+      { method: "POST", headers: this.headers(true), body: "{}" },
+    );
+    if (!res.ok) throw await this.apiError(res, "Failed to compact the session");
+  }
+
+  /** One session's live info: cumulative token usage, cost, and compaction
+   *  state (`compacting` is set while a compaction is in progress). */
+  async getSessionInfo(sessionId: string): Promise<{
+    tokens?: { input?: number; output?: number; reasoning?: number };
+    cost?: number;
+    compacting?: number | null;
+    title?: string;
+  }> {
+    const res = await this.fetchImpl(
+      `${this.baseUrl}/api/session/${encodeURIComponent(sessionId)}`,
+      { headers: this.headers() },
+    );
+    if (!res.ok) throw await this.apiError(res, "Failed to read the session");
+    const json = (await res.json()) as { data?: { tokens?: { input?: number; output?: number; reasoning?: number }; cost?: number; compacting?: number | null; title?: string } };
+    return json.data ?? {};
+  }
+
+  /** Set (or clear, with `context` 0) a provider model's context window in the
+   *  global config. This is the knob behind the "context limit" control and
+   *  the manual-compact workaround: OpenCode's overflow accounting compacts a
+   *  session when its last step's tokens exceed this limit, so lowering it
+   *  makes the NEXT turn auto-compact. Merges, never clobbers other keys. */
+  async setModelContextLimit(
+    providerId: string,
+    modelId: string,
+    context: number,
+    output = 0,
+  ): Promise<void> {
+    const existing = await this.customProviderModelLimits(providerId);
+    const limit =
+      context > 0 ? { context, output: existing[modelId]?.output ?? output } : undefined;
+    const provider = {
+      [providerId]: {
+        models: {
+          [modelId]: limit ? { name: modelId, limit } : { name: modelId },
+        },
+      },
+    };
+    const res = await this.fetchImpl(`${this.baseUrl}/global/config`, {
+      method: "PATCH",
+      headers: this.headers(true),
+      body: JSON.stringify({ provider }),
+    });
+    if (!res.ok) throw await this.apiError(res, "Failed to update the context limit");
+  }
+
+  /** The configured context window for a provider model (from the global
+   *  config's provider override), or 0 when none is set. */
+  async getModelContextLimit(providerId: string, modelId: string): Promise<number> {
+    return (await this.customProviderModelLimits(providerId))[modelId]?.context ?? 0;
   }
 
   /** Every skill OpenCode has really loaded for this workspace: built-in,

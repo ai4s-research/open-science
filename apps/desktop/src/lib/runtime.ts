@@ -324,6 +324,18 @@ interface RuntimeState {
    *  provider from looking like a silent "Working…" forever. Cleared by the
    *  session's next sign of life (stream events, idle, error). */
   retryNotices: Record<string, { attempt: number; message: string }>;
+  /** Sessions a manual “compress context” was requested for. The POST admits
+   *  the request; the flag stays until the compaction part folds in
+   *  (`session.compacted`) or the session reports idle, and drives the
+   *  spinner on the composer's compact button. */
+  compactingSessions: Record<string, boolean>;
+  /** Per-session cumulative token usage (from the server) plus the previous
+   *  snapshot, so the UI can show “this turn: ↑X ↓Y” as a delta. Updated on
+   *  `session.idle` and after a manual compaction. */
+  sessionUsage: Record<
+    string,
+    { input: number; output: number; reasoning: number; prevInput: number; prevOutput: number; prevReasoning: number }
+  >;
   /** Switch to an existing folder, or (with `dated`) create a new dated one.
    *  `key` is the draft slot the switch was made for — the folder becomes that
    *  draft's destination. Defaults to the global slot. */
@@ -352,6 +364,13 @@ interface RuntimeState {
   /** Interrupt a session's running turn (Stop button / Esc); the focused
    *  session when `sessionId` is omitted. */
   interrupt: (sessionId?: string) => Promise<void>;
+  /** Manually compact a session's context (composer button). Older turns are
+   *  summarized by the model into a "Context compacted" seam so subsequent
+   *  turns run on a bounded context. No-op on a draft. */
+  compactContext: (sessionId?: string) => Promise<void>;
+  /** Refresh the cumulative token usage for a session (call after a turn ends)
+   *  so the UI can show per-turn deltas. */
+  refreshSessionUsage: (sessionId: string) => Promise<void>;
   /** Edit a past user message: revert the session to (and including) that
    *  message — dropping it and everything after, rolling back the files those
    *  turns changed — then resend the corrected text as a new turn. Destructive:
@@ -652,6 +671,17 @@ const relayedSignIns = new Set<string>();
  *  session.idle events) must not add a second line. Armed before the abort POST
  *  and held across every trailing event; the next turn clears it (`turn → sid`). */
 const interruptedSessions = new Set<string>();
+
+/** Manual-compact lever constants: opencode 1.17.x has no working compact API,
+ *  so the button temporarily lowers the model's context window to
+ *  COMPACT_TRIGGER_LIMIT, the NEXT prompt overflows and auto-compacts, and the
+ *  previous limit is restored when the "Context compacted" seam arrives. */
+const COMPACT_TRIGGER_LIMIT = 4096;
+const DEFAULT_CONTEXT_LIMIT = 131_072;
+const pendingLimitRestore = new Map<
+  string,
+  { providerId: string; modelId: string; limit: number }
+>();
 
 // ---- Auto-review (#72) ----
 // Per-token review state stays outside Zustand so a background reviewer never
@@ -1618,6 +1648,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   stepCounts: {},
   shellTurns: {},
   retryNotices: {},
+  compactingSessions: {},
+  sessionUsage: {},
 
   // These write the CURRENT session's pane (DRAFT_KEY on a draft), keeping the
   // artifact inspector, the Files browser, and the Runs pane mutually exclusive
@@ -2206,6 +2238,34 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         });
       }
       if (event.type === "session.idle") clearLiveFolds(sid);
+      // A manual compaction finished: the "Context compacted" seam just folded
+      // in, so subsequent turns already run on the bounded context. Clear the
+      // composer spinner, restore the temporarily-tightened context limit, and
+      // confirm. Idle also clears as a safety net (a compaction that ends
+      // without a visible part must not pin the flag).
+      if (
+        event.type === "session.compacted" ||
+        (event.type === "session.idle" && get().compactingSessions[sid])
+      ) {
+        if (get().compactingSessions[sid]) {
+          set((s) => {
+            const compactingSessions = { ...s.compactingSessions };
+            delete compactingSessions[sid];
+            return { compactingSessions };
+          });
+          if (event.type === "session.compacted") {
+            const restore = pendingLimitRestore.get(sid);
+            if (restore) {
+              pendingLimitRestore.delete(sid);
+              void client
+                ?.setModelContextLimit(restore.providerId, restore.modelId, restore.limit)
+                .catch(() => undefined);
+            }
+            toast.success(i18n.t("runtime.compact.done"));
+          }
+        }
+      }
+      if (event.type === "session.idle") void get().refreshSessionUsage(sid);
       // Idle after a user interrupt: the thread already ends with "Interrupted"
       // — keep the locks clear and skip the fold. An abort can emit MORE than
       // one idle, so the guard must survive every trailing idle (`.has`, not
@@ -3046,6 +3106,87 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         },
       };
     });
+  },
+
+  compactContext: async (sessionId) => {
+    const sid = sessionId ?? get().currentId;
+    if (!sid || !client) return;
+    // Compacting while a turn is streaming would race the model loop (the
+    // endpoint refuses a busy session too). The composer disables the button
+    // while `working`, so this is just a guard for programmatic callers.
+    if (get().runningSessions[sid]) {
+      toast.error(i18n.t("runtime.compact.busy"));
+      return;
+    }
+    const meta = get().sessions.find((s) => s.id === sid);
+    const providerId = meta?.model?.providerID;
+    const modelId = meta?.model?.id;
+    set((s) => ({ compactingSessions: { ...s.compactingSessions, [sid]: true } }));
+    try {
+      // Preferred: the native compact API. opencode 1.17.x stubs it (503
+      // "Session compact is not available yet"), so fall through to the
+      // context-limit lever below — the two paths share the spinner state.
+      await client.compactSession(sid);
+    } catch (err) {
+      // Lever: temporarily tighten the model's context window so the NEXT
+      // prompt overflows and auto-compacts (verified against the live
+      // sidecar: a `compaction` part arrives, auto:true). The limit is
+      // restored when the seam folds in (session.compacted handler below).
+      if (providerId && modelId) {
+        try {
+          const prev = await client.getModelContextLimit(providerId, modelId);
+          pendingLimitRestore.set(sid, {
+            providerId,
+            modelId,
+            limit: prev > 0 ? prev : DEFAULT_CONTEXT_LIMIT,
+          });
+          await client.setModelContextLimit(providerId, modelId, COMPACT_TRIGGER_LIMIT);
+          toast.success(i18n.t("runtime.compact.triggered"));
+          return; // spinner stays until the compacted seam arrives
+        } catch {
+          // fall through to the error path
+        }
+      }
+      set((s) => {
+        const compactingSessions = { ...s.compactingSessions };
+        delete compactingSessions[sid];
+        return {
+          compactingSessions,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      });
+      toast.error(i18n.t("runtime.compact.error"));
+    }
+  },
+
+  refreshSessionUsage: async (sessionId) => {
+    if (!client || !sessionId) return;
+    try {
+      const info = await client.getSessionInfo(sessionId);
+      const t = info.tokens;
+      if (!t) return;
+      const prev = get().sessionUsage[sessionId];
+      const input = t.input ?? 0;
+      const output = t.output ?? 0;
+      const reasoning = t.reasoning ?? 0;
+      // First snapshot seeds the baseline so the first "this turn" delta is 0
+      // (the readout only ever shows what happened since the last snapshot).
+      set((s) => ({
+        sessionUsage: {
+          ...s.sessionUsage,
+          [sessionId]: {
+            input,
+            output,
+            reasoning,
+            prevInput: prev?.input ?? input,
+            prevOutput: prev?.output ?? output,
+            prevReasoning: prev?.reasoning ?? reasoning,
+          },
+        },
+      }));
+    } catch {
+      // Best-effort: the readout just stays stale.
+    }
   },
 
   editMessage: async (messageID, newText, sessionId) => {

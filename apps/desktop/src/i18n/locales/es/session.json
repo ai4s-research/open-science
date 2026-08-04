@@ -114,7 +114,14 @@
       "reasoning": "Esfuerzo de razonamiento",
       "reasoningDefault": "Predeterminado del modelo",
       "faster": "Más rápido",
-      "smarter": "Más inteligente"
+      "smarter": "Más inteligente",
+      "contextLimit": "Ventana de contexto",
+      "contextAuto": "Auto",
+      "contextSave": "Guardar",
+      "contextHint": "Límite de contexto del modelo (k tokens). Bajarlo hace que la sesión compacte el contexto antiguo en el siguiente desbordamiento. Vacío = predeterminado.",
+      "contextSaved": "Ventana de contexto actualizada",
+      "contextSaveError": "No se pudo guardar",
+      "kSuffix": "k"
     },
     "reference": {
       "filesAria": "Archivos del espacio de trabajo",
@@ -122,6 +129,10 @@
       "scanning": "Leyendo el espacio de trabajo…",
       "chipTitle": "Esta conversación se citará para el agente",
       "removeAria": "Quitar la referencia a {{title}}"
+    },
+    "compact": {
+      "aria": "Comprimir contexto",
+      "title": "Resume los turnos anteriores; la siguiente respuesta usará el contexto comprimido"
     }
   },
   "localCommand": {
@@ -376,5 +387,10 @@
     "count_one": "{{count}} tarea",
     "count_other": "{{count}} tareas",
     "empty": "Todavía no hay subagentes en esta conversación."
+  },
+  "usage": {
+    "thisTurn": "esta ronda",
+    "total": "total",
+    "tooltip": "↑ tokens de entrada, ↓ tokens de salida (esta ronda / acumulado de la sesión)"
   }
 }

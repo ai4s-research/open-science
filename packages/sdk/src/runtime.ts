@@ -79,6 +79,25 @@ export interface AgentRuntime {
     variant?: string | null,
   ): Promise<void>;
   abortSession(sessionId: string): Promise<void>;
+  /** Compact a session's conversation: older turns are summarized by the model
+   *  into a "Context compacted" seam, so subsequent turns run on a bounded
+   *  context (the fix for long sessions that stall on giant prompts). The
+   *  POST admits the request; the summary is generated asynchronously. NOTE:
+   *  opencode 1.17.x stubs this (503 "not available yet") — see the client
+   *  docblock. */
+  compactSession(sessionId: string): Promise<void>;
+  /** One session's live info: cumulative tokens, cost, compaction state. */
+  getSessionInfo(sessionId: string): Promise<{
+    tokens?: { input?: number; output?: number; reasoning?: number };
+    cost?: number;
+    compacting?: number | null;
+    title?: string;
+  }>;
+  /** Set (or clear, with 0) a provider model's context window in the global
+   *  config. Lowering it makes the next turn auto-compact on overflow. */
+  setModelContextLimit(providerId: string, modelId: string, context: number, output?: number): Promise<void>;
+  /** The configured context window for a provider model (0 when unset). */
+  getModelContextLimit(providerId: string, modelId: string): Promise<number>;
   /** Revert the session to (and including) `messageID`, dropping it and every
    *  message after it (and rolling back any files they changed). Used to edit a
    *  past user message: revert to it, then `sendPrompt` the corrected text.

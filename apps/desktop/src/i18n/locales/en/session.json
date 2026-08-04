@@ -114,7 +114,14 @@
       "reasoning": "Reasoning effort",
       "reasoningDefault": "Model default",
       "faster": "Faster",
-      "smarter": "Smarter"
+      "smarter": "Smarter",
+      "contextLimit": "Context window",
+      "contextAuto": "Auto",
+      "contextSave": "Save",
+      "contextHint": "Model context limit (k tokens). Lowering it makes the session auto-compact old context when the next turn overflows. Empty = model default.",
+      "contextSaved": "Context window updated",
+      "contextSaveError": "Failed to save",
+      "kSuffix": "k"
     },
     "reference": {
       "filesAria": "Workspace files",
@@ -122,6 +129,10 @@
       "scanning": "Reading the workspace…",
       "chipTitle": "This conversation will be quoted for the agent",
       "removeAria": "Remove the reference to {{title}}"
+    },
+    "compact": {
+      "aria": "Compress context",
+      "title": "Summarize the earlier turns so the next reply runs on a bounded context"
     }
   },
   "localCommand": {
@@ -376,5 +387,10 @@
     "count_one": "{{count}} task",
     "count_other": "{{count}} tasks",
     "empty": "No subagents in this conversation yet."
+  },
+  "usage": {
+    "thisTurn": "this turn",
+    "total": "total",
+    "tooltip": "↑ input tokens, ↓ output tokens (this turn vs cumulative for the session)"
   }
 }
