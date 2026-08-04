@@ -571,6 +571,28 @@ fn ensure_snapshot_repo(root: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Normalize a workspace path for git: forward slashes to backslashes, and
+/// strip any Windows `\\?\` verbatim prefix (drive or UNC form). A no-op on
+/// Unix and on already-clean paths.
+fn normalize_ws(root: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = root.to_string_lossy().replace('/', "\\");
+        let s = if let Some(rest) = s.strip_prefix("\\\\?\\UNC\\") {
+            format!("\\\\{rest}")
+        } else if let Some(rest) = s.strip_prefix("\\\\?\\") {
+            rest.to_string()
+        } else {
+            s
+        };
+        return PathBuf::from(s);
+    }
+    #[cfg(not(windows))]
+    {
+        root.to_path_buf()
+    }
+}
+
 /// Record a snapshot of the workspace onto `SNAPSHOT_REF` without touching the
 /// user's branches, HEAD, working tree, or index. Stages the working tree into a
 /// dedicated index, drops oversized/bulk paths, writes a tree, and commits it as
@@ -579,7 +601,13 @@ fn ensure_snapshot_repo(root: &Path) -> Result<bool, String> {
 /// was nothing to record or the workspace opted out.
 pub fn commit(root: &Path, message: &str) -> Result<bool, String> {
     let _lock = git_lock().lock().map_err(|_| "git snapshot lock poisoned".to_string())?;
-    if !ensure_snapshot_repo(root)? {
+    // Windows: workspace paths arriving from the webview can carry a `\\?\`
+    // verbatim prefix with forward slashes (e.g. `\\?\C:/Users/...`). Git's
+    // mingw layer then fails to create its lock files with "Invalid argument"
+    // (CreateFile rejects forward slashes inside `\\?\` extended-length
+    // paths). Normalize to a plain backslash path before any git call.
+    let root = &normalize_ws(root);
+    if !ensure_snapshot_repo(&root)? {
         return Ok(false);
     }
     let index = root.join(".git").join(SNAPSHOT_INDEX);
