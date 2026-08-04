@@ -41,6 +41,13 @@ import { SessionFilesPane } from "@/app/routes/FilesPage";
 import { RunsPane } from "@/app/routes/RunsPage";
 import { cn } from "@/lib/cn";
 
+/** Compact token-count formatting for the usage readout: 1_234 -> 1.2k. */
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
 type ThreadBlocks = NonNullable<ReturnType<typeof useRuntimeStore.getState>["threads"][string]>["blocks"];
 type ToolCallBlock = Extract<ThreadBlocks[number], { kind: "tool-call" }>;
 
@@ -117,6 +124,12 @@ export function SessionView({
   const backgroundReview = useRuntimeStore((s) =>
     eid ? s.backgroundReviews[eid] : undefined,
   );
+  const compacting = useRuntimeStore((s) => !!s.compactingSessions[key]);
+  const usage = useRuntimeStore((s) => (eid ? s.sessionUsage[eid] : undefined));
+  const refreshSessionUsage = useRuntimeStore((s) => s.refreshSessionUsage);
+  useEffect(() => {
+    if (eid) void refreshSessionUsage(eid);
+  }, [eid, refreshSessionUsage]);
   const step = useRuntimeStore((s) => (eid ? (s.stepCounts[eid] ?? 0) : 0));
   const retryNotice = useRuntimeStore((s) => (eid ? s.retryNotices[eid] : undefined));
   const serverUrl = useRuntimeStore((s) => s.serverUrl);
@@ -130,6 +143,7 @@ export function SessionView({
   const commands = useRuntimeStore((s) => s.commands);
   const connect = useRuntimeStore((s) => s.connect);
   const sendPrompt = useRuntimeStore((s) => s.sendPrompt);
+  const compactContext = useRuntimeStore((s) => s.compactContext);
   const runShell = useRuntimeStore((s) => s.runShell);
   const runCommand = useRuntimeStore((s) => s.runCommand);
   const openArtifact = useRuntimeStore((s) => s.openArtifact);
@@ -827,11 +841,28 @@ export function SessionView({
                   : undefined
               }
               modelSessionId={key}
+              onCompactContext={connected && !webReadOnly && eid ? () => void compactContext(eid) : undefined}
+              compacting={compacting}
               draftKey={draftKey}
               showWorkspaceChip={eid === null}
               sessionDir={sessionDir ?? undefined}
               currentSessionId={eid}
             />
+            {usage && eid && (
+              <div
+                className="flex items-center justify-center gap-3 text-[10.5px] leading-none text-muted"
+                title={t("usage.tooltip")}
+              >
+                <span>
+                  {t("usage.thisTurn")} ↑{fmtTokens(Math.max(0, usage.input - usage.prevInput))} ↓
+                  {fmtTokens(Math.max(0, usage.output - usage.prevOutput))}
+                </span>
+                <span aria-hidden>·</span>
+                <span>
+                  {t("usage.total")} ↑{fmtTokens(usage.input)} ↓{fmtTokens(usage.output)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
           </>

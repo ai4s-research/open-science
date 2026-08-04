@@ -8,8 +8,9 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { Check, ChevronDown, ChevronRight, Cpu, Loader2, Search, Star, X, Zap } from "lucide-react";
-import { useRuntimeStore } from "@/lib/runtime";
+import { Check, ChevronDown, ChevronRight, Cpu, Gauge, Loader2, Search, Star, X, Zap } from "lucide-react";
+import { getClient, useRuntimeStore } from "@/lib/runtime";
+import { toast } from "@/lib/toast";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { cn } from "@/lib/cn";
 import {
@@ -200,6 +201,81 @@ function ReasoningSlider({
  * One picker body renders in two shells: an anchored popover on desktop/wide
  * web, a bottom sheet on phone-width viewports (`useIsMobile`).
  */
+/** Context-window control for the currently selected model. Reads/writes the
+ *  provider model's `limit.context` in the global config. Lowering it makes
+ *  the session's NEXT message auto-compact on overflow — the supported way to
+ *  shrink a bloated conversation on opencode 1.17.x (the compact API is
+ *  stubbed there). Empty input = auto (0, no limit set). */
+function ContextLimitRow({ modelKey }: { modelKey?: string }) {
+  const { t } = useTranslation(["session", "common"]);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [providerId, modelId] = (modelKey ?? "").split("/");
+  useEffect(() => {
+    let alive = true;
+    if (!providerId || !modelId) return;
+    const client = getClient();
+    if (!client) return;
+    void client
+      .getModelContextLimit(providerId, modelId)
+      .then((tokens) => {
+        if (!alive) return;
+        setValue(tokens > 0 ? String(Math.round(tokens / 1024)) : "");
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (alive) setLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [providerId, modelId]);
+  if (!providerId || !modelId) return null;
+  const save = async () => {
+    const client = getClient();
+    if (!client) return;
+    const k = Number(value);
+    if (!Number.isFinite(k) || k < 0) return;
+    setSaving(true);
+    try {
+      await client.setModelContextLimit(providerId, modelId, Math.round(k * 1024));
+      toast.success(t("composer.model.contextSaved"));
+    } catch {
+      toast.error(t("composer.model.contextSaveError"));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="mt-1.5 border-t border-faint pt-1.5">
+      <div className="flex items-center gap-1.5 px-1.5">
+        <Gauge size={12} className="shrink-0 text-muted" />
+        <span className="text-xs font-medium text-text">{t("composer.model.contextLimit")}</span>
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={value}
+          disabled={!loaded || saving}
+          placeholder={t("composer.model.contextAuto")}
+          onChange={(e) => setValue(e.target.value)}
+          className="ml-auto w-16 rounded-input border border-faint bg-surface px-1.5 py-0.5 text-right text-xs text-text outline-none focus:border-accent"
+        />
+        <span className="text-[10.5px] text-muted">{t("composer.model.kSuffix")}</span>
+        <button
+          className="rounded-input bg-accent px-2 py-0.5 text-xs text-accent-fg hover:opacity-90 disabled:opacity-40"
+          disabled={!loaded || saving}
+          onClick={() => void save()}
+        >
+          {saving ? <Loader2 size={11} className="animate-spin" /> : t("composer.model.contextSave")}
+        </button>
+      </div>
+      <p className="px-1.5 pb-1 pt-0.5 text-[10.5px] text-muted">{t("composer.model.contextHint")}</p>
+    </div>
+  );
+}
+
 export function ModelPicker({ sessionId }: { sessionId?: string } = {}) {
   const { t } = useTranslation(["session", "common"]);
   const navigate = useNavigate();
@@ -474,6 +550,10 @@ export function ModelPicker({ sessionId }: { sessionId?: string } = {}) {
           )}
         </div>
       )}
+
+      {/* Context window: manual context-limit control for the current model
+          (auto-compaction lever — lowering it makes the next turn compact). */}
+      {model && <ContextLimitRow modelKey={model} />}
 
       {/* Manage providers */}
       <button
