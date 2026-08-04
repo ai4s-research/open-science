@@ -106,7 +106,8 @@
       "sampleIds": "Sample ids"
     },
     "mobileNoPreview": "Can't preview this file type here — download it to view.",
-    "download": "Download"
+    "download": "Download",
+    "waitingWorkspace": "Waiting for the workspace to load {{filename}}… (focus the session that owns this file to preview)"
   },
   "office": {
     "rendering": "Rendering…",

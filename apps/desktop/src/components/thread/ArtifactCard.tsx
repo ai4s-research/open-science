@@ -42,7 +42,17 @@ export const ArtifactCard = memo(function ArtifactCard({
       role={onOpen ? "button" : undefined}
     >
       <span className="shrink-0 text-accent">{ICON[block.artifact]}</span>
-      <span className="truncate font-medium text-text">{block.filename}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium text-text">{block.filename}</span>
+        {block.path && block.path !== block.filename && (
+          <span
+            className="block truncate text-[11px] text-muted"
+            title={block.path}
+          >
+            {block.path}
+          </span>
+        )}
+      </span>
       <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted ring-1 ring-border">
         {t(`artifact.kind.${block.artifact}`)}
       </span>

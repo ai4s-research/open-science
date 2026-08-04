@@ -105,7 +105,8 @@
       "sampleIds": "サンプル ID"
     },
     "mobileNoPreview": "このファイル形式はここでプレビューできません——ダウンロードしてご覧ください。",
-    "download": "ダウンロード"
+    "download": "ダウンロード",
+    "waitingWorkspace": "ワークスペースが {{filename}} を読み込むのを待っています…（このファイルを所有するセッションにフォーカスしてください）"
   },
   "office": {
     "rendering": "レンダリング中…",

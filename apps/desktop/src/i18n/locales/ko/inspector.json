@@ -105,7 +105,8 @@
       "sampleIds": "샘플 ID"
     },
     "mobileNoPreview": "이 파일 형식은 여기서 미리 볼 수 없습니다 — 다운로드해서 확인하세요.",
-    "download": "다운로드"
+    "download": "다운로드",
+    "waitingWorkspace": "작업 공간이 {{filename}}을(를) 불러올 때까지 대기 중… (이 파일을 소유한 세션으로 전환하세요)"
   },
   "office": {
     "rendering": "렌더링 중…",

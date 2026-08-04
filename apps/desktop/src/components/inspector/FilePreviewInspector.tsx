@@ -33,6 +33,7 @@ import { AnomalyMapView } from "./AnomalyMapView";
 import { PhaseView } from "./PhaseView";
 import { useScrollMemory } from "@/lib/scrollMemory";
 import { cn } from "@/lib/cn";
+import { samePath } from "@/lib/workspacePath";
 import { PaneTitlebarInset } from "./RightPane";
 
 /**
@@ -79,7 +80,7 @@ export function FilePreviewInspector({
     data.root !== "base" &&
     workspaceDirectory !== undefined &&
     activeWorkspace !== null &&
-    activeWorkspace !== workspaceDirectory;
+    !samePath(workspaceDirectory, activeWorkspace);
   const kind = previewKindForName(data.filename);
   const needsUrl = kind === "pdf" || kind === "image" || kind === "html" || kind === "video";
   const needsText =
@@ -116,6 +117,12 @@ export function FilePreviewInspector({
   useEffect(() => {
     let cancelled = false;
     if (waitingForWorkspace) {
+      // The preview belongs to a session whose workspace isn't the active one
+      // (another split pane has focus). Never spin on "loading" while parked:
+      // settle into an explicit wait note, and the effect re-runs the moment
+      // the owning workspace gains focus (waitingForWorkspace flips).
+      setLoading(false);
+      setError(null);
       return () => {
         cancelled = true;
       };
@@ -237,8 +244,9 @@ export function FilePreviewInspector({
             compactHeader ? "text-[13px]" : "text-sm",
             onTitlePointerDown && "cursor-grab select-none active:cursor-grabbing",
           )}
+          title={title ?? (data.path && data.path !== data.filename ? data.path : data.filename)}
         >
-          {title ?? data.filename}
+          {title ?? data.path ?? data.filename}
         </span>
         <span className={cn("rounded bg-surface-2 px-1.5 py-0.5 text-muted", compactHeader ? "text-[10px]" : "text-xs")}>
           {t(`filePreview.artifactKind.${data.artifact}`)}
@@ -284,6 +292,12 @@ export function FilePreviewInspector({
 
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto bg-surface-2">
         {showHistory && <ProvenancePanel path={data.path} language={data.language} />}
+        {!showHistory && waitingForWorkspace && (
+          <div className="flex items-center gap-2 p-4 text-sm text-muted">
+            <Loader2 size={15} className="animate-spin" />{" "}
+            {t("filePreview.waitingWorkspace", { filename: data.filename })}
+          </div>
+        )}
         {!showHistory && loading && (
           <div className="flex items-center gap-2 p-4 text-sm text-muted">
             <Loader2 size={15} className="animate-spin" /> {t("filePreview.loading", { filename: data.filename })}
