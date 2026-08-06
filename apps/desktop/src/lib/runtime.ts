@@ -2877,32 +2877,37 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   switchWorkspace: async (target) => {
     set({ switching: true });
     try {
-      // Either way the draft ends up aimed at a real folder: the one the user
-      // picked, or the dated one just materialized (so a file pasted into the
-      // draft and the eventual session share it, rather than the send creating
-      // a second dated folder and orphaning the file).
-      // Both commands answer with the canonical path the runtime resolved —
-      // which is exactly what the session's own `directory` will report, so aim
-      // the draft at that, not at the raw string the caller passed.
-      const landed =
-        "dated" in target ? await newDatedWorkspace(target.dated) : await setWorkspace(target.path);
-      // Reset the local kernel so it respawns in the new folder, then reconnect
-      // the event stream scoped to it (connect() re-reads the active folder —
-      // the sidecar itself keeps running). The switch aims the draft at that
-      // folder, so the next new session lands exactly there.
-      await kernelReset().catch(() => {});
-      set((s) => {
-        // Back to a draft in the new folder — the draft pane must not carry
-        // files from the previous folder. Session panes keep their memory.
-        const panes = { ...s.panes };
-        delete panes[DRAFT_KEY];
-        const sessionAgents = { ...s.sessionAgents };
-        delete sessionAgents[DRAFT_KEY];
-        const draftWorkspaces = { ...s.draftWorkspaces, [target.key ?? DRAFT_KEY]: landed };
-        return { currentId: null, panes, draftWorkspaces, sessionAgents };
-      });
-      await get().connectRetry();
-      await Promise.all([get().refreshSessions(), get().loadCatalog()]);
+      if (isGatewayWeb) {
+        // Web client: cannot call Tauri commands (setWorkspace/newDatedWorkspace).
+        // The gateway already routes sessions to the host's active workspace via
+        // /v1/sessions. Just aim the draft at the target path so the next session
+        // lands there when created through the gateway proxy.
+        const landed = target.path;
+        set((s) => {
+          const panes = { ...s.panes };
+          delete panes[DRAFT_KEY];
+          const sessionAgents = { ...s.sessionAgents };
+          delete sessionAgents[DRAFT_KEY];
+          const draftWorkspaces = { ...s.draftWorkspaces, [target.key ?? DRAFT_KEY]: landed };
+          return { currentId: null, panes, draftWorkspaces, sessionAgents };
+        });
+        await Promise.all([get().refreshSessions(), get().loadCatalog()]);
+      } else {
+        // Desktop: switch the sidecar's workspace directory.
+        const landed =
+          "dated" in target ? await newDatedWorkspace(target.dated) : await setWorkspace(target.path);
+        await kernelReset().catch(() => {});
+        set((s) => {
+          const panes = { ...s.panes };
+          delete panes[DRAFT_KEY];
+          const sessionAgents = { ...s.sessionAgents };
+          delete sessionAgents[DRAFT_KEY];
+          const draftWorkspaces = { ...s.draftWorkspaces, [target.key ?? DRAFT_KEY]: landed };
+          return { currentId: null, panes, draftWorkspaces, sessionAgents };
+        });
+        await get().connectRetry();
+        await Promise.all([get().refreshSessions(), get().loadCatalog()]);
+      }
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     } finally {
