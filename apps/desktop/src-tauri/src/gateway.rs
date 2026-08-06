@@ -37,11 +37,13 @@ struct Persisted {
     /// "full" = every endpoint; "read-only" = GET only (no turns, no approvals).
     mode: String,
     token: String,
+    /// User-configured port; None means use PREFERRED_PORT.
+    port: Option<u16>,
 }
 
 impl Default for Persisted {
     fn default() -> Self {
-        Persisted { enabled: false, lan: false, mode: "full".into(), token: String::new() }
+        Persisted { enabled: false, lan: false, mode: "full".into(), token: String::new(), port: None }
     }
 }
 
@@ -60,6 +62,11 @@ fn read_persisted(app: &AppHandle) -> Persisted {
                         "lan" => p.lan = v == "1",
                         "mode" => p.mode = normalize_mode(v),
                         "token" => p.token = v.to_string(),
+                        "port" => {
+                            if let Ok(n) = v.parse::<u16>() {
+                                p.port = Some(n);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -75,11 +82,12 @@ fn write_persisted(app: &AppHandle, p: &Persisted) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let body = format!(
-        "enabled {}\nlan {}\nmode {}\ntoken {}\n",
+        "enabled {}\nlan {}\nmode {}\ntoken {}\n{}\n",
         if p.enabled { 1 } else { 0 },
         if p.lan { 1 } else { 0 },
         p.mode,
-        p.token
+        p.token,
+        p.port.map(|n| format!("port {n}")).unwrap_or_default(),
     );
     std::fs::write(&f, body).map_err(|e| e.to_string())?;
     tighten_private(&f); // token is a secret — owner-only, never in git
@@ -125,17 +133,20 @@ impl Ctx {
 
 // ---- lifecycle --------------------------------------------------------------
 
-fn bind_listener(lan: bool) -> std::io::Result<TcpListener> {
+fn bind_listener(lan: bool, configured_port: Option<u16>) -> std::io::Result<TcpListener> {
     let host = if lan { "0.0.0.0" } else { "127.0.0.1" };
-    match TcpListener::bind((host, PREFERRED_PORT)) {
-        Ok(l) => Ok(l),
-        Err(_) => TcpListener::bind((host, 0)),
+    let candidates = configured_port.into_iter().chain(std::iter::once(PREFERRED_PORT));
+    for port in candidates {
+        if let Ok(l) = TcpListener::bind((host, port)) {
+            return Ok(l);
+        }
     }
+    TcpListener::bind((host, 0))
 }
 
 fn start(app: &AppHandle, state: &GatewayState, p: &Persisted) -> Result<u16, String> {
     stop(state);
-    let listener = bind_listener(p.lan).map_err(|e| format!("gateway bind failed: {e}"))?;
+    let listener = bind_listener(p.lan, p.port).map_err(|e| format!("gateway bind failed: {e}"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -932,6 +943,7 @@ pub struct GatewayStatus {
     mode: String,
     running: bool,
     port: Option<u16>,
+    configured_port: Option<u16>,
     loopback_url: Option<String>,
     lan_url: Option<String>,
     token: String,
@@ -963,6 +975,7 @@ fn status_of(app: &AppHandle, state: &GatewayState) -> GatewayStatus {
         mode: p.mode,
         running,
         port,
+        configured_port: p.port,
         loopback_url,
         lan_url,
         token: p.token,
@@ -998,11 +1011,13 @@ pub fn set_gateway_config(
     enabled: bool,
     lan: bool,
     mode: String,
+    port: Option<u16>,
 ) -> Result<GatewayStatus, String> {
     let mut p = read_persisted(&app);
     p.enabled = enabled;
     p.lan = lan;
     p.mode = normalize_mode(&mode);
+    p.port = port.filter(|&n| n > 0);
     if p.enabled && p.token.is_empty() {
         p.token = random_hex(24);
     }
@@ -1016,7 +1031,7 @@ pub fn set_gateway_config(
     let updated_in_place = {
         let guard = state.inner().0.lock().unwrap();
         match guard.as_ref() {
-            Some(r) if r.lan == p.lan => {
+            Some(r) if r.lan == p.lan && r.port == p.port.unwrap_or(PREFERRED_PORT) => {
                 *r.shared.token.lock().unwrap() = p.token.clone();
                 r.shared.read_only.store(p.mode == "read-only", Ordering::Relaxed);
                 true

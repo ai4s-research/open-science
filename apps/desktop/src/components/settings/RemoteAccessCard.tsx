@@ -70,11 +70,24 @@ export function RemoteAccessCard() {
   const lan = status?.lan ?? false;
   const mode: GatewayMode = status?.mode ?? "full";
 
-  const setEnabled = (v: boolean) => apply(() => setGatewayConfig(v, lan, mode));
-  const setMode = (m: GatewayMode) => apply(() => setGatewayConfig(true, lan, m));
+  const configuredPort = status?.configuredPort ?? null;
+  const [portInput, setPortInput] = useState<string>("");
+
+  const setEnabled = (v: boolean) => apply(() => setGatewayConfig(v, lan, mode, configuredPort));
+  const setMode = (m: GatewayMode) => apply(() => setGatewayConfig(true, lan, m, configuredPort));
   const setLan = (v: boolean) => {
     if (v && !window.confirm(t("remote.lanWarn"))) return;
-    apply(() => setGatewayConfig(true, v, mode));
+    apply(() => setGatewayConfig(true, v, mode, configuredPort));
+  };
+
+  const applyPort = () => {
+    const n = portInput.trim() === "" ? null : Number(portInput);
+    if (n !== null && (Number.isNaN(n) || n < 1 || n > 65535)) {
+      toast.error(t("remote.portInvalid"));
+      return;
+    }
+    apply(() => setGatewayConfig(true, lan, mode, n));
+    setPortInput("");
   };
 
   // Copy the URL with the token in the hash, so opening the link on another
@@ -134,6 +147,42 @@ export function RemoteAccessCard() {
                   </p>
                 </div>
               )}
+            </Row>
+
+            {/* Port configuration. */}
+            <Row title={t("remote.port")} hint={t("remote.portHint")}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  placeholder={String(status?.port ?? 4098)}
+                  value={portInput}
+                  onChange={(e) => setPortInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && applyPort()}
+                  disabled={busy}
+                  className={chipCls("w-24 shrink-0")}
+                />
+                <button
+                  type="button"
+                  className={chipCls("shrink-0")}
+                  disabled={busy || portInput.trim() === ""}
+                  onClick={applyPort}
+                >
+                  {t("remote.portApply")}
+                </button>
+                {configuredPort && (
+                  <button
+                    type="button"
+                    className="rounded-input p-2 text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => apply(() => setGatewayConfig(true, lan, mode, null))}
+                    title={t("remote.portReset")}
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                )}
+              </div>
             </Row>
 
             {/* Access mode = the token's ceiling. */}
