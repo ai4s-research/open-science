@@ -654,19 +654,29 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
   }
 
   /** Compact a session's conversation: OpenCode summarizes the older turns
-   *  with the model and replaces them with a "Context compacted" seam, so
-   *  subsequent turns run on a bounded context (the fix for long sessions
-   *  that stall on giant prompts). The POST admits the request; the summary
-   *  is generated asynchronously and arrives as a `compaction` part, folded
-   *  by the client into a `session.compacted` event. NOTE: opencode 1.17.x
-   *  stubs this service (503 "Session compact is not available yet") — the
-   *  route exists but only auto-compaction (context overflow) works there.
-   *  Use the v2 RPC path: the v1-style `/session/:id/compact` is NOT a real
-   *  route and answers the SPA index.html with 200, silently doing nothing. */
-  async compactSession(sessionId: string): Promise<void> {
+   *  with the session's own model and replaces them with a "Context compacted"
+   *  seam, so subsequent turns run on a bounded context (the fix for long
+   *  sessions that stall on giant prompts). Uses the supported V1
+   *  `/session/:id/summarize` endpoint with the session's provider/model — the
+   *  V2 `/api/session/:id/compact` RPC is a stub that returns
+   *  OperationUnavailable, and a global context-limit override would leak into
+   *  every other session on that model. `providerID`/`modelID` fall back to
+   *  the session's bound model (listSessions carries it); when the session
+   *  has none, the server uses its own default. */
+  async compactSession(
+    sessionId: string,
+    providerID?: string,
+    modelID?: string,
+  ): Promise<void> {
     const res = await this.fetchImpl(
-      `${this.baseUrl}/api/session/${encodeURIComponent(sessionId)}/compact`,
-      { method: "POST", headers: this.headers(true), body: "{}" },
+      `${this.baseUrl}/session/${encodeURIComponent(sessionId)}/summarize`,
+      {
+        method: "POST",
+        headers: this.headers(true),
+        body: JSON.stringify(
+          providerID && modelID ? { providerID, modelID } : {},
+        ),
+      },
     );
     if (!res.ok) throw await this.apiError(res, "Failed to compact the session");
   }

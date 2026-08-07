@@ -79,13 +79,11 @@ export interface AgentRuntime {
     variant?: string | null,
   ): Promise<void>;
   abortSession(sessionId: string): Promise<void>;
-  /** Compact a session's conversation: older turns are summarized by the model
-   *  into a "Context compacted" seam, so subsequent turns run on a bounded
-   *  context (the fix for long sessions that stall on giant prompts). The
-   *  POST admits the request; the summary is generated asynchronously. NOTE:
-   *  opencode 1.17.x stubs this (503 "not available yet") — see the client
-   *  docblock. */
-  compactSession(sessionId: string): Promise<void>;
+  /** Compact a session's conversation: older turns are summarized by the
+   *  session's model into a "Context compacted" seam, so subsequent turns
+   *  run on a bounded context. V1 `/session/:id/summarize`; the session's
+   *  provider/model when known, else the server default. */
+  compactSession(sessionId: string, providerID?: string, modelID?: string): Promise<void>;
   /** One session's live info: cumulative tokens, cost, compaction state. */
   getSessionInfo(sessionId: string): Promise<{
     tokens?: { input?: number; output?: number; reasoning?: number };

@@ -638,6 +638,24 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
     throw new Error(`${this.displayName} does not support reverting messages`);
   }
 
+  // ---- compaction & usage (not ACP concepts) ----
+
+  async compactSession(_sessionId: string): Promise<void> {
+    throw new Error(`${this.displayName} does not support compacting sessions`);
+  }
+
+  async getSessionInfo(): Promise<Record<string, never>> {
+    return {}; // ACP carries no token accounting the app could read here.
+  }
+
+  async setModelContextLimit(): Promise<void> {
+    throw new Error(`${this.displayName} does not support changing the context limit`);
+  }
+
+  async getModelContextLimit(): Promise<number> {
+    return 0; // Unknown; the UI shows "auto".
+  }
+
   // ---- capability discovery ----
 
   async listSkills(): Promise<SkillInfo[]> {

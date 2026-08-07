@@ -211,7 +211,12 @@ function ContextLimitRow({ modelKey }: { modelKey?: string }) {
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [providerId, modelId] = (modelKey ?? "").split("/");
+  // Split on the FIRST slash only: a model id may contain further slashes
+  // (e.g. "org/repo/model" hosted ids) that must stay part of the model id.
+  const key = modelKey ?? "";
+  const slash = key.indexOf("/");
+  const providerId = slash > 0 ? key.slice(0, slash) : "";
+  const modelId = slash > 0 ? key.slice(slash + 1) : "";
   useEffect(() => {
     let alive = true;
     if (!providerId || !modelId) return;

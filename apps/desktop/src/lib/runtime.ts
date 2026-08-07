@@ -672,17 +672,6 @@ const relayedSignIns = new Set<string>();
  *  and held across every trailing event; the next turn clears it (`turn → sid`). */
 const interruptedSessions = new Set<string>();
 
-/** Manual-compact lever constants: opencode 1.17.x has no working compact API,
- *  so the button temporarily lowers the model's context window to
- *  COMPACT_TRIGGER_LIMIT, the NEXT prompt overflows and auto-compacts, and the
- *  previous limit is restored when the "Context compacted" seam arrives. */
-const COMPACT_TRIGGER_LIMIT = 4096;
-const DEFAULT_CONTEXT_LIMIT = 131_072;
-const pendingLimitRestore = new Map<
-  string,
-  { providerId: string; modelId: string; limit: number }
->();
-
 // ---- Auto-review (#72) ----
 // Per-token review state stays outside Zustand so a background reviewer never
 // repaints the foreground pane. The store only receives queued/running
@@ -2240,9 +2229,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       if (event.type === "session.idle") clearLiveFolds(sid);
       // A manual compaction finished: the "Context compacted" seam just folded
       // in, so subsequent turns already run on the bounded context. Clear the
-      // composer spinner, restore the temporarily-tightened context limit, and
-      // confirm. Idle also clears as a safety net (a compaction that ends
-      // without a visible part must not pin the flag).
+      // composer spinner and confirm. Idle also clears as a safety net (a
+      // compaction that ends without a visible part must not pin the flag).
       if (
         event.type === "session.compacted" ||
         (event.type === "session.idle" && get().compactingSessions[sid])
@@ -2254,13 +2242,6 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
             return { compactingSessions };
           });
           if (event.type === "session.compacted") {
-            const restore = pendingLimitRestore.get(sid);
-            if (restore) {
-              pendingLimitRestore.delete(sid);
-              void client
-                ?.setModelContextLimit(restore.providerId, restore.modelId, restore.limit)
-                .catch(() => undefined);
-            }
             toast.success(i18n.t("runtime.compact.done"));
           }
         }
@@ -3118,35 +3099,17 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       toast.error(i18n.t("runtime.compact.busy"));
       return;
     }
+    // Summarize with the session's OWN provider/model — never a global
+    // context-limit override, which would affect every other session on that
+    // model. The spinner is cleared by the compacted seam or by idle
+    // (safety net for a compaction that ends without a visible part).
     const meta = get().sessions.find((s) => s.id === sid);
-    const providerId = meta?.model?.providerID;
-    const modelId = meta?.model?.id;
     set((s) => ({ compactingSessions: { ...s.compactingSessions, [sid]: true } }));
     try {
-      // Preferred: the native compact API. opencode 1.17.x stubs it (503
-      // "Session compact is not available yet"), so fall through to the
-      // context-limit lever below — the two paths share the spinner state.
-      await client.compactSession(sid);
+      // Supported V1 endpoint: /session/:id/summarize (the V2
+      // /api/session/:id/compact RPC is a stub returning OperationUnavailable).
+      await client.compactSession(sid, meta?.model?.providerID, meta?.model?.id);
     } catch (err) {
-      // Lever: temporarily tighten the model's context window so the NEXT
-      // prompt overflows and auto-compacts (verified against the live
-      // sidecar: a `compaction` part arrives, auto:true). The limit is
-      // restored when the seam folds in (session.compacted handler below).
-      if (providerId && modelId) {
-        try {
-          const prev = await client.getModelContextLimit(providerId, modelId);
-          pendingLimitRestore.set(sid, {
-            providerId,
-            modelId,
-            limit: prev > 0 ? prev : DEFAULT_CONTEXT_LIMIT,
-          });
-          await client.setModelContextLimit(providerId, modelId, COMPACT_TRIGGER_LIMIT);
-          toast.success(i18n.t("runtime.compact.triggered"));
-          return; // spinner stays until the compacted seam arrives
-        } catch {
-          // fall through to the error path
-        }
-      }
       set((s) => {
         const compactingSessions = { ...s.compactingSessions };
         delete compactingSessions[sid];
