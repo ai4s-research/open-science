@@ -82,6 +82,15 @@ const mocks = vi.hoisted(() => ({
   adoptWorkspaceSkills: vi.fn(async (_known: string[]) => ["agent-skill"]),
   /** Constructor options every OpenCodeClient was created with. */
   clientOpts: [] as Record<string, unknown>[],
+  /** compactSession(sid, providerID, modelID) — resolves; set failCompact to reject. */
+  compactSessionSpy: vi.fn(),
+  failCompact: false,
+  /** What getSessionInfo returns (token snapshots for the usage readout). */
+  sessionInfo: {} as {
+    tokens?: { input?: number; output?: number; reasoning?: number };
+    compacting?: number | null;
+  },
+  getSessionInfoSpy: vi.fn(),
 }));
 
 vi.mock("./tauri", () => ({
@@ -142,6 +151,14 @@ vi.mock("@ai4s/sdk", () => {
     }
     async listSessions() {
       return mocks.sessionList;
+    }
+    async compactSession(sid: string, providerID?: string, modelID?: string) {
+      mocks.compactSessionSpy(sid, providerID, modelID);
+      if (mocks.failCompact) throw new Error("compact rejected");
+    }
+    async getSessionInfo(sid: string) {
+      mocks.getSessionInfoSpy(sid);
+      return mocks.sessionInfo;
     }
     async renameSession(id: string, title: string) {
       mocks.renameSessionSpy(id, title);
@@ -2375,5 +2392,113 @@ describe("auto-review on turn completion", () => {
     finishReview(0);
     await vi.waitFor(() => expect(reviewCalls()).toHaveLength(2));
     expect(reviewCalls()[1]![0]).toBe("ses_review_2");
+  });
+});
+
+describe("manual context compaction", () => {
+  beforeEach(async () => {
+    mocks.compactSessionSpy.mockClear();
+    mocks.getSessionInfoSpy.mockClear();
+    mocks.failCompact = false;
+    mocks.sessionInfo = {};
+    useRuntimeStore.getState().disconnect();
+    await useRuntimeStore.getState().connect();
+    useRuntimeStore.setState({
+      sessions: [
+        { id: "ses_1", title: "s", model: { providerID: "deepseek", id: "deepseek-v4-flash" } },
+      ],
+    } as never);
+  });
+
+  it("summarizes with the session's own provider/model via the V1 endpoint", async () => {
+    await useRuntimeStore.getState().compactContext("ses_1");
+    expect(mocks.compactSessionSpy).toHaveBeenCalledWith(
+      "ses_1",
+      "deepseek",
+      "deepseek-v4-flash",
+    );
+    // The spinner is up while the summary runs (cleared by the compacted seam).
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBe(true);
+  });
+
+  it("clears the spinner and reports failure when the endpoint rejects", async () => {
+    mocks.failCompact = true;
+    await useRuntimeStore.getState().compactContext("ses_1");
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+    expect(useRuntimeStore.getState().error).toContain("compact rejected");
+  });
+
+  it("refuses to compact while a turn is streaming", async () => {
+    useRuntimeStore.setState({ runningSessions: { ses_1: true } } as never);
+    await useRuntimeStore.getState().compactContext("ses_1");
+    expect(mocks.compactSessionSpy).not.toHaveBeenCalled();
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+  });
+
+  it("clears the flag on the compacted seam and on idle (safety net)", async () => {
+    await useRuntimeStore.getState().compactContext("ses_1");
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBe(true);
+    mocks.fireEvent({ type: "session.compacted", sessionId: "ses_1" });
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+
+    await useRuntimeStore.getState().compactContext("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+  });
+
+  it("compacts two sessions concurrently without cross-talk", async () => {
+    useRuntimeStore.setState({
+      sessions: [
+        { id: "ses_1", title: "a", model: { providerID: "deepseek", id: "deepseek-v4-flash" } },
+        { id: "ses_2", title: "b", model: { providerID: "anthropic", id: "claude-sonnet-4" } },
+      ],
+    } as never);
+    await Promise.all([
+      useRuntimeStore.getState().compactContext("ses_1"),
+      useRuntimeStore.getState().compactContext("ses_2"),
+    ]);
+    expect(mocks.compactSessionSpy).toHaveBeenCalledWith("ses_1", "deepseek", "deepseek-v4-flash");
+    expect(mocks.compactSessionSpy).toHaveBeenCalledWith("ses_2", "anthropic", "claude-sonnet-4");
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBe(true);
+    expect(useRuntimeStore.getState().compactingSessions["ses_2"]).toBe(true);
+    // One session's seam clears only its own flag.
+    mocks.fireEvent({ type: "session.compacted", sessionId: "ses_1" });
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+    expect(useRuntimeStore.getState().compactingSessions["ses_2"]).toBe(true);
+  });
+});
+
+describe("per-turn token usage readout", () => {
+  beforeEach(async () => {
+    mocks.getSessionInfoSpy.mockClear();
+    mocks.sessionInfo = {};
+    useRuntimeStore.getState().disconnect();
+    await useRuntimeStore.getState().connect();
+    useRuntimeStore.setState({ sessions: [{ id: "ses_1", title: "s" }] } as never);
+  });
+
+  it("seeds the baseline on first refresh and reports the delta after a turn", async () => {
+    mocks.sessionInfo = { tokens: { input: 5000, output: 300 } };
+    await useRuntimeStore.getState().refreshSessionUsage("ses_1");
+    let usage = useRuntimeStore.getState().sessionUsage["ses_1"];
+    expect(usage.input).toBe(5000);
+    expect(usage.prevInput).toBe(5000); // first snapshot: delta is 0
+
+    // The next turn consumes more tokens; the readout diffs against the baseline.
+    mocks.sessionInfo = { tokens: { input: 7300, output: 900 } };
+    await useRuntimeStore.getState().refreshSessionUsage("ses_1");
+    usage = useRuntimeStore.getState().sessionUsage["ses_1"];
+    expect(usage.input).toBe(7300);
+    expect(usage.prevInput).toBe(5000);
+    expect(usage.output).toBe(900);
+    expect(usage.prevOutput).toBe(300);
+  });
+
+  it("refreshes on session.idle so the readout tracks completed turns", async () => {
+    mocks.sessionInfo = { tokens: { input: 1000, output: 100 } };
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    await vi.waitFor(() =>
+      expect(useRuntimeStore.getState().sessionUsage["ses_1"]?.input).toBe(1000),
+    );
   });
 });
