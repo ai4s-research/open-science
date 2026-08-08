@@ -237,4 +237,55 @@ describe("OpenCodeClient session edits", () => {
 
     await expect(client.renameSession("ses_1", "x")).rejects.toThrow();
   });
+
+  it("creates a session with ?directory= when a directory is set", async () => {
+    // Regression: in web mode, the user selects a project but the session
+    // was created without ?directory=, so it landed in the host's active
+    // workspace instead of the selected project.
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      calls.push(url.pathname + url.search);
+      if (url.pathname === "/session" && init?.method === "POST") {
+        return new Response(JSON.stringify({ id: "ses_new" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    const client = new OpenCodeClient({
+      baseUrl: BASE,
+      directory: "/work/projects/my-project",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const id = await client.createSession("test");
+    expect(id).toBe("ses_new");
+    // The session creation URL must carry the directory.
+    expect(calls).toEqual(["/session?directory=%2Fwork%2Fprojects%2Fmy-project"]);
+  });
+
+  it("creates a session without ?directory= when no directory is set", async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      calls.push(url.pathname + url.search);
+      if (url.pathname === "/session" && init?.method === "POST") {
+        return new Response(JSON.stringify({ id: "ses_new" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    const client = new OpenCodeClient({
+      baseUrl: BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const id = await client.createSession();
+    expect(id).toBe("ses_new");
+    expect(calls).toEqual(["/session"]);
+  });
 });

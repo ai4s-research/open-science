@@ -432,6 +432,11 @@ let opencodeClient: OpenCodeClient | null = null;
  *  killing every session that child was holding. */
 let acpRuntime: AcpRuntime | null = null;
 let acpRuntimeAgentId: string | null = null;
+/** In web mode, the user-selected project directory that overrides the
+ *  /v1/whoami default.  Persisted across reconnects so session creation,
+ *  SSE, permissions/questions, and file operations all scope to the right
+ *  folder.  None means "use whatever /v1/whoami reports". */
+let webOverrideDirectory: string | null = null;
 let openSessionSeq = 0;
 /** The model the user last DELIBERATELY switched to, and when. A switch does a
  *  masked reconnect, and connect() fires loadCatalog() un-awaited — so the
@@ -978,24 +983,32 @@ async function performTurn(
       // that does not gets its own fresh dated folder
       // (~/Documents/OpenScience/sessions/<date-time>) so its files never pile
       // up in the bare base folder.
-      const chosen = isTauri ? get().draftWorkspaces[draftSrc] : undefined;
-      if (isTauri) {
+      const chosen = get().draftWorkspaces[draftSrc];
+      if (isTauri || (isGatewayWeb && chosen)) {
         set({ switching: true });
         try {
-          if (!chosen) {
-            await newDatedWorkspace(datedWorkspaceName());
-            await kernelReset().catch(() => {});
-          } else if (chosen !== get().workspace) {
-            // The active folder wandered off — opening any session follows it
-            // into that session's folder. Go back to the one this draft was
-            // aimed at, or the session lands wherever the user last looked (#69).
-            await setWorkspace(chosen);
-            await kernelReset().catch(() => {});
+          if (isGatewayWeb && chosen) {
+            // Web client: scope the OpenCodeClient to the selected project.
+            // connect() will read webOverrideDirectory and pass it as
+            // ?directory= on session creation, SSE, permissions, and files.
+            webOverrideDirectory = chosen;
+            await get().connectRetry();
+          } else if (isTauri) {
+            if (!chosen) {
+              await newDatedWorkspace(datedWorkspaceName());
+              await kernelReset().catch(() => {});
+            } else if (chosen !== get().workspace) {
+              // The active folder wandered off — opening any session follows it
+              // into that session's folder. Go back to the one this draft was
+              // aimed at, or the session lands wherever the user last looked (#69).
+              await setWorkspace(chosen);
+              await kernelReset().catch(() => {});
+            }
+            // Always rebuild the scoped client: /new and /clear keep the folder,
+            // but the old session route may have just torn down directory-scoped
+            // SSE, and a first send must not hang on a stale workspace instance.
+            await get().connectRetry();
           }
-          // Always rebuild the scoped client: /new and /clear keep the folder,
-          // but the old session route may have just torn down directory-scoped
-          // SSE, and a first send must not hang on a stale workspace instance.
-          await get().connectRetry();
         } finally {
           set({ switching: false });
         }
@@ -1969,10 +1982,12 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     const previousWorkspace = get().workspace;
     if (isGatewayWeb) {
       // Web client: same-origin gateway; the pasted token is the OpenCodeClient
-      // password, and the workspace directory comes from /v1/whoami.
+      // password, and the workspace directory comes from /v1/whoami — unless
+      // the user explicitly selected a project via switchWorkspace, in which
+      // case webOverrideDirectory takes precedence.
       baseUrl = gatewayOrigin();
       password = gatewayToken();
-      directory = null;
+      directory = webOverrideDirectory;
       let readOnly = false;
       try {
         const r = await fetch(`${baseUrl}/v1/whoami`, {
@@ -1980,7 +1995,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         });
         if (r.ok) {
           const who = (await r.json()) as { directory?: string; mode?: string };
-          directory = who.directory ?? null;
+          // Only use the whoami directory when no override is set.
+          if (!directory) directory = who.directory ?? null;
           // A read-only token 403s every write — surface that in the UI
           // instead of letting "New session" / the composer fail opaquely.
           readOnly = who.mode === "read-only";
@@ -2879,10 +2895,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     try {
       if (isGatewayWeb) {
         // Web client: cannot call Tauri commands (setWorkspace/newDatedWorkspace).
-        // The gateway already routes sessions to the host's active workspace via
-        // /v1/sessions. Just aim the draft at the target path so the next session
-        // lands there when created through the gateway proxy.
+        // Store the selected directory so the next reconnect scopes session
+        // creation, SSE, permissions/questions, and files to this project.
         const landed = target.path;
+        webOverrideDirectory = landed;
         set((s) => {
           const panes = { ...s.panes };
           delete panes[DRAFT_KEY];
@@ -2891,6 +2907,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           const draftWorkspaces = { ...s.draftWorkspaces, [target.key ?? DRAFT_KEY]: landed };
           return { currentId: null, panes, draftWorkspaces, sessionAgents };
         });
+        // Reconnect so the OpenCodeClient picks up the new directory.
+        await get().connectRetry();
         await Promise.all([get().refreshSessions(), get().loadCatalog()]);
       } else {
         // Desktop: switch the sidecar's workspace directory.
