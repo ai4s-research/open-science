@@ -19,6 +19,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::artifact_file::{locate_under, mime_for, resolve_under, scope_root};
+use crate::project::{create_project, delete_project, import_project, list_projects, rename_project, set_project_pinned};
 use crate::runtime::{random_hex, runtime_root, server_password, sidecar_url, tighten_private, workspace_dir, RuntimeState};
 
 /// The web client + all `/v1` routes are served on this port when free, so a
@@ -407,10 +408,58 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str) {
         ("GET", ["fs", "read"]) => fs_read(stream, req, ctx),
         // Read-only projects + runs (local state the sidecar doesn't own) so the
         // web client can see existing projects and run history.
-        ("GET", ["projects"]) => match crate::project::list_projects(ctx.app.clone()) {
+        ("GET", ["projects"]) => match list_projects(ctx.app.clone()) {
             Ok(list) => respond_json(stream, 200, &serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())),
             Err(e) => respond_json(stream, 500, &err_json(&e)),
         },
+        // Write project endpoints for web client (project CRUD)
+        ("POST", ["projects"]) => {
+            let name = json_str_field(&req.body, "name").unwrap_or_default();
+            if name.trim().is_empty() {
+                respond_json(stream, 400, "{\"error\":\"missing name\"}");
+                return;
+            }
+            match create_project(ctx.app.clone(), name) {
+                Ok(project) => respond_json(stream, 200, &serde_json::to_string(&project).unwrap_or_default()),
+                Err(e) => respond_json(stream, 500, &err_json(&e)),
+            }
+        }
+        ("PATCH", ["projects", id]) => {
+            let name = json_str_field(&req.body, "name").unwrap_or_default();
+            if name.trim().is_empty() {
+                respond_json(stream, 400, "{\"error\":\"missing name\"}");
+                return;
+            }
+            match rename_project(ctx.app.clone(), id.to_string(), name) {
+                Ok(()) => respond_json(stream, 200, "{}"),
+                Err(e) => respond_json(stream, 500, &err_json(&e)),
+            }
+        }
+        ("DELETE", ["projects", id]) => {
+            match delete_project(ctx.app.clone(), id.to_string()) {
+                Ok(()) => respond_json(stream, 200, "{}"),
+                Err(e) => respond_json(stream, 500, &err_json(&e)),
+            }
+        }
+        ("POST", ["projects", id, "pin"]) => {
+            let pinned = json_str_field(&req.body, "pinned").and_then(|s| s.parse::<bool>().ok()).unwrap_or(true);
+            match set_project_pinned(ctx.app.clone(), id.to_string(), pinned) {
+                Ok(()) => respond_json(stream, 200, "{}"),
+                Err(e) => respond_json(stream, 500, &err_json(&e)),
+            }
+        }
+        ("POST", ["projects", id, "import"]) => {
+            let path = json_str_field(&req.body, "path").unwrap_or_default();
+            let mode = json_str_field(&req.body, "mode").unwrap_or_else(|| "copy".into());
+            if path.trim().is_empty() {
+                respond_json(stream, 400, "{\"error\":\"missing path\"}");
+                return;
+            }
+            match import_project(ctx.app.clone(), path, Some(mode)) {
+                Ok(project) => respond_json(stream, 200, &serde_json::to_string(&project).unwrap_or_default()),
+                Err(e) => respond_json(stream, 500, &err_json(&e)),
+            }
+        }
         ("GET", ["runs"]) => match crate::runs::list_runs(ctx.app.clone()) {
             Ok(list) => respond_json(stream, 200, &serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())),
             Err(e) => respond_json(stream, 500, &err_json(&e)),

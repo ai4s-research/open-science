@@ -109,3 +109,33 @@ export async function gatewayGet<T>(path: string): Promise<T | null> {
   const ct = res.headers.get("content-type") ?? "";
   return ct.includes("json") ? ((await res.json()) as T) : ((await res.text()) as unknown as T);
 }
+
+/** POST a gateway `/v1/...` path with the bearer token and a JSON body. Returns
+ *  null when not in web mode; throws on a non-OK response. JSON is parsed. */
+export async function gatewayPost<T>(path: string, body: unknown): Promise<T | null> {
+  if (!isGatewayWeb) return null;
+  const token = gatewayToken();
+  const res = await fetch(`${gatewayOrigin()}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const ct = res.headers.get("content-type") ?? "";
+  return ct.includes("json") ? ((await res.json()) as T) : ((await res.text()) as unknown as T);
+}
+
+/** DELETE a gateway `/v1/...` path with the bearer token. Returns null when not
+ *  in web mode; throws on a non-OK response. */
+export async function gatewayDelete(path: string): Promise<void> {
+  if (!isGatewayWeb) return;
+  const token = gatewayToken();
+  const res = await fetch(`${gatewayOrigin()}${path}`, {
+    method: "DELETE",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
