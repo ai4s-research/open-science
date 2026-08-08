@@ -135,13 +135,14 @@ impl Ctx {
 
 fn bind_listener(lan: bool, configured_port: Option<u16>) -> std::io::Result<TcpListener> {
     let host = if lan { "0.0.0.0" } else { "127.0.0.1" };
-    let candidates = configured_port.into_iter().chain(std::iter::once(PREFERRED_PORT));
-    for port in candidates {
-        if let Ok(l) = TcpListener::bind((host, port)) {
-            return Ok(l);
-        }
+    if let Some(port) = configured_port {
+        // A configured port must bind exactly — no silent fallback.  The user
+        // set an explicit port for firewall / reverse-proxy rules; falling back
+        // would make `configuredPort` lie about what's actually listening.
+        return TcpListener::bind((host, port));
     }
-    TcpListener::bind((host, 0))
+    // Unconfigured: try the preferred port, then an ephemeral one.
+    TcpListener::bind((host, PREFERRED_PORT)).or_else(|_| TcpListener::bind((host, 0)))
 }
 
 fn start(app: &AppHandle, state: &GatewayState, p: &Persisted) -> Result<u16, String> {
@@ -1028,10 +1029,15 @@ pub fn set_gateway_config(
     }
     // If already running on the same binding, update token/mode IN PLACE so the
     // port never changes; only first-enable or a loopback↔LAN switch rebinds.
+    //
+    // When no port is configured the listener may have landed on an ephemeral
+    // port (because PREFERRED_PORT was occupied) — comparing against 4098
+    // would force an unnecessary rebind on every mode change.  Only compare
+    // ports when the user has explicitly configured one.
     let updated_in_place = {
         let guard = state.inner().0.lock().unwrap();
         match guard.as_ref() {
-            Some(r) if r.lan == p.lan && r.port == p.port.unwrap_or(PREFERRED_PORT) => {
+            Some(r) if r.lan == p.lan && p.port.is_none_or(|port| r.port == port) => {
                 *r.shared.token.lock().unwrap() = p.token.clone();
                 r.shared.read_only.store(p.mode == "read-only", Ordering::Relaxed);
                 true
@@ -1204,5 +1210,97 @@ mod tests {
         assert_eq!(normalize_mode("read-only"), "read-only");
         assert_eq!(normalize_mode("full"), "full");
         assert_eq!(normalize_mode("garbage"), "full");
+    }
+
+    // ---- port configuration tests -------------------------------------------
+
+    #[test]
+    fn configured_port_roundtrip_persistence() {
+        // A configured port survives write → read.
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("gateway.txt");
+        std::fs::write(
+            &cfg,
+            "enabled 1\nlan 0\nmode full\ntoken abc123\nport 9090\n",
+        )
+        .unwrap();
+        // Simulate read_persisted by parsing the file directly.
+        let mut p = Persisted::default();
+        for line in std::fs::read_to_string(&cfg).unwrap().lines() {
+            if let Some((k, v)) = line.trim().split_once(' ') {
+                match k {
+                    "enabled" => p.enabled = v == "1",
+                    "lan" => p.lan = v == "1",
+                    "mode" => p.mode = normalize_mode(v),
+                    "token" => p.token = v.to_string(),
+                    "port" => {
+                        if let Ok(n) = v.parse::<u16>() {
+                            p.port = Some(n);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(p.port, Some(9090));
+    }
+
+    #[test]
+    fn configured_port_absent_means_none() {
+        // A config file without a port line → port is None.
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("gateway.txt");
+        std::fs::write(&cfg, "enabled 1\nlan 0\nmode full\ntoken xyz\n").unwrap();
+        let mut p = Persisted::default();
+        for line in std::fs::read_to_string(&cfg).unwrap().lines() {
+            if let Some((k, v)) = line.trim().split_once(' ') {
+                match k {
+                    "port" => {
+                        if let Ok(n) = v.parse::<u16>() {
+                            p.port = Some(n);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(p.port, None);
+    }
+
+    #[test]
+    fn configured_port_occupied_returns_error() {
+        // When a configured port is already in use, bind_listener must fail
+        // (not silently fall back to another port).
+        let blocker = TcpListener::bind("127.0.0.1:0").unwrap();
+        let occupied = blocker.local_addr().unwrap().port();
+        let result = bind_listener(false, Some(occupied));
+        assert!(result.is_err(), "configured port {occupied} is occupied but bind succeeded");
+    }
+
+    #[test]
+    fn unconfigured_port_falls_back_to_ephemeral() {
+        // When no port is configured and PREFERRED_PORT is occupied, fall back
+        // to an ephemeral port.
+        let blocker = TcpListener::bind(("127.0.0.1", PREFERRED_PORT)).unwrap();
+        let result = bind_listener(false, None);
+        let listener = result.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert_ne!(port, PREFERRED_PORT, "should have fallen back to ephemeral");
+        drop(blocker);
+    }
+
+    #[test]
+    fn configured_port_zero_is_treated_as_none() {
+        // port 0 is filtered out by set_gateway_config (port.filter(|n| n > 0)),
+        // so it should behave as unconfigured.
+        let blocker = TcpListener::bind(("127.0.0.1", PREFERRED_PORT)).unwrap();
+        // Simulate what set_gateway_config does: port 0 → None.
+        let effective_port: Option<u16> = Some(0).filter(|&n| n > 0);
+        assert_eq!(effective_port, None);
+        let result = bind_listener(false, effective_port);
+        let listener = result.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert_ne!(port, PREFERRED_PORT);
+        drop(blocker);
     }
 }

@@ -82,7 +82,7 @@ export function RemoteAccessCard() {
 
   const applyPort = () => {
     const n = portInput.trim() === "" ? null : Number(portInput);
-    if (n !== null && (Number.isNaN(n) || n < 1 || n > 65535)) {
+    if (n !== null && (!Number.isInteger(n) || n < 1 || n > 65535)) {
       toast.error(t("remote.portInvalid"));
       return;
     }
