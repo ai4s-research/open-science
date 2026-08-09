@@ -38,6 +38,7 @@ function catalogClient(
     getProviderRegion: vi.fn().mockResolvedValue(null),
     setProviderRegion: vi.fn().mockResolvedValue(undefined),
     setProviderApiKey: vi.fn().mockResolvedValue(undefined),
+    addCustomProvider: vi.fn().mockResolvedValue(undefined),
   } as unknown as NonNullable<ReturnType<typeof runtime.getClient>>;
 }
 
@@ -187,6 +188,32 @@ describe("Settings model browser integration", () => {
     expect(
       vi.mocked(client.setProviderRegion).mock.invocationCallOrder[0],
     ).toBeLessThan(vi.mocked(client.setProviderApiKey).mock.invocationCallOrder[0]);
+  });
+
+  it("accepts a non-Latin custom provider display name", async () => {
+    const client = catalogClient();
+    vi.spyOn(runtime, "getClient").mockReturnValue(client);
+    await renderSettings();
+    await screen.findByRole("button", { name: /^o3/ });
+
+    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
+    await userEvent.click(screen.getByRole("button", { name: /Custom endpoint/ }));
+    const displayName = "\u97f3\u4e91";
+    await userEvent.type(screen.getByPlaceholderText(/Name/), displayName);
+    await userEvent.type(screen.getByPlaceholderText(/Base URL/), "https://example.test/v1");
+    await userEvent.type(screen.getByPlaceholderText(/Model ids/), "gpt-5.6-luna");
+    await userEvent.click(screen.getByRole("button", { name: "Add endpoint" }));
+
+    await waitFor(() =>
+      expect(client.addCustomProvider).toHaveBeenCalledWith(
+        "custom-97f3-4e91",
+        expect.objectContaining({
+          name: displayName,
+          baseURL: "https://example.test/v1",
+          models: ["gpt-5.6-luna"],
+        }),
+      ),
+    );
   });
 
   it("drops the cached catalog when the server URL changes (no stale models from the old runtime)", async () => {
