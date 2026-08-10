@@ -592,3 +592,32 @@ describe("per-prompt model pinning (#8: old sessions follow the current default)
     client.close();
   });
 });
+
+describe("image attachments (#88: a vision model must see the figure, not its name)", () => {
+  it("sends each attachment as a file part beside the text, and none when there are none", async () => {
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    await client.connect();
+    const sessionId = await client.createSession();
+    const before = server.promptBodies.length;
+
+    await client.sendPrompt(sessionId, "inspect this figure", undefined, null, null, [
+      { filename: "pasted.png", mime: "image/png", url: "data:image/png;base64,UE5H" },
+    ]);
+    await client.sendPrompt(sessionId, "no attachment");
+
+    const bodies = server.promptBodies.slice(before) as Array<{ parts: Array<Record<string, unknown>> }>;
+    expect(bodies[0].parts).toEqual([
+      { type: "text", text: "inspect this figure" },
+      {
+        type: "file",
+        mime: "image/png",
+        filename: "pasted.png",
+        // A data: URL, never file:// — OpenCode answers 204 to a file:// url and
+        // then stores no message at all, silently losing the turn.
+        url: "data:image/png;base64,UE5H",
+      },
+    ]);
+    expect(bodies[1].parts).toEqual([{ type: "text", text: "no attachment" }]);
+    client.close();
+  });
+});

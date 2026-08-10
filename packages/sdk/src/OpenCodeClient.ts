@@ -9,6 +9,7 @@ import type {
   OpenCodePart,
   OpenCodeRawEvent,
   PermissionReply,
+  PromptFile,
   ProviderAuthMethod,
   ProviderCatalogEntry,
   ProviderInfo,
@@ -1090,6 +1091,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     agent?: string,
     model?: string | null,
     variant?: string | null,
+    files?: PromptFile[],
   ): Promise<void> {
     const m = parseModel(model);
     const res = await this.fetchWithTimeout(
@@ -1098,7 +1100,18 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         method: "POST",
         headers: this.headers(true),
         body: JSON.stringify({
-          parts: [{ type: "text", text }],
+          // Attachments ride as `file` parts so a vision model actually sees
+          // them; the text still names them, so the agent can also open the
+          // workspace copy with its own tools (#88).
+          parts: [
+            { type: "text", text },
+            ...(files ?? []).map((f) => ({
+              type: "file",
+              mime: f.mime,
+              filename: f.filename,
+              url: f.url,
+            })),
+          ],
           ...(agent ? { agent } : {}),
           ...(m ? { model: m } : {}),
           system: ARTIFACT_PRESENTATION_SYSTEM,

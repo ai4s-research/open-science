@@ -147,7 +147,9 @@ export function Composer({
   currentSessionId,
   onInteract,
 }: {
-  onSend?: (text: string) => void;
+  /** `attachments` are the chip file names, omitted when there are none. The
+   *  text already names them; the list lets the send attach the images too. */
+  onSend?: (text: string, attachments?: string[]) => void;
   onRunShell?: (command: string) => void;
   onRunCommand?: (name: string, args: string) => void;
   commands?: ComposerCommand[];
@@ -446,16 +448,21 @@ export function Composer({
     const fileNote =
       files.length > 0 ? `Files added to the workspace: ${files.join(", ")}` : "";
     const base = text && fileNote ? `${text}\n\n${fileNote}` : text || fileNote;
+    // The chips travel with the text: the note names the workspace copy, and the
+    // names let the send turn images into real multimodal parts (#88). Passed
+    // only when there are chips, so a plain send keeps its one-argument shape.
+    const attachments = files.length > 0 ? [...files] : null;
+    const send = (t: string) => (attachments ? onSend?.(t, attachments) : onSend?.(t));
     if (refSessions.length > 0) {
       // Referenced conversations are fetched and condensed before sending, so
       // the agent gets the earlier context without the user copy-pasting it.
       const attached = [...refSessions];
       setRefSessions([]);
       void buildReferences(attached).then((blocks) =>
-        onSend?.(blocks ? `${blocks}\n\n${base}` : base),
+        send(blocks ? `${blocks}\n\n${base}` : base),
       );
     } else {
-      onSend?.(base);
+      send(base);
     }
     if (text) recordHistory(text);
     setValue("");

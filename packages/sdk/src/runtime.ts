@@ -5,6 +5,7 @@ import type {
   OpenCodeEvent,
   PermissionAskedEvent,
   PermissionReply,
+  PromptFile,
   QuestionAskedEvent,
   RuntimeStatus,
   SessionMeta,
@@ -70,13 +71,16 @@ export interface AgentRuntime {
    *  turn to the current default, overriding a session's stale creation-time
    *  binding; omit to use the session/runtime default. `variant` picks a
    *  per-turn reasoning-effort level (a name from the model's `variants`); omit
-   *  for the model's default effort. See lib/runtime.ts. */
+   *  for the model's default effort. `files` sends attachments as real
+   *  multimodal parts so a vision model sees the image, not just its name (#88).
+   *  See lib/runtime.ts. */
   sendPrompt(
     sessionId: string,
     text: string,
     agent?: string,
     model?: string | null,
     variant?: string | null,
+    files?: PromptFile[],
   ): Promise<void>;
   abortSession(sessionId: string): Promise<void>;
   /** Revert the session to (and including) `messageID`, dropping it and every

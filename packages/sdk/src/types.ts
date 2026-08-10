@@ -296,6 +296,23 @@ export interface OpenCodeClientOptions {
   directory?: string;
 }
 
+/**
+ * A file sent as a real multimodal part of a turn, so a vision-capable model
+ * sees the image itself rather than a filename in the prose (#88).
+ *
+ * `url` MUST be a `data:` URL. OpenCode accepts a `file://` url and answers 204,
+ * then stores no message at all — the turn is silently lost — so the bytes ride
+ * in the request.
+ */
+export interface PromptFile {
+  /** Name shown to the model; the workspace file name it was read from. */
+  filename: string;
+  /** e.g. "image/png". */
+  mime: string;
+  /** `data:<mime>;base64,<…>`. */
+  url: string;
+}
+
 // ---- Provider / model configuration (OpenCode-native, one source of truth) ----
 
 export interface ProviderModelInfo {

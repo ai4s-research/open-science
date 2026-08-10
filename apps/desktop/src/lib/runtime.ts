@@ -60,6 +60,7 @@ import { moveScrollMemory } from "./scrollMemory";
 import { deriveArtifact, deriveArtifactPresentation } from "./artifacts";
 import { useLayoutStore } from "./layout";
 import { provenanceInputsFromEvent, recordProvenance } from "./provenance";
+import { imageAttachmentParts } from "./promptAttachments";
 import { recordRun, runInputFromEvent } from "./runs";
 import { splitReview } from "./review";
 import { useSshStore } from "./ssh";
@@ -343,7 +344,14 @@ interface RuntimeState {
   /** `draftKey` (a `draft:<leafId>` slot) is the per-pane draft this send may
    *  lazily create a session from — passed by tiled panes so each unbound pane
    *  keeps its own draft/thread and creates its own session on first send. */
-  sendPrompt: (text: string, sessionId?: string, draftKey?: string) => Promise<string | null>;
+  /** `attachments` are workspace file names from the composer's chips; the image
+   *  ones are also sent as multimodal parts so a vision model sees them (#88). */
+  sendPrompt: (
+    text: string,
+    sessionId?: string,
+    draftKey?: string,
+    attachments?: string[],
+  ) => Promise<string | null>;
   /** Run a "!" shell command directly in the session's workspace folder —
    *  no model turn; the output folds into the thread as a bash tool row. */
   runShell: (command: string, sessionId?: string, draftKey?: string) => Promise<string | null>;
@@ -2920,7 +2928,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
   // The send lifecycle (new → input → send → response) is shared by plain
   // prompts, "!" shell commands and "/" slash commands — see performTurn.
-  sendPrompt: (text, sessionId, draftKey) => {
+  sendPrompt: (text, sessionId, draftKey, attachments) => {
     // Capture the mode BEFORE performTurn: on a draft, currentId is still null
     // here (the session is created inside), so this reads the pane's draft slot
     // correctly. Pin "plan" only when the catalog actually has it — a stale mode
@@ -2938,7 +2946,13 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       set,
       get,
       text,
-      (sid) => withRetry(() => client!.sendPrompt(sid, text, agent, model, variant)),
+      // Attachment bytes are read INSIDE the send, not before performTurn: the
+      // echo and the spinner must appear on click, not after a multi-MB read.
+      (sid) =>
+        withRetry(async () => {
+          const files = await imageAttachmentParts(attachments ?? []);
+          await client!.sendPrompt(sid, text, agent, model, variant, files);
+        }),
       // An ACP turn is a SYNC turn: `session/prompt` is one JSON-RPC request that
       // answers when the turn is over, where OpenCode's `prompt_async` answers as
       // soon as it is accepted. Without this the running lock would be taken

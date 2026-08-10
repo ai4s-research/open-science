@@ -34,4 +34,5 @@ export {
   type PermissionAskedEvent,
   type PermissionResolvedEvent,
   type PermissionReply,
+  type PromptFile,
 } from "./types";

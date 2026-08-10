@@ -175,9 +175,9 @@ export function SessionView({
   const onSplit = (edge: "right" | "bottom") => {
     dockSession(leafId, edge, null);
   };
-  const onSend = async (text: string) => {
+  const onSend = async (text: string, attachments?: string[]) => {
     pinEphemeral();
-    bindIfCreated(await sendPrompt(text, sid ?? undefined, draftKey));
+    bindIfCreated(await sendPrompt(text, sid ?? undefined, draftKey, attachments));
   };
   const onRunShell = async (command: string) => {
     pinEphemeral();
