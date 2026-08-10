@@ -28,7 +28,7 @@ export function PaneTree() {
   if (zoomedLeafId) {
     const zoomed = allLeaves.find((l) => l.id === zoomedLeafId);
     if (zoomed) {
-      return <Leaf leaf={zoomed} zoom={zoomed.zoom ?? 1} focused solo />;
+      return <Leaf key={zoomed.id} leaf={zoomed} zoom={zoomed.zoom ?? 1} focused solo />;
     }
   }
 
@@ -47,6 +47,11 @@ function Node({
   if (node.kind === "leaf") {
     return (
       <Leaf
+        // Keyed by leaf so switching screens (which swaps the whole tree for
+        // one with different leaf ids) reconciles as a DIFFERENT pane. Without
+        // it React reuses this position's SessionView, and the incoming screen
+        // inherits the outgoing one's composer text (#91).
+        key={node.id}
         leaf={node}
         // Tiled panes are narrow → default to 75% unless the user set a zoom.
         zoom={node.zoom ?? (solo ? 1 : 0.75)}

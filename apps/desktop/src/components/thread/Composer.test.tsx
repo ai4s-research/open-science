@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useUiStore } from "@/lib/store";
+import { resetParkedDrafts } from "@/lib/composerStash";
 import { Composer } from "./Composer";
 
 describe("Composer", () => {
@@ -349,5 +350,40 @@ describe("agent mode switch (Build / Plan)", () => {
     );
     expect(container.firstElementChild?.className).toContain("border-link/60");
     expect(screen.getByLabelText("Agent mode").className).toContain("text-link");
+  });
+});
+
+describe("Composer per-pane draft (#91)", () => {
+  beforeEach(() => resetParkedDrafts());
+
+  const input = () => screen.getByLabelText<HTMLTextAreaElement>("Ask anything");
+  const pane = (draftKey: string) => render(<Composer onSend={vi.fn()} draftKey={draftKey} />);
+
+  it("hands an unsent draft back to the same pane after a screen switch unmounts it", () => {
+    const { unmount } = pane("draft:pane-1");
+    fireEvent.change(input(), { target: { value: "half-written thought" } });
+    unmount();
+
+    pane("draft:pane-1");
+    expect(input().value).toBe("half-written thought");
+  });
+
+  it("never hands one pane's draft to another", () => {
+    const { unmount } = pane("draft:pane-1");
+    fireEvent.change(input(), { target: { value: "meant for pane one" } });
+    unmount();
+
+    pane("draft:pane-2");
+    expect(input().value).toBe("");
+  });
+
+  it("does not resurrect a message that was already sent", () => {
+    const { unmount } = pane("draft:pane-1");
+    fireEvent.change(input(), { target: { value: "off it goes" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    unmount();
+
+    pane("draft:pane-1");
+    expect(input().value).toBe("");
   });
 });

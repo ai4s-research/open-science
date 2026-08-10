@@ -38,6 +38,7 @@ import { AcpConfigPicker } from "@/components/thread/AcpConfigPicker";
 import type { AcpConfigOption } from "@ai4s/sdk/acp";
 import { WorkspaceChip } from "@/components/thread/WorkspaceChip";
 import { useUiStore } from "@/lib/store";
+import { parkDraft, unparkDraft, type ComposerDraft } from "@/lib/composerStash";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { isGatewayWeb } from "@/lib/webMode";
@@ -214,8 +215,12 @@ export function Composer({
       description: t("composer.agent.plan.description"),
     },
   };
-  const [value, setValue] = useState("");
-  const [files, setFiles] = useState<string[]>([]);
+  // Reclaim whatever this pane had typed before it was last unmounted (a screen
+  // switch tears panes down). Unparked once, on mount, so the two states below
+  // seed from the same draft.
+  const [restored] = useState(() => (draftKey ? unparkDraft(draftKey) : null));
+  const [value, setValue] = useState(restored?.text ?? "");
+  const [files, setFiles] = useState<string[]>(restored?.files ?? []);
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   /** Highlighted palette row; clamped to the current matches. */
@@ -266,6 +271,16 @@ export function Composer({
   const allSessions = useRuntimeStore((s) => s.sessions);
   const composerDraft = useUiStore((s) => s.composerDraft);
   const setComposerDraft = useUiStore((s) => s.setComposerDraft);
+
+  // Hand the unsent draft back when this pane unmounts, so returning to its
+  // screen finds it again. The ref keeps the cleanup off the render deps: it
+  // must run on unmount, not on every keystroke.
+  const draftRef = useRef<ComposerDraft>({ text: value, files });
+  draftRef.current = { text: value, files };
+  useEffect(() => {
+    if (!draftKey) return;
+    return () => parkDraft(draftKey, draftRef.current);
+  }, [draftKey]);
 
   const shellMode = !!onRunShell && !command && value.startsWith("!");
   // The palette is open while the command NAME is being typed ("/na…"); the
