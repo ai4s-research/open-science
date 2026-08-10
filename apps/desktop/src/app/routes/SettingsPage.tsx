@@ -59,6 +59,7 @@ import {
   type ProbedModel,
 } from "@/lib/tauri";
 import { useSetupStore } from "@/lib/setup";
+import { customProviderId } from "@/lib/customProviderId";
 import { RemoteComputeCard } from "@/components/settings/RemoteComputeCard";
 import { RemoteAccessCard } from "@/components/settings/RemoteAccessCard";
 import { AcpAgentsCard } from "@/components/settings/AcpAgentsCard";
@@ -648,16 +649,6 @@ export function SettingsPage() {
   };
 
   const modelList = (s: string) => s.split(",").map((v) => v.trim()).filter(Boolean);
-
-  // Keep provider IDs ASCII for OpenCode's provider/model keys, but do not
-  // reject a display name just because its script is not Latin.
-  const customProviderId = (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return "";
-    const ascii = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    if (ascii) return ascii;
-    return `custom-${Array.from(trimmed, (char) => char.codePointAt(0)!.toString(16)).join("-")}`;
-  };
 
   const toggleDetectedModel = (id: string) => {
     const models = modelList(cModels);

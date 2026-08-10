@@ -204,9 +204,12 @@ describe("Settings model browser integration", () => {
     await userEvent.type(screen.getByPlaceholderText(/Model ids/), "gpt-5.6-luna");
     await userEvent.click(screen.getByRole("button", { name: "Add endpoint" }));
 
+    // The config key stays ASCII (customProviderId covers how it is derived);
+    // what matters here is that the form accepts the name and passes it through
+    // as the display name instead of reporting a missing field.
     await waitFor(() =>
       expect(client.addCustomProvider).toHaveBeenCalledWith(
-        "custom-97f3-4e91",
+        expect.stringMatching(/^custom-[0-9a-f]{8}$/),
         expect.objectContaining({
           name: displayName,
           baseURL: "https://example.test/v1",
