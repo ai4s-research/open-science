@@ -77,7 +77,7 @@ export function NotebookEditor({
   // The selected cell, and whether the keyboard is typing INTO it or driving it
   // (Jupyter's edit vs command mode). Command mode is what makes "select a cell
   // and press a/b" work at all — without it every key is just text (#93).
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [activeId, setActiveId] = useState<number | null>(null);
   const [mode, setMode] = useState<"edit" | "command">("edit");
   const cellRefs = useRef(new Map<number, HTMLDivElement | null>());
   const codeRefs = useRef(new Map<number, HTMLTextAreaElement | null>());
@@ -251,42 +251,51 @@ export function NotebookEditor({
     }
   };
 
-  // `index` is both the cell's identity and the position shown as "[n]", and
-  // serialization follows array order — so every structural change renumbers.
-  // Without it, inserting in the middle would label cells [1] [4] [2].
-  const renumber = (list: NotebookCell[]) => list.map((c, i) => ({ ...c, index: i + 1 }));
+  // `index` is a cell's STABLE identity — its React key, and what update/run/
+  // remove address it by. It is deliberately not the number shown to the user:
+  // serialization follows array order, so the "[n]" label and the aria names
+  // come from the position at render time. Renumbering on every structural edit
+  // would change the key of every cell below an insert, destroying and
+  // rebuilding them — on a big notebook that is a visible freeze.
+  const nextId = (list: NotebookCell[]) => list.reduce((m, c) => Math.max(m, c.index), 0) + 1;
 
   const addCell = () => {
-    const at = (cellsRef.current?.length ?? 0) + 1;
-    setCells((c) => renumber([...(c ?? []), { index: at, language, code: "" }]));
-    setActiveIndex(at);
+    const cur = cellsRef.current ?? [];
+    const created = nextId(cur);
+    setCells([...cur, { index: created, language, code: "" }]);
+    setActiveId(created);
     setMode("edit");
     setSaved(false);
   };
 
-  /** Insert an empty cell beside `index`. `next` is the mode to land in: typing
-   *  after a button click, still driving after an `a`/`b` keystroke. */
-  const insertCell = (index: number, where: "above" | "below", next: "edit" | "command" = "edit") => {
-    setCells((c) => {
-      if (!c) return c;
-      const at = c.findIndex((cell) => cell.index === index);
-      if (at < 0) return c;
-      const list = [...c];
-      list.splice(where === "above" ? at : at + 1, 0, { index: 0, language, code: "" });
-      return renumber(list);
-    });
-    // Renumbering means the new cell takes `index` itself when inserted above,
-    // and the slot after it when inserted below.
-    setActiveIndex(where === "above" ? index : index + 1);
+  /** Insert an empty cell beside the cell with id `id`. `next` is the mode to
+   *  land in: typing after a button click, still driving after an `a`/`b` key. */
+  const insertCell = (id: number, where: "above" | "below", next: "edit" | "command" = "edit") => {
+    const cur = cellsRef.current;
+    if (!cur) return;
+    const at = cur.findIndex((cell) => cell.index === id);
+    if (at < 0) return;
+    const created = nextId(cur);
+    const pos = where === "above" ? at : at + 1;
+    setCells([
+      ...cur.slice(0, pos),
+      { index: created, language, code: "" },
+      ...cur.slice(pos),
+    ]);
+    setActiveId(created);
     setMode(next);
     setSaved(false);
   };
 
-  const removeCell = (index: number) => {
-    const remaining = (cellsRef.current?.length ?? 1) - 1;
-    setCells((c) => (c ? renumber(c.filter((cell) => cell.index !== index)) : null));
+  const removeCell = (id: number) => {
+    const cur = cellsRef.current;
+    if (!cur) return;
+    const at = cur.findIndex((cell) => cell.index === id);
+    if (at < 0) return;
+    const rest = cur.filter((cell) => cell.index !== id);
+    setCells(rest);
     // Keep a cell selected: the one that slid into this slot, else the last.
-    setActiveIndex(remaining <= 0 ? null : Math.min(index, remaining));
+    setActiveId(rest.length === 0 ? null : rest[Math.min(at, rest.length - 1)]!.index);
     setMode("command");
     setSaved(false);
   };
@@ -306,7 +315,7 @@ export function NotebookEditor({
     // command mode Jupyter uses, and the only one that frees bare a/b/j/k.
     if (e.key === "Escape") {
       e.preventDefault();
-      setActiveIndex(cell.index);
+      setActiveId(cell.index);
       setMode("command");
     }
   };
@@ -319,7 +328,9 @@ export function NotebookEditor({
     // characters. Only the container's own keys, and only in command mode.
     if (e.target !== e.currentTarget || mode !== "command") return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const last = cells?.length ?? 1;
+    // Selection moves by POSITION; `index` is an opaque id, so it cannot be
+    // stepped arithmetically once cells have been inserted or removed.
+    const at = cells?.findIndex((c) => c.index === cell.index) ?? -1;
     switch (e.key) {
       case "Enter":
         e.preventDefault();
@@ -336,16 +347,16 @@ export function NotebookEditor({
         break;
       case "ArrowUp":
       case "k":
-        if (cell.index > 1) {
+        if (cells && at > 0) {
           e.preventDefault();
-          setActiveIndex(cell.index - 1);
+          setActiveId(cells[at - 1]!.index);
         }
         break;
       case "ArrowDown":
       case "j":
-        if (cell.index < last) {
+        if (cells && at >= 0 && at < cells.length - 1) {
           e.preventDefault();
-          setActiveIndex(cell.index + 1);
+          setActiveId(cells[at + 1]!.index);
         }
         break;
     }
@@ -354,18 +365,18 @@ export function NotebookEditor({
   // Put the caret where the selection now is. Runs only on a real selection or
   // mode change, so it never steals focus from whatever else the user clicked.
   useEffect(() => {
-    if (activeIndex === null) return;
+    if (activeId === null) return;
     if (mode === "command") {
-      cellRefs.current.get(activeIndex)?.focus();
+      cellRefs.current.get(activeId)?.focus();
       return;
     }
-    const code = codeRefs.current.get(activeIndex);
+    const code = codeRefs.current.get(activeId);
     code?.focus();
     // Only when edit mode was ENTERED by keyboard: Jupyter drops the caret at
     // the end of the cell. A click must keep the caret where it was clicked.
     if (caretToEnd.current && code) code.setSelectionRange(code.value.length, code.value.length);
     caretToEnd.current = false;
-  }, [activeIndex, mode]);
+  }, [activeId, mode]);
 
   return (
     <div className="flex h-full flex-col">
@@ -460,7 +471,7 @@ export function NotebookEditor({
               <Loader2 size={14} className="animate-spin" /> {t("files.loading")}
             </div>
           )}
-          {cells?.map((cell) => (
+          {cells?.map((cell, i) => (
             <div
               key={cell.index}
               // Focusable so command mode has somewhere to live; not in the tab
@@ -471,12 +482,12 @@ export function NotebookEditor({
               className={cn(
                 "group mb-4 rounded-input outline-none",
                 mode === "command" &&
-                  activeIndex === cell.index &&
+                  activeId === cell.index &&
                   "ring-1 ring-accent ring-offset-2 ring-offset-bg",
               )}
             >
               <div className="mb-1 flex items-center gap-2 text-xs text-muted">
-                <span className="font-mono">[{cell.index}]</span>
+                <span className="font-mono">[{i + 1}]</span>
                 <span>{cell.language}</span>
                 {isCodeLanguage(cell.language) &&
                   (running === cell.index ? (
@@ -484,7 +495,7 @@ export function NotebookEditor({
                     // cell must offer a way out without restarting the app.
                     <button
                       className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-error hover:bg-surface-2"
-                      aria-label={`Stop cell ${cell.index}`}
+                      aria-label={`Stop cell ${i + 1}`}
                       title={t("notebooks.editor.stopCellTitle")}
                       onClick={() => void stop()}
                     >
@@ -494,7 +505,7 @@ export function NotebookEditor({
                   ) : (
                     <button
                       className="hidden items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-surface-2 hover:text-text group-hover:flex"
-                      aria-label={`Run cell ${cell.index}`}
+                      aria-label={`Run cell ${i + 1}`}
                       onClick={() => void run(cell)}
                       disabled={running !== null}
                     >
@@ -504,21 +515,21 @@ export function NotebookEditor({
                   ))}
                 <button
                   className="hidden rounded px-1 py-0.5 hover:bg-surface-2 hover:text-text group-hover:block"
-                  aria-label={`Insert cell above ${cell.index}`}
+                  aria-label={`Insert cell above ${i + 1}`}
                   onClick={() => insertCell(cell.index, "above")}
                 >
                   <ArrowUpToLine size={11} />
                 </button>
                 <button
                   className="hidden rounded px-1 py-0.5 hover:bg-surface-2 hover:text-text group-hover:block"
-                  aria-label={`Insert cell below ${cell.index}`}
+                  aria-label={`Insert cell below ${i + 1}`}
                   onClick={() => insertCell(cell.index, "below")}
                 >
                   <ArrowDownToLine size={11} />
                 </button>
                 <button
                   className="hidden rounded px-1 py-0.5 hover:bg-surface-2 hover:text-error group-hover:block"
-                  aria-label={`Delete cell ${cell.index}`}
+                  aria-label={`Delete cell ${i + 1}`}
                   onClick={() => removeCell(cell.index)}
                 >
                   <Trash2 size={11} />
@@ -531,7 +542,7 @@ export function NotebookEditor({
                 onKeyDown={(e) => onCellKeyDown(e, cell)}
                 // Typing in a cell IS selecting it, however focus got here.
                 onFocus={() => {
-                  setActiveIndex(cell.index);
+                  setActiveId(cell.index);
                   setMode("edit");
                 }}
                 rows={Math.min(Math.max(cell.code.split("\n").length, 1), 14)}
@@ -540,7 +551,7 @@ export function NotebookEditor({
                   "w-full resize-none rounded-input border border-border bg-surface p-3 font-mono text-[12.5px] leading-relaxed text-text outline-none focus:border-accent/50",
                   !isCodeLanguage(cell.language) && "bg-surface-2 text-muted",
                 )}
-                aria-label={`Cell ${cell.index}`}
+                aria-label={`Cell ${i + 1}`}
               />
               {cell.output && (
                 <pre className="mt-1.5 whitespace-pre-wrap rounded-input border border-border bg-surface-2 p-3 font-mono text-[12px] text-text">
