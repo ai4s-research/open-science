@@ -1,11 +1,11 @@
 {
   "name": "@ai4s/desktop",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && node ../../scripts/build-acp-server.mjs && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -72,10 +72,10 @@
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.14",
     "jsdom": "^25.0.1",
-    "postcss": "^8.4.47",
+    "postcss": "^8.5.25",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",
-    "vite": "^5.4.10",
-    "vitest": "^2.1.4"
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
   }
 }

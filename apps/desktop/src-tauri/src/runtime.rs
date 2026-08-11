@@ -92,13 +92,26 @@ pub(crate) fn sessions_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(base_workspace_dir(app)?.join(SESSIONS_DIR_NAME))
 }
 
+/// A workspace path read back from disk. Installs predating #76 wrote the Windows
+/// `\\?\` verbatim form here, which then flowed to the UI and could never match a
+/// session's `directory`; unwrapping on read repairs them without a re-pick. The
+/// transform is Windows-only — elsewhere `\` is a legal filename character.
+fn persisted_path(raw: &str) -> String {
+    #[cfg(target_os = "windows")]
+    return crate::artifact_file::strip_windows_verbatim(raw);
+    #[cfg(not(target_os = "windows"))]
+    return raw.to_owned();
+}
+
 /// The active workspace folder OpenCode / the kernel / previews / provenance all
 /// operate in. Defaults to the base folder (`~/Documents/OpenScience`) until the
 /// user opens or creates another one; the choice persists across restarts.
 pub fn workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(f) = active_workspace_file(app) {
         if let Ok(s) = std::fs::read_to_string(&f) {
-            let dir = PathBuf::from(s.trim());
+            // Installs from before #76 persisted the Windows `\\?\` verbatim path;
+            // unwrap it on read so those users are repaired without a re-pick.
+            let dir = PathBuf::from(persisted_path(s.trim()));
             if dir.is_dir() {
                 return ensure_base_layout(dir);
             }
@@ -114,7 +127,7 @@ pub fn workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
 pub fn base_workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(f) = base_workspace_file(app) {
         if let Ok(s) = std::fs::read_to_string(&f) {
-            let dir = PathBuf::from(s.trim());
+            let dir = PathBuf::from(persisted_path(s.trim()));
             if dir.is_dir() {
                 return Ok(dir);
             }
@@ -226,6 +239,7 @@ fn auth_has_provider(text: &str, provider_id: &str) -> bool {
 /// profile's global skills dir (`<xdg-config>/opencode/skills/`), which OpenCode
 /// scans regardless of project detection: `skills/` is the external ai4s-skills
 /// pack, `skills-office/` Anthropic's document skills (docx/pdf/pptx/xlsx),
+/// `skills-agent-browser/` the version-matched official agent-browser skill,
 /// `skills-core/` the first-party skills from `runtime/skills/core`. The
 /// workspace's own `.opencode/skills/` stays reserved for skills the user
 /// installs. Runs before every sidecar start so app upgrades refresh the packs.
@@ -236,7 +250,12 @@ fn deploy_bundled_skills(app: &AppHandle) {
     };
     let mut bundled: std::collections::HashSet<std::ffi::OsString> = std::collections::HashSet::new();
     let mut all_ok = true;
-    for resource in ["skills", "skills-office", "skills-core"] {
+    for resource in [
+        "skills",
+        "skills-office",
+        "skills-agent-browser",
+        "skills-core",
+    ] {
         let src = match app
             .path()
             .resolve(resource, tauri::path::BaseDirectory::Resource)
@@ -260,7 +279,7 @@ fn deploy_bundled_skills(app: &AppHandle) {
     // freshly-bundled set is a stale leftover — e.g. one renamed across an app
     // upgrade (`hpc-slurm` → `remote-compute`) — and must be removed so the
     // obsolete duplicate can't shadow or confuse the agent. Prune ONLY when all
-    // three packs deployed cleanly: a partial deploy would make `bundled`
+    // packs deployed cleanly: a partial deploy would make `bundled`
     // incomplete and wrongly delete valid skills.
     if all_ok {
         prune_stale_skills(&dst, &bundled);
@@ -386,6 +405,27 @@ fn deploy_goal_plugin(app: &AppHandle) -> Option<PathBuf> {
     Some(dst)
 }
 
+/// Deploy the dependency-free guard that removes model-supplied browser launch
+/// overrides before OpenCode forwards a tool call to the official MCP server.
+fn deploy_browser_guard_plugin(app: &AppHandle) -> Option<PathBuf> {
+    let src = app
+        .path()
+        .resolve(
+            "browser-plugin/browser-guard.ts",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .ok()
+        .filter(|p| p.is_file())?;
+    let config_dir = xdg_config_home(app).ok()?.join("opencode");
+    let dst = config_dir.join("browser-guard.ts");
+    std::fs::create_dir_all(&config_dir).ok()?;
+    if let Err(e) = std::fs::copy(&src, &dst) {
+        eprintln!("failed to deploy browser guard plugin: {e}");
+        return None;
+    }
+    Some(dst)
+}
+
 /// Ship app-owned custom tools into OpenCode's global tools directory. These
 /// tools expose safe, declarative host capabilities (for example, asking the
 /// UI to present an existing workspace artifact); they never hand the model a
@@ -421,6 +461,51 @@ fn deploy_workbench_tools(app: &AppHandle) {
         };
         if let Err(e) = std::fs::copy(&path, dst.join(name)) {
             eprintln!("failed to deploy workbench tool {}: {e}", path.display());
+        }
+    }
+}
+
+/// App-owned prompt files deployed into the OpenCode profile: the `reviewer`
+/// agent and the commands that invoke it (#72). `(resource dir, profile dir)`.
+const PROFILE_PROMPTS: &[(&str, &str)] =
+    &[("profile/agent", "agent"), ("profile/command", "command")];
+
+/// Ship the app's own agent and command definitions into the global profile
+/// (`<xdg-config>/opencode/{agent,command}/`), which OpenCode scans for
+/// `**/*.md` in every workspace. Refreshed on every sidecar start so app
+/// upgrades replace them in place; files the user added themselves are left
+/// alone, since only our own names are written.
+fn deploy_profile_prompts(app: &AppHandle) {
+    let Ok(config_home) = xdg_config_home(app) else {
+        return;
+    };
+    for (resource, dir) in PROFILE_PROMPTS {
+        let Ok(src) = app
+            .path()
+            .resolve(resource, tauri::path::BaseDirectory::Resource)
+        else {
+            continue;
+        };
+        if !src.is_dir() {
+            continue; // dev run without the bundled resources
+        }
+        let dst = config_home.join("opencode").join(dir);
+        if let Err(e) = std::fs::create_dir_all(&dst) {
+            eprintln!("failed to create profile {dir} directory: {e}");
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&src) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || path.extension() != Some(std::ffi::OsStr::new("md")) {
+                continue;
+            }
+            let Some(name) = path.file_name() else { continue };
+            if let Err(e) = std::fs::copy(&path, dst.join(name)) {
+                eprintln!("failed to deploy profile {dir} {}: {e}", path.display());
+            }
         }
     }
 }
@@ -700,6 +785,17 @@ pub(crate) fn enriched_path() -> String {
         parts.push(base);
     }
     parts.join(";")
+}
+
+/// On-disk path of a bundled sidecar (`externalBin`), if it is there. Tauri
+/// places them next to the app executable with the target-triple suffix
+/// stripped. Needed whenever something other than `ShellExt::sidecar` has to
+/// reach one: OpenCode spawning an MCP server by path, or a synchronous probe.
+pub(crate) fn sidecar_bin(name: &str) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let file = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
+    let bin = exe.parent()?.join(file);
+    bin.exists().then_some(bin)
 }
 
 /// A `std::process::Command` that never pops a console window on Windows.
@@ -987,6 +1083,8 @@ fn spawn_sidecar(app: &AppHandle, port: u16) -> Result<CommandChild, String> {
     // Host presentation tools are global to the app-owned OpenCode profile and
     // available in every session workspace.
     deploy_workbench_tools(app);
+    // The reviewer agent and its commands, same profile, same refresh-on-start.
+    deploy_profile_prompts(app);
     // Safety default (AGENTS.md non-negotiable): on first run, seed the
     // "approve" permission mode so dangerous shell commands prompt for
     // approval. A mode the user chose (approve or full) is never overridden.
@@ -997,6 +1095,32 @@ fn spawn_sidecar(app: &AppHandle, port: u16) -> Result<CommandChild, String> {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         std::fs::write(&cfg_file, seeded).map_err(|e| e.to_string())?;
+    }
+    // Rename the legacy browser MCP id, then hide the incompatible user skill
+    // with that old name while the official connector is configured.
+    let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+    let close_legacy_browser =
+        crate::opencode_config::browser_uses_legacy_namespace(&existing);
+    if let Some(migrated) = crate::opencode_config::migrate_browser_integration(&existing) {
+        std::fs::write(&cfg_file, migrated).map_err(|e| e.to_string())?;
+        if close_legacy_browser {
+            crate::browser::close_legacy_agent_browser_on_upgrade();
+        }
+    }
+    // Existing installs called agent-browser directly. Put the first-party MCP
+    // ownership boundary in front of it before OpenCode starts, preserving the
+    // user's selected upstream tool profile.
+    if let (Ok(proxy_bin), Some(agent_browser_bin)) =
+        (std::env::current_exe(), sidecar_bin("agent-browser"))
+    {
+        let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+        let proxy = proxy_bin.to_string_lossy().replace('\\', "/");
+        let agent = agent_browser_bin.to_string_lossy().replace('\\', "/");
+        if let Some(updated) =
+            crate::opencode_config::ensure_browser_mcp_proxy(&existing, &proxy, &agent)
+        {
+            std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+        }
     }
     // Long conversations must not die on "Input exceeds context window" (#62):
     // turn OpenCode's automatic compaction on for a config that has never
@@ -1033,6 +1157,16 @@ fn spawn_sidecar(app: &AppHandle, port: u16) -> Result<CommandChild, String> {
             std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
         }
     }
+    // Browser launch/session policy is an app invariant, not a model hint.
+    if let Some(plugin_path) = deploy_browser_guard_plugin(app) {
+        let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+        let path_str = plugin_path.to_string_lossy().replace('\\', "/");
+        if let Some(updated) =
+            crate::opencode_config::ensure_browser_guard_plugin(&existing, &path_str)
+        {
+            std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+        }
+    }
     // Secrets live under the runtime root (provider/connector keys in
     // opencode.jsonc, OpenCode's auth.json) — owner-only on every start, so
     // existing installs are repaired and whatever the sidecar later rewrites
@@ -1066,6 +1200,13 @@ fn spawn_sidecar(app: &AppHandle, port: u16) -> Result<CommandChild, String> {
         .current_dir(workspace);
     // GUI-launched apps get a minimal PATH; give the agent the user's real tools.
     let mut cmd = cmd.env("PATH", enriched_path());
+    // The agent's own `ssh`/`rsync`/`sbatch` calls ride the app's shared
+    // connection through this config, so a host the user signed in to once needs
+    // no further password or one-time code (#73). The bundled remote-compute
+    // skill and the ssh_connect tool both pass `-F "$OPENSCIENCE_SSH_CONFIG"`.
+    if let Some(ssh_config) = crate::ssh_session::config_path(app) {
+        cmd = cmd.env("OPENSCIENCE_SSH_CONFIG", ssh_config.to_string_lossy().to_string());
+    }
     // Apply the network-proxy setting so provider logins and API calls work
     // where direct connections are blocked (see resolve_proxy_env).
     let (proxy_mode, proxy_url) = read_proxy_setting(app);
@@ -1181,10 +1322,9 @@ pub fn set_workspace_base(app: AppHandle, path: String) -> Result<String, String
         return Err("workspace base must be absolute".into());
     }
     ensure_base_layout(dir.clone()).map_err(|e| format!("could not create folder: {e}"))?;
-    let canon = dir.canonicalize().map_err(|e| e.to_string())?;
-    std::fs::write(base_workspace_file(&app)?, canon.to_string_lossy().as_bytes())
-        .map_err(|e| e.to_string())?;
-    Ok(canon.to_string_lossy().to_string())
+    let canon = crate::artifact_file::native_path(&dir.canonicalize().map_err(|e| e.to_string())?);
+    std::fs::write(base_workspace_file(&app)?, canon.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(canon)
 }
 
 /// Reveal the base workspace folder in the OS file manager. (The sandboxed
@@ -1213,8 +1353,10 @@ pub fn set_workspace(
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not create folder: {e}"))?;
     let canon = dir.canonicalize().map_err(|e| e.to_string())?;
-    std::fs::write(active_workspace_file(&app)?, canon.to_string_lossy().as_bytes())
-        .map_err(|e| e.to_string())?;
+    // Persisted and returned in native form — on Windows the verbatim `\\?\`
+    // path `canonicalize()` produces matches nothing the sidecar reports (#76).
+    let native = crate::artifact_file::native_path(&canon);
+    std::fs::write(active_workspace_file(&app)?, native.as_bytes()).map_err(|e| e.to_string())?;
 
     // Follow the active folder with the snapshot watcher so out-of-app edits
     // (external editor, detached process) in the new workspace are captured too.
@@ -1231,7 +1373,7 @@ pub fn set_workspace(
     // canonical base file, so a machine configured in Settings is visible to
     // every session's agent without reaching outside the workspace.
     crate::compute::materialize_active(&app);
-    Ok(canon.to_string_lossy().to_string())
+    Ok(native)
 }
 
 /// Record which session owns the active workspace, so bundled skill helpers
@@ -1893,6 +2035,40 @@ pub fn get_agent_models(app: AppHandle) -> Result<serde_json::Value, String> {
     Ok(serde_json::Value::Object(map))
 }
 
+/// Per-agent reasoning-effort overrides as `{ agent: "high" }` (#71).
+#[tauri::command]
+pub fn get_agent_variants(app: AppHandle) -> Result<serde_json::Value, String> {
+    let existing = std::fs::read_to_string(effective_config_file(&app)?).unwrap_or_default();
+    let map: serde_json::Map<String, serde_json::Value> =
+        crate::opencode_config::agent_variants(&existing)
+            .into_iter()
+            .map(|(k, v)| (k, serde_json::Value::String(v)))
+            .collect();
+    Ok(serde_json::Value::Object(map))
+}
+
+/// Persist one rewritten config and restart the sidecar, unless the rewrite is a
+/// no-op. Shared by the per-agent model and effort writers.
+fn write_agent_config(
+    app: &AppHandle,
+    state: &State<'_, RuntimeState>,
+    rewrite: impl FnOnce(&str) -> String,
+) -> Result<(), String> {
+    let path = effective_config_file(app)?;
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let updated = rewrite(&existing);
+    if updated == existing {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    tighten_private(&path);
+    restart_sidecar_if_running(app, state)?;
+    Ok(())
+}
+
 /// Pin one agent to its own model, or clear the override with an empty model.
 /// Restarts the sidecar: agent definitions are built when it loads its config.
 #[tauri::command(async)]
@@ -1902,20 +2078,25 @@ pub fn set_agent_model(
     agent: String,
     model: String,
 ) -> Result<(), String> {
-    let path = effective_config_file(&app)?;
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let want = if model.is_empty() { None } else { Some(model.as_str()) };
-    let updated = crate::opencode_config::set_agent_model(&existing, &agent, want);
-    if updated == existing {
-        return Ok(());
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
-    tighten_private(&path);
-    restart_sidecar_if_running(&app, &state)?;
-    Ok(())
+    write_agent_config(&app, &state, |existing| {
+        let want = if model.is_empty() { None } else { Some(model.as_str()) };
+        crate::opencode_config::set_agent_model(existing, &agent, want)
+    })
+}
+
+/// Pin one agent to a reasoning-effort variant, or clear it with an empty string.
+/// Restarts the sidecar for the same reason `set_agent_model` does.
+#[tauri::command(async)]
+pub fn set_agent_variant(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    agent: String,
+    variant: String,
+) -> Result<(), String> {
+    write_agent_config(&app, &state, |existing| {
+        let want = if variant.is_empty() { None } else { Some(variant.as_str()) };
+        crate::opencode_config::set_agent_variant(existing, &agent, want)
+    })
 }
 
 /// The persisted proxy setting plus the proxy the sidecar would use right now.

@@ -224,6 +224,35 @@ describe("Settings model browser integration", () => {
     ]);
   });
 
+  it("accepts a non-Latin custom provider display name", async () => {
+    const client = catalogClient();
+    vi.spyOn(runtime, "getClient").mockReturnValue(client);
+    await renderSettings();
+    await screen.findByRole("button", { name: /^o3/ });
+
+    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
+    await userEvent.click(screen.getByRole("button", { name: /Custom endpoint/ }));
+    const displayName = "\u97f3\u4e91";
+    await userEvent.type(screen.getByPlaceholderText(/Name/), displayName);
+    await userEvent.type(screen.getByPlaceholderText(/Base URL/), "https://example.test/v1");
+    await userEvent.type(screen.getByPlaceholderText(/Model ids/), "gpt-5.6-luna");
+    await userEvent.click(screen.getByRole("button", { name: "Add endpoint" }));
+
+    // The config key stays ASCII (customProviderId covers how it is derived);
+    // what matters here is that the form accepts the name and passes it through
+    // as the display name instead of reporting a missing field.
+    await waitFor(() =>
+      expect(client.addCustomProvider).toHaveBeenCalledWith(
+        expect.stringMatching(/^custom-[0-9a-f]{8}$/),
+        expect.objectContaining({
+          name: displayName,
+          baseURL: "https://example.test/v1",
+          models: ["gpt-5.6-luna"],
+        }),
+      ),
+    );
+  });
+
   it("drops the cached catalog when the server URL changes (no stale models from the old runtime)", async () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
     await renderSettings();

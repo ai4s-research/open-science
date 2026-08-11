@@ -19,15 +19,18 @@ export function baseName(path: string | null): string {
  * it). Once the session exists its folder is a fact, not a choice — the
  * header's Files toggle names it, so the chip disappears.
  */
-export function WorkspaceChip() {
+export function WorkspaceChip({ draftKey = DRAFT_KEY }: { draftKey?: string }) {
   const { t } = useTranslation(["session", "common"]);
-  const workspace = useRuntimeStore((s) => s.workspace);
   const currentId = useRuntimeStore((s) => s.currentId);
-  const workspacePinned = useRuntimeStore((s) => s.workspacePinned);
+  // Where THIS draft's session will be created, if the user aimed it. Not the
+  // active folder: that follows whatever session was last opened, so a new
+  // screen showed the folder of the session just read and promised a
+  // destination its own draft would not use (#69).
+  const aimed = useRuntimeStore((s) => s.draftWorkspaces[draftKey]);
   const switchWorkspace = useRuntimeStore((s) => s.switchWorkspace);
   // Only THIS draft's own send should lock the picker — not an unrelated split
   // pane's send (the global `sending` is the OR across all panes).
-  const sending = useRuntimeStore((s) => !!s.sendingSessions[DRAFT_KEY]);
+  const sending = useRuntimeStore((s) => !!s.sendingSessions[draftKey]);
   const [busy, setBusy] = useState(false);
 
   if (!isTauri || currentId) return null;
@@ -37,7 +40,8 @@ export function WorkspaceChip() {
     if (!dir) return; // cancelled — keep the current destination
     setBusy(true);
     try {
-      await switchWorkspace({ path: dir }); // an explicit pick pins the folder
+      // An explicit pick aims THIS draft at the folder.
+      await switchWorkspace({ path: dir, key: draftKey });
     } finally {
       setBusy(false);
     }
@@ -49,8 +53,8 @@ export function WorkspaceChip() {
       onClick={() => void choose()}
       disabled={busy || sending}
       title={
-        workspacePinned
-          ? t("workspaceChip.titlePinned", { workspace: workspace ?? "" })
+        aimed
+          ? t("workspaceChip.titlePinned", { workspace: aimed })
           : t("workspaceChip.titleUnpinned", { name: datedWorkspaceName() })
       }
       aria-label={t("workspaceChip.chooseAria")}
@@ -59,7 +63,7 @@ export function WorkspaceChip() {
       {busy ? (
         <span>{t("workspaceChip.switching")}</span>
       ) : (
-        workspacePinned && <span className="max-w-[200px] truncate">{baseName(workspace)}</span>
+        aimed && <span className="max-w-[200px] truncate">{baseName(aimed)}</span>
       )}
     </button>
   );

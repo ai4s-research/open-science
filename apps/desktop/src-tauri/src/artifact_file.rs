@@ -268,7 +268,7 @@ pub fn reveal_path(app: AppHandle, path: String, root: Option<String>) -> Result
 #[cfg(target_os = "windows")]
 fn reveal_impl(full: &Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    let arg = format!("/select,\"{}\"", display_path(full));
+    let arg = format!("/select,\"{}\"", native_path(full));
     std::process::Command::new("explorer")
         .raw_arg(arg)
         .spawn()
@@ -281,23 +281,34 @@ fn reveal_impl(full: &Path) -> Result<(), String> {
     opener::reveal(full).map_err(|e| format!("reveal failed: {e}"))
 }
 
-/// The path in OS-native display form. On Windows, `canonicalize()` yields a
-/// `\\?\` verbatim path that Explorer and most apps don't accept — strip it back
-/// to the plain `C:\…` (and `\\server\share` for UNC). No-op elsewhere.
-#[cfg(target_os = "windows")]
-fn display_path(full: &Path) -> String {
-    let s = full.to_string_lossy();
+/// Unwrap a Windows verbatim path (`\\?\C:\x`, `\\?\UNC\srv\share`) to the plain
+/// form. A pure string transform — no `cfg` inside — so the Windows shape stays
+/// testable on any host; `native_path` decides when it applies. Compiled only
+/// where it is reachable: on Windows, and in tests everywhere.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn strip_windows_verbatim(s: &str) -> String {
     if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{rest}")
     } else if let Some(rest) = s.strip_prefix(r"\\?\") {
         rest.to_owned()
     } else {
-        s.into_owned()
+        s.to_owned()
     }
 }
 
+/// A path in the OS-native form every other layer speaks. On Windows
+/// `canonicalize()` yields the `\\?\` verbatim form, which Explorer rejects, no
+/// other component ever produces, and no comparison against a path OpenCode
+/// reported can match — so it is unwrapped to the plain `C:\…`. Separators are
+/// left alone (the frontend compares by a normalized key). No-op off Windows,
+/// where `\` is a legal filename character and must never be rewritten.
+#[cfg(target_os = "windows")]
+pub(crate) fn native_path(full: &Path) -> String {
+    strip_windows_verbatim(&full.to_string_lossy())
+}
+
 #[cfg(not(target_os = "windows"))]
-fn display_path(full: &Path) -> String {
+pub(crate) fn native_path(full: &Path) -> String {
     full.to_string_lossy().into_owned()
 }
 
@@ -306,7 +317,7 @@ fn display_path(full: &Path) -> String {
 #[tauri::command]
 pub fn absolute_path(app: AppHandle, path: String, root: Option<String>) -> Result<String, String> {
     let full = resolve_under(&scope_root(&app, root.as_deref())?, &path)?;
-    Ok(display_path(&full))
+    Ok(native_path(&full))
 }
 
 #[derive(serde::Serialize)]
@@ -680,9 +691,30 @@ fn base64_encode(input: &[u8]) -> String {
 mod tests {
     use super::{
         attach_paths, base64_decode, base64_encode, dir_entries, encode_for_preview,
-        exceeds_preview_cap, locate_under, mime_for, open_url, unique_name, workspace_relative,
+        exceeds_preview_cap, locate_under, mime_for, open_url, strip_windows_verbatim, unique_name,
+        workspace_relative,
     };
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn verbatim_windows_paths_unwrap_to_the_plain_form() {
+        // What `canonicalize()` hands back on Windows, and what every other layer
+        // — Explorer, the sidecar's session `directory`, the UI — actually speaks.
+        // Runs on every host: the transform is a pure string rewrite (#76).
+        assert_eq!(
+            strip_windows_verbatim(r"\\?\D:\Openscience-documents\projects\视频总结"),
+            r"D:\Openscience-documents\projects\视频总结",
+        );
+        // A UNC share keeps its double-backslash root rather than losing it.
+        assert_eq!(
+            strip_windows_verbatim(r"\\?\UNC\server\share\work"),
+            r"\\server\share\work",
+        );
+        // Already-plain paths, a POSIX path and a bare drive pass through untouched.
+        for plain in [r"D:\work", r"\\server\share", "/home/u/work", r"C:\"] {
+            assert_eq!(strip_windows_verbatim(plain), plain, "{plain} must not change");
+        }
+    }
 
     #[test]
     fn base64_round_trips_arbitrary_bytes() {

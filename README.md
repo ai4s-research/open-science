@@ -40,6 +40,8 @@ runs, and review into one auditable desktop workflow.
 
 ## News
 
+- **2026-08-01** — 🗂️ **Projects, memory, and full history.** Group sessions into named projects (import an existing repo *in place*, no copying), give the agent persistent global and project memory, and reach every past conversation through a searchable history with archive, restore, and export. *(v0.3.1)*
+- **2026-07-24** — 🪟 **Split-pane tiling.** Tile sessions side by side, drag panes to re-dock them, keep several independent Screens, and run a different model in each pane. *(v0.3.0)*
 - **2026-07-21** — 🌐 **Access from anywhere — even your phone.** A token-authenticated gateway serves the *real* desktop UI to a CLI, a browser on your LAN, or your phone (loopback by default; LAN is opt-in). Start a run at your desk and read the finished figure and report on your phone. *(v0.2.3)*
 - **2026-07-21** — 🧭 **Browser control.** The agent can drive your own Chrome — profile and logins intact — to read the live web the way you do, or an isolated private browser on demand. *(v0.2.3)*
 - **2026-07-09** — 🎉 **#1 on ResearchClawBench.** Open Science Desktop ranks #1 by scored-task average on [ResearchClawBench](https://internscience.github.io/ResearchClawBench-Home/), an end-to-end benchmark for autonomous scientific research agents (Pass@1 leaderboard).
@@ -87,6 +89,14 @@ write-up, in one continuous, auditable session.
 - **Drives your own browser** — the agent can control your real Chrome, with your
   profile and logins intact, to read the live web the way you do — or an isolated
   private browser when you'd rather it not.
+- **Plan before it acts** — `/plan` lays out an execution plan before touching a
+  file, and `/goal` fixes the objective, constraints, and acceptance criteria the
+  agent then works toward.
+- **Built for long projects** — named projects group their sessions, two layers of
+  persistent memory (global and per-project) carry what matters between them, and a
+  long conversation compacts itself as it approaches the model's context window.
+- **Work several threads at once** — tile panes side by side, keep independent
+  Screens, and give each pane its own model.
 - **Extensible** — agent skills, MCP servers and one-click science connectors,
   `/` commands, `!` shell mode, and a model-agnostic SDK.
 
@@ -107,7 +117,7 @@ unsourced numbers and figure/code inconsistencies flagged — before anything sh
 **Drives your own Chrome.** The agent reads the live web through your real browser
 profile — logins and all — then turns what it finds into a figure and a sortable CSV.
 
-![The agent driving the user's own Chrome via browser-control to harvest bioRxiv preprints into a chart and CSV](./docs/assets/showcase-browser.webp)
+![The agent driving the user's own Chrome via open-science-browser to harvest bioRxiv preprints into a chart and CSV](./docs/assets/showcase-browser.webp)
 
 **Research from anywhere — even your phone.** A built-in authenticated gateway serves
 the *real* desktop UI to a browser on your LAN (or a tunnel), so you can kick off a run
@@ -157,7 +167,13 @@ office/document skills below.
 | --- | --- |
 | Desktop shell | Tauri 2 + React + TypeScript + Vite, with macOS, Windows, and Linux desktop builds. |
 | Runtime | Bundled OpenCode sidecar, auto-started by the app, isolated from the user's own OpenCode config/data. |
-| Sessions | Multi-session chat/history, dated workspace folders, global history across workspaces, `/` commands, and `!` shell mode. |
+| Projects | Named project workspaces that group their sessions; import an existing folder in place (never copied) or adopt one already inside the workspace; move an existing session into a project. |
+| Sessions | Multi-session chat/history, dated workspace folders, searchable history with archive/restore/export, `@` file and `#` conversation references, `/` commands, and `!` shell mode. |
+| Layout | N-ary split-pane tiling with drag-to-dock, independent Screens, per-pane model and reasoning effort, and cross-screen pane drag. |
+| Agent modes | `/plan` for plan-then-execute, `/goal` for objective and acceptance criteria, live subagent status in its own panel, and Stop that reflects the runtime's real server state. |
+| Memory | Global and per-project memory layers, switchable, plus automatic context compaction as a conversation approaches the model's window. |
+| Remote compute | Register machines from your `~/.ssh/config`, probe them, and submit, track, or cancel jobs from the app. |
+| Appearance | Light, Warm, and Dark themes with per-theme accents, and UI zoom. |
 | Files | Global and per-session file browsing, context menu actions, external open/reveal, copy path, and local preview server. |
 | Remote access | Token-authenticated gateway that serves the real UI to a CLI, a LAN web browser, or your phone (loopback by default, LAN opt-in); read-only vs full access modes; copy a link with the token embedded to connect in one tap. API keys never cross the wire. |
 | Browser control | The agent drives your own Chrome — profile and login state preserved — reading pages through the accessibility tree, or an isolated/private browser on demand. |
@@ -206,23 +222,17 @@ Download the latest installer from the
 - **Windows**: NSIS `.exe` and `.msi`, Windows 10/11 x64.
 - **Linux**: `.deb` and `.rpm` on x86_64 Linux.
 
-Builds are not code-signed or notarized yet.
-
-**macOS**: if Gatekeeper says the app is damaged or from an unidentified developer,
-install it into Applications and run:
-
-```bash
-xattr -cr "/Applications/Open Science.app"
-```
+The macOS packages are Developer ID signed, notarized, and stapled, so they open
+normally — no `xattr` workaround needed. Windows and Linux builds are not signed yet.
 
 **Windows**: if SmartScreen appears, choose **More info -> Run anyway**.
 
 **Linux**:
 
 ```bash
-sudo apt install ./OpenScience_*.deb
+sudo apt install ./Open.Science_*.deb
 # or
-sudo rpm -i OpenScience_*.rpm
+sudo rpm -i Open.Science-*.rpm
 ```
 
 ## Build from source
@@ -292,9 +302,9 @@ live in [`docs/PRD.md`](./docs/PRD.md) and
 [`docs/TECHNICAL_DESIGN.md`](./docs/TECHNICAL_DESIGN.md), but those documents include
 target design as well as historical status notes.
 
-Near-term work is focused on signed/notarized releases, broader Windows/Linux
-verification, auto-update, richer connector hardening, and continued reproducibility
-review.
+Near-term work is focused on Windows code signing, auto-update, broader
+Windows/Linux verification, richer connector hardening, and continued
+reproducibility review. macOS releases are already signed and notarized.
 
 ## Contributing
 
@@ -312,8 +322,8 @@ If you use Open Science Desktop in your research, please cite it:
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.0},
-  doi     = {10.5281/zenodo.21535396},
+  version = {0.3.3},
+  doi     = {10.5281/zenodo.21805331},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

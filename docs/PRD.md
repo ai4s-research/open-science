@@ -351,62 +351,105 @@ discussion. Shipped versions are kept here as the delivery record.
   accents, translucent macOS sidebar, Codex-style settings (section routes +
   sidebar navigation), in-app zoom, provider retry/error surfacing, OAuth
   recovery via the credential store, git-snapshot bloat guards, first Zenodo DOI.
+- **v0.2.1 – v0.2.2 Patches** — traffic-light re-pin on the transparent/vibrancy
+  window, session history loading after a hard reload of `/live/:id`,
+  theme-aware code highlighting (dark-mode readability).
+- **v0.2.3 Reach & interop, delivered early** — the **authenticated API gateway**
+  and its first three clients: a CLI, a LAN web browser, and a phone, all
+  running the *real* desktop UI over HTTP+SSE. Loopback by default, LAN an
+  explicit opt-in, token embedded in a copyable link, provider keys never
+  leaving the machine (#3). Plus browser control (drive the user's own Chrome).
+  This is the deliverable v0.4.0 below was written around — it shipped here
+  instead, which is why that entry is now only about what it did *not* cover.
+- **v0.2.4 Model limits & streaming** — custom-endpoint models carry a context
+  limit (auto-detected, else 128k) so the agent compacts before overflowing and
+  local models stop looping in long chats (#49); streaming Markdown/math parse
+  throttled so long turns stay responsive (#50).
+- **v0.2.5 Composer control** — model + reasoning-effort switcher in the
+  composer, built from each model's own variants (#48, #40); bracket-delimited
+  `\(…\)` / `\[…\]` math renders (#51).
+- **v0.3.0 Research UX + split panes** — the "scientist's daily loop": LaTeX /
+  math rendering and image upload → multimodal prompts (#22), system-level
+  notifications when the agent is blocked on a permission or question (#21),
+  and N-ary split-pane tiling — drag-to-dock, screens/groups, per-pane model,
+  deferred session creation with per-pane drafts.
+- **v0.3.1 Signed distribution** — first Developer ID signed, notarized and
+  stapled macOS builds (v0.3.0 and earlier shipped unsigned), plus
+  local-first project workflow and long-session fixes.
+- **v0.3.2 Field fixes** — the Skills page no longer reports the app's own
+  bundled `uv` and managed Jupyter as "not found" (#68); a session started in a
+  project is created there, each draft carrying its own destination (#69).
+- **v0.3.3 Runtime, clusters & review** — bundled OpenCode 1.17.13 → 1.18.12 so
+  the model catalog and reasoning efforts are current (#74); interactive SSH
+  sign-in, making clusters that demand a password or one-time code per
+  connection usable (#73); a bundled read-only `reviewer` agent with opt-in
+  auto-review (#72); per-agent reasoning effort (#71); Windows projects match
+  their sessions across path spellings (#76); zoom no longer restructures the
+  desktop into phone layout (#63).
 
 ### Planned
 
-- **v0.2.1 Patch** — fixes already on master: traffic-light re-pin on the
-  transparent/vibrancy window, session history loading after a hard reload of
-  `/live/:id`, theme-aware code highlighting (dark-mode readability).
-- **v0.3.0 Research UX** — the "scientist's daily loop" gets first-class
-  treatment:
-  - LaTeX / math rendering in chat and documents (#22);
-  - image upload → multimodal prompts (screenshots of errors, plots, papers) (#22);
-  - plan-first workflow: surface OpenCode's plan mode as an explicit
-    "plan, review, then execute" loop (#20);
-  - adaptive approvals: document and refine the risk tiers between "approve
-    dangerous only" and "full access" (#20);
-  - system-level notifications when the agent is blocked on a permission or
-    question (#21).
-- **v0.4.0 Reach & interop (northbound)** — using Open Science from outside the
-  desktop window. These surfaces are **one deliverable, not many**: they all
-  drive the same runtime-agnostic `AgentRuntime` seam (#24, base class #36)
-  re-exposed as a single **authenticated API gateway** — session management,
-  prompt input, streamed results, and workspace/file browsing over HTTP+SSE /
-  WebSocket, bearer token in the keychain, loopback-bound by default. Everything
-  below is a *client* of that one gateway; the only per-surface work is
-  transport + binding + auth scope.
-  - the gateway itself — the foundation the rest reuse (the file/workspace API
-    is the one gap the current `AgentRuntime` seam still lacks);
-  - LAN web UI (phone / second machine on the same network) (#3);
-  - CLI client (scripting, headless and CI-style runs);
-  - cloud tunnel — reach the same gateway + token over a public URL
-    (cloudflared / frp / ngrok), no new API;
+- **v0.3.x Remaining research UX** — the one item from the v0.3.0 milestone still
+  open: plan-first workflow (surface OpenCode's plan mode as an explicit "plan,
+  review, then execute" loop) and adaptive approvals — documenting and refining
+  the risk tiers between "approve dangerous only" and "full access" (#20).
+- **v0.4.0 ACP + the remaining reach surfaces** — the gateway itself, the LAN web
+  UI and the CLI shipped in v0.2.3, so what is left of this axis is the
+  interop that speaks someone else's dialect or runs on someone else's host.
+  All of them still ride the one runtime-agnostic `AgentRuntime` seam (#24, base
+  class #36) rather than adding a surface-specific entity:
+  - **ACP, client direction first** — `AcpRuntime` drives any agent that speaks
+    the Agent Client Protocol (Codex, Gemini CLI, Claude Code, …) as a second
+    `AgentRuntime` beside `OpenCodeClient` (#14, design in
+    `docs/rfc/multi-agent-acp.md`). This is what #14's reporter actually asked
+    for — "I'd like OpenScience to be able to invoke Codex ACP, Cursor Agent
+    ACP" — so it comes before the server direction, which earlier drafts of this
+    section had listed alone. In progress: the runtime, its Rust-supervised
+    child, and the Settings picker + runtime selector have landed, so an agent
+    configured in Settings → Runtime answers a turn through the ordinary UI.
+    Listing (`session/list`), history (`session/load` replay), the agent's own
+    model / reasoning selectors (`session/set_config_option`) and this app's MCP
+    connectors all work through it, capability-gated on what each agent
+    advertises, and a session survives the agent process restarting
+    (`session/resume`). What is left on this half: the agent's own sign-in
+    (`authenticate` / `auth.logout` — Codex's ChatGPT login, not our provider
+    keys), and `providers`, which is still a draft RFD rather than stable v1;
+  - **Open Science *as* an ACP agent — shipped.** External editors (Zed,
+    JetBrains, Neovim, …) spawn `acp-server.mjs` from inside the app bundle and
+    drive the runtime in ACP's dialect: sessions, streaming, history replay,
+    listing, cancellation and permission requests answered in the editor. It
+    reuses the shipped gateway and its token rather than adding a second
+    surface, and Settings → Remote Access shows the agent entry to paste in.
+    Still open on this half: image prompts, and the editor's own `fs` /
+    `terminal` client capabilities;
   - messaging-platform integrations (Slack / Discord / Telegram / Feishu) — each
     a thin bot client that relays `sendPrompt` → streamed events (#20);
-  - Open Science *as* an ACP server, so external editors/agents drive the
-    runtime through the same seam in ACP's dialect (#14).
+  - cloud tunnel — reach the same gateway + token over a public URL
+    (cloudflared / frp / ngrok), no new API.
 - **v0.5.0 Pluggable & remote runtimes (southbound)** — the same `AgentRuntime`
   seam consumed in the *other* direction: swap or relocate the execution
   backend behind a pluggable transport (in-process / HTTP / stdio-JSON-RPC /
   SSH). This axis shares the seam and base class (#36) with v0.4.0 — a remote
   runtime is literally the v0.4.0 gateway consumed by a `RemoteRuntime` client,
   the two halves of one pipe.
-  - ACP as a *client* transport — one `AcpRuntime` spawns any ACP agent (Codex,
-    Gemini CLI, Claude Code, …) instead of a per-agent adapter (#14, #25; Codex
-    prototype under verification #28);
   - remote agent runtime — run the runtime on another machine, drive it from the
     desktop over the gateway;
   - remote Jupyter + remote-first execution — connect to an existing remote
     Jupyter server and default suitable work (shell, cells, training) to a
     chosen remote target, building on the shipped SSH / Slurm compute (#35).
 
-Ordering rationale: v0.3.0 items make the core desktop loop better for the
-existing research audience (small-to-medium, high frequency-of-use); v0.4.0 and
-v0.5.0 open new surfaces (large, security-sensitive) by hardening the one
+Ordering rationale: the v0.2.x–v0.3.x line made the core desktop loop better for
+the existing research audience (small-to-medium, high frequency-of-use); v0.4.0
+and v0.5.0 open new surfaces (large, security-sensitive) by hardening the one
 `AgentRuntime` seam rather than adding entities per feature — the API gateway,
 LAN UI, and messaging bridges must not weaken the local-first /
 keychain-only-secrets guarantees, and remote execution must never silently fall
 back to local (#35).
+
+Version numbers are not reserved in advance. The gateway was planned for v0.4.0
+and shipped in v0.2.3 because it was ready; this section is the delivery record
+kept in step with what actually went out, and a milestone number only means
+"this issue is next", never "wait for that number".
 
 ## 10. Non-functional requirements
 

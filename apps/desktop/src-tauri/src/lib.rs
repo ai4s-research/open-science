@@ -2,6 +2,7 @@
 // bundled OpenCode sidecar (isolated config/data + dedicated port; killed on exit).
 mod artifact_file;
 mod browser;
+pub mod browser_mcp_proxy;
 mod debug_log;
 mod examples;
 mod gateway;
@@ -18,10 +19,12 @@ mod opencode_config;
 mod preview_server;
 mod project;
 mod provenance;
+mod acp;
 mod runs;
 mod runs_index;
 mod runtime;
 mod science_mcp;
+mod ssh_session;
 mod tools;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -58,6 +61,8 @@ pub fn run() {
         .manage(ProvenanceState::default())
         .manage(runs::RunState::default())
         .manage(gateway::GatewayState::default())
+        .manage(ssh_session::SshState::default())
+        .manage(acp::AcpState::default())
         .setup(|app| {
             // Watch the active workspace so changes made outside the app (an
             // external editor, a detached process) still enqueue a debounced
@@ -87,6 +92,7 @@ pub fn run() {
             runtime::start_runtime,
             runtime::runtime_password,
             gateway::gateway_status,
+            gateway::acp_server_script,
             gateway::set_gateway_config,
             gateway::regenerate_gateway_token,
             runtime::stop_runtime,
@@ -128,12 +134,16 @@ pub fn run() {
             runtime::set_memory_enabled,
             runtime::get_agent_models,
             runtime::set_agent_model,
+            runtime::get_agent_variants,
+            runtime::set_agent_variant,
             runtime::get_proxy_setting,
             runtime::set_proxy_setting,
             runtime::get_mirror_setting,
             runtime::set_mirror_setting,
             browser::agent_browser_bin,
+            browser::browser_mcp_bin,
             browser::agent_browser_profiles,
+            browser::close_agent_browser,
             browser::detect_chrome,
             browser::setup_browser_chrome,
             kernel::kernel_execute,
@@ -172,6 +182,15 @@ pub fn run() {
             compute::compute_probe,
             compute::compute_jobs,
             compute::compute_cancel,
+            ssh_session::ssh_connect,
+            ssh_session::ssh_answer,
+            ssh_session::ssh_disconnect,
+            ssh_session::ssh_sessions,
+            ssh_session::ssh_sharing_supported,
+            acp::acp_start,
+            acp::acp_send,
+            acp::acp_stop,
+            acp::acp_running,
             modal::modal_status,
             preview_server::preview_url,
             large_file::probe_large_file,
@@ -187,10 +206,16 @@ pub fn run() {
             // the OpenCode sidecar / kernel / Jupyter orphan on every quit. The
             // cleanup is idempotent, so running on both is safe.
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                browser::close_agent_browser_on_exit();
                 runtime::kill_child(&app.state::<RuntimeState>());
                 kernel::kill_kernel(&app.state::<KernelState>());
                 jupyter::kill_jupyter(&app.state::<JupyterState>());
                 gateway::shutdown(app.state::<gateway::GatewayState>().inner());
+                // An authenticated ssh channel must not outlive the app that
+                // opened it (#73) — the master lives past our exit otherwise.
+                ssh_session::shutdown(app);
+                // An ACP agent child must not outlive the window that started it.
+                acp::shutdown(app);
             }
         });
 }

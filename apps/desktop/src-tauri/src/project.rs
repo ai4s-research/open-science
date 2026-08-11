@@ -140,7 +140,10 @@ fn info_of(meta: ProjectMeta, dir: &Path) -> ProjectInfo {
         name: meta.name,
         description: meta.description,
         created_at: meta.created_at,
-        path: canon.to_string_lossy().to_string(),
+        // Native form, never the `\\?\` verbatim path `canonicalize()` returns on
+        // Windows: this string is matched against the `directory` OpenCode reports
+        // for a session, and the verbatim prefix could never match (#76).
+        path: crate::artifact_file::native_path(&canon),
         imported,
         imported_from,
         import_mode,
@@ -661,8 +664,35 @@ pub fn open_project_folder(app: AppHandle, id: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_in, folder_slug, read_meta};
+    use super::{create_in, folder_slug, info_of, read_meta};
     use std::fs;
+
+    // Sessions group under a project by comparing the project's reported path
+    // with the session's directory, and a session's directory is the workspace
+    // the app switched to. So the whole feature rests on one invariant: for the
+    // same folder, `list_projects` and a workspace switch must produce the SAME
+    // string. #69 reported sessions never grouping — this pins the invariant
+    // down (both sides canonicalize, so it holds on every platform) and fails
+    // loudly if either side's normalization ever drifts apart.
+    #[test]
+    fn a_projects_reported_path_is_what_a_workspace_switch_resolves() {
+        let base = std::env::temp_dir().join(format!("os-project-invariant-{}", super::random_hex(8)));
+        fs::create_dir_all(base.join("projects")).unwrap();
+        // A CJK name, as in the report: the slug keeps it verbatim.
+        let (dir, meta) = create_in(&base.join("projects"), "毕设").unwrap();
+        assert_eq!(dir, base.join("projects").join("毕设"));
+
+        // What list_projects hands the sidebar.
+        let reported = info_of(meta, &dir).path;
+        // What set_workspace persists, and workspace_dir reads back, for the
+        // folder the sidebar's "+" hands it (`startDraftInWorkspace(p.path)`) —
+        // it canonicalizes, and the layout call returns the dir unchanged.
+        let switched = dir.canonicalize().unwrap().to_string_lossy().to_string();
+
+        assert_eq!(reported, switched, "a session started in a project must map back to it");
+
+        let _ = fs::remove_dir_all(&base);
+    }
 
     mod adopting_a_folder_already_in_the_workspace {
         use super::super::{adopt_in_base, delete_in, project_dirs, read_meta, PROJECTS_DIR_NAME};

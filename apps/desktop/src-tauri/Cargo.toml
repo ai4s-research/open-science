@@ -1,6 +1,6 @@
 [package]
 name = "ai4s-workbench"
-version = "0.3.0"
+version = "0.3.3"
 description = "Open Science Desktop"
 authors = ["AI4S Workbench contributors"]
 edition = "2021"
@@ -32,6 +32,9 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking", 
 # Watches the active workspace so file changes from outside the app (an external
 # editor, a detached process) still enqueue a debounced git snapshot.
 notify = "6"
+# ssh reads authentication answers from a terminal, never from stdin, so an
+# interactive sign-in to a 2FA cluster (#73) needs a real pty on every platform.
+portable-pty = "0.9"
 
 # Already in the tree via tao — used to re-pin the traffic lights (src/macos.rs).
 [target.'cfg(target_os = "macos")'.dependencies]

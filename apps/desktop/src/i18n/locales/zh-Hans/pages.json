@@ -74,7 +74,8 @@
       "detectionUnavailable": "环境检测功能在桌面应用中运行。",
       "found": "已找到",
       "notFound": "未找到",
-      "note": "OpenCode 使用此处已安装的组件运行代码（例如通过其 shell 工具调用 Python）。Python/R/Jupyter 并未内置；请安装它们或安装 Science Pack 以启用分析功能。"
+      "appManaged": "应用内置",
+      "note": "OpenCode 使用此处已安装的组件运行代码（例如通过其 shell 工具调用 Python）。uv 随应用内置，Jupyter 可在「设置 → 连接器」中由应用托管。Python 和 R 并未内置——请自行安装它们或安装 Science Pack 以启用分析功能。"
     },
     "agentsSection": {
       "sectionTitle": "代理（{{count}}）",

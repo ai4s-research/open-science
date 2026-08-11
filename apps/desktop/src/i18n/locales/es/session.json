@@ -114,7 +114,10 @@
       "reasoning": "Esfuerzo de razonamiento",
       "reasoningDefault": "Predeterminado del modelo",
       "faster": "Más rápido",
-      "smarter": "Más inteligente"
+      "smarter": "Más inteligente",
+      "followingAgent": "Siguiendo al agente {{agent}}",
+      "followAgent": "Seguir al agente {{agent}}",
+      "useDefault": "Usar el modelo predeterminado global"
     },
     "reference": {
       "filesAria": "Archivos del espacio de trabajo",
@@ -193,6 +196,12 @@
       "retrying": "Error del proveedor — reintentando (intento {{attempt}})",
       "working": "Trabajando…",
       "step": "paso {{count}}"
+    },
+    "review": {
+      "queued": "Revisión en segundo plano en cola…",
+      "running": "Revisando este punto de control en segundo plano…",
+      "cancelAria": "Detener revisión en segundo plano",
+      "cancelTitle": "Detener esta revisión"
     },
     "placeholder": {
       "disconnected": "Conéctate para chatear",

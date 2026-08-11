@@ -4,7 +4,7 @@
 # Runs per-platform locally and in CI so the binary never lives in git.
 set -euo pipefail
 
-OPENCODE_VERSION="${OPENCODE_VERSION:-1.17.13}"
+OPENCODE_VERSION="${OPENCODE_VERSION:-1.18.12}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="$ROOT/apps/desktop/src-tauri/binaries"
 mkdir -p "$OUT_DIR"

@@ -35,6 +35,8 @@ Formerly Open Science. Claude Science などの AI-for-science ワークベン�
 
 ## ニュース
 
+- **2026-08-01** — 🗂️ **プロジェクト・メモリ・全履歴。** セッションを名前付きプロジェクトにまとめ（既存リポジトリはコピーせず**その場で**インポート）、グローバルとプロジェクトの永続メモリを持たせ、過去のすべての会話を検索可能な履歴（アーカイブ／復元／エクスポート付き）から辿れます。 *(v0.3.1)*
+- **2026-07-24** — 🪟 **分割ペインのタイリング。** セッションを並べて表示し、ペインをドラッグして再配置し、独立した「スクリーン」を複数保持でき、ペインごとに別のモデルを使えます。 *(v0.3.0)*
 - **2026-07-21** — 🌐 **どこからでもアクセス——スマホからでも。** トークン認証ゲートウェイが*本物の*デスクトップ UI を CLI、LAN 上のブラウザ、あるいはスマホへ配信します（既定はループバック、LAN はオプトイン）。デスクで実行を開始し、完成した図とレポートをスマホで読めます。 *(v0.2.3)*
 - **2026-07-21** — 🧭 **ブラウザ制御。** エージェントがあなた自身の Chrome を——プロファイルとログインを保ったまま——操作し、あなたと同じようにライブな Web を読み取ります。必要に応じて分離されたプライベートブラウザも使えます。 *(v0.2.3)*
 - **2026-07-09** — 🎉 **ResearchClawBench 第 1 位。** Open Science Desktop は、自律型科学研究エージェント向けのエンドツーエンドベンチマーク [ResearchClawBench](https://internscience.github.io/ResearchClawBench-Home/) で、採点済みタスク平均スコア第 1 位です（Pass@1 リーダーボード）。
@@ -78,7 +80,7 @@ Formerly Open Science. Claude Science などの AI-for-science ワークベン�
 
 **あなた自身の Chrome を操作。** エージェントはあなた自身のブラウザプロファイル——ログインも含めて——を通じてライブな Web を読み取り、見つけた内容を図とソート可能な CSV に変換します。
 
-![browser-control でユーザー自身の Chrome を操作し、bioRxiv のプレプリントを収集してチャートと CSV にするエージェント](./docs/assets/showcase-browser.webp)
+![open-science-browser でユーザー自身の Chrome を操作し、bioRxiv のプレプリントを収集してチャートと CSV にするエージェント](./docs/assets/showcase-browser.webp)
 
 **どこからでも研究——スマホからでも。** 組み込みの認証ゲートウェイが*本物の*デスクトップ UI を LAN 上のブラウザ（またはトンネル）へ配信するので、デスクで実行を開始し、完成した図とレポートをスマホで読めます。
 
@@ -123,7 +125,13 @@ Formerly Open Science. Claude Science などの AI-for-science ワークベン�
 | --- | --- |
 | デスクトップ | Tauri 2 + React + TypeScript + Vite。macOS、Windows、Linux のビルド対象。 |
 | ランタイム | アプリが自動起動するバンドル済み OpenCode sidecar。ユーザー自身の OpenCode 設定/データとは分離。 |
-| セッション | 複数セッション、履歴、日時付きワークスペース、全ワークスペース履歴、`/` コマンド、`!` shell モード。 |
+| プロジェクト | セッションをまとめる名前付きプロジェクト。既存フォルダをその場でインポート（コピーしない）、ワークスペース内の既存フォルダの取り込み、既存セッションのプロジェクトへの移動。 |
+| セッション | 複数セッション、履歴、日時付きワークスペース、検索可能な履歴（アーカイブ／復元／エクスポート）、`@` ファイル参照と `#` 会話参照、`/` コマンド、`!` shell モード。 |
+| レイアウト | N 分割のペインタイリング、ドラッグでの再ドック、独立した複数スクリーン、ペインごとのモデルと推論強度、スクリーン間のペインドラッグ。 |
+| エージェントモード | `/plan`（計画してから実行）、`/goal`（目的と受入基準）、専用パネルでのサブエージェント状況、ランタイムの実サーバー状態を反映する停止。 |
+| メモリ | グローバルとプロジェクトの 2 層メモリ（切替可能）、モデルのコンテキスト窓に近づくと自動でコンテキストを圧縮。 |
+| リモート計算 | `~/.ssh/config` からマシンを登録し、疎通を確認し、ジョブの投入・追跡・キャンセルをアプリ内から実行。 |
+| 外観 | Light / Warm / Dark の 3 テーマ（テーマ別アクセント）と UI ズーム。 |
 | ファイル | グローバル/セッション内のファイルブラウズ、右クリック操作、外部アプリで開く、パスコピー、ローカルプレビューサーバー。 |
 | リモートアクセス | 本物の UI を CLI、LAN 上の Web ブラウザ、またはスマホへ配信するトークン認証ゲートウェイ（既定はループバック、LAN はオプトイン）。読み取り専用/フルアクセスの各モード。トークンを埋め込んだリンクをコピーし、ワンタップで接続。API キーが通信路を渡ることはありません。 |
 | ブラウザ制御 | エージェントがあなた自身の Chrome を——プロファイルとログイン状態を保ったまま——操作し、アクセシビリティツリーを通じてページを読み取ります。必要に応じて分離された/プライベートなブラウザも使えます。 |
@@ -147,11 +155,7 @@ Formerly Open Science. Claude Science などの AI-for-science ワークベン�
 - **Windows**: NSIS `.exe` と `.msi`、Windows 10/11 x64。
 - **Linux**: x86_64 Linux 向け `.deb` と `.rpm`。
 
-まだコード署名/Notarization はありません。macOS でブロックされた場合:
-
-```bash
-xattr -cr "/Applications/Open Science.app"
-```
+macOS パッケージは Developer ID 署名・Notarization・staple 済みで、そのまま開けます（`xattr` の回避策は不要）。Windows と Linux のビルドはまだ署名されていません。
 
 Windows では SmartScreen の **More info -> Run anyway** を選択します。
 
@@ -195,7 +199,7 @@ pnpm lint
 
 ## 状態
 
-現在の実装ログは [`PROGRESS.md`](./PROGRESS.md) を参照してください。近い作業は署名済みリリース、Windows/Linux 検証、自動更新、コネクタの堅牢化、再現性レビューの継続です。議論には [Open Science Discord](https://discord.gg/fWNMDKcd5P) も使えます。
+現在の実装ログは [`PROGRESS.md`](./PROGRESS.md) を参照してください。近い作業は Windows のコード署名、自動更新、Windows/Linux 検証の拡大、コネクタの堅牢化、再現性レビューの継続です。macOS リリースは署名・Notarization 済みです。議論には [Open Science Discord](https://discord.gg/fWNMDKcd5P) も使えます。
 
 [MIT](./LICENSE). Open Science Desktop は beta の研究ツールです。出力は草稿として扱い、公開や意思決定の前に数字、引用、コード、結論を検証してください。
 
@@ -208,8 +212,8 @@ pnpm lint
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.0},
-  doi     = {10.5281/zenodo.21535396},
+  version = {0.3.3},
+  doi     = {10.5281/zenodo.21805331},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

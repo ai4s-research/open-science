@@ -74,7 +74,8 @@
       "detectionUnavailable": "환경 감지는 데스크톱 앱에서 실행됩니다.",
       "found": "발견됨",
       "notFound": "찾을 수 없음",
-      "note": "OpenCode는 여기에 설치된 것을 사용해 코드를 실행합니다 (예: 셸 도구를 통한 Python). Python/R/Jupyter는 기본 포함되지 않으므로, 분석을 사용하려면 이를 설치하거나 Science Pack을 설치하세요."
+      "appManaged": "앱 관리",
+      "note": "OpenCode는 여기에 설치된 것을 사용해 코드를 실행합니다 (예: 셸 도구를 통한 Python). uv는 앱에 포함되어 있고, Jupyter는 설정 → 커넥터에서 앱이 관리할 수 있습니다. Python과 R은 기본 포함되지 않으므로, 분석을 사용하려면 이를 설치하거나 Science Pack을 설치하세요."
     },
     "agentsSection": {
       "sectionTitle": "에이전트 ({{count}})",

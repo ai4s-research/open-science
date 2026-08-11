@@ -74,7 +74,8 @@
       "detectionUnavailable": "環境検出はデスクトップアプリで実行されます。",
       "found": "検出済み",
       "notFound": "未検出",
-      "note": "OpenCode はここにインストールされているものを使ってコードを実行します（例: シェルツール経由の Python）。Python/R/Jupyter はバンドルされていません。分析を有効にするには、それらまたは Science Pack をインストールしてください。"
+      "appManaged": "アプリ管理",
+      "note": "OpenCode はここにインストールされているものを使ってコードを実行します（例: シェルツール経由の Python）。uv はアプリに同梱されており、Jupyter は「設定 → コネクタ」でアプリが管理できます。Python と R はバンドルされていません。分析を有効にするには、それらまたは Science Pack をインストールしてください。"
     },
     "agentsSection": {
       "sectionTitle": "エージェント ({{count}})",

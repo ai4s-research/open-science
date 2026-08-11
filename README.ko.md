@@ -35,6 +35,8 @@ Formerly Open Science. Claude Science 및 유사한 AI-for-science 워크벤치�
 
 ## 소식
 
+- **2026-08-01** — 🗂️ **프로젝트, 메모리, 전체 히스토리.** 세션을 이름이 있는 프로젝트로 묶고(기존 저장소는 복사하지 않고 **그 자리에서** 가져옵니다), 에이전트에 전역·프로젝트 영속 메모리를 부여하며, 모든 과거 대화를 검색 가능한 히스토리에서 보관·복원·내보내기와 함께 찾을 수 있습니다. *(v0.3.1)*
+- **2026-07-24** — 🪟 **분할 페인 타일링.** 세션을 나란히 배치하고, 페인을 드래그해 재배치하며, 독립적인 화면을 여러 개 유지하고, 페인마다 다른 모델을 사용할 수 있습니다. *(v0.3.0)*
 - **2026-07-21** — 🌐 **어디서나 접속 — 심지어 휴대폰에서도.** 토큰 인증 게이트웨이가 *실제* 데스크톱 UI를 CLI, LAN 내 브라우저, 또는 휴대폰에 제공합니다(기본은 loopback, LAN은 선택적 활성화). 책상에서 실행을 시작하고 완성된 그림과 보고서를 휴대폰에서 확인하세요. *(v0.2.3)*
 - **2026-07-21** — 🧭 **브라우저 제어.** 에이전트가 프로필과 로그인이 유지된 당신의 Chrome을 직접 조작해 당신이 보는 방식 그대로 실시간 웹을 읽거나, 필요할 때 격리된 비공개 브라우저를 사용할 수 있습니다. *(v0.2.3)*
 - **2026-07-09** — 🎉 **ResearchClawBench 1위.** Open Science Desktop은 자율 과학 연구 에이전트를 위한 엔드투엔드 벤치마크 [ResearchClawBench](https://internscience.github.io/ResearchClawBench-Home/)에서 채점된 작업 평균 기준 1위를 기록했습니다(Pass@1 리더보드).
@@ -78,7 +80,7 @@ Formerly Open Science. Claude Science 및 유사한 AI-for-science 워크벤치�
 
 **당신의 Chrome을 직접 조작.** 에이전트가 로그인을 포함한 실제 브라우저 프로필로 실시간 웹을 읽고, 찾은 내용을 그림과 정렬 가능한 CSV로 만듭니다.
 
-![browser-control로 사용자의 Chrome을 조작해 bioRxiv 프리프린트를 차트와 CSV로 수집하는 에이전트](./docs/assets/showcase-browser.webp)
+![open-science-browser로 사용자의 Chrome을 조작해 bioRxiv 프리프린트를 차트와 CSV로 수집하는 에이전트](./docs/assets/showcase-browser.webp)
 
 **어디서나, 심지어 휴대폰에서도 연구.** 내장된 인증 게이트웨이가 *실제* 데스크톱 UI를 LAN 내 브라우저(또는 터널)에 제공하므로, 책상에서 실행을 시작하고 완성된 그림과 보고서를 휴대폰에서 읽을 수 있습니다.
 
@@ -123,7 +125,13 @@ Formerly Open Science. Claude Science 및 유사한 AI-for-science 워크벤치�
 | --- | --- |
 | 데스크톱 | Tauri 2 + React + TypeScript + Vite, macOS/Windows/Linux 빌드 대상. |
 | 런타임 | 앱이 자동 시작하는 번들 OpenCode sidecar. 사용자의 OpenCode 설정/데이터와 격리됩니다. |
-| 세션 | 다중 세션 채팅/히스토리, 날짜별 워크스페이스 폴더, 전역 히스토리, `/` 명령, `!` shell 모드. |
+| 프로젝트 | 세션을 묶는 이름 있는 프로젝트 워크스페이스. 기존 폴더를 그 자리에서 가져오기(복사하지 않음), 워크스페이스 안에 이미 있는 폴더 편입, 기존 세션을 프로젝트로 이동. |
+| 세션 | 다중 세션 채팅, 보관/복원/내보내기가 있는 검색 가능한 히스토리, 날짜별 워크스페이스 폴더, `@` 파일 및 `#` 대화 참조, `/` 명령, `!` shell 모드. |
+| 레이아웃 | 드래그로 재배치하는 N분할 페인 타일링, 독립 화면, 페인별 모델과 추론 강도, 화면 간 페인 드래그. |
+| 에이전트 모드 | 계획 후 실행을 위한 `/plan`, 목표와 수용 기준을 위한 `/goal`, 전용 패널의 서브에이전트 상태, 런타임의 실제 서버 상태를 반영하는 중지. |
+| 메모리 | 전역과 프로젝트 두 계층 메모리(켜고 끌 수 있음), 그리고 모델 컨텍스트 창에 가까워지면 자동 컨텍스트 압축. |
+| 원격 컴퓨팅 | `~/.ssh/config`에서 머신을 등록하고 점검하며, 앱에서 작업을 제출·추적·취소. |
+| 외관 | 테마별 강조색이 있는 Light / Warm / Dark 3종 테마와 UI 확대/축소. |
 | 파일 | 전역/세션 파일 탐색, 컨텍스트 메뉴, 외부 열기/표시, 경로 복사, 로컬 미리보기 서버. |
 | 원격 접속 | 실제 UI를 CLI, LAN 웹 브라우저, 또는 휴대폰에 제공하는 토큰 인증 게이트웨이(기본은 loopback, LAN은 선택적 활성화); 읽기 전용/전체 접근 모드; 토큰이 포함된 링크를 복사해 한 번의 탭으로 연결. API 키는 네트워크를 통해 전송되지 않습니다. |
 | 브라우저 제어 | 에이전트가 프로필과 로그인 상태가 보존된 당신의 Chrome을 조작해 접근성 트리로 페이지를 읽거나, 필요할 때 격리된/비공개 브라우저를 사용합니다. |
@@ -147,11 +155,7 @@ Formerly Open Science. Claude Science 및 유사한 AI-for-science 워크벤치�
 - **Windows**: NSIS `.exe` 및 `.msi`, Windows 10/11 x64.
 - **Linux**: x86_64용 `.deb` 및 `.rpm`.
 
-아직 코드 서명/공증이 없습니다. macOS에서 앱이 차단되면:
-
-```bash
-xattr -cr "/Applications/Open Science.app"
-```
+macOS 패키지는 Developer ID 서명·공증·스테이플이 완료되어 그대로 열립니다. `xattr` 우회는 필요하지 않습니다. Windows와 Linux 빌드는 아직 서명되지 않았습니다.
 
 Windows에서는 SmartScreen에서 **More info -> Run anyway**를 선택합니다.
 
@@ -195,7 +199,7 @@ pnpm lint
 
 ## 상태
 
-가장 신뢰할 수 있는 구현 로그는 [`PROGRESS.md`](./PROGRESS.md)입니다. 가까운 작업은 서명/공증된 릴리스, Windows/Linux 검증 확대, 자동 업데이트, 커넥터 강화, 재현성 리뷰 지속입니다. 토론은 [Open Science Discord](https://discord.gg/fWNMDKcd5P)에서도 할 수 있습니다.
+가장 신뢰할 수 있는 구현 로그는 [`PROGRESS.md`](./PROGRESS.md)입니다. 가까운 작업은 Windows 코드 서명, 자동 업데이트, Windows/Linux 검증 확대, 커넥터 강화, 재현성 리뷰 지속입니다. macOS 릴리스는 이미 서명·공증되었습니다. 토론은 [Open Science Discord](https://discord.gg/fWNMDKcd5P)에서도 할 수 있습니다.
 
 [MIT](./LICENSE). Open Science Desktop은 beta 연구 도구입니다. 출력은 초안으로 보고, 공개나 의사결정 전에 숫자, 인용, 코드, 결론을 검증하세요.
 
@@ -208,8 +212,8 @@ pnpm lint
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.0},
-  doi     = {10.5281/zenodo.21535396},
+  version = {0.3.3},
+  doi     = {10.5281/zenodo.21805331},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

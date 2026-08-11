@@ -17,6 +17,7 @@ import { useRuntimeStore } from "@/lib/runtime";
 import { timeAgo } from "@/lib/relativeTime";
 import { openProjectFolder, renameProject, type ProjectInfo } from "@/lib/tauri";
 import { isGatewayWeb } from "@/lib/webMode";
+import { pathKey } from "@/lib/workspacePath";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 /** The last path segment (folder name) of an absolute workspace path. */
@@ -51,9 +52,12 @@ export function ProjectsPage() {
     const map = new Map<string, SessionMeta[]>();
     for (const s of sessions) {
       if (s.parentId || !s.directory) continue;
-      const list = map.get(s.directory) ?? [];
+      // Grouped by comparison key: on Windows the sidecar's `directory` and the
+      // project's own path name one folder in two spellings (#76).
+      const key = pathKey(s.directory);
+      const list = map.get(key) ?? [];
       list.push(s);
-      map.set(s.directory, list);
+      map.set(key, list);
     }
     for (const list of map.values()) {
       list.sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
@@ -65,7 +69,7 @@ export function ProjectsPage() {
     const q = query.trim().toLowerCase();
     return projects
       .map((p) => {
-        const projectSessions = sessionsByPath.get(p.path) ?? [];
+        const projectSessions = sessionsByPath.get(pathKey(p.path)) ?? [];
         const latest = projectSessions[0]?.updated ?? 0;
         return { ...p, sessions: projectSessions, updated: Math.max(latest, p.createdAt) };
       })

@@ -114,7 +114,10 @@
       "reasoning": "Reasoning effort",
       "reasoningDefault": "Model default",
       "faster": "Faster",
-      "smarter": "Smarter"
+      "smarter": "Smarter",
+      "followingAgent": "Following the {{agent}} agent",
+      "followAgent": "Follow the {{agent}} agent",
+      "useDefault": "Use the global default"
     },
     "reference": {
       "filesAria": "Workspace files",
@@ -193,6 +196,12 @@
       "retrying": "Provider error — retrying (attempt {{attempt}})",
       "working": "Working…",
       "step": "step {{count}}"
+    },
+    "review": {
+      "queued": "Background review queued…",
+      "running": "Reviewing this checkpoint in the background…",
+      "cancelAria": "Stop background review",
+      "cancelTitle": "Stop this review"
     },
     "placeholder": {
       "disconnected": "Connect to chat",

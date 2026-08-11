@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Loader2, RefreshCw, X } from "lucide-react";
+import { ChevronRight, Loader2, LogIn, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
@@ -16,6 +16,7 @@ import {
   type GpuInfo,
   type Machine,
 } from "@/lib/tauri";
+import { isSignedIn, useSshStore } from "@/lib/ssh";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { inputCls } from "./inputCls";
@@ -41,12 +42,34 @@ export function RemoteComputeCard() {
   const [probes, setProbes] = useState<Record<string, ComputeProbe | "loading">>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [jobs, setJobs] = useState<Record<string, ComputeJob[] | null>>({});
+  // Shared-connection state per host (#73): which machines the user is signed
+  // in to, and whether this platform can share a connection at all.
+  const sshSessions = useSshStore((s) => s.sessions);
+  const sharingSupported = useSshStore((s) => s.sharingSupported);
+  const signIn = useSshStore((s) => s.connect);
+  const signOut = useSshStore((s) => s.disconnect);
+
+  // A finished sign-in turns a host that answered "permission denied" into a
+  // working one — re-probe it so the row shows real capabilities rather than
+  // the sign-in prompt the user just satisfied.
+  const connectedHosts = Object.values(sshSessions)
+    .filter((s) => s.status === "connected")
+    .map((s) => s.host)
+    .sort()
+    .join(",");
 
   const probe = useCallback(async (host: string) => {
     setProbes((p) => ({ ...p, [host]: "loading" }));
     try {
       const result = await computeProbe(host);
       setProbes((p) => ({ ...p, [host]: result }));
+      // The shared connection expired (its persist window elapsed, the VPN
+      // dropped, the laptop slept): the host is asking for credentials again, so
+      // drop the stale "signed in" state — otherwise the row keeps claiming a
+      // connection that is gone and hides the way to get it back (#73).
+      if (result.needs_sign_in && useSshStore.getState().sessions[host]) {
+        void useSshStore.getState().disconnect(host);
+      }
       // Read the queue only for Slurm hosts — no queue exists otherwise.
       if (result.slurm) {
         // A Slurm host's detail *is* the queue — open it by default.
@@ -77,6 +100,12 @@ export function RemoteComputeCard() {
     void listSshHosts().then(setHosts).catch(() => undefined);
     void loadMachines();
   }, [loadMachines]);
+
+  useEffect(() => {
+    for (const host of connectedHosts ? connectedHosts.split(",") : []) {
+      void probe(host);
+    }
+  }, [connectedHosts, probe]);
 
   const add = async () => {
     const host = draft.trim();
@@ -147,6 +176,13 @@ export function RemoteComputeCard() {
                   onRefresh={() => void probe(m.host)}
                   onRemove={() => void remove(m.host)}
                   onCancel={(id) => void cancel(m.host, id)}
+                  signedIn={isSignedIn(sshSessions, m.host)}
+                  sharingSupported={sharingSupported !== false}
+                  onSignIn={() => void signIn(m.host)}
+                  onSignOut={async () => {
+                    await signOut(m.host);
+                    void probe(m.host);
+                  }}
                 />
               ))}
               <div className={cn("p-3", machines.length > 0 && "border-t border-faint")}>
@@ -192,6 +228,10 @@ function MachineRow({
   onRefresh,
   onRemove,
   onCancel,
+  signedIn,
+  sharingSupported,
+  onSignIn,
+  onSignOut,
 }: {
   machine: Machine;
   probe: ComputeProbe | "loading" | undefined;
@@ -202,11 +242,19 @@ function MachineRow({
   onRefresh: () => void;
   onRemove: () => void;
   onCancel: (id: string) => void;
+  signedIn: boolean;
+  sharingSupported: boolean;
+  onSignIn: () => void;
+  onSignOut: () => void;
 }) {
   const { t } = useTranslation(["settings", "common"]);
   const loading = probe === "loading" || probe === undefined;
   const p = typeof probe === "object" ? probe : null;
   const reachable = !!p?.reachable;
+  // The host answered but wants credentials interactively. Offering a sign-in
+  // beats showing an ssh error the user cannot act on — but only where one
+  // authenticated connection can actually be shared with everything after it.
+  const needsSignIn = !!p?.needs_sign_in && sharingSupported;
   const chips = p && reachable ? capabilityChips(p, t) : [];
   return (
     <div className={cn("bg-surface", !first && "border-t border-faint")}>
@@ -230,9 +278,30 @@ function MachineRow({
           {loading
             ? t("remoteCompute.checking")
             : reachable
-              ? chips.join(" · ")
-              : p?.message ?? t("remoteCompute.unreachable")}
+              ? [signedIn ? t("remoteCompute.signedIn") : null, ...chips].filter(Boolean).join(" · ")
+              : needsSignIn
+                ? t("remoteCompute.signInRequired")
+                : !!p?.needs_sign_in && !sharingSupported
+                  ? t("remoteCompute.sharingUnavailable")
+                  : p?.message ?? t("remoteCompute.unreachable")}
         </span>
+        {needsSignIn && !signedIn && (
+          <button
+            className="flex shrink-0 items-center gap-1 rounded-input bg-accent px-2 py-1 text-xs font-medium text-accent-fg hover:opacity-90"
+            onClick={onSignIn}
+          >
+            <LogIn size={12} /> {t("remoteCompute.signIn")}
+          </button>
+        )}
+        {signedIn && (
+          <button
+            className="shrink-0 text-xs text-muted transition-colors hover:text-text"
+            onClick={onSignOut}
+            title={t("remoteCompute.signOutTitle")}
+          >
+            {t("remoteCompute.signOut")}
+          </button>
+        )}
         <button
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input text-muted transition-colors hover:bg-surface-2 hover:text-text"
           onClick={onRefresh}

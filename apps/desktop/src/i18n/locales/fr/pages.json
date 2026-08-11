@@ -74,7 +74,8 @@
       "detectionUnavailable": "La détection de l'environnement s'exécute dans l'application de bureau.",
       "found": "trouvé",
       "notFound": "introuvable",
-      "note": "OpenCode exécute le code avec ce qui est installé ici (p. ex. Python via son outil shell). Python/R/Jupyter ne sont pas intégrés ; installez-les, ou un Science Pack, pour activer l'analyse."
+      "appManaged": "géré par l'app",
+      "note": "OpenCode exécute le code avec ce qui est installé ici (p. ex. Python via son outil shell). uv est fourni avec l'application, et Jupyter peut être géré par l'application dans Réglages → Connecteurs. Python et R ne sont pas intégrés : installez-les, ou un Science Pack, pour activer l'analyse."
     },
     "agentsSection": {
       "sectionTitle": "Agents ({{count}})",

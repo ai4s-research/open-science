@@ -206,6 +206,21 @@ export async function setAgentModel(agent: string, model: string): Promise<void>
   await invoke("set_agent_model", { agent, model });
 }
 
+/** Per-agent reasoning-effort overrides, `{ agent: "high" }`. Agents that are
+ *  absent run their model's default effort (#71). */
+export async function getAgentVariants(): Promise<Record<string, string>> {
+  if (!isTauri) return {};
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<Record<string, string>>("get_agent_variants");
+}
+
+/** Pin one agent to a reasoning-effort variant, or pass "" to clear it. */
+export async function setAgentVariant(agent: string, variant: string): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_agent_variant", { agent, variant });
+}
+
 /** Network proxy for the sidecar: follow the OS, a fixed URL, or direct. */
 export type ProxyMode = "system" | "custom" | "none";
 export interface ProxySetting {
@@ -252,6 +267,14 @@ export async function getGatewayStatus(): Promise<GatewayStatus | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
   return await invoke<GatewayStatus>("gateway_status");
+}
+
+/** Absolute path of the bundled ACP agent script an external editor spawns
+ *  (#14, server direction), or null when it is not present. */
+export async function acpServerScript(): Promise<string | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<string | null>("acp_server_script");
 }
 
 /** Enable/disable + set binding and access mode; (re)binds the server. */
@@ -477,6 +500,13 @@ export async function agentBrowserBin(): Promise<string> {
   return invoke<string>("agent_browser_bin");
 }
 
+/** Absolute path to the desktop executable's browser MCP proxy mode. */
+export async function browserMcpBin(): Promise<string> {
+  if (!isTauri) throw new Error("not running in the desktop app");
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("browser_mcp_bin");
+}
+
 /** The user's Chrome profiles (empty when no Chrome / not desktop). */
 export async function agentBrowserProfiles(): Promise<BrowserProfile[]> {
   if (!isTauri) return [];
@@ -488,9 +518,15 @@ export async function agentBrowserProfiles(): Promise<BrowserProfile[]> {
   }
 }
 
-/** First installed Chrome/Chromium/Edge/Brave, or null. Setting its path as the
- *  browser executable avoids a Chrome-for-Testing download and (on macOS) lets
- *  the real profile's cookies decrypt without a Keychain prompt. */
+/** Close every browser session in Open Science Desktop's private namespace. */
+export async function closeAgentBrowser(): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("close_agent_browser");
+}
+
+/** First installed Chrome/Chromium/Edge/Brave, or null. Its executable can run
+ *  a separate managed browser and avoids a Chrome-for-Testing download. */
 export async function detectChrome(): Promise<ChromeInfo | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
@@ -747,6 +783,8 @@ export interface ToolStatus {
   name: string;
   found: boolean;
   version?: string | null;
+  /** The app's own copy (bundled uv / managed Jupyter env), not one on the user's PATH. */
+  managed?: boolean;
 }
 
 /** Detect scientific/runtime tools on the user's system (desktop only). */
@@ -774,6 +812,9 @@ export interface GpuInfo {
 export interface ComputeProbe {
   reachable: boolean;
   message: string | null;
+  /** The host answered but wants a password or a one-time code — offer a
+   *  sign-in rather than an ssh error the user cannot act on (#73). */
+  needs_sign_in: boolean;
   os: string | null;
   cores: number | null;
   load1: number | null;
@@ -846,6 +887,58 @@ export async function computeCancel(host: string, jobId: string): Promise<void> 
   if (!isTauri) throw new Error("not running in the desktop app");
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("compute_cancel", { host, jobId });
+}
+
+// ---- Interactive SSH sign-in (#73) ----
+
+/** One host's shared-connection state. `prompt` is the server's own question,
+ *  verbatim (Duo, PAM and campus OTP flows all word it differently), and
+ *  `notice` the non-secret lines around it. */
+export interface SshSession {
+  host: string;
+  status: "connecting" | "prompt" | "connected" | "failed";
+  prompt: string | null;
+  notice: string | null;
+  error: string | null;
+}
+
+/** Whether this platform can share one authenticated connection across every
+ *  later command. False on Windows, whose bundled OpenSSH has no ControlMaster —
+ *  a sign-in there would have to be repeated for every single command. */
+export async function sshSharingSupported(): Promise<boolean> {
+  if (!isTauri) return false;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<boolean>("ssh_sharing_supported");
+}
+
+export async function sshSessions(): Promise<SshSession[]> {
+  if (!isTauri) return [];
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<SshSession[]>("ssh_sessions");
+}
+
+/** Start (or adopt) the shared connection for a host. Returns as soon as ssh is
+ *  running — the sign-in itself reports progress through `ssh:state` events,
+ *  because a pushed second factor waits on a human. */
+export async function sshConnect(host: string): Promise<void> {
+  if (!isTauri) throw new Error("not running in the desktop app");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("ssh_connect", { host });
+}
+
+/** Answer the pending question. The secret goes straight into ssh's terminal:
+ *  never a process argument, never logged, never stored. */
+export async function sshAnswer(host: string, secret: string): Promise<void> {
+  if (!isTauri) throw new Error("not running in the desktop app");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("ssh_answer", { host, secret });
+}
+
+/** Close the shared connection (also the cancel path for a dismissed dialog). */
+export async function sshDisconnect(host: string): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("ssh_disconnect", { host });
 }
 
 export interface ModalStatus {

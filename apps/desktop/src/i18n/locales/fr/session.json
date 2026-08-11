@@ -114,7 +114,10 @@
       "reasoning": "Effort de raisonnement",
       "reasoningDefault": "Défaut du modèle",
       "faster": "Plus rapide",
-      "smarter": "Plus intelligent"
+      "smarter": "Plus intelligent",
+      "followingAgent": "Suit l'agent {{agent}}",
+      "followAgent": "Suivre l'agent {{agent}}",
+      "useDefault": "Utiliser le modèle par défaut global"
     },
     "reference": {
       "filesAria": "Fichiers de l’espace de travail",
@@ -193,6 +196,12 @@
       "retrying": "Erreur du fournisseur — nouvelle tentative (essai {{attempt}})",
       "working": "En cours…",
       "step": "étape {{count}}"
+    },
+    "review": {
+      "queued": "Révision en arrière-plan en attente…",
+      "running": "Révision de ce point de contrôle en arrière-plan…",
+      "cancelAria": "Arrêter la révision en arrière-plan",
+      "cancelTitle": "Arrêter cette révision"
     },
     "placeholder": {
       "disconnected": "Connectez-vous pour discuter",

@@ -37,7 +37,7 @@ export function LiveSessionPage() {
   const runningCount = useRuntimeStore((s) => Object.keys(s.runningSessions).length);
   const openSession = useRuntimeStore((s) => s.openSession);
   const loadHistory = useRuntimeStore((s) => s.loadHistory);
-  const startDraft = useRuntimeStore((s) => s.startDraft);
+  const resetDraftView = useRuntimeStore((s) => s.resetDraftView);
   const reconcileRunning = useRuntimeStore((s) => s.reconcileRunning);
   const syncPaneStreams = useRuntimeStore((s) => s.syncPaneStreams);
 
@@ -143,9 +143,11 @@ export function LiveSessionPage() {
     if (focusedSid) {
       void openSession(focusedSid);
     } else if (useRuntimeStore.getState().currentId) {
-      startDraft();
+      // View-only reset: re-blanking a pane must not reroute the next session
+      // out of the project the user picked (#69).
+      resetDraftView();
     }
-  }, [focusedSid, connected, sessionDir, openSession, startDraft]);
+  }, [focusedSid, connected, sessionDir, openSession, resetDraftView]);
 
   // One backstop poll for the whole layout: if any pane's session.idle was lost
   // (SSE reconnect windows), re-check the server so no spinner outlives its turn.

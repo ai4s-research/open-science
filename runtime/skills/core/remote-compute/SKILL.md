@@ -5,9 +5,38 @@ description: Use when the user asks to run, submit, monitor, or cancel a job on 
 
 # Remote compute over SSH
 
-Run heavy work on the user's own machines over non-interactive SSH with their
-own keys — you never install anything remote and never handle credentials.
-A machine may be a plain server (CPU or GPU, no scheduler) or a Slurm cluster.
+Run heavy work on the user's own machines over SSH with their own keys or their
+own interactive sign-in — you never install anything remote and never handle
+credentials yourself. A machine may be a plain server (CPU or GPU, no scheduler)
+or a Slurm cluster.
+
+## 0 · Always run ssh through the app's config
+
+Every `ssh`, `scp` and `rsync` below passes `-F "$OPENSCIENCE_SSH_CONFIG"`. Write
+it as `$SSHCFG` after defining it once per command you send:
+
+```bash
+SSHCFG="${OPENSCIENCE_SSH_CONFIG:+-F $OPENSCIENCE_SSH_CONFIG}"
+```
+
+That config makes your connection reuse the one the app already authenticated,
+which is what lets clusters with two-factor authentication work at all: the user
+signs in once, and every command after that needs no password or code. Without
+it, such a host refuses every command you send.
+
+### When a host asks for credentials
+
+Many institutional clusters require a password or a one-time code on EVERY new
+connection. If a command fails with a permission or authentication error
+(`Permission denied`, `no supported authentication methods`), do NOT retry, and
+do not report the failure yet: call the **`ssh_connect`** tool with that host.
+It asks the desktop UI to prompt the user, and returns once the shared
+connection is up — then retry your command unchanged.
+
+Two errors that sign-in cannot fix, so do not call the tool for them: a host-key
+error (`Host key verification failed` — the user must verify the fingerprint in
+their own terminal once) and a network error (unreachable, timed out, unknown
+host).
 
 ## 1 · Pick the machine
 
@@ -23,9 +52,10 @@ A machine may be a plain server (CPU or GPU, no scheduler) or a Slurm cluster.
    whose `caps.gpus` is non-empty; a CPU job → any reachable machine. If several
    fit, or none clearly does, ask the user which to use.
 4. Confirm it's reachable and check live headroom before launching:
-   `ssh -o BatchMode=yes -o ConnectTimeout=8 <host> "nproc; free -h; nvidia-smi 2>/dev/null | head -15"`.
-   On "Permission denied", tell the user their key doesn't reach the host — do
-   not retry with passwords.
+   `ssh $SSHCFG -o BatchMode=yes -o ConnectTimeout=8 <host> "nproc; free -h; nvidia-smi 2>/dev/null | head -15"`.
+   On "Permission denied", the host wants credentials interactively: call the
+   `ssh_connect` tool for it (see §0), then retry. Never send a password
+   yourself and never disable host-key checking.
 
 If the chosen machine's `caps.slurm` is set, use **§2-Slurm**. Otherwise use
 **§2-Direct**.
@@ -40,8 +70,8 @@ process, mirroring how the app tracks runs.
    `REMOTE=openscience/jobs/<name>-<YYYYmmdd-HHMMSS>`
 2. Create it and copy inputs (confirm with the user before copying > ~100 MB):
    ```bash
-   ssh -o BatchMode=yes <host> "mkdir -p <remote-dir>"
-   scp -o BatchMode=yes run.sh <input files> <host>:<remote-dir>/
+   ssh $SSHCFG -o BatchMode=yes <host> "mkdir -p <remote-dir>"
+   scp $SSHCFG -o BatchMode=yes run.sh <input files> <host>:<remote-dir>/
    ```
    Write `run.sh` in the workspace first (so it is versioned in provenance);
    it should `cd` into the job dir and run the actual commands, e.g. use
@@ -56,16 +86,16 @@ process, mirroring how the app tracks runs.
    ```
 3. Launch fully detached and capture the PID:
    ```bash
-   ssh -o BatchMode=yes <host> "cd <remote-dir> && \
+   ssh $SSHCFG -o BatchMode=yes <host> "cd <remote-dir> && \
      setsid bash -c 'bash run.sh >log 2>&1; echo \$? > exit_code' </dev/null >/dev/null 2>&1 & \
      echo \$! > pid; cat pid"
    ```
    Report the PID and the remote dir to the user.
 4. **Track:**
-   - Running? `ssh <host> "kill -0 \$(cat <remote-dir>/pid) 2>/dev/null && echo RUNNING || echo DONE"`.
-   - Progress: `ssh <host> "tail -n 30 <remote-dir>/log"`; GPU use:
-     `ssh <host> "nvidia-smi"`.
-   - Finished: `ssh <host> "cat <remote-dir>/exit_code"` — `0` = success, other
+   - Running? `ssh $SSHCFG <host> "kill -0 \$(cat <remote-dir>/pid) 2>/dev/null && echo RUNNING || echo DONE"`.
+   - Progress: `ssh $SSHCFG <host> "tail -n 30 <remote-dir>/log"`; GPU use:
+     `ssh $SSHCFG <host> "nvidia-smi"`.
+   - Finished: `ssh $SSHCFG <host> "cat <remote-dir>/exit_code"` — `0` = success, other
      = failure. Do not assume success from an empty queue. When a run finishes
      you MUST complete §3 (fetch) **and** §4 (record) — every time, including a
      quick re-run or re-fetch. A run you don't record is invisible in Runs
@@ -74,7 +104,7 @@ process, mirroring how the app tracks runs.
      check again later. Do not poll in a loop for more than ~2 minutes.
 5. **Cancel** (only jobs you launched, or a PID/dir the user names): kill the
    whole process group so children die too:
-   `ssh <host> "kill -- -\$(cat <remote-dir>/pid) 2>/dev/null || kill \$(cat <remote-dir>/pid)"`.
+   `ssh $SSHCFG <host> "kill -- -\$(cat <remote-dir>/pid) 2>/dev/null || kill \$(cat <remote-dir>/pid)"`.
 
 ## 2-Slurm · Run on a Slurm cluster
 
@@ -97,14 +127,14 @@ Use this only when `caps.slurm` is set.
 2. Submit:
    ```bash
    REMOTE=openscience/jobs/<job-name>-$(date +%Y%m%d-%H%M%S)
-   ssh -o BatchMode=yes <host> "mkdir -p $REMOTE"
-   scp -o BatchMode=yes slurm/<job-name>.sbatch <input files> <host>:$REMOTE/
-   ssh -o BatchMode=yes <host> "cd $REMOTE && sbatch <job-name>.sbatch"
+   ssh $SSHCFG -o BatchMode=yes <host> "mkdir -p $REMOTE"
+   scp $SSHCFG -o BatchMode=yes slurm/<job-name>.sbatch <input files> <host>:$REMOTE/
+   ssh $SSHCFG -o BatchMode=yes <host> "cd $REMOTE && sbatch <job-name>.sbatch"
    ```
    Parse `Submitted batch job <id>`; remember the literal remote dir.
-3. Track: `ssh <host> "squeue -j <id> -h -o '%T %M'"`; when it returns nothing,
-   `ssh <host> "sacct -j <id> --format=State,Elapsed,ExitCode -n"` or read
-   `slurm-<id>.out`. Cancel: `ssh <host> "scancel <id>"`.
+3. Track: `ssh $SSHCFG <host> "squeue -j <id> -h -o '%T %M'"`; when it returns nothing,
+   `ssh $SSHCFG <host> "sacct -j <id> --format=State,Elapsed,ExitCode -n"` or read
+   `slurm-<id>.out`. Cancel: `ssh $SSHCFG <host> "scancel <id>"`.
 
 ## 3 · Fetch results back
 
@@ -118,11 +148,11 @@ left on the box is not provenance.
 ```bash
 RESULT=results/<job-name>/<YYYYmmdd-HHMMSS>-<pid-or-job-id>
 mkdir -p "$RESULT"
-scp -o BatchMode=yes "<host>:<remote-dir>/log" "<host>:<remote-dir>/env.txt" \
+scp $SSHCFG -o BatchMode=yes "<host>:<remote-dir>/log" "<host>:<remote-dir>/env.txt" \
     "<host>:<remote-dir>/<each output file>" "$RESULT"/
 ```
 `<remote-dir>` is the literal directory you created — name each file explicitly.
-List the job dir first (`ssh <host> "ls -la <remote-dir>"`) so you fetch them all.
+List the job dir first (`ssh $SSHCFG <host> "ls -la <remote-dir>"`) so you fetch them all.
 If you want a convenience "latest" copy, create it only after recording; the
 recorded `--output` paths must stay in the immutable run directory.
 

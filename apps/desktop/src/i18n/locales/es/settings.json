@@ -57,6 +57,24 @@
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
     "mirrorHint": "Espejos opcionales, usados solo al configurar herramientas de Python (Jupyter, bases de datos científicas) en redes donde pypi.org / github.com son lentos. Déjalo en blanco para los valores predeterminados."
   },
+  "acp": {
+    "title": "Agente",
+    "hint": "Qué agente controla esta aplicación: el entorno OpenCode incluido, o cualquier agente que hable el Agent Client Protocol (ACP) por stdio.",
+    "bundled": "OpenCode (incluido)",
+    "bundledHint": "El entorno predeterminado: proveedores, habilidades, modo plan y conversaciones guardadas.",
+    "add": "Añadir un agente",
+    "edit": "Editar",
+    "remove": "Eliminar",
+    "nameLabel": "Nombre",
+    "namePlaceholder": "Nombre (Codex, Gemini CLI, …)",
+    "commandLabel": "Comando",
+    "commandPlaceholder": "Comando (npx, gemini, …)",
+    "argsLabel": "Argumentos",
+    "argsPlaceholder": "Argumentos (-y @agentclientprotocol/codex-acp)",
+    "limits": "Un agente ACP se ejecuta como un comando en este equipo, dentro de la carpeta del espacio de trabajo actual. Gestiona su propio modelo, habilidades e historial, así que el selector de modelo, el modo plan y las conversaciones guardadas siguen siendo de OpenCode: las sesiones iniciadas en un agente ACP solo aparecen mientras la aplicación está abierta.",
+    "running": "Conectado al agente ACP.",
+    "starting": "Iniciando el agente ACP…"
+  },
   "updates": {
     "title": "Actualizaciones de la app",
     "hint": "Consulta GitHub Releases como máximo una vez cada 24 horas",
@@ -127,12 +145,12 @@
     "pasteCode": "Pega el código del navegador",
     "customEndpoint": "Endpoint personalizado",
     "customEndpointHint": "autoalojado · Ollama local · compatible con OpenAI/Anthropic",
-    "customPresetLabel": "Curated provider preset",
-    "customPresetPlaceholder": "Choose a MiniMax endpoint preset",
-    "minimaxGlobalOpenai": "MiniMax · Global · OpenAI-compatible",
-    "minimaxGlobalAnthropic": "MiniMax · Global · Anthropic-compatible",
-    "minimaxCnOpenai": "MiniMax · CN · OpenAI-compatible",
-    "minimaxCnAnthropic": "MiniMax · CN · Anthropic-compatible",
+    "customPresetLabel": "Preajuste de proveedor seleccionado",
+    "customPresetPlaceholder": "Elige un endpoint de MiniMax",
+    "minimaxGlobalOpenai": "MiniMax · Global · compatible con OpenAI",
+    "minimaxGlobalAnthropic": "MiniMax · Global · compatible con Anthropic",
+    "minimaxCnOpenai": "MiniMax · China · compatible con OpenAI",
+    "minimaxCnAnthropic": "MiniMax · China · compatible con Anthropic",
     "customNamePlaceholder": "Nombre — p. ej., Ollama, Mi gateway DeepSeek",
     "openaiCompatible": "Compatible con OpenAI",
     "anthropicCompatible": "Compatible con Anthropic",
@@ -175,9 +193,6 @@
     "browseAs": "Navegar como",
     "isolated": "Aislado: nuevo, sin sesión",
     "showWindow": "Mostrar la ventana del navegador",
-    "headedOffTitle": "¿Ocultar la ventana?",
-    "headedOffBody": "Estás reutilizando tu sesión de Chrome (“{{profile}}”), así que el agente controla tu Chrome real: aun con esto desactivado, normalmente seguirá abriendo una ventana, sobre todo si Chrome ya está abierto. Para un navegador realmente sin ventana (headless), cambia “Browse as” al navegador privado.",
-    "headedOffConfirm": "Desactivar de todos modos",
     "noChrome": "No se encontró Chrome",
     "download": "Descargar un navegador",
     "noChromeWillDownload": "No se detectó Chrome: se descargará un navegador privado en el primer uso.",
@@ -206,6 +221,12 @@
     "unavailable": "disponible en la app de escritorio",
     "change": "Cambiar…",
     "reveal": "Mostrar"
+  },
+  "review": {
+    "title": "Revisión",
+    "hint": "Un agente revisor de solo lectura que audita el trabajo terminado: trazabilidad, estadística, unidades y procedencia.",
+    "autoTitle": "Revisar tras cada turno que cambie archivos",
+    "autoHint": "Ejecuta un turno de modelo adicional en segundo plano por cambio. La conversación sigue disponible; se omiten los turnos de solo lectura."
   },
   "python": {
     "title": "Kernel local de Python",
@@ -319,7 +340,13 @@
     "toast": {
       "couldNotCancel": "No se pudo cancelar {{id}}",
       "jobCanceled": "Trabajo {{id}} cancelado"
-    }
+    },
+    "signIn": "Iniciar sesión",
+    "signInRequired": "requiere iniciar sesión: esta máquina pide una contraseña o un código",
+    "signedIn": "sesión iniciada",
+    "signOut": "Desconectar",
+    "signOutTitle": "Cerrar la conexión compartida con esta máquina",
+    "sharingUnavailable": "pide contraseña o código, lo que requiere conexión compartida de OpenSSH (no disponible en Windows)"
   },
   "remote": {
     "title": "Acceso remoto",
@@ -350,7 +377,10 @@
     "copied": "Copiado al portapapeles",
     "error": "Error al cambiar el acceso remoto",
     "connect": "Conectar",
-    "connectPrompt": "Introduce el token de acceso de la app de escritorio → Ajustes → Acceso remoto."
+    "connectPrompt": "Introduce el token de acceso de la app de escritorio → Ajustes → Acceso remoto.",
+    "acpTitle": "Editores externos (ACP)",
+    "acpHint": "Controla este espacio de trabajo desde Zed, JetBrains, Neovim o cualquier editor que hable el Agent Client Protocol. Pega esta entrada de agente en la configuración del editor; se conecta por la pasarela de arriba, con el acceso que permita el token.",
+    "acpNodeHint": "El editor lanza este script con Node 18+. El token se pasa por el entorno, no en la línea de comandos."
   },
   "memory": {
     "title": "Memoria",
@@ -370,11 +400,25 @@
     "disabledNote": "La memoria está desactivada, así que este archivo no se carga ahora mismo."
   },
   "agentModels": {
-    "title": "Modelo por agente",
-    "hint": "Ejecuta un revisor o explorador en un modelo rápido mientras el agente principal razona en uno potente.",
+    "title": "Modelo y esfuerzo por agente",
+    "hint": "Ejecuta un revisor o explorador en un modelo rápido mientras el agente principal razona en uno potente, y fija cuánto piensa cada uno.",
     "noModels": "Conecta un proveedor para elegir modelos.",
     "followDefault": "Modelo predeterminado",
     "followDefaultNamed": "Predeterminado ({{model}})",
-    "modelFor": "Modelo para {{agent}}"
+    "modelFor": "Modelo para {{agent}}",
+    "defaultEffort": "Esfuerzo predeterminado",
+    "effortFor": "Esfuerzo de razonamiento para {{agent}}",
+    "primaryHint": "build y plan ejecutan los mensajes que envías. El modelo definido aquí se aplica salvo que elijas uno dentro de una conversación, que prevalece solo en esa conversación."
+  },
+  "ssh": {
+    "title": "Iniciar sesión en {{host}}",
+    "hint": "Esta máquina autentica de forma interactiva. Inicia sesión una vez y cada comando posterior — tuyo o del agente — reutiliza la misma conexión.",
+    "connecting": "Conectando…",
+    "failed": "No se pudo iniciar sesión.",
+    "submit": "Continuar",
+    "close": "Cerrar",
+    "reveal": "Mostrar lo escrito",
+    "hide": "Ocultar lo escrito",
+    "privacy": "Solo se envía al ssh de este equipo. Nunca se guarda, ni se registra, ni entra en la procedencia."
   }
 }

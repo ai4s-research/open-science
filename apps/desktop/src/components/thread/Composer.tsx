@@ -34,8 +34,11 @@ import {
   walkWorkspace,
 } from "@/components/thread/references";
 import { ModelPicker } from "@/components/thread/ModelPicker";
+import { AcpConfigPicker } from "@/components/thread/AcpConfigPicker";
+import type { AcpConfigOption } from "@ai4s/sdk/acp";
 import { WorkspaceChip } from "@/components/thread/WorkspaceChip";
 import { useUiStore } from "@/lib/store";
+import { parkDraft, unparkDraft, type ComposerDraft } from "@/lib/composerStash";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { isGatewayWeb } from "@/lib/webMode";
@@ -136,12 +139,17 @@ export function Composer({
   onAgentModeChange,
   showModelPicker,
   modelSessionId,
+  configOptions,
+  onConfigOption,
   showWorkspaceChip = true,
+  draftKey,
   sessionDir,
   currentSessionId,
   onInteract,
 }: {
-  onSend?: (text: string) => void;
+  /** `attachments` are the chip file names, omitted when there are none. The
+   *  text already names them; the list lets the send attach the images too. */
+  onSend?: (text: string, attachments?: string[]) => void;
   onRunShell?: (command: string) => void;
   onRunCommand?: (name: string, args: string) => void;
   commands?: ComposerCommand[];
@@ -165,9 +173,16 @@ export function Composer({
   /** Bind the model picker to a session (per-pane model/effort); omit for the
    *  global default. */
   modelSessionId?: string;
+  /** An ACP agent's OWN session selectors (model, reasoning level, mode). They
+   *  replace the model picker when an ACP agent is driving: the agent owns its
+   *  model, and these are the choices it actually offers (#14). */
+  configOptions?: AcpConfigOption[];
+  onConfigOption?: (configId: string, value: string) => void;
   /** Show the draft workspace-folder chip. Only the draft pane opts in — in a
    *  split layout the other panes already have a bound session/folder. */
   showWorkspaceChip?: boolean;
+  /** This pane's draft slot, so the folder chip names THIS draft's destination. */
+  draftKey?: string;
   /** Workspace folder the `@` picker lists files from; omit to offer none. */
   sessionDir?: string;
   /** This pane's session, excluded from the `#` picker (referencing the
@@ -202,8 +217,12 @@ export function Composer({
       description: t("composer.agent.plan.description"),
     },
   };
-  const [value, setValue] = useState("");
-  const [files, setFiles] = useState<string[]>([]);
+  // Reclaim whatever this pane had typed before it was last unmounted (a screen
+  // switch tears panes down). Unparked once, on mount, so the two states below
+  // seed from the same draft.
+  const [restored] = useState(() => (draftKey ? unparkDraft(draftKey) : null));
+  const [value, setValue] = useState(restored?.text ?? "");
+  const [files, setFiles] = useState<string[]>(restored?.files ?? []);
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   /** Highlighted palette row; clamped to the current matches. */
@@ -254,6 +273,16 @@ export function Composer({
   const allSessions = useRuntimeStore((s) => s.sessions);
   const composerDraft = useUiStore((s) => s.composerDraft);
   const setComposerDraft = useUiStore((s) => s.setComposerDraft);
+
+  // Hand the unsent draft back when this pane unmounts, so returning to its
+  // screen finds it again. The ref keeps the cleanup off the render deps: it
+  // must run on unmount, not on every keystroke.
+  const draftRef = useRef<ComposerDraft>({ text: value, files });
+  draftRef.current = { text: value, files };
+  useEffect(() => {
+    if (!draftKey) return;
+    return () => parkDraft(draftKey, draftRef.current);
+  }, [draftKey]);
 
   const shellMode = !!onRunShell && !command && value.startsWith("!");
   // The palette is open while the command NAME is being typed ("/na…"); the
@@ -419,16 +448,21 @@ export function Composer({
     const fileNote =
       files.length > 0 ? `Files added to the workspace: ${files.join(", ")}` : "";
     const base = text && fileNote ? `${text}\n\n${fileNote}` : text || fileNote;
+    // The chips travel with the text: the note names the workspace copy, and the
+    // names let the send turn images into real multimodal parts (#88). Passed
+    // only when there are chips, so a plain send keeps its one-argument shape.
+    const attachments = files.length > 0 ? [...files] : null;
+    const send = (t: string) => (attachments ? onSend?.(t, attachments) : onSend?.(t));
     if (refSessions.length > 0) {
       // Referenced conversations are fetched and condensed before sending, so
       // the agent gets the earlier context without the user copy-pasting it.
       const attached = [...refSessions];
       setRefSessions([]);
       void buildReferences(attached).then((blocks) =>
-        onSend?.(blocks ? `${blocks}\n\n${base}` : base),
+        send(blocks ? `${blocks}\n\n${base}` : base),
       );
     } else {
-      onSend?.(base);
+      send(base);
     }
     if (text) recordHistory(text);
     setValue("");
@@ -887,7 +921,7 @@ export function Composer({
         )}
         {/* Folder picker for a fresh draft — renders nothing once the session
             exists (its folder then shows in the header's Files toggle). */}
-        {showWorkspaceChip && <WorkspaceChip />}
+        {showWorkspaceChip && <WorkspaceChip draftKey={draftKey} />}
         {agentMode && onAgentModeChange && (
           <div className="relative shrink-0" ref={agentRef}>
             {agentOpen && (
@@ -997,6 +1031,9 @@ export function Composer({
             unit) so the send button is always reachable on a narrow pane. */}
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
           {showModelPicker && <ModelPicker sessionId={modelSessionId} />}
+          {configOptions && onConfigOption && (
+            <AcpConfigPicker options={configOptions} onChange={onConfigOption} disabled={working} />
+          )}
           {working && onStop ? (
             // Same spot, same shape, one action: the send button becomes Stop
             // while the agent works — always live, even though the input is not.

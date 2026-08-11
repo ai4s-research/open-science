@@ -74,7 +74,8 @@
       "detectionUnavailable": "Environment detection runs in the desktop app.",
       "found": "found",
       "notFound": "not found",
-      "note": "OpenCode runs code with whatever is installed here (e.g. Python via its shell tool). Python/R/Jupyter are not bundled; install them or a Science Pack to enable analysis."
+      "appManaged": "app-managed",
+      "note": "OpenCode runs code with whatever is installed here (e.g. Python via its shell tool). uv ships with the app, and Jupyter can be app-managed in Settings → Connectors. Python and R are not bundled — install them or a Science Pack to enable analysis."
     },
     "agentsSection": {
       "sectionTitle": "Agents ({{count}})",

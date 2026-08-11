@@ -57,6 +57,24 @@
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
     "mirrorHint": "Optionale Spiegelserver, nur beim Einrichten von Python-Tools (Jupyter, Wissenschaftsdatenbanken) in Netzwerken verwendet, in denen pypi.org / github.com langsam sind. Leer lassen für Standardwerte."
   },
+  "acp": {
+    "title": "Agent",
+    "hint": "Welchen Agenten diese App steuert: die mitgelieferte OpenCode-Laufzeit oder einen beliebigen Agenten, der das Agent Client Protocol (ACP) über stdio spricht.",
+    "bundled": "OpenCode (mitgeliefert)",
+    "bundledHint": "Die Standardlaufzeit – Anbieter, Skills, Planmodus und gespeicherte Unterhaltungen.",
+    "add": "Agenten hinzufügen",
+    "edit": "Bearbeiten",
+    "remove": "Entfernen",
+    "nameLabel": "Name",
+    "namePlaceholder": "Name (Codex, Gemini CLI, …)",
+    "commandLabel": "Befehl",
+    "commandPlaceholder": "Befehl (npx, gemini, …)",
+    "argsLabel": "Argumente",
+    "argsPlaceholder": "Argumente (-y @agentclientprotocol/codex-acp)",
+    "limits": "Ein ACP-Agent läuft als Befehl auf diesem Rechner, im aktuellen Arbeitsbereich-Ordner. Er verwaltet Modell, Skills und Verlauf selbst – Modellauswahl, Planmodus und gespeicherte Unterhaltungen bleiben bei OpenCode, und auf einem ACP-Agenten gestartete Sitzungen erscheinen nur, solange die App läuft.",
+    "running": "Mit dem ACP-Agenten verbunden.",
+    "starting": "ACP-Agent wird gestartet…"
+  },
   "updates": {
     "title": "App-Updates",
     "hint": "Prüft GitHub Releases höchstens einmal alle 24 Stunden",
@@ -127,12 +145,12 @@
     "pasteCode": "Den Code aus dem Browser einfügen",
     "customEndpoint": "Benutzerdefinierter Endpunkt",
     "customEndpointHint": "selbst gehostet · lokales Ollama · OpenAI-/Anthropic-kompatibel",
-    "customPresetLabel": "Curated provider preset",
-    "customPresetPlaceholder": "Choose a MiniMax endpoint preset",
-    "minimaxGlobalOpenai": "MiniMax · Global · OpenAI-compatible",
-    "minimaxGlobalAnthropic": "MiniMax · Global · Anthropic-compatible",
-    "minimaxCnOpenai": "MiniMax · CN · OpenAI-compatible",
-    "minimaxCnAnthropic": "MiniMax · CN · Anthropic-compatible",
+    "customPresetLabel": "Kuratierte Anbietervoreinstellung",
+    "customPresetPlaceholder": "MiniMax-Endpunkt auswählen",
+    "minimaxGlobalOpenai": "MiniMax · Global · OpenAI-kompatibel",
+    "minimaxGlobalAnthropic": "MiniMax · Global · Anthropic-kompatibel",
+    "minimaxCnOpenai": "MiniMax · China · OpenAI-kompatibel",
+    "minimaxCnAnthropic": "MiniMax · China · Anthropic-kompatibel",
     "customNamePlaceholder": "Name — z. B. Ollama, Mein DeepSeek-Gateway",
     "openaiCompatible": "OpenAI-kompatibel",
     "anthropicCompatible": "Anthropic-kompatibel",
@@ -175,9 +193,6 @@
     "browseAs": "Surfen als",
     "isolated": "Isoliert – neu, abgemeldet",
     "showWindow": "Browserfenster anzeigen",
-    "headedOffTitle": "Fenster ausblenden?",
-    "headedOffBody": "Du verwendest deine Chrome-Anmeldung erneut („{{profile}}“), daher steuert der Agent dein echtes Chrome – selbst wenn dies aus ist, öffnet sich meist trotzdem ein Fenster, besonders wenn Chrome bereits läuft. Für einen echten fensterlosen (Headless-)Browser stelle „Browse as“ auf den privaten Browser um.",
-    "headedOffConfirm": "Trotzdem ausschalten",
     "noChrome": "Kein Chrome gefunden",
     "download": "Browser herunterladen",
     "noChromeWillDownload": "Kein Chrome erkannt – beim ersten Gebrauch wird ein privater Browser heruntergeladen.",
@@ -206,6 +221,12 @@
     "unavailable": "in der Desktop-App verfügbar",
     "change": "Ändern…",
     "reveal": "Anzeigen"
+  },
+  "review": {
+    "title": "Prüfung",
+    "hint": "Ein rein lesender Prüfagent, der fertige Arbeit auf Nachvollziehbarkeit, Statistik, Einheiten und Herkunft prüft.",
+    "autoTitle": "Nach jedem Zug prüfen, der Dateien ändert",
+    "autoHint": "Führt pro Änderung einen zusätzlichen Modellzug im Hintergrund aus. Die Unterhaltung bleibt nutzbar; rein lesende Züge werden übersprungen."
   },
   "python": {
     "title": "Lokaler Python-Kernel",
@@ -319,7 +340,13 @@
     "toast": {
       "couldNotCancel": "{{id}} konnte nicht abgebrochen werden",
       "jobCanceled": "Job {{id}} abgebrochen"
-    }
+    },
+    "signIn": "Anmelden",
+    "signInRequired": "Anmeldung erforderlich — diese Maschine verlangt ein Passwort oder einen Code",
+    "signedIn": "angemeldet",
+    "signOut": "Trennen",
+    "signOutTitle": "Die geteilte Verbindung zu dieser Maschine schließen",
+    "sharingUnavailable": "verlangt Passwort oder Code; das setzt OpenSSH-Verbindungsteilung voraus (unter Windows nicht verfügbar)"
   },
   "remote": {
     "title": "Fernzugriff",
@@ -350,7 +377,10 @@
     "copied": "In die Zwischenablage kopiert",
     "error": "Ändern des Fernzugriffs fehlgeschlagen",
     "connect": "Verbinden",
-    "connectPrompt": "Gib das Zugriffstoken aus der Desktop-App ein → Einstellungen → Fernzugriff."
+    "connectPrompt": "Gib das Zugriffstoken aus der Desktop-App ein → Einstellungen → Fernzugriff.",
+    "acpTitle": "Externe Editoren (ACP)",
+    "acpHint": "Diesen Arbeitsbereich aus Zed, JetBrains, Neovim oder jedem Editor steuern, der das Agent Client Protocol spricht. Diesen Agenten-Eintrag in die Editor-Einstellungen einfügen; er verbindet sich über das obige Gateway, mit den Rechten des Tokens.",
+    "acpNodeHint": "Der Editor startet dieses Skript mit Node 18+. Das Token wird über die Umgebung übergeben, nicht auf der Kommandozeile."
   },
   "memory": {
     "title": "Gedächtnis",
@@ -370,11 +400,25 @@
     "disabledNote": "Das Gedächtnis ist ausgeschaltet, diese Datei wird derzeit nicht geladen."
   },
   "agentModels": {
-    "title": "Modell je Agent",
-    "hint": "Lassen Sie Prüf- oder Rechercheagenten auf einem schnellen Modell laufen, während der Hauptagent auf einem starken denkt.",
+    "title": "Modell und Denkaufwand je Agent",
+    "hint": "Lassen Sie Prüf- oder Rechercheagenten auf einem schnellen Modell laufen, während der Hauptagent auf einem starken denkt, und legen Sie je Agent fest, wie intensiv er denkt.",
     "noModels": "Verbinden Sie einen Anbieter, um Modelle zu wählen.",
     "followDefault": "Standardmodell",
     "followDefaultNamed": "Standard ({{model}})",
-    "modelFor": "Modell für {{agent}}"
+    "modelFor": "Modell für {{agent}}",
+    "defaultEffort": "Standardaufwand",
+    "effortFor": "Denkaufwand für {{agent}}",
+    "primaryHint": "build und plan führen die Nachrichten aus, die du sendest. Ein hier gesetztes Modell gilt, sofern du nicht innerhalb einer Unterhaltung eines wählst — das gewinnt nur dort."
+  },
+  "ssh": {
+    "title": "Bei {{host}} anmelden",
+    "hint": "Diese Maschine authentifiziert interaktiv. Melden Sie sich einmal an — jeder weitere Befehl, Ihrer wie der des Agenten, nutzt dieselbe Verbindung.",
+    "connecting": "Verbinden…",
+    "failed": "Anmeldung fehlgeschlagen.",
+    "submit": "Weiter",
+    "close": "Schließen",
+    "reveal": "Eingabe anzeigen",
+    "hide": "Eingabe verbergen",
+    "privacy": "Geht nur an das ssh auf diesem Rechner. Wird nie gespeichert, protokolliert oder in die Provenienz geschrieben."
   }
 }

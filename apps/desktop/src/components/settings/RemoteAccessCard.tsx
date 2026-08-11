@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Copy, Eye, EyeOff, Globe, Laptop, RefreshCw, ShieldAlert } from "lucide-react";
+import { Copy, Eye, EyeOff, Globe, Laptop, Plug, RefreshCw, ShieldAlert } from "lucide-react";
 import { Row, Section, Switch } from "@/components/settings/Section";
 import { chipCls } from "@/components/settings/inputCls";
 import { toast } from "@/lib/toast";
 import {
+  acpServerScript,
   getGatewayStatus,
   isTauri,
   regenerateGatewayToken,
@@ -21,6 +22,12 @@ export function RemoteAccessCard() {
   const [status, setStatus] = useState<GatewayStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [reveal, setReveal] = useState(false);
+  /** Where the bundled ACP agent lives, so the editor snippet is a real path
+   *  the user can paste (#14, server direction). */
+  const [acpScript, setAcpScript] = useState<string | null>(null);
+  useEffect(() => {
+    void acpServerScript().then(setAcpScript);
+  }, []);
 
   const refresh = useCallback(() => {
     void getGatewayStatus().then(setStatus);
@@ -189,10 +196,64 @@ export function RemoteAccessCard() {
               </div>
               <p className="mt-2 text-xs leading-relaxed text-muted">{t("remote.openHint")}</p>
             </Row>
+
+            {/* External editors (ACP): the agent entry to paste into Zed,
+                JetBrains, Neovim — anything that drives an ACP agent (#14). */}
+            {acpScript && status?.loopbackUrl && (
+              <Row title={t("remote.acpTitle")} hint={t("remote.acpHint")}>
+                <div className="mt-2.5 flex items-start gap-2">
+                  <span className="mt-2 text-muted">
+                    <Plug size={13} />
+                  </span>
+                  <pre className="min-w-0 flex-1 overflow-x-auto rounded-input bg-surface-2 px-3 py-2 font-mono text-[12px] leading-relaxed text-text">
+{/* eslint-disable-next-line i18next/no-literal-string -- the placeholder inside a JSON snippet the user pastes verbatim; translating it would break the config */}
+                    {acpAgentEntry(acpScript, status.loopbackUrl, reveal ? status.token : "<token>")}
+                  </pre>
+                  <button
+                    type="button"
+                    className="mt-1 rounded-input p-2 text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                    aria-label={t("remote.copy")}
+                    title={t("remote.copy")}
+                    onClick={() =>
+                      void copy(acpAgentEntry(acpScript, status.loopbackUrl!, status.token))
+                    }
+                  >
+                    <Copy size={15} />
+                  </button>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted">{t("remote.acpNodeHint")}</p>
+              </Row>
+            )}
           </>
         )}
       </div>
     </Section>
+  );
+}
+
+/**
+ * The agent entry an ACP client takes: a command, its arguments, and the token
+ * in the ENVIRONMENT rather than on the command line — an argument list is
+ * visible to every process on the machine, and this token is full access to the
+ * workspace.
+ *
+ * The shape (command / args / env) is what ACP clients configure custom agents
+ * with; the JSON here is Zed's `agent_servers` entry, which the others read
+ * closely enough to adapt.
+ */
+function acpAgentEntry(script: string, url: string, token: string): string {
+  return JSON.stringify(
+    {
+      agent_servers: {
+        "Open Science": {
+          command: "node",
+          args: [script, "--url", url],
+          env: { OPENSCIENCE_GATEWAY_TOKEN: token },
+        },
+      },
+    },
+    null,
+    2,
   );
 }
 

@@ -115,6 +115,51 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     expect(models.find((m) => m.id === "gpt-4")?.variants).toEqual([]);
   });
 
+  it("surfaces a model's whole effort vocabulary including `max` (#74)", async () => {
+    // From 1.18 on, OpenCode builds a model's variants from the catalog's own
+    // `reasoning_options`, so the top of the range is whatever the catalog says —
+    // `max` for the GPT-5.6 family. The bundled 1.17.13 stopped at `xhigh`, which
+    // is why the app's effort control did too. Nothing here is an allowlist: the
+    // names come from the runtime and only their ORDER is ours.
+    const body = {
+      providers: [
+        {
+          id: "openai",
+          name: "OpenAI",
+          models: {
+            "gpt-5.6-sol": {
+              name: "GPT-5.6 Sol",
+              // Scrambled, and `max` deliberately not last on the wire.
+              variants: { max: {}, low: {}, none: {}, xhigh: {}, high: {}, medium: {} },
+            },
+            // An unknown level must survive rather than be dropped — a future
+            // runtime may name one we have never heard of.
+            "future-model": { name: "Future", variants: { low: {}, ultra: {}, high: {} } },
+          },
+        },
+      ],
+    };
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify(body), { status: 200 });
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    const models = (await client.listProviders())[0].models;
+    expect(models.find((m) => m.id === "gpt-5.6-sol")?.variants).toEqual([
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    // Known levels keep their progression; the unrecognized one lands after them.
+    expect(models.find((m) => m.id === "future-model")?.variants).toEqual([
+      "low",
+      "high",
+      "ultra",
+    ]);
+  });
+
   it("runs a shell command: bash tool part + session.idle stream back", async () => {
     const events: OpenCodeEvent[] = [];
     const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
@@ -491,9 +536,14 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
     });
   });
 
-  it("serializes the curated MiniMax model metadata", async () => {
+  it.each([
+    ["minimax-global-openai", "@ai-sdk/openai-compatible", "https://api.minimax.io/v1"],
+    ["minimax-global-anthropic", "@ai-sdk/anthropic", "https://api.minimax.io/anthropic"],
+    ["minimax-cn-openai", "@ai-sdk/openai-compatible", "https://api.minimaxi.com/v1"],
+    ["minimax-cn-anthropic", "@ai-sdk/anthropic", "https://api.minimaxi.com/anthropic"],
+  ])("serializes the %s preset without misleading flat-rate cost metadata", async (presetId, npm, baseURL) => {
     const { fetchImpl, patches } = mockGlobalConfig();
-    const preset = MINIMAX_CUSTOM_PROVIDER_PRESETS.find((p) => p.id === "minimax-global-anthropic")!;
+    const preset = MINIMAX_CUSTOM_PROVIDER_PRESETS.find((candidate) => candidate.id === presetId)!;
     const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
 
     await client.addCustomProvider(preset.providerId, {
@@ -503,11 +553,12 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
       models: preset.models,
     });
 
-    const models = patches[patches.length - 1].provider.minimax.models!;
+    const provider = patches[patches.length - 1].provider.minimax;
+    expect(provider).toMatchObject({ npm, options: { baseURL } });
+    const models = provider.models!;
     expect(models["MiniMax-M3"]).toMatchObject({
       name: "MiniMax-M3",
       limit: { context: 1_000_000, output: 0 },
-      cost: { input: 0.6, output: 2.4, cache_read: 0.12 },
       modalities: { input: ["text", "image", "video"] },
       reasoning: true,
       variants: {
@@ -518,10 +569,11 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
     expect(models["MiniMax-M2.7"]).toMatchObject({
       name: "MiniMax-M2.7",
       limit: { context: 204_800, output: 0 },
-      cost: { input: 0.3, output: 1.2, cache_read: 0.06, cache_write: 0.375 },
       modalities: { input: ["text"] },
       reasoning: true,
     });
+    expect(models["MiniMax-M3"]).not.toHaveProperty("cost");
+    expect(models["MiniMax-M2.7"]).not.toHaveProperty("cost");
     expect(models["MiniMax-M2.7"]).not.toHaveProperty("variants");
   });
 
@@ -582,6 +634,35 @@ describe("per-prompt model pinning (#8: old sessions follow the current default)
     expect(bodies[0]).toMatchObject({ model: { providerID: "anthropic", modelID: "claude-opus-4-8" } });
     expect(bodies[1]).not.toHaveProperty("model");
     expect(bodies[2]).not.toHaveProperty("model");
+    client.close();
+  });
+});
+
+describe("image attachments (#88: a vision model must see the figure, not its name)", () => {
+  it("sends each attachment as a file part beside the text, and none when there are none", async () => {
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    await client.connect();
+    const sessionId = await client.createSession();
+    const before = server.promptBodies.length;
+
+    await client.sendPrompt(sessionId, "inspect this figure", undefined, null, null, [
+      { filename: "pasted.png", mime: "image/png", url: "data:image/png;base64,UE5H" },
+    ]);
+    await client.sendPrompt(sessionId, "no attachment");
+
+    const bodies = server.promptBodies.slice(before) as Array<{ parts: Array<Record<string, unknown>> }>;
+    expect(bodies[0].parts).toEqual([
+      { type: "text", text: "inspect this figure" },
+      {
+        type: "file",
+        mime: "image/png",
+        filename: "pasted.png",
+        // A data: URL, never file:// — OpenCode answers 204 to a file:// url and
+        // then stores no message at all, silently losing the turn.
+        url: "data:image/png;base64,UE5H",
+      },
+    ]);
+    expect(bodies[1].parts).toEqual([{ type: "text", text: "no attachment" }]);
     client.close();
   });
 });

@@ -67,3 +67,6 @@ videos/
 # Local video-production tooling (fetched hyperframes skill packs)
 .agents/
 skills-lock.json
+
+# Build output: the ACP agent script an editor spawns (scripts/build-acp-server.mjs)
+runtime/acp-server/

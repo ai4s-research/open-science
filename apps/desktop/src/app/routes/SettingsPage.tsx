@@ -20,7 +20,7 @@ import type {
   ProviderCatalogEntry,
   ProviderInfo,
 } from "@ai4s/sdk";
-import { MINIMAX_CUSTOM_PROVIDER_PRESETS } from "@ai4s/sdk";
+import { MINIMAX_CUSTOM_PROVIDER_PRESETS, OPENCODE_VERSION } from "@ai4s/sdk";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
 import { useUiStore, ZOOM_MAX, ZOOM_MIN } from "@/lib/store";
@@ -29,6 +29,7 @@ import { getClient, useRuntimeStore } from "@/lib/runtime";
 import { useUpdateStore } from "@/lib/update";
 import {
   agentBrowserProfiles,
+  closeAgentBrowser,
   detectChrome,
   setupBrowserChrome,
   type BrowserProfile,
@@ -59,8 +60,10 @@ import {
   type ProbedModel,
 } from "@/lib/tauri";
 import { useSetupStore } from "@/lib/setup";
+import { customProviderId } from "@/lib/customProviderId";
 import { RemoteComputeCard } from "@/components/settings/RemoteComputeCard";
 import { RemoteAccessCard } from "@/components/settings/RemoteAccessCard";
+import { AcpAgentsCard } from "@/components/settings/AcpAgentsCard";
 import { ModalCard } from "@/components/settings/ModalCard";
 import { DataFlowCard } from "@/components/settings/DataFlowCard";
 import { ModelBrowser } from "@/components/settings/ModelBrowser";
@@ -69,7 +72,6 @@ import { ProviderManagerCard } from "@/components/settings/ProviderManagerCard";
 import { AgentModelsCard } from "@/components/settings/AgentModelsCard";
 import { MemoryCard } from "@/components/settings/MemoryCard";
 import { Row, Section, Switch } from "@/components/settings/Section";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { resolveSection } from "@/components/settings/sections";
 import { chipCls, inputCls, selectCls } from "@/components/settings/inputCls";
 import { SCIENCE_CONNECTORS } from "@/lib/scienceConnectors";
@@ -109,6 +111,9 @@ export function SettingsPage() {
   const disconnect = useRuntimeStore((s) => s.disconnect);
   const defaultModel = useRuntimeStore((s) => s.defaultModel);
   const loadCatalog = useRuntimeStore((s) => s.loadCatalog);
+  const runtimeKind = useRuntimeStore((s) => s.runtimeKind);
+  const autoReview = useRuntimeStore((s) => s.autoReview);
+  const setAutoReview = useRuntimeStore((s) => s.setAutoReview);
   const connected = status === "ready";
   const updateEnabled = useUpdateStore((s) => s.enabled);
   const setUpdateEnabled = useUpdateStore((s) => s.setEnabled);
@@ -157,10 +162,6 @@ export function SettingsPage() {
   const [chrome, setChrome] = useState<ChromeInfo | null>(null);
   const [browserProfile, setBrowserProfile] = useState(""); // "" ⇒ isolated
   const [browserHeaded, setBrowserHeaded] = useState(false);
-  // Turning the window OFF while reusing a real Chrome login can't truly go
-  // headless (agent-browser drives your real Chrome in place), so we confirm
-  // before allowing it — the flag stays on until the user says "off anyway".
-  const [confirmHeadedOff, setConfirmHeadedOff] = useState(false);
   const [browserTools, setBrowserTools] = useState("core");
   const [browserDomains, setBrowserDomains] = useState(""); // one pattern per line
   // The interpreter local Python kernels resolve to + the manual override input.
@@ -683,7 +684,7 @@ export function SettingsPage() {
 
   const saveCustom = () =>
     run(t("toast.couldNotAddEndpoint"), async () => {
-      const id = cName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const id = customProviderId(cName);
       const models = modelList(cModels);
       if (!id || !cUrl.trim() || models.length === 0) {
         toast.error(t("toast.endpointFieldsRequired"));
@@ -762,6 +763,7 @@ export function SettingsPage() {
 
   const disableBrowser = () =>
     run(t("toast.couldNotRemoveMcp"), async () => {
+      await closeAgentBrowser();
       await removeConfigEntry("mcp", BROWSER_MCP_ID);
       await useRuntimeStore.getState().connectRetry();
       toast.success(t("toast.mcpRemoved", { name: t("browser.label") }));
@@ -860,6 +862,15 @@ export function SettingsPage() {
                     <>
                       <span className="text-border">·</span>
                       <span className="font-mono">{defaultModel}</span>
+                    </>
+                  )}
+                  {/* The bundled agent runtime, so a user with their own OpenCode
+                      install can tell the two apart (#74). Shown on the desktop
+                      only: the web client talks to whatever the host bundles. */}
+                  {isTauri && (
+                    <>
+                      <span className="text-border">·</span>
+                      <span className="font-mono">{`OpenCode ${OPENCODE_VERSION}`}</span>
                     </>
                   )}
                 </span>
@@ -1620,16 +1631,7 @@ export function SettingsPage() {
                 control={
                   <Switch
                     checked={browserHeaded}
-                    onChange={(next) => {
-                      // Reusing a real, named Chrome profile drives your live
-                      // Chrome in place — it can't truly hide the window. Warn
-                      // before turning it off; private/isolated profiles go
-                      // headless cleanly, so switch those without a prompt.
-                      const reusesRealLogin =
-                        browserProfile !== PRIVATE_BROWSER && browserProfile.trim() !== "";
-                      if (!next && reusesRealLogin) setConfirmHeadedOff(true);
-                      else setBrowserHeaded(next);
-                    }}
+                    onChange={setBrowserHeaded}
                     label={t("browser.showWindow")}
                   />
                 }
@@ -1685,22 +1687,6 @@ export function SettingsPage() {
               </div>
             </div>
           )}
-          {confirmHeadedOff && (
-            <ConfirmDialog
-              title={t("browser.headedOffTitle")}
-              body={t("browser.headedOffBody", {
-                profile:
-                  browserProfiles.find((p) => p.directory === browserProfile)?.name ??
-                  browserProfile,
-              })}
-              confirmLabel={t("browser.headedOffConfirm")}
-              onConfirm={() => {
-                setBrowserHeaded(false);
-                setConfirmHeadedOff(false);
-              }}
-              onCancel={() => setConfirmHeadedOff(false)}
-            />
-          )}
         </Section>
         )}
 
@@ -1724,6 +1710,28 @@ export function SettingsPage() {
           </div>
         </Section>
         )}
+
+        {/* ---- Review ---- */}
+        {section === "general" && runtimeKind !== "acp" && (
+        <Section title={t("review.title")} hint={t("review.hint")} flush>
+          <div className="divide-y divide-faint">
+            <Row
+              title={t("review.autoTitle")}
+              hint={t("review.autoHint")}
+              control={
+                <Switch
+                  checked={autoReview}
+                  onChange={setAutoReview}
+                  label={t("review.autoTitle")}
+                />
+              }
+            />
+          </div>
+        </Section>
+        )}
+
+        {/* ---- Which agent this app drives: OpenCode, or an ACP agent (#14) ---- */}
+        {section === "runtime" && <AcpAgentsCard />}
 
         {/* ---- Local Python kernel ---- */}
         {section === "runtime" && isTauri && (

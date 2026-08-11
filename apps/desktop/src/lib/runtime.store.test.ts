@@ -23,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   /** Next renameSession call is rejected by the server. */
   failRename: false,
   createSessionSpy: vi.fn(),
+  forkSessionSpy: vi.fn(),
+  appendTextPartSpy: vi.fn(),
+  setSessionArchivedSpy: vi.fn(),
+  reviewSessionCounter: 0,
   sendPromptSpy: vi.fn(),
   /** Captures the FULL sendPrompt arg list (incl. model + variant) — the plain
    *  spy above deliberately ignores those, so existing 3-arg assertions hold. */
@@ -53,6 +57,8 @@ const mocks = vi.hoisted(() => ({
   failSetModel: false,
   /** History the mock server returns for any session. */
   messages: [] as unknown[],
+  /** Optional pause for exercising cancellation while review setup awaits history. */
+  messagesGate: null as Promise<void> | null,
   /** Next getMessages call throws. */
   failMessages: false,
   /** Next runShell call throws (HTTP-level failure). */
@@ -102,12 +108,22 @@ vi.mock("./systemNotification", () => ({
 vi.mock("@ai4s/sdk", () => {
   class OpenCodeClient {
     private statusCb: (s: string) => void = () => {};
+    /** The real client keeps its status (BaseAgentRuntime); the store reads it
+     *  after connecting rather than waiting for a transition. */
+    private status = "offline";
     constructor(opts: Record<string, unknown>) {
       mocks.clientOpts.push(opts);
     }
+    getStatus() {
+      return this.status;
+    }
     onStatus(cb: (s: string) => void) {
-      this.statusCb = cb;
-      mocks.fireStatus = cb;
+      const wrapped = (s: string) => {
+        this.status = s;
+        cb(s);
+      };
+      this.statusCb = wrapped;
+      mocks.fireStatus = wrapped;
       return () => {
         this.statusCb = () => {};
       };
@@ -162,6 +178,18 @@ vi.mock("@ai4s/sdk", () => {
       }
       return "ses_new";
     }
+    async forkSession(sid: string, messageId?: string) {
+      mocks.forkSessionSpy(sid, messageId);
+      mocks.reviewSessionCounter++;
+      return `ses_review_${mocks.reviewSessionCounter}`;
+    }
+    async appendTextPart(sid: string, messageId: string, text: string, partId?: string) {
+      mocks.appendTextPartSpy(sid, messageId, text, partId);
+      return partId ?? "prt_mock";
+    }
+    async setSessionArchived(sid: string, archived: boolean) {
+      mocks.setSessionArchivedSpy(sid, archived);
+    }
     async sendPrompt(
       sid: string,
       text: string,
@@ -214,6 +242,7 @@ vi.mock("@ai4s/sdk", () => {
     async getMessages(sid: string) {
       mocks.getMessages(sid);
       if (mocks.failMessages) throw new Error("history hung");
+      if (mocks.messagesGate) await mocks.messagesGate;
       return mocks.messages;
     }
     async revert(sid: string, messageID: string, partID?: string) {
@@ -243,6 +272,7 @@ vi.mock("@ai4s/sdk", () => {
 
 import type { ArtifactBlock } from "@ai4s/shared";
 import { DRAFT_KEY, rootSessionOf, useRuntimeStore } from "./runtime";
+import { useSshStore } from "./ssh";
 import { leaves, makeLeaf, useLayoutStore } from "./layout";
 
 beforeEach(async () => {
@@ -254,6 +284,7 @@ beforeEach(async () => {
   mocks.dropCommandPost = false;
   mocks.abortTrailing = [];
   mocks.messages = [];
+  mocks.messagesGate = null;
   mocks.failMessages = false;
   mocks.failReverts = 0;
   mocks.approvalMode = "approve";
@@ -262,11 +293,12 @@ beforeEach(async () => {
   mocks.failSetModel = false;
   mocks.failRename = false;
   mocks.sessionList = [];
+  mocks.reviewSessionCounter = 0;
   mocks.notifyPermissionRequest.mockResolvedValue(true);
   mocks.createSessionSpy.mockClear();
   useRuntimeStore.setState({
     currentId: null,
-    workspacePinned: false,
+    draftWorkspaces: {},
     threads: {},
     error: null,
     sending: false,
@@ -276,6 +308,8 @@ beforeEach(async () => {
     sessionParents: {},
     panes: {},
     sessionAgents: {},
+    autoReview: false,
+    backgroundReviews: {},
   });
   await useRuntimeStore.getState().connect();
   expect(useRuntimeStore.getState().status).toBe("ready");
@@ -357,10 +391,89 @@ describe("per-session workspace folders", () => {
   });
 
   it("keeps a pinned folder: no dated folder is created", async () => {
-    useRuntimeStore.setState({ workspacePinned: true });
+    useRuntimeStore.setState({ draftWorkspaces: { [DRAFT_KEY]: "/ws/base" }, workspace: "/ws/base" });
     const id = await useRuntimeStore.getState().sendPrompt("hello");
     expect(id).toBe("ses_new");
     expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
+  });
+
+  // #69: "new session in project X" is expressed on click, but the folder is
+  // decided at send time from a global pin. Anything that re-blanks the draft
+  // view in between — LiveSessionPage's focus effect does exactly that when a
+  // pane loses its session — silently unpinned the folder, so the session was
+  // created in a fresh dated folder instead of the project. It then rendered
+  // under "Sessions" rather than the project, permanently.
+  it("keeps a project folder when the draft view is re-blanked before the first message", async () => {
+    await useRuntimeStore.getState().startDraftInWorkspace("/ws/毕设");
+    expect(useRuntimeStore.getState().draftWorkspaces[DRAFT_KEY]).toBe("/ws/毕设");
+
+    // The user glances at another session and comes back to the empty pane.
+    useRuntimeStore.setState({ currentId: "ses_old" });
+    useRuntimeStore.getState().resetDraftView();
+
+    await useRuntimeStore.getState().sendPrompt("hello");
+    expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
+  });
+
+  // The other half of #69: a draft that was never aimed anywhere must NOT
+  // inherit the folder of whatever the user was just reading. Opening a new
+  // screen is a layout action that touches no runtime state, so the pane's own
+  // draft slot is simply empty — and an empty slot means a fresh dated folder.
+  it("gives an unaimed pane its own dated folder, not the project just viewed", async () => {
+    // Reading a session in a project: the active folder followed it there.
+    useRuntimeStore.setState({
+      workspace: "/ws/毕设",
+      draftWorkspaces: { [DRAFT_KEY]: "/ws/毕设" },
+    });
+
+    // A new screen's pane has its own draft slot, which nobody aimed.
+    await useRuntimeStore.getState().sendPrompt("hello", undefined, "draft:leaf-new");
+    expect(mocks.newDatedWorkspace).toHaveBeenCalledTimes(1);
+    expect(mocks.setWorkspace).not.toHaveBeenCalledWith("/ws/毕设");
+  });
+
+  // "+ new session in project X" opens its own pane, and that pane's composer
+  // sends under `draft:<leafId>` — so the project folder must be aimed at THAT
+  // slot, not the global one, or the send finds nothing and dates a folder.
+  it("aims the pane's own draft slot, so its first send lands in the project", async () => {
+    await useRuntimeStore.getState().startDraftInWorkspace("/ws/毕设", "draft:leaf-7");
+    expect(useRuntimeStore.getState().draftWorkspaces["draft:leaf-7"]).toBe("/ws/毕设");
+
+    await useRuntimeStore.getState().sendPrompt("hello", undefined, "draft:leaf-7");
+    expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
+  });
+
+  // Once the draft becomes a session the destination has served its purpose.
+  // Leaving it behind would aim the pane's NEXT draft at the same project long
+  // after the user moved on — the same class of stale-global bug as #69 itself.
+  it("forgets a draft's destination once its session exists", async () => {
+    await useRuntimeStore.getState().startDraftInWorkspace("/ws/毕设", "draft:leaf-7");
+    await useRuntimeStore.getState().sendPrompt("hello", undefined, "draft:leaf-7");
+
+    expect(useRuntimeStore.getState().draftWorkspaces["draft:leaf-7"]).toBeUndefined();
+
+    // A later draft in that same pane goes back to the default.
+    mocks.newDatedWorkspace.mockClear();
+    await useRuntimeStore.getState().sendPrompt("second", undefined, "draft:leaf-7");
+    expect(mocks.newDatedWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the draft's folder when the active one wandered off", async () => {
+    await useRuntimeStore.getState().startDraftInWorkspace("/ws/毕设");
+    // Opening another session follows it into ITS folder (openSession does this).
+    useRuntimeStore.setState({ workspace: "/ws/other-project" });
+    mocks.setWorkspace.mockClear();
+
+    await useRuntimeStore.getState().sendPrompt("hello");
+    expect(mocks.setWorkspace).toHaveBeenCalledWith("/ws/毕设");
+    expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("still unpins for an explicit New session (that is what New means)", async () => {
+    await useRuntimeStore.getState().startDraftInWorkspace("/ws/毕设");
+    useRuntimeStore.getState().startDraft();
+    await useRuntimeStore.getState().sendPrompt("hello");
+    expect(mocks.newDatedWorkspace).toHaveBeenCalledTimes(1);
   });
 
   it("does not create another folder for later messages in the same session", async () => {
@@ -462,6 +575,35 @@ describe("per-session workspace folders", () => {
     const s = useRuntimeStore.getState();
     expect(s.runningSessions["ses_new"]).toBeUndefined();
     expect(s.threads["ses_new"].blocks.slice(-1)[0]).toMatchObject({ kind: "status-line", tone: "done" });
+  });
+
+  // A streamed event must leave every session-keyed map byte-identical, so a
+  // pane/sidebar that reads one of those maps does not repaint for a FOREIGN
+  // session's tokens. Cloning them per event made concurrent subagents starve
+  // the main thread — the UI froze for minutes at a time (#50).
+  it("a streamed event does not churn the identity of session-keyed maps", async () => {
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    // First sign of life from a background session legitimately takes its
+    // running lock; the steady state that follows is what must stay stable.
+    mocks.fireEvent({ type: "text.updated", sessionId: "ses_other", text: "tok" });
+    const before = useRuntimeStore.getState();
+    expect(before.runningSessions["ses_other"]).toBe(true);
+    // That session now streams on: more tokens, a tool step. Hundreds of these
+    // arrive per turn, per concurrent subagent.
+    mocks.fireEvent({ type: "text.updated", sessionId: "ses_other", text: "tok tok" });
+    mocks.fireEvent({
+      type: "tool.updated",
+      sessionId: "ses_other",
+      callId: "call_1",
+      tool: "bash",
+      status: "running",
+    });
+    const after = useRuntimeStore.getState();
+    expect(after.threads["ses_other"]).toBeDefined(); // the fold DID happen
+    expect(after.runningSessions).toBe(before.runningSessions);
+    expect(after.stepCounts).toBe(before.stepCounts);
+    expect(after.shellTurns).toBe(before.shellTurns);
   });
 
   it("a session error lands as a red line in the thread and unlocks the turn", async () => {
@@ -574,7 +716,7 @@ describe("per-session workspace folders", () => {
   it("/clear starts a new draft in the same folder without calling OpenCode command", async () => {
     useRuntimeStore.setState({
       currentId: "ses_old",
-      workspacePinned: false,
+      draftWorkspaces: {},
       threads: {
         ses_old: { blocks: [{ kind: "user", text: "old context" }], index: {}, loaded: true },
       },
@@ -585,7 +727,7 @@ describe("per-session workspace folders", () => {
 
     const cleared = useRuntimeStore.getState();
     expect(cleared.currentId).toBe(null);
-    expect(cleared.workspacePinned).toBe(true);
+    expect(cleared.draftWorkspaces[DRAFT_KEY]).toBe(cleared.workspace);
     expect(cleared.threads.ses_old.blocks).toEqual([{ kind: "user", text: "old context" }]);
     expect(cleared.threads[DRAFT_KEY].blocks).toEqual([
       {
@@ -622,26 +764,30 @@ describe("per-session workspace folders", () => {
   it("switchWorkspace pins the chosen folder; startDraft un-pins it", async () => {
     await useRuntimeStore.getState().switchWorkspace({ path: "/ws/mine" });
     expect(mocks.setWorkspace).toHaveBeenCalledWith("/ws/mine");
-    expect(useRuntimeStore.getState().workspacePinned).toBe(true);
+    expect(useRuntimeStore.getState().draftWorkspaces[DRAFT_KEY]).toBe("/ws/mine");
     useRuntimeStore.getState().startDraft();
-    expect(useRuntimeStore.getState().workspacePinned).toBe(false);
+    expect(useRuntimeStore.getState().draftWorkspaces[DRAFT_KEY]).toBeUndefined();
   });
 
   it("ensureDraftWorkspace materializes a fresh draft's dated folder before files are written", async () => {
     // A brand-new, unpinned draft → creates+pins its dated folder, so a pasted
     // or attached file lands in the same workspace the session will run in.
-    useRuntimeStore.setState({ currentId: null, workspacePinned: false });
+    useRuntimeStore.setState({ currentId: null, draftWorkspaces: {} });
     mocks.newDatedWorkspace.mockClear();
     await useRuntimeStore.getState().ensureDraftWorkspace();
     expect(mocks.newDatedWorkspace).toHaveBeenCalledTimes(1);
-    expect(useRuntimeStore.getState().workspacePinned).toBe(true);
+    // The draft is now aimed at the folder it just materialized, so the send
+    // reuses it instead of creating a second one and orphaning the file.
+    expect(useRuntimeStore.getState().draftWorkspaces[DRAFT_KEY]).toMatch(
+      /^\/ws\/\d{4}-\d{2}-\d{2}-\d{4}$/,
+    );
 
-    // Idempotent: an already-pinned draft (or a live session) is left alone, so
+    // Idempotent: a draft that already has its folder (or a live session) is left alone, so
     // send does not create a second dated folder that would orphan the file.
     mocks.newDatedWorkspace.mockClear();
     await useRuntimeStore.getState().ensureDraftWorkspace();
     expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
-    useRuntimeStore.setState({ currentId: "ses_1", workspacePinned: false });
+    useRuntimeStore.setState({ currentId: "ses_1", draftWorkspaces: {} });
     await useRuntimeStore.getState().ensureDraftWorkspace();
     expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
   });
@@ -919,6 +1065,25 @@ describe("stale running locks and interrupt", () => {
       status: "running",
       title: "ls /project",
     });
+    expect(useRuntimeStore.getState().runningSessions[id!]).toBe(true);
+  });
+
+  it("the user message re-emitted after a turn ends does not restart the spinner", async () => {
+    // OpenCode re-emits the turn's USER message ~40 ms after session.idle. That
+    // surfaces as `message.agent`, which said nothing about the assistant — but
+    // counting it as activity re-locked the session the instant it finished, so
+    // a completed answer sat under a spinner until the ~15 s server poll cleared
+    // it (and rebuilt the whole thread doing so). Reported as "shows done, then
+    // keeps spinning for a while".
+    const id = await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({ type: "session.idle", sessionId: id! });
+    expect(useRuntimeStore.getState().runningSessions[id!]).toBeUndefined();
+
+    mocks.fireEvent({ type: "message.agent", sessionId: id!, messageID: "msg_1", agent: "build" });
+    expect(useRuntimeStore.getState().runningSessions[id!]).toBeUndefined();
+
+    // Real assistant progress still re-locks (the #59 reload case above).
+    mocks.fireEvent({ type: "step.updated", sessionId: id! });
     expect(useRuntimeStore.getState().runningSessions[id!]).toBe(true);
   });
 
@@ -1381,6 +1546,36 @@ describe("reasoning-effort variant", () => {
     );
   });
 
+  it("forwards `max` on a model whose catalog reaches it (#74)", async () => {
+    // The bundled 1.17.13 never offered `max`, so nothing exercised the top of
+    // the range. Now that the runtime reports it, selecting it must reach the
+    // turn — the guard is "does this model expose it", not a hardcoded ceiling.
+    mocks.providers = [
+      {
+        id: "openai",
+        name: "OpenAI",
+        models: [
+          {
+            id: "gpt-5.6-sol",
+            name: "GPT-5.6 Sol",
+            variants: ["none", "low", "medium", "high", "xhigh", "max"],
+          },
+        ],
+      },
+    ];
+    mocks.currentModel = "openai/gpt-5.6-sol";
+    await useRuntimeStore.getState().loadCatalog();
+    useRuntimeStore.setState({ reasoningVariant: "max" });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(mocks.sendPromptFullSpy).toHaveBeenLastCalledWith(
+      "ses_new",
+      "hi",
+      undefined,
+      "openai/gpt-5.6-sol",
+      "max",
+    );
+  });
+
   it("drops a variant the current model does not expose (would error server-side)", async () => {
     await primeModel("max"); // gpt-5 has only low/medium/high
     await useRuntimeStore.getState().sendPrompt("hi");
@@ -1550,8 +1745,8 @@ describe("skill install", () => {
       ephemeralGroupId: null,
     });
 
-    // Pinned into a project folder, as if the user were working in one.
-    useRuntimeStore.setState({ workspacePinned: true });
+    // Aimed at a project folder, as if the user were working in one.
+    useRuntimeStore.setState({ draftWorkspaces: { [DRAFT_KEY]: "/ws/proj" }, workspace: "/ws/proj" });
 
     await useRuntimeStore.getState().installSkill("找到 dbs 这个 skills，安装");
     await new Promise((r) => setTimeout(r, 0));
@@ -1559,7 +1754,7 @@ describe("skill install", () => {
     // An install is not part of that project: it gets its own plain dated
     // folder, and does not leave the folder pinned behind it.
     expect(mocks.newDatedWorkspace).toHaveBeenCalledTimes(1);
-    expect(useRuntimeStore.getState().workspacePinned).toBe(false);
+    expect(useRuntimeStore.getState().draftWorkspaces[DRAFT_KEY]).toBeUndefined();
 
     const layout = useLayoutStore.getState();
     expect(layout.groups).toHaveLength(2);
@@ -1690,5 +1885,577 @@ describe("session rename and project filing", () => {
       "/work/projects/bci",
       "/work/projects/bci",
     ]);
+  });
+});
+
+// #72: a file-changing turn forks a read-only background reviewer. Its result
+// is persisted on the parent checkpoint without taking the parent's running
+// lock; only one hidden reviewer streams at a time (#50).
+describe("auto-review on turn completion", () => {
+  const REVIEWER_AGENTS = [
+    { name: "build", description: "", mode: "primary" as const },
+    { name: "reviewer", description: "", mode: "all" as const },
+  ];
+
+  // The review queue and its single slot are module state (deliberately: store
+  // writes on streamed events repaint every subscriber — #50). `disconnect` is
+  // what clears them in production, so each test starts from a runtime that
+  // owes no review, instead of inheriting the previous test's in-flight one.
+  beforeEach(async () => {
+    useRuntimeStore.getState().disconnect();
+    await useRuntimeStore.getState().connect();
+  });
+
+  /** Enable auto-review with the reviewer agent present and `ids` listed. */
+  function armed(ids: string[], extra: Record<string, unknown> = {}) {
+    mocks.messages = [
+      { role: "user", id: "msg_user", completed: 1, parts: [{ type: "text", text: "do it" }] },
+      {
+        role: "assistant",
+        id: "msg_checkpoint",
+        completed: 2,
+        parts: [{ type: "text", text: "done" }],
+      },
+    ];
+    useRuntimeStore.setState({
+      autoReview: true,
+      agents: REVIEWER_AGENTS,
+      sessions: ids.map((id) => ({ id, title: id })),
+      ...extra,
+    } as never);
+  }
+
+  /** One turn that wrote a file, then went idle. */
+  function wroteAFile(sid: string) {
+    mocks.fireEvent({
+      type: "tool.updated",
+      sessionId: sid,
+      callId: `c-${sid}`,
+      tool: "write",
+      status: "success",
+      title: "",
+      input: { filePath: "analysis.py" },
+    });
+  }
+
+  const reviewCalls = () =>
+    mocks.sendPromptFullSpy.mock.calls.filter((c) => c[2] === "reviewer");
+
+  function finishReview(index = reviewCalls().length - 1) {
+    const sid = reviewCalls()[index]![0] as string;
+    mocks.fireEvent({
+      type: "text.updated",
+      sessionId: sid,
+      partId: `part-${sid}`,
+      text:
+        "```review\n" +
+        '{"findings":[{"level":"warn","title":"Check the reported value","evidence":"report.md:4"}],"note":"Background review."}' +
+        "\n```",
+    });
+    mocks.fireEvent({ type: "session.idle", sessionId: sid });
+    return sid;
+  }
+
+  it("sends one reviewer turn, with no model of its own, after a file changed", async () => {
+    armed(["ses_1"]);
+    wroteAFile("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+
+    const [sid, text, agent, model, variant] = reviewCalls()[0]!;
+    expect(sid).toBe("ses_review_1");
+    expect(mocks.forkSessionSpy).toHaveBeenCalledWith("ses_1", undefined);
+    expect(text).toContain("Review the work just completed");
+    expect(text).toContain("- analysis.py");
+    expect(agent).toBe("reviewer");
+    // No per-turn model or effort: those come from the reviewer's own per-agent
+    // config (#71), which an explicit model would override.
+    expect(model).toBeUndefined();
+    expect(variant).toBeUndefined();
+    // The foreground is immediately usable; only a quiet background status is set.
+    expect(useRuntimeStore.getState().runningSessions["ses_1"]).toBeUndefined();
+    expect(useRuntimeStore.getState().backgroundReviews["ses_1"]).toBe("running");
+
+    // The hidden fork's result is attached to the parent checkpoint and its own
+    // reasoning/tool transcript is discarded.
+    finishReview();
+    await vi.waitFor(() => expect(mocks.appendTextPartSpy).toHaveBeenCalledTimes(1));
+    expect(reviewCalls()).toHaveLength(1);
+    expect(mocks.appendTextPartSpy).toHaveBeenCalledWith(
+      "ses_1",
+      "msg_checkpoint",
+      expect.stringContaining("Check the reported value"),
+      expect.stringMatching(/^prt_[A-Za-z0-9]+$/),
+    );
+    expect(useRuntimeStore.getState().backgroundReviews["ses_1"]).toBeUndefined();
+    expect(
+      useRuntimeStore.getState().threads["ses_1"].blocks.some((block) => block.kind === "reviewer"),
+    ).toBe(true);
+    expect(useRuntimeStore.getState().threads["ses_review_1"]).toBeUndefined();
+
+    // The server echoes the synthetic part update. It refreshes the card but
+    // must not relock the idle parent as though a new model turn had started.
+    mocks.fireEvent({
+      type: "text.updated",
+      sessionId: "ses_1",
+      partId: mocks.appendTextPartSpy.mock.calls[0]![3],
+      text: mocks.appendTextPartSpy.mock.calls[0]![2],
+    });
+    expect(useRuntimeStore.getState().runningSessions["ses_1"]).toBeUndefined();
+  });
+
+  it("lets the user stop a background review without adding a fake result", async () => {
+    armed(["ses_1"]);
+    wroteAFile("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+
+    useRuntimeStore.getState().cancelAutoReview("ses_1");
+    await vi.waitFor(() =>
+      expect(useRuntimeStore.getState().backgroundReviews["ses_1"]).toBeUndefined(),
+    );
+    expect(mocks.abortSession).toHaveBeenCalledWith("ses_review_1");
+    expect(mocks.appendTextPartSpy).not.toHaveBeenCalled();
+    expect(useRuntimeStore.getState().threads["ses_review_1"]).toBeUndefined();
+  });
+
+  it("turning auto-review off cancels the running review and every queued review", async () => {
+    armed(["ses_a", "ses_b"]);
+    wroteAFile("ses_a");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_a" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+
+    wroteAFile("ses_b");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_b" });
+    await vi.waitFor(() =>
+      expect(useRuntimeStore.getState().backgroundReviews).toEqual({
+        ses_a: "running",
+        ses_b: "queued",
+      }),
+    );
+
+    window.localStorage.setItem("ai4s.autoReview.v1", "1");
+    useRuntimeStore.getState().setAutoReview(false);
+
+    await vi.waitFor(() => expect(mocks.abortSession).toHaveBeenCalledWith("ses_review_1"));
+    await vi.waitFor(() => expect(useRuntimeStore.getState().backgroundReviews).toEqual({}));
+    expect(window.localStorage.getItem("ai4s.autoReview.v1")).toBeNull();
+    expect(mocks.appendTextPartSpy).not.toHaveBeenCalled();
+    expect(reviewCalls()).toHaveLength(1);
+  });
+
+  it("turning auto-review off while history loads prevents the hidden fork", async () => {
+    let releaseHistory!: () => void;
+    mocks.messagesGate = new Promise<void>((resolve) => {
+      releaseHistory = resolve;
+    });
+    armed(["ses_1"]);
+    wroteAFile("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    await vi.waitFor(() => expect(mocks.getMessages).toHaveBeenCalledWith("ses_1"));
+    expect(useRuntimeStore.getState().backgroundReviews["ses_1"]).toBe("running");
+
+    useRuntimeStore.getState().setAutoReview(false);
+    releaseHistory();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mocks.forkSessionSpy).not.toHaveBeenCalled();
+    expect(reviewCalls()).toHaveLength(0);
+    expect(useRuntimeStore.getState().backgroundReviews).toEqual({});
+  });
+
+  it("rechecks the switch before draining a stale queued review", async () => {
+    armed(["ses_a", "ses_b"]);
+    wroteAFile("ses_a");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_a" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+
+    wroteAFile("ses_b");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_b" });
+    await vi.waitFor(() =>
+      expect(useRuntimeStore.getState().backgroundReviews["ses_b"]).toBe("queued"),
+    );
+
+    // Simulate stale persisted/module state: the queue itself must defend the
+    // invariant even when the public setter was not the path that flipped it.
+    useRuntimeStore.setState({ autoReview: false });
+    finishReview(0);
+
+    await vi.waitFor(() =>
+      expect(useRuntimeStore.getState().backgroundReviews["ses_b"]).toBeUndefined(),
+    );
+    expect(reviewCalls()).toHaveLength(1);
+  });
+
+  it("stops the hidden reviewer when its parent session is deleted", async () => {
+    armed(["ses_1"]);
+    wroteAFile("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+
+    await useRuntimeStore.getState().deleteSession("ses_1");
+    expect(mocks.abortSession).toHaveBeenCalledWith("ses_review_1");
+    expect(useRuntimeStore.getState().backgroundReviews["ses_1"]).toBeUndefined();
+
+    // Trailing server events from the aborted hidden child stay invisible and
+    // cannot synthesize a finding for a parent that no longer exists.
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_review_1" });
+    expect(mocks.appendTextPartSpy).not.toHaveBeenCalled();
+    expect(useRuntimeStore.getState().threads["ses_review_1"]).toBeUndefined();
+  });
+
+  it("forks before a newer foreground turn so the reviewed checkpoint is included", async () => {
+    armed(["ses_1"]);
+    useRuntimeStore.setState({
+      threads: {
+        ses_1: {
+          loaded: true,
+          index: {},
+          blocks: [
+            { kind: "user", text: "do it", messageID: "msg_user" },
+            { kind: "agent", markdown: "done" },
+            { kind: "user", text: "continue", messageID: "msg_next_turn" },
+          ],
+        },
+      },
+    } as never);
+    mocks.messages.push({
+      role: "user",
+      id: "msg_next_turn",
+      parts: [{ type: "text", text: "continue" }],
+    });
+    wroteAFile("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+    expect(mocks.forkSessionSpy).toHaveBeenCalledWith("ses_1", "msg_next_turn");
+    finishReview();
+    await vi.waitFor(() =>
+      expect(mocks.appendTextPartSpy).toHaveBeenCalledWith(
+        "ses_1",
+        "msg_checkpoint",
+        expect.any(String),
+        expect.any(String),
+      ),
+    );
+    const blocks = useRuntimeStore.getState().threads["ses_1"].blocks;
+    const reviewAt = blocks.findIndex((block) => block.kind === "reviewer");
+    const nextTurnAt = blocks.findIndex(
+      (block) => block.kind === "user" && block.messageID === "msg_next_turn",
+    );
+    expect(reviewAt).toBeGreaterThan(0);
+    expect(reviewAt).toBeLessThan(nextTurnAt);
+  });
+
+  it("stays off until the user opts in", async () => {
+    useRuntimeStore.setState({ agents: REVIEWER_AGENTS } as never);
+    wroteAFile("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(0);
+  });
+
+  it("skips a read-only turn", async () => {
+    armed(["ses_1"]);
+    mocks.fireEvent({
+      type: "tool.updated",
+      sessionId: "ses_1",
+      callId: "c-read",
+      tool: "read",
+      status: "success",
+      title: "",
+      input: { filePath: "analysis.py" },
+    });
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(0);
+  });
+
+  it("leaves a subagent's own turn to its parent", async () => {
+    armed(["ses_parent", "ses_child"], { sessionParents: { ses_child: "ses_parent" } });
+    wroteAFile("ses_child");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_child" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(0);
+  });
+
+  it("reviews the parent's turn when a subagent did the writing", async () => {
+    // The child session is never reviewed on its own, so crediting its writes to
+    // it meant a turn that delegated EVERY file change — the `task`-only turn —
+    // was reviewed by nobody, which is the opposite of what the gate promises.
+    armed(["ses_parent", "ses_child"], { sessionParents: { ses_child: "ses_parent" } });
+    wroteAFile("ses_child");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_child" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(0);
+
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_parent" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+    expect(mocks.forkSessionSpy).toHaveBeenCalledWith("ses_parent", undefined);
+    expect(reviewCalls()[0]![0]).toBe("ses_review_1");
+  });
+
+  // Session ids of its own: interrupting one marks it interrupted for the rest of
+  // the file (module state, by design — the next turn clears it), and reusing an
+  // id afterwards would silence that session's idle events in later tests.
+  it("does not turn one owed review into two when the session is also dirty", async () => {
+    armed(["ses_c", "ses_d"]);
+    wroteAFile("ses_c");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_c" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1)); // ses_c holds the slot
+
+    wroteAFile("ses_d");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_d" });
+    await new Promise((r) => setTimeout(r, 0)); // ses_d is queued
+
+    // Another completed change is coalesced into the same queued review.
+    wroteAFile("ses_d");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_d" });
+    expect(reviewCalls()).toHaveLength(1);
+
+    finishReview(0);
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(2));
+    expect(reviewCalls()[1]![0]).toBe("ses_review_2");
+
+    finishReview(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(2);
+  });
+
+  it("does nothing when the runtime exposes no reviewer agent", async () => {
+    useRuntimeStore.setState({
+      autoReview: true,
+      agents: [{ name: "build", description: "", mode: "primary" }],
+    } as never);
+    wroteAFile("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(0);
+  });
+
+  it("does not review a turn the user interrupted", async () => {
+    armed(["ses_1"]);
+    wroteAFile("ses_1");
+    // The abort's own trailing idle is what would otherwise look like a
+    // finished turn.
+    mocks.abortTrailing = [{ type: "session.idle", sessionId: "ses_1" }];
+    await useRuntimeStore.getState().interrupt("ses_1");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(0);
+  });
+
+  it("does not review a turn that died, and frees the slot when a review dies", async () => {
+    armed(["ses_a", "ses_b"]);
+    // A turn that wrote a file and then failed (rate limit, dangling model):
+    // the work is half-finished, so it is not reviewed.
+    wroteAFile("ses_a");
+    mocks.fireEvent({ type: "error", sessionId: "ses_a", message: "model not found" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(0);
+    // Its trailing idle must not review it either — the error consumed the change.
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_a" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(0);
+
+    // A review that dies the same way hands its slot back, so the next session
+    // is still reviewed instead of waiting forever.
+    wroteAFile("ses_a");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_a" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+    mocks.fireEvent({ type: "error", sessionId: "ses_review_1", message: "provider exploded" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useRuntimeStore.getState().runningSessions["ses_a"]).toBeUndefined();
+    expect(useRuntimeStore.getState().threads["ses_review_1"]).toBeUndefined();
+
+    wroteAFile("ses_b");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_b" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(2));
+    expect(reviewCalls()[1]![0]).toBe("ses_review_2");
+  });
+
+  it("runs one review at a time and gets to the second session afterwards", async () => {
+    armed(["ses_a", "ses_b"]);
+    wroteAFile("ses_a");
+    wroteAFile("ses_b");
+    // Both panes finish at once: only one review starts.
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_a" });
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_b" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+    expect(reviewCalls()[0]![0]).toBe("ses_review_1");
+
+    // The first review ends → the queued session is reviewed, not dropped.
+    finishReview(0);
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(2));
+    expect(reviewCalls()[1]![0]).toBe("ses_review_2");
+
+    finishReview(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(2);
+  });
+
+  it("queues a waiting session once, however many turns it finishes", async () => {
+    // The queue is the SET of sessions owed a review. A pane that keeps working
+    // while another session's review holds the slot used to be pushed once per
+    // finished turn, and each duplicate survived the drain that started its
+    // review — turning into a second paid review of the same state.
+    armed(["ses_a", "ses_b"]);
+    wroteAFile("ses_a");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_a" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1));
+
+    // Three more file-changing turns in the other pane while ses_a is reviewed.
+    for (let i = 0; i < 3; i++) {
+      wroteAFile("ses_b");
+      mocks.fireEvent({ type: "session.idle", sessionId: "ses_b" });
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect(reviewCalls()).toHaveLength(1); // still just ses_a's
+
+    // The slot frees: ses_b is reviewed exactly once, not once per queued copy.
+    finishReview(0);
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(2));
+    expect(reviewCalls()[1]![0]).toBe("ses_review_2");
+    finishReview(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(2);
+  });
+
+  it("relays one interactive sign-in per ssh_connect call, not one per event", async () => {
+    // #73: the agent reaches the sign-in dialog through its `ssh_connect` tool,
+    // and one tool call streams several `tool.updated` events (the SDK re-emits
+    // per part update). Opening a sign-in is the opposite of idempotent: each
+    // repeat started another ssh master racing the first for one ControlPath, and
+    // the answer the user typed need not have reached the one that won.
+    useRuntimeStore.setState({ sessions: [{ id: "ses_1", title: "s" }] } as never);
+    const connect = vi.spyOn(useSshStore.getState(), "connect").mockResolvedValue(undefined);
+    const asking = (status: string, callId = "call-ssh-1") => ({
+      type: "tool.updated" as const,
+      sessionId: "ses_1",
+      callId,
+      tool: "ssh_connect",
+      status,
+      title: "",
+      input: { host: "login.cluster.edu" },
+    });
+
+    mocks.fireEvent(asking("pending"));
+    mocks.fireEvent(asking("running"));
+    mocks.fireEvent(asking("running"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(connect).toHaveBeenCalledWith("login.cluster.edu");
+
+    // A genuinely different call still reaches the dialog.
+    mocks.fireEvent(asking("running", "call-ssh-2"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(connect).toHaveBeenCalledTimes(2);
+    connect.mockRestore();
+  });
+
+  it("keeps a review owed by an earlier turn when a later turn is interrupted", async () => {
+    // The files that earned the review are on disk. Interrupting a LATER turn
+    // says nothing about them, but the owed entry used to be consumed by the
+    // interrupt's bookkeeping and the review was silently dropped.
+    armed(["ses_a", "ses_b"]);
+    wroteAFile("ses_a");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_a" });
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(1)); // ses_a holds the slot
+
+    wroteAFile("ses_b"); // ses_b now owes a review and is queued
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_b" });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The user starts and interrupts another turn in ses_b.
+    mocks.abortTrailing = [{ type: "session.idle", sessionId: "ses_b" }];
+    await useRuntimeStore.getState().interrupt("ses_b");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reviewCalls()).toHaveLength(1); // the interrupt itself is not reviewed
+
+    // Once the slot frees, the review ses_b was already owed still happens.
+    finishReview(0);
+    await vi.waitFor(() => expect(reviewCalls()).toHaveLength(2));
+    expect(reviewCalls()[1]![0]).toBe("ses_review_2");
+  });
+});
+
+// #96: an agent carrying its own configured model must actually get to use it.
+// The send used to pass an explicit per-turn model unconditionally, which
+// overrode exactly that setting — so the `build` row did nothing to the
+// messages you send, and Plan mode ignored its own model (#85).
+describe("per-agent model precedence", () => {
+  const withAgents = async (agentModels: Record<string, string>) => {
+    mocks.currentModel = "openai/gpt-5";
+    await useRuntimeStore.getState().loadCatalog();
+    useRuntimeStore.setState({
+      agents: [
+        { name: "build", description: "" },
+        { name: "plan", description: "" },
+      ],
+      agentModels,
+      agentVariants: {},
+      defaultModel: "openai/gpt-5",
+      // Start from a clean pane: a per-session model set by an earlier test
+      // grafts onto the session its first send creates, and `currentId` would
+      // then carry that pick into this one.
+      sessionModels: {},
+      sessionVariants: {},
+      sessionAgents: {},
+      currentId: null,
+    });
+  };
+  const lastSend = () => {
+    const calls = mocks.sendPromptFullSpy.mock.calls;
+    return calls[calls.length - 1]!;
+  };
+
+  it("sends no model when the build agent has one, so its setting is what runs", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    const [, , agent, model] = lastSend();
+    expect(agent).toBeUndefined();
+    expect(model).toBeNull();
+  });
+
+  it("still pins the default when no agent model is configured (#8 unchanged)", async () => {
+    await withAgents({});
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(lastSend()[3]).toBe("openai/gpt-5");
+  });
+
+  it("a model picked in THIS conversation outranks the agent setting", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    useRuntimeStore.getState().setSessionModel(DRAFT_KEY, "openai/o3");
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(lastSend()[3]).toBe("openai/o3");
+  });
+
+  it("clearing the pick hands the turn back to the agent setting", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    useRuntimeStore.getState().setSessionModel(DRAFT_KEY, "openai/o3");
+    useRuntimeStore.getState().clearSessionModel(DRAFT_KEY);
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(lastSend()[3]).toBeNull();
+  });
+
+  it("plan mode follows the plan agent's model, not the build one", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    useRuntimeStore.setState({ sessionAgents: { [DRAFT_KEY]: "plan" } });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    const [, , agent, model] = lastSend();
+    expect(agent).toBe("plan");
+    // `plan` has no configured model, so the default is still pinned…
+    expect(model).toBe("openai/gpt-5");
+
+    // …and once it does, the turn stops overriding it.
+    useRuntimeStore.setState({ agentModels: { build: "x/y", plan: "openai/o3" } });
+    await useRuntimeStore.getState().sendPrompt("hi again");
+    expect(lastSend()[3]).toBeNull();
+  });
+
+  it("infers nothing from a catalog without the agent (older sidecar)", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    useRuntimeStore.setState({ agents: [] });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(lastSend()[3]).toBe("openai/gpt-5");
   });
 });

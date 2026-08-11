@@ -13,7 +13,9 @@ import {
   setupScienceMcp,
   watchSetupProgress,
   agentBrowserBin,
+  browserMcpBin,
   detectChrome,
+  closeAgentBrowser,
   getProxySetting,
   removeConfigEntry,
 } from "./tauri";
@@ -106,15 +108,17 @@ export const useSetupStore = create<SetupState>((set, get) => ({
     if (get().browserBusy) return;
     set({ browserBusy: true, line: null });
     try {
-      // Resolve the sidecar path, the browser to reuse, and the proxy here so
-      // the UI stays thin. Reusing the detected Chrome avoids a download and
-      // (macOS) decrypts the real profile cleanly; the proxy mirrors the agent's.
+      // Resolve the sidecars, browser executable, and network proxy here so the
+      // UI stays thin. The managed browser is a separate process even when it
+      // starts from a copy of a selected Chrome login.
       const bin = await agentBrowserBin();
+      const proxyBin = await browserMcpBin();
       // Only bind the system Chrome when the user chose it; the private-browser
       // mode leaves executablePath unset so agent-browser uses its own download.
       const chrome = opts.useSystemChrome === false ? null : await detectChrome();
       const proxy = (await getProxySetting())?.effective ?? null;
       const config = buildBrowserMcpConfig({
+        proxyBin,
         bin,
         profileDir: opts.profileDir,
         executablePath: chrome?.path,
@@ -123,6 +127,9 @@ export const useSetupStore = create<SetupState>((set, get) => ({
         tools: opts.tools,
         allowedDomains: opts.allowedDomains,
       });
+      // Reconfiguration owns the whole browser lifecycle. Close any current
+      // namespaced daemon before replacing the MCP process and its environment.
+      await closeAgentBrowser();
       // addMcpServer PATCHes the config, and OpenCode deep-merges the nested
       // `environment` map — so a reconfigure that DROPS a setting can't take
       // effect on a plain re-add: turning "Show the browser window" off (or

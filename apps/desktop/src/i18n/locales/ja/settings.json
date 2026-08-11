@@ -57,6 +57,24 @@
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
     "mirrorHint": "任意のミラー。Python ツール(Jupyter・科学データベース)のセットアップ時のダウンロードにのみ使用され、pypi.org / github.com が遅いネットワーク向けです。空欄でデフォルト。"
   },
+  "acp": {
+    "title": "エージェント",
+    "hint": "このアプリが操作するエージェント：同梱の OpenCode ランタイム、または stdio 経由で Agent Client Protocol（ACP）を話す任意のエージェント。",
+    "bundled": "OpenCode（同梱）",
+    "bundledHint": "既定のランタイム — プロバイダー、スキル、プランモード、保存された会話。",
+    "add": "エージェントを追加",
+    "edit": "編集",
+    "remove": "削除",
+    "nameLabel": "名前",
+    "namePlaceholder": "名前（Codex、Gemini CLI など）",
+    "commandLabel": "コマンド",
+    "commandPlaceholder": "コマンド（npx、gemini など）",
+    "argsLabel": "引数",
+    "argsPlaceholder": "引数（-y @agentclientprotocol/codex-acp）",
+    "limits": "ACP エージェントはこのコンピューター上で、現在のワークスペースフォルダー内のコマンドとして実行されます。モデル・スキル・履歴はエージェント自身が管理するため、モデルピッカー、プランモード、保存された会話は OpenCode のものです。ACP エージェントで開始したセッションはアプリの実行中のみ一覧に表示されます。",
+    "running": "ACP エージェントに接続しました。",
+    "starting": "ACP エージェントを起動しています…"
+  },
   "updates": {
     "title": "アプリの更新",
     "hint": "GitHub Releases を確認します。自動確認は 24 時間に 1 回までです",
@@ -126,12 +144,12 @@
     "pasteCode": "ブラウザからコードを貼り付け",
     "customEndpoint": "カスタムエンドポイント",
     "customEndpointHint": "セルフホスト・ローカル Ollama・OpenAI/Anthropic 互換",
-    "customPresetLabel": "Curated provider preset",
-    "customPresetPlaceholder": "Choose a MiniMax endpoint preset",
-    "minimaxGlobalOpenai": "MiniMax · Global · OpenAI-compatible",
-    "minimaxGlobalAnthropic": "MiniMax · Global · Anthropic-compatible",
-    "minimaxCnOpenai": "MiniMax · CN · OpenAI-compatible",
-    "minimaxCnAnthropic": "MiniMax · CN · Anthropic-compatible",
+    "customPresetLabel": "厳選されたプロバイダープリセット",
+    "customPresetPlaceholder": "MiniMax エンドポイントを選択",
+    "minimaxGlobalOpenai": "MiniMax・グローバル・OpenAI 互換",
+    "minimaxGlobalAnthropic": "MiniMax・グローバル・Anthropic 互換",
+    "minimaxCnOpenai": "MiniMax・中国・OpenAI 互換",
+    "minimaxCnAnthropic": "MiniMax・中国・Anthropic 互換",
     "customNamePlaceholder": "名前 — 例: Ollama、My DeepSeek gateway",
     "openaiCompatible": "OpenAI 互換",
     "anthropicCompatible": "Anthropic 互換",
@@ -174,9 +192,6 @@
     "browseAs": "使用するプロフィール",
     "isolated": "分離 — 新規・未ログイン",
     "showWindow": "ブラウザウィンドウを表示",
-    "headedOffTitle": "ウィンドウを非表示にしますか？",
-    "headedOffBody": "お使いの Chrome ログイン（「{{profile}}」）を再利用しているため、エージェントは実際の Chrome を操作します。これをオフにしても、特に Chrome が既に起動している場合は通常ウィンドウが開きます。完全にウィンドウなし（ヘッドレス）で動かすには、「Browse as」をプライベートブラウザーに切り替えてください。",
-    "headedOffConfirm": "それでもオフにする",
     "noChrome": "Chrome が見つかりません",
     "download": "ブラウザをダウンロード",
     "noChromeWillDownload": "Chrome が見つかりません — 初回使用時に専用ブラウザをダウンロードします。",
@@ -205,6 +220,12 @@
     "unavailable": "デスクトップアプリで利用可能",
     "change": "変更…",
     "reveal": "表示"
+  },
+  "review": {
+    "title": "レビュー",
+    "hint": "完成した作業の追跡可能性・統計・単位・出処を監査する、読み取り専用のレビュー担当エージェントです。",
+    "autoTitle": "ファイルを変更したターンのあとに毎回レビューする",
+    "autoHint": "変更ごとにバックグラウンドでモデルを1ターン追加実行します。会話は引き続き使用でき、読み取りだけのターンは対象外です。"
   },
   "python": {
     "title": "ローカル Python カーネル",
@@ -317,7 +338,13 @@
     "toast": {
       "couldNotCancel": "{{id}} をキャンセルできませんでした",
       "jobCanceled": "ジョブ {{id}} をキャンセルしました"
-    }
+    },
+    "signIn": "サインイン",
+    "signInRequired": "サインインが必要です — このマシンはパスワードかコードを求めています",
+    "signedIn": "サインイン済み",
+    "signOut": "切断",
+    "signOutTitle": "このマシンとの共有接続を閉じる",
+    "sharingUnavailable": "パスワードかコードが必要ですが、これには OpenSSH の接続共有が必要です（Windows では利用できません）"
   },
   "remote": {
     "title": "リモートアクセス",
@@ -348,7 +375,10 @@
     "copied": "クリップボードにコピーしました",
     "error": "リモートアクセスの変更に失敗しました",
     "connect": "接続",
-    "connectPrompt": "デスクトップアプリのアクセストークンを入力:設定 → リモートアクセス。"
+    "connectPrompt": "デスクトップアプリのアクセストークンを入力:設定 → リモートアクセス。",
+    "acpTitle": "外部エディター（ACP）",
+    "acpHint": "Zed、JetBrains、Neovim など Agent Client Protocol を話すエディターからこのワークスペースを操作できます。次のエージェント設定をエディターの設定に貼り付けてください。上記のゲートウェイ経由で接続し、権限はトークンに従います。",
+    "acpNodeHint": "エディターはこのスクリプトを Node 18+ で起動します。トークンはコマンドラインではなく環境変数で渡されます。"
   },
   "memory": {
     "title": "メモリ",
@@ -368,11 +398,25 @@
     "disabledNote": "メモリはオフのため、このファイルは現在読み込まれていません。"
   },
   "agentModels": {
-    "title": "エージェントごとのモデル",
-    "hint": "メインのエージェントが強力なモデルで推論する一方、レビューや探索のエージェントは高速なモデルで動かせます。",
+    "title": "エージェントごとのモデルと推論の強度",
+    "hint": "メインのエージェントが強力なモデルで推論する一方、レビューや探索のエージェントは高速なモデルで動かし、それぞれの考える強度も指定できます。",
     "noModels": "モデルを選ぶにはプロバイダーを接続してください。",
     "followDefault": "既定のモデル",
     "followDefaultNamed": "既定 ({{model}})",
-    "modelFor": "{{agent}} のモデル"
+    "modelFor": "{{agent}} のモデル",
+    "defaultEffort": "既定の強度",
+    "effortFor": "{{agent}} の推論の強度",
+    "primaryHint": "build と plan は送信したメッセージを実行します。ここで設定したモデルが適用されますが、会話内でモデルを選ぶとその会話でのみ優先されます。"
+  },
+  "ssh": {
+    "title": "{{host}} にサインイン",
+    "hint": "このマシンは対話的に認証します。一度サインインすれば、以降のコマンドは——あなたのものもエージェントのものも——同じ接続を再利用します。",
+    "connecting": "接続中…",
+    "failed": "サインインに失敗しました。",
+    "submit": "続行",
+    "close": "閉じる",
+    "reveal": "入力内容を表示",
+    "hide": "入力内容を隠す",
+    "privacy": "このマシンの ssh にのみ送られます。保存もログ記録もされず、来歴にも書き込まれません。"
   }
 }

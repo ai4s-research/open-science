@@ -57,6 +57,24 @@
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
     "mirrorHint": "可选镜像,仅在设置 Python 工具(Jupyter、科学数据库)下载时使用,适合 pypi.org / github.com 访问缓慢的网络。留空则使用默认源。"
   },
+  "acp": {
+    "title": "智能体",
+    "hint": "本应用驱动哪个智能体：内置的 OpenCode 运行时，或任何通过 stdio 使用 Agent Client Protocol（ACP）的智能体。",
+    "bundled": "OpenCode（内置）",
+    "bundledHint": "默认运行时——模型供应商、技能、计划模式与已保存的会话。",
+    "add": "添加智能体",
+    "edit": "编辑",
+    "remove": "删除",
+    "nameLabel": "名称",
+    "namePlaceholder": "名称（Codex、Gemini CLI…）",
+    "commandLabel": "命令",
+    "commandPlaceholder": "命令（npx、gemini…）",
+    "argsLabel": "参数",
+    "argsPlaceholder": "参数（-y @agentclientprotocol/codex-acp）",
+    "limits": "ACP 智能体以命令形式运行在本机的当前工作区文件夹中。它自行管理模型、技能与历史记录，因此模型选择器、计划模式和已保存的会话仍属于 OpenCode——在 ACP 智能体上创建的会话仅在应用运行期间列出。",
+    "running": "已连接到 ACP 智能体。",
+    "starting": "正在启动 ACP 智能体…"
+  },
   "updates": {
     "title": "应用更新",
     "hint": "通过 GitHub Releases 检查更新，24 小时内最多自动检查一次",
@@ -126,12 +144,12 @@
     "pasteCode": "粘贴浏览器中的代码",
     "customEndpoint": "自定义端点",
     "customEndpointHint": "自托管 · 本地 Ollama · 兼容 OpenAI/Anthropic",
-    "customPresetLabel": "Curated provider preset",
-    "customPresetPlaceholder": "Choose a MiniMax endpoint preset",
-    "minimaxGlobalOpenai": "MiniMax · Global · OpenAI-compatible",
-    "minimaxGlobalAnthropic": "MiniMax · Global · Anthropic-compatible",
-    "minimaxCnOpenai": "MiniMax · CN · OpenAI-compatible",
-    "minimaxCnAnthropic": "MiniMax · CN · Anthropic-compatible",
+    "customPresetLabel": "精选提供商预设",
+    "customPresetPlaceholder": "选择 MiniMax 端点预设",
+    "minimaxGlobalOpenai": "MiniMax · 全球 · OpenAI 兼容",
+    "minimaxGlobalAnthropic": "MiniMax · 全球 · Anthropic 兼容",
+    "minimaxCnOpenai": "MiniMax · 中国 · OpenAI 兼容",
+    "minimaxCnAnthropic": "MiniMax · 中国 · Anthropic 兼容",
     "customNamePlaceholder": "名称 — 例如 Ollama、My DeepSeek gateway",
     "openaiCompatible": "兼容 OpenAI",
     "anthropicCompatible": "兼容 Anthropic",
@@ -174,9 +192,6 @@
     "browseAs": "浏览身份",
     "isolated": "隔离 — 全新、未登录",
     "showWindow": "显示浏览器窗口",
-    "headedOffTitle": "关闭窗口？",
-    "headedOffBody": "你正在复用自己的 Chrome 登录态（“{{profile}}”），智能体驱动的是你真实的 Chrome——即使关掉此项通常仍会弹出窗口，尤其在 Chrome 已经打开时。若要真正的无窗口（headless）浏览器，请把“Browse as”切换为私有浏览器。",
-    "headedOffConfirm": "仍然关闭",
     "noChrome": "未找到 Chrome",
     "download": "下载浏览器",
     "noChromeWillDownload": "未检测到 Chrome — 首次使用时将下载一个独立浏览器。",
@@ -205,6 +220,12 @@
     "unavailable": "该功能在桌面应用中可用",
     "change": "更改…",
     "reveal": "在文件管理器中显示"
+  },
+  "review": {
+    "title": "审阅",
+    "hint": "一个只读的审阅智能体，检查已完成的工作是否可溯源，以及统计、单位与产物出处是否站得住。",
+    "autoTitle": "每次改动文件后自动审阅",
+    "autoHint": "每次改动会在后台多调用一轮模型；当前对话仍可继续使用，只读回合会跳过。"
   },
   "python": {
     "title": "本地 Python 内核",
@@ -317,7 +338,13 @@
     "toast": {
       "couldNotCancel": "无法取消 {{id}}",
       "jobCanceled": "任务 {{id}} 已取消"
-    }
+    },
+    "signIn": "登录",
+    "signInRequired": "需要登录——这台机器要求密码或验证码",
+    "signedIn": "已登录",
+    "signOut": "断开",
+    "signOutTitle": "关闭与这台机器的共享连接",
+    "sharingUnavailable": "需要密码或验证码，而这依赖 OpenSSH 连接复用（Windows 不支持）"
   },
   "remote": {
     "title": "远程访问",
@@ -348,7 +375,10 @@
     "copied": "已复制到剪贴板",
     "error": "远程访问设置修改失败",
     "connect": "连接",
-    "connectPrompt": "输入桌面应用中的访问令牌:设置 → 远程访问。"
+    "connectPrompt": "输入桌面应用中的访问令牌:设置 → 远程访问。",
+    "acpTitle": "外部编辑器（ACP）",
+    "acpHint": "从 Zed、JetBrains、Neovim 或任何支持 Agent Client Protocol 的编辑器驱动本工作区。把下面这段 agent 配置粘贴到编辑器设置里；它通过上面的网关连接，权限以令牌为准。",
+    "acpNodeHint": "编辑器会用 Node 18+ 启动这个脚本。令牌通过环境变量传入，不出现在命令行里。"
   },
   "memory": {
     "title": "记忆",
@@ -368,11 +398,25 @@
     "disabledNote": "记忆已关闭，该文件当前不会被加载。"
   },
   "agentModels": {
-    "title": "各智能体的模型",
-    "hint": "让主智能体用强模型推理，同时把审阅、探索类子智能体放在快模型上。",
+    "title": "各智能体的模型与思考强度",
+    "hint": "让主智能体用强模型推理，同时把审阅、探索类子智能体放在快模型上，并分别固定各自的思考强度。",
     "noModels": "请先接入一个供应商再选择模型。",
     "followDefault": "默认模型",
     "followDefaultNamed": "默认（{{model}}）",
-    "modelFor": "{{agent}} 使用的模型"
+    "modelFor": "{{agent}} 使用的模型",
+    "defaultEffort": "默认强度",
+    "effortFor": "{{agent}} 的思考强度",
+    "primaryHint": "build 与 plan 负责运行你发出的消息。这里设定的模型会生效，除非你在某个会话内单独选择了模型——那个选择只对该会话生效。"
+  },
+  "ssh": {
+    "title": "登录 {{host}}",
+    "hint": "这台机器需要交互式认证。登录一次后，之后所有命令——你的和智能体的——都复用同一条连接。",
+    "connecting": "正在连接…",
+    "failed": "登录失败。",
+    "submit": "继续",
+    "close": "关闭",
+    "reveal": "显示输入内容",
+    "hide": "隐藏输入内容",
+    "privacy": "只发送给本机的 ssh。不会被保存、记录日志，也不会写入溯源记录。"
   }
 }

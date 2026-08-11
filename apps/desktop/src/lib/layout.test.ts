@@ -192,6 +192,30 @@ describe("layout store — groups", () => {
     expect(S().ephemeralGroupId).toBeNull();
   });
 
+  it("merely looking at another Screen does not pin the tentative one (#78)", () => {
+    S().openSessionEphemeral("P");
+    const tentative = S().ephemeralGroupId;
+    expect(tentative).not.toBeNull();
+
+    // Glancing at another Screen and back is not work done in the preview.
+    S().setActiveGroup("g0");
+    expect(S().ephemeralGroupId).toBe(tentative);
+    S().setActiveGroup(tentative!);
+    expect(S().ephemeralGroupId).toBe(tentative);
+  });
+
+  it("repeated sidebar clicks reuse the tentative Screen instead of stacking (#78)", () => {
+    S().openSessionEphemeral("P");
+    const count = S().groups.length;
+    S().setActiveGroup("g0");
+    S().openSessionEphemeral("Q");
+    S().setActiveGroup("g0");
+    S().openSessionEphemeral("R");
+
+    expect(S().groups).toHaveLength(count);
+    expect(sessions(S().tree!)).toEqual(["R"]);
+  });
+
   it("setActiveGroup swaps the mirrored tree/focus", () => {
     const id = S().addGroup(); // empty, active
     S().setActiveGroup("g0");

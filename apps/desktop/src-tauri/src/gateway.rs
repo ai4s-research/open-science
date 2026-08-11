@@ -974,6 +974,23 @@ pub fn gateway_status(app: AppHandle, state: State<'_, GatewayState>) -> Gateway
     status_of(&app, state.inner())
 }
 
+/// Absolute path of the bundled ACP agent script (#14, server direction), or
+/// None when it is missing.
+///
+/// An external editor integrates with an ACP agent by SPAWNING it — stdio is the
+/// only transport the protocol stabilizes — so what Settings has to show the
+/// user is a command, and a command needs a real path inside the installed app.
+/// The script drives this same gateway with a token, so nothing new is exposed:
+/// an editor gets exactly the access the token already carries.
+#[tauri::command]
+pub fn acp_server_script(app: AppHandle) -> Option<String> {
+    let path = app
+        .path()
+        .resolve("acp-server/acp-server.mjs", tauri::path::BaseDirectory::Resource)
+        .ok()?;
+    path.exists().then(|| path.to_string_lossy().to_string())
+}
+
 #[tauri::command(async)]
 pub fn set_gateway_config(
     app: AppHandle,

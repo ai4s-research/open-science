@@ -35,6 +35,8 @@ Formerly Open Science. Une alternative desktop open source à Claude Science et 
 
 ## Actualités
 
+- **2026-08-01** — 🗂️ **Projets, mémoire et historique complet.** Regroupez les sessions dans des projets nommés (un dépôt existant est importé *sur place*, sans copie), donnez à l'agent une mémoire persistante globale et par projet, et retrouvez chaque conversation passée dans un historique cherchable avec archivage, restauration et export. *(v0.3.1)*
+- **2026-07-24** — 🪟 **Panneaux divisés.** Disposez les sessions côte à côte, faites glisser les panneaux pour les réancrer, gardez plusieurs écrans indépendants et utilisez un modèle différent par panneau. *(v0.3.0)*
 - **2026-07-21** — 🌐 **Accès depuis n'importe où — même votre téléphone.** Une passerelle authentifiée par jeton sert l'*vraie* UI desktop à une CLI, à un navigateur sur votre réseau local ou à votre téléphone (loopback par défaut ; le LAN est opt-in). Lancez une exécution à votre bureau et lisez la figure et le rapport terminés sur votre téléphone. *(v0.2.3)*
 - **2026-07-21** — 🧭 **Contrôle du navigateur.** L'agent peut piloter votre propre Chrome — profil et sessions intacts — pour lire le web en direct comme vous le faites, ou un navigateur privé isolé à la demande. *(v0.2.3)*
 - **2026-07-09** — 🎉 **N° 1 sur ResearchClawBench.** Open Science Desktop est n° 1 au score moyen des tâches évaluées sur [ResearchClawBench](https://internscience.github.io/ResearchClawBench-Home/), un benchmark de bout en bout pour agents autonomes de recherche scientifique (classement Pass@1).
@@ -123,7 +125,13 @@ Ils sont fournis dans le pack `ai4s-skills`, aux côtés des skills de revue mai
 | --- | --- |
 | Desktop | Tauri 2 + React + TypeScript + Vite, avec cibles macOS, Windows et Linux. |
 | Runtime | Sidecar OpenCode inclus, démarré par l'app et isolé de la configuration/données OpenCode de l'utilisateur. |
-| Sessions | Chat multi-session, historique, dossiers workspace datés, historique global, commandes `/` et mode shell `!`. |
+| Projets | Workspaces de projet nommés qui regroupent leurs sessions ; importez un dossier existant sur place (jamais copié) ou adoptez-en un déjà présent dans le workspace ; déplacez une session existante dans un projet. |
+| Sessions | Chat multi-session, historique cherchable avec archivage/restauration/export, dossiers datés, références `@` aux fichiers et `#` aux conversations, commandes `/` et mode shell `!`. |
+| Disposition | Pavage de panneaux n-aire avec glisser-déposer pour réancrer, écrans indépendants, modèle et effort de raisonnement par panneau, glissement de panneaux entre écrans. |
+| Modes de l'agent | `/plan` pour planifier puis exécuter, `/goal` pour l'objectif et les critères d'acceptation, statut des sous-agents dans son propre panneau, et Stop qui reflète l'état réel du serveur. |
+| Mémoire | Couches de mémoire globale et par projet, activables, plus compactage automatique du contexte à l'approche de la fenêtre du modèle. |
+| Calcul distant | Enregistrez des machines depuis votre `~/.ssh/config`, testez-les et soumettez, suivez ou annulez des tâches depuis l'app. |
+| Apparence | Thèmes Light, Warm et Dark avec leurs accents, et zoom de l'interface. |
 | Fichiers | Navigation globale et par session, menu contextuel, ouvrir/révéler, copier le chemin, serveur local de preview. |
 | Accès distant | Passerelle authentifiée par jeton qui sert la vraie UI à une CLI, à un navigateur web du réseau local ou à votre téléphone (loopback par défaut, LAN opt-in) ; modes lecture seule ou accès complet ; copiez un lien avec le jeton intégré pour vous connecter en un tap. Les clés API ne transitent jamais par le réseau. |
 | Contrôle du navigateur | L'agent pilote votre propre Chrome — profil et état de connexion préservés — en lisant les pages via l'arbre d'accessibilité, ou un navigateur isolé/privé à la demande. |
@@ -147,11 +155,7 @@ Téléchargez la dernière version depuis [Releases](https://github.com/ai4s-res
 - **Windows** : `.exe` NSIS et `.msi`, Windows 10/11 x64.
 - **Linux** : `.deb` et `.rpm` pour x86_64.
 
-Les builds ne sont pas encore signés. Si macOS bloque l'app :
-
-```bash
-xattr -cr "/Applications/Open Science.app"
-```
+Les paquets macOS sont signés avec un Developer ID, notarisés et agrafés : ils s'ouvrent normalement, sans passer par `xattr`. Les builds Windows et Linux ne sont pas encore signés.
 
 Sous Windows, choisissez **More info -> Run anyway** dans SmartScreen.
 
@@ -195,7 +199,7 @@ Les fichiers du workspace, données brutes, historique, provenance, notebooks et
 
 ## État
 
-Le journal d'implémentation le plus fiable est [`PROGRESS.md`](./PROGRESS.md). Les prochains travaux portent sur les releases signées/notarisées, la vérification Windows/Linux, l'auto-update, le durcissement des connecteurs et la revue de reproductibilité. Pour discuter du projet, rejoignez le [Discord Open Science](https://discord.gg/fWNMDKcd5P).
+Le journal d'implémentation le plus fiable est [`PROGRESS.md`](./PROGRESS.md). Les prochains travaux portent sur la signature de code Windows, l'auto-update, une vérification Windows/Linux plus large, le durcissement des connecteurs et la revue de reproductibilité. Les releases macOS sont déjà signées et notarisées. Pour discuter du projet, rejoignez le [Discord Open Science](https://discord.gg/fWNMDKcd5P).
 
 [MIT](./LICENSE). Open Science Desktop est un outil de recherche beta : traitez les sorties comme des brouillons et vérifiez nombres, citations, code et conclusions avant publication ou décision.
 
@@ -208,8 +212,8 @@ Si vous utilisez Open Science Desktop dans vos recherches, merci de le citer ain
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.0},
-  doi     = {10.5281/zenodo.21535396},
+  version = {0.3.3},
+  doi     = {10.5281/zenodo.21805331},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

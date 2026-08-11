@@ -44,7 +44,6 @@ const MINIMAX_MODELS: CustomProviderModel[] = [
   {
     id: "MiniMax-M3",
     context: 1_000_000,
-    cost: { input: 0.6, output: 2.4, cache_read: 0.12 },
     modalities: { input: ["text", "image", "video"] },
     reasoning: true,
     thinking: ["adaptive", "disabled"],
@@ -56,7 +55,6 @@ const MINIMAX_MODELS: CustomProviderModel[] = [
   {
     id: "MiniMax-M2.7",
     context: 204_800,
-    cost: { input: 0.3, output: 1.2, cache_read: 0.06, cache_write: 0.375 },
     modalities: { input: ["text"] },
     reasoning: true,
     // Always-on thinking has no selectable request override.

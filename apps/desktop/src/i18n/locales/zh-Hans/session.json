@@ -114,7 +114,10 @@
       "reasoning": "推理强度",
       "reasoningDefault": "模型默认",
       "faster": "更快",
-      "smarter": "更强"
+      "smarter": "更强",
+      "followingAgent": "跟随 {{agent}} 智能体设置",
+      "followAgent": "跟随 {{agent}} 智能体设置",
+      "useDefault": "使用全局默认模型"
     },
     "reference": {
       "filesAria": "工作区文件",
@@ -193,6 +196,12 @@
       "retrying": "服务商报错——正在重试（第 {{attempt}} 次）",
       "working": "正在处理…",
       "step": "第 {{count}} 步"
+    },
+    "review": {
+      "queued": "后台审阅已排队…",
+      "running": "正在后台审阅此检查点…",
+      "cancelAria": "停止后台审阅",
+      "cancelTitle": "停止此次审阅"
     },
     "placeholder": {
       "disconnected": "连接以开始聊天",

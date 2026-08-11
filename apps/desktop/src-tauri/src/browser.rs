@@ -3,14 +3,27 @@
 // OpenCode agent talks to. This module only does the desktop-side glue the
 // frontend can't: resolve the sidecar's on-disk path (OpenCode, not Tauri,
 // spawns it, so it needs an absolute command), enumerate the user's Chrome
-// profiles, detect an installed Chrome to reuse, and (fallback) download a
-// browser when none is present. All MCP wiring itself is registered from the
+// profiles, detect an installed executable for a separate managed process, and
+// (fallback) download a browser when none is present. All MCP wiring itself is
+// registered from the
 // frontend via OpenCodeClient.addMcpServer, mirroring the science connectors.
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+
+/// Shared with `src/lib/browser.ts`. The fixed namespace lets the app reclaim
+/// only its own browser sessions, without touching a user's agent-browser CLI.
+const BROWSER_NAMESPACE: &str = "open-science-desktop";
+
+fn close_args() -> [&'static str; 4] {
+    ["--namespace", BROWSER_NAMESPACE, "close", "--all"]
+}
+
+fn close_legacy_args() -> [&'static str; 2] {
+    ["close", "--all"]
+}
 
 /// One Chrome profile as agent-browser reports it. `directory` is what gets
 /// passed as AGENT_BROWSER_PROFILE (e.g. "Default", "Profile 4"); `name` is the
@@ -21,10 +34,9 @@ pub struct BrowserProfile {
     pub name: String,
 }
 
-/// An installed Chromium-family browser we can reuse (avoids downloading
-/// Chrome for Testing, and on macOS lets agent-browser decrypt the real
-/// profile's cookies without a Keychain prompt — the ACL is bound to the real
-/// Chrome binary).
+/// An installed Chromium-family executable agent-browser can use for its own
+/// process (avoids downloading Chrome for Testing). It never attaches to the
+/// user's already-running browser.
 #[derive(Clone, serde::Serialize)]
 pub struct ChromeInfo {
     pub path: String,
@@ -48,25 +60,70 @@ struct ProfilesEnvelope {
 /// executable with the target-triple suffix stripped.
 #[tauri::command]
 pub fn agent_browser_bin(_app: AppHandle) -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let dir = exe
-        .parent()
-        .ok_or("cannot resolve the app executable directory")?;
-    let name = if cfg!(windows) {
-        "agent-browser.exe"
+    crate::runtime::sidecar_bin("agent-browser")
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| {
+            "agent-browser sidecar not found next to the app. \
+             Run scripts/dev/fetch-agent-browser.sh and rebuild."
+                .to_string()
+        })
+}
+
+/// Absolute path to this desktop executable. A second invocation with
+/// `--browser-mcp` runs only the ownership proxy and never starts Tauri.
+#[tauri::command]
+pub fn browser_mcp_bin() -> Result<String, String> {
+    std::env::current_exe()
+        .map(|path| path.to_string_lossy().to_string())
+        .map_err(|e| format!("could not resolve browser MCP proxy: {e}"))
+}
+
+/// Close every browser session owned by this app. Used before reconfiguration
+/// and when Browser Control is disabled. "No active sessions" is a successful
+/// no-op in agent-browser.
+#[tauri::command]
+pub async fn close_agent_browser(app: AppHandle) -> Result<(), String> {
+    let out = app
+        .shell()
+        .sidecar("agent-browser")
+        .map_err(|e| format!("agent-browser sidecar not found: {e}"))?
+        .args(close_args())
+        .output()
+        .await
+        .map_err(|e| format!("could not close browser sessions: {e}"))?;
+    if out.status.success() {
+        Ok(())
     } else {
-        "agent-browser"
-    };
-    let bin = dir.join(name);
-    if bin.exists() {
-        Ok(bin.to_string_lossy().to_string())
-    } else {
-        Err(format!(
-            "agent-browser sidecar not found next to the app ({}). \
-             Run scripts/dev/fetch-agent-browser.sh and rebuild.",
-            bin.display()
-        ))
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "could not close browser sessions".to_string()
+        } else {
+            format!("could not close browser sessions: {stderr}")
+        })
     }
+}
+
+/// Best-effort exit cleanup. Spawn instead of waiting so a stuck helper can
+/// never hold the desktop app open; the short-lived CLI closes the namespaced
+/// daemon after the UI process has gone away.
+pub fn close_agent_browser_on_exit() {
+    let Some(bin) = crate::runtime::sidecar_bin("agent-browser") else {
+        return;
+    };
+    let _ = crate::runtime::quiet_command(bin)
+        .args(close_args())
+        .spawn();
+}
+
+/// One-time upgrade cleanup for connector configs created before the app used
+/// a private namespace. It runs only while that missing namespace is migrated.
+pub fn close_legacy_agent_browser_on_upgrade() {
+    let Some(bin) = crate::runtime::sidecar_bin("agent-browser") else {
+        return;
+    };
+    let _ = crate::runtime::quiet_command(bin)
+        .args(close_legacy_args())
+        .spawn();
 }
 
 /// List the user's Chrome profiles via `agent-browser profiles --json`. Returns

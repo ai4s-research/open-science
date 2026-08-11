@@ -15,7 +15,14 @@ import {
   type SkillInfo,
   type ToolCallStatus,
 } from "@ai4s/sdk";
-import type { ArtifactBlock, RuntimeStatus, ThreadBlock, ToolVerb } from "@ai4s/shared";
+import { AcpRuntime, toAcpMcpServers, type AcpConfigOption } from "@ai4s/sdk/acp";
+import type {
+  ArtifactBlock,
+  ReviewerBlock,
+  RuntimeStatus,
+  ThreadBlock,
+  ToolVerb,
+} from "@ai4s/shared";
 import {
   adoptWorkspaceSkills,
   detectTools as probeTools,
@@ -24,6 +31,8 @@ import {
   importProject as importProjectFolder,
   setProjectPinned as setProjectPinnedCmd,
   deleteProject as deleteProjectCmd,
+  getAgentModels,
+  getAgentVariants,
   getApprovalMode,
   installSkillMarkdown,
   isTauri,
@@ -45,13 +54,26 @@ import {
   type ToolStatus,
 } from "./tauri";
 import { isGatewayWeb, gatewayToken, gatewayOrigin } from "./webMode";
+import { activeAcpAgent } from "./acpAgents";
+import { acpTransport } from "./acpTransport";
+import { samePath } from "./workspacePath";
 import { kernelReset } from "./kernel";
 import { moveScrollMemory } from "./scrollMemory";
 import { deriveArtifact, deriveArtifactPresentation } from "./artifacts";
 import { useLayoutStore } from "./layout";
 import { provenanceInputsFromEvent, recordProvenance } from "./provenance";
+import { imageAttachmentParts } from "./promptAttachments";
 import { recordRun, runInputFromEvent } from "./runs";
 import { splitReview } from "./review";
+import { useSshStore } from "./ssh";
+import {
+  AUTO_REVIEW_KEY,
+  AUTO_REVIEW_PROMPT,
+  REVIEWER_AGENT,
+  autoReviewPrompt,
+  isMutatingTool,
+  shouldAutoReview,
+} from "./autoReview";
 import { notifyPermissionRequest } from "./systemNotification";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { toast } from "@/lib/toast";
@@ -103,6 +125,10 @@ function initialReasoningVariant(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(REASONING_KEY) || null;
 }
+function initialAutoReview(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(AUTO_REVIEW_KEY) === "1";
+}
 
 export interface Thread {
   blocks: ThreadBlock[];
@@ -126,14 +152,38 @@ export interface PaneState {
   showAgents: boolean;
 }
 
+/** Which runtime the current connection drives: the bundled OpenCode sidecar, or
+ *  a user-configured ACP agent (#14). The UI reads it to withhold controls the
+ *  ACP dialect cannot honour — a model picker that silently changed nothing
+ *  would be worse than no picker (AGENTS.md). */
+export type RuntimeKind = "opencode" | "acp";
+
 interface RuntimeState {
   status: RuntimeStatus;
   serverUrl: string;
+  runtimeKind: RuntimeKind;
+  /** The connected ACP agent's display name, or null on OpenCode. */
+  acpAgentName: string | null;
+  /** The ACP agent's OWN selectors per session — model, reasoning level,
+   *  permission mode — as it reported them (`configOptions`). This is what the
+   *  composer offers instead of our model picker: ACP v1 changes a model through
+   *  `session/set_config_option`, and the choices belong to the agent. */
+  acpConfigOptions: Record<string, AcpConfigOption[]>;
+  /** Set one of them. The agent answers with its complete list, which replaces
+   *  ours — picking a model can change which reasoning levels exist. */
+  setAcpConfigOption: (sessionId: string, configId: string, value: string) => Promise<void>;
   sessions: SessionMeta[];
   currentId: string | null;
   threads: Record<string, Thread>;
   skills: SkillInfo[];
   agents: AgentInfo[];
+  /** Per-agent model / reasoning effort from OpenCode's config (Settings →
+   *  Models → per agent). Consulted when a pane has no explicit pick, so a
+   *  configured agent model is what actually runs the turn (#96). */
+  agentModels: Record<string, string>;
+  agentVariants: Record<string, string>;
+  /** Re-read the per-agent config after Settings writes it. */
+  refreshAgentModels: () => Promise<void>;
   /** Slash commands the runtime can run ("/" palette): config commands,
    *  skills and MCP prompts, one merged list from GET /command. */
   commands: CommandInfo[];
@@ -150,6 +200,15 @@ interface RuntimeState {
    *  actually exposes it — variant vocabularies differ across models. */
   reasoningVariant: string | null;
   setReasoningVariant: (variant: string | null) => void;
+  /** Run the reviewer agent for one read-only turn whenever a turn changed
+   *  workspace files (#72). Off by default: it is a second model turn, so the
+   *  user opts in. Persisted locally (it is app behaviour, not sidecar config),
+   *  which also makes it work in the gateway web client. */
+  autoReview: boolean;
+  setAutoReview: (enabled: boolean) => void;
+  /** Non-blocking reviewer activity keyed by the foreground parent session. */
+  backgroundReviews: Record<string, "queued" | "running">;
+  cancelAutoReview: (sessionId: string) => void;
   /** The last failed model switch's error, or null. While set, the Settings
    *  page keeps the model browser on screen (instead of the connect prompt)
    *  so the user can retry. Cleared by any successful reconnect, a successful
@@ -189,6 +248,9 @@ interface RuntimeState {
   sessionVariants: Record<string, string | null>;
   /** Set a session's model (per-pane); no sidecar config PATCH / reconnect. */
   setSessionModel: (sessionId: string, model: string) => void;
+  /** Drop a pane's explicit pick so the turn follows the agent config / default
+   *  again — without this a session model could be changed but never undone. */
+  clearSessionModel: (sessionId: string) => void;
   /** Set a session's reasoning effort (per-pane). */
   setSessionVariant: (sessionId: string, variant: string | null) => void;
   // The pane/agent setters and turn actions below take an optional `sessionId`
@@ -213,6 +275,9 @@ interface RuntimeState {
   disconnect: () => void;
   refreshSessions: () => Promise<void>;
   startDraft: () => void;
+  /** Blank the draft view WITHOUT unpinning the folder the next session
+   *  will be created in — only an explicit New may do that (#69). */
+  resetDraftView: () => void;
   startDraftInCurrentWorkspace: (key?: string) => void;
   /** Projects: named shared workspaces under `<base>/projects`. Sessions group
    *  under a project by `directory`; multiple sessions share the folder. */
@@ -223,17 +288,26 @@ interface RuntimeState {
   importProject: (path: string, mode: ProjectImportMode) => Promise<ProjectInfo | null>;
   setProjectPinned: (id: string, pinned: boolean) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
-  /** Fresh draft pinned inside `path` (a project folder), so the next new
-   *  session lands there. Skips the reconnect when the folder is already active. */
-  startDraftInWorkspace: (path: string) => Promise<void>;
+  /** Fresh draft aimed at `path` (a project folder), so the session it creates
+   *  lands there. `key` is the draft slot the composer sends under — a pane's
+   *  own `draft:<leafId>` when the caller opened one. Skips the reconnect when
+   *  the folder is already active. */
+  startDraftInWorkspace: (path: string, key?: string) => Promise<void>;
   /** Active workspace folder (absolute path); null in the browser. */
   workspace: string | null;
   /** Web client only: the gateway token is read-only (GET-only) — every write
    *  (new session, prompt, approval) would 403, so the UI hides/disables them. */
   webReadOnly: boolean;
-  /** True when the user explicitly picked the active folder for the next new
-   *  session; false means a new session gets its own fresh dated folder. */
-  workspacePinned: boolean;
+  /** Folder a pending draft's session must be created in, keyed by draft slot
+   *  (`DRAFT_KEY`, or a pane's `draft:<leafId>`). Set when the user picks one —
+   *  "+ new session in project X", or the folder picker. A draft with no entry
+   *  gets its own fresh dated folder.
+   *
+   *  Per draft and holding the PATH, not a global boolean (#69): the active
+   *  folder follows whatever session was last opened, so a bare "pinned" flag
+   *  neither survived a glance at another session (the send landed in that
+   *  session's folder) nor stayed out of the way of an unrelated new screen. */
+  draftWorkspaces: Record<string, string>;
   /** A deliberate workspace move is in flight (event-stream reconnect into the
    *  new folder). The UI must not present it as a disconnection — no status
    *  flip, no Connect button, no help card. Real failures surface after the
@@ -263,8 +337,12 @@ interface RuntimeState {
    *  provider from looking like a silent "Working…" forever. Cleared by the
    *  session's next sign of life (stream events, idle, error). */
   retryNotices: Record<string, { attempt: number; message: string }>;
-  /** Switch to an existing folder, or (with `dated`) create a new dated one. */
-  switchWorkspace: (target: { path: string } | { dated: string }) => Promise<void>;
+  /** Switch to an existing folder, or (with `dated`) create a new dated one.
+   *  `key` is the draft slot the switch was made for — the folder becomes that
+   *  draft's destination. Defaults to the global slot. */
+  switchWorkspace: (
+    target: ({ path: string } | { dated: string }) & { key?: string },
+  ) => Promise<void>;
   /** Ensure a brand-new draft already has its own (pinned) dated folder before
    *  composer files are written into it — otherwise a file added to a draft
    *  lands in the pre-send folder while send would create a different dated one,
@@ -278,7 +356,14 @@ interface RuntimeState {
   /** `draftKey` (a `draft:<leafId>` slot) is the per-pane draft this send may
    *  lazily create a session from — passed by tiled panes so each unbound pane
    *  keeps its own draft/thread and creates its own session on first send. */
-  sendPrompt: (text: string, sessionId?: string, draftKey?: string) => Promise<string | null>;
+  /** `attachments` are workspace file names from the composer's chips; the image
+   *  ones are also sent as multimodal parts so a vision model sees them (#88). */
+  sendPrompt: (
+    text: string,
+    sessionId?: string,
+    draftKey?: string,
+    attachments?: string[],
+  ) => Promise<string | null>;
   /** Run a "!" shell command directly in the session's workspace folder —
    *  no model turn; the output folds into the thread as a bash tool row. */
   runShell: (command: string, sessionId?: string, draftKey?: string) => Promise<string | null>;
@@ -331,6 +416,15 @@ interface RuntimeState {
 // provider/MCP surface that lives outside the AgentRuntime contract.
 let client: AgentRuntime | null = null;
 let opencodeClient: OpenCodeClient | null = null;
+/** The live ACP runtime and the agent id it was started for, kept ACROSS
+ *  reconnects (#14). The app reconnects whenever the workspace moves — every new
+ *  session does — and ACP binds the folder per session (`session/new`'s cwd),
+ *  not per process: the spec requires the session's cwd to be used "regardless
+ *  of where the Agent subprocess was spawned". So a move re-points `setCwd` and
+ *  keeps the child, instead of paying an agent cold start (an `npx` boot) and
+ *  killing every session that child was holding. */
+let acpRuntime: AcpRuntime | null = null;
+let acpRuntimeAgentId: string | null = null;
 let openSessionSeq = 0;
 /** The model the user last DELIBERATELY switched to, and when. A switch does a
  *  masked reconnect, and connect() fires loadCatalog() un-awaited — so the
@@ -382,11 +476,26 @@ function clearStatusBlip() {
   if (statusBlipTimer !== null) clearTimeout(statusBlipTimer);
   statusBlipTimer = null;
 }
-function teardownClient() {
+/**
+ * Drop the current connection. `keep` is the one runtime a reconnect intends to
+ * REUSE (the live ACP agent when the selection has not changed): closing it
+ * would kill the agent process and every session it holds, only to spawn the
+ * same command again a moment later.
+ */
+function teardownClient(keep?: AgentRuntime | null) {
   clientStatusUnsub?.();
   clientStatusUnsub = null;
   clearStatusBlip();
-  client?.close();
+  if (client && client !== keep) {
+    client.close();
+    // Closing the ACP runtime kills its child (the transport's `close` stops it),
+    // so the module handle must go with it — otherwise the next connect would
+    // reuse a runtime whose agent is gone.
+    if (client === acpRuntime) {
+      acpRuntime = null;
+      acpRuntimeAgentId = null;
+    }
+  }
   client = null;
   opencodeClient = null;
 }
@@ -431,6 +540,83 @@ function clientForSession(get: StoreGet, sid: string): AgentRuntime | null {
   return client;
 }
 const emptyThread = (): Thread => ({ blocks: [], index: {}, loaded: false });
+
+/** Forget a draft's chosen folder — its session was created, or the user asked
+ *  for a plain New. Absent means "give the next session a fresh dated folder". */
+function forgetDraftFolder(s: RuntimeState, key: string) {
+  if (!(key in s.draftWorkspaces)) return {};
+  const draftWorkspaces = { ...s.draftWorkspaces };
+  delete draftWorkspaces[key];
+  return { draftWorkspaces };
+}
+
+/** Drop the global draft slot's leftovers: an aborted first message, its pane
+ *  and its Build/Plan mode. Deliberately says nothing about the draft's folder —
+ *  see `startDraft` vs `resetDraftView` (#69). */
+function blankDraft(s: RuntimeState, key: string = DRAFT_KEY) {
+  const threads = { ...s.threads };
+  delete threads[key];
+  const panes = { ...s.panes };
+  delete panes[key];
+  const sessionAgents = { ...s.sessionAgents };
+  delete sessionAgents[key];
+  return { currentId: null, threads, panes, sessionAgents };
+}
+/**
+ * Hand the app's own MCP connectors to the ACP agent.
+ *
+ * ACP takes MCP servers per session; OpenCode keeps them in its global config.
+ * That config is read through a THROWAWAY OpenCodeClient — the sidecar is
+ * running either way (it backs the workspace, kernels and the gateway), and
+ * `getClient()` must keep answering null under an ACP agent so Settings does not
+ * offer a provider surface that is not driving anything.
+ *
+ * Best-effort by design: a connector list that cannot be read must not stop the
+ * agent from connecting. The session simply gets the tools the agent brings.
+ *
+ * A connector's own credentials (env, headers) travel with it — they are what
+ * makes it work, and the bundled runtime already launches these servers with
+ * them. Nothing else does: the agent is a command the user configured, and no
+ * provider API key of ours is ever part of this payload.
+ */
+async function shareMcpServers(runtime: AcpRuntime, baseUrl: string, password: string | null) {
+  try {
+    const config = new OpenCodeClient({
+      baseUrl,
+      password: password ?? undefined,
+      // The sidecar is local; a connector list is not worth stalling a connect.
+      requestTimeoutMs: 4000,
+    });
+    const servers = await config.listMcpServers();
+    const acp = toAcpMcpServers(
+      Object.fromEntries(
+        servers.filter((s) => s.config).map((s) => [s.name, s.config!]),
+      ),
+    );
+    runtime.setMcpServers(acp);
+    if (acp.length > 0) void logDebug(`acp mcp → ${acp.map((s) => s.name).join(", ")}`);
+  } catch (err) {
+    void logDebug(`acp mcp skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Mirror the ACP agent's own session selectors into the store, so the composer
+ * can offer them. A local read, not an RPC — and it writes only when they
+ * actually changed, since this runs on turn boundaries and a needless write
+ * repaints every composer.
+ */
+function syncAcpConfig(set: StoreSet, sessionId: string): void {
+  const rt = acpRuntime;
+  if (!rt || client !== rt) return;
+  const options = rt.configOptionsFor(sessionId);
+  set((s) => {
+    const current = s.acpConfigOptions[sessionId] ?? [];
+    if (JSON.stringify(current) === JSON.stringify(options)) return {};
+    return { acpConfigOptions: { ...s.acpConfigOptions, [sessionId]: options } };
+  });
+}
+
 /** Threads key for the draft conversation — its blocks move to the real
  *  session id once the session exists, so the page never visibly resets. */
 export const DRAFT_KEY = "draft";
@@ -475,12 +661,123 @@ const notifiedPermissions = new Set<string>();
 /** A completed presentation tool can be repeated by SSE reconciliation. Layout
  *  mutations are not idempotent, so handle each call exactly once. */
 const handledPresentations = new Set<string>();
+/** `ssh_connect` calls already relayed to the sign-in dialog (#73). One tool call
+ *  emits several `tool.updated` events — the SDK re-emits per part update, so
+ *  "pending" then "running" at least — and starting a sign-in is anything but
+ *  idempotent: each repeat raced another ssh master for the same ControlPath. */
+const relayedSignIns = new Set<string>();
 
 /** Sessions the user just interrupted: the thread already shows "Interrupted",
  *  so the abort's own trailing events (an "aborted" error and one or more
  *  session.idle events) must not add a second line. Armed before the abort POST
  *  and held across every trailing event; the next turn clears it (`turn → sid`). */
 const interruptedSessions = new Set<string>();
+
+// ---- Auto-review (#72) ----
+// Per-token review state stays outside Zustand so a background reviewer never
+// repaints the foreground pane. The store only receives queued/running
+// transitions and the final structured result.
+/** Sessions whose CURRENT turn has written or edited a workspace file. */
+const dirtyTurns = new Set<string>();
+/** Exact paths observed on mutating tool events, scoped to the parent turn. */
+const dirtyTurnPaths = new Map<string, Set<string>>();
+/** Sessions waiting for the single review slot, oldest first. */
+const reviewQueue: string[] = [];
+/** Paths coalesced while a parent waits for the single review slot. */
+const queuedReviewPaths = new Map<string, Set<string>>();
+interface BackgroundReviewJob {
+  parentId: string;
+  checkpointMessageId: string;
+  checkpointUserMessageId?: string;
+  runtime: AgentRuntime;
+  paths: string[];
+}
+/** Hidden fork id → the foreground checkpoint it reviews. */
+const backgroundReviewJobs = new Map<string, BackgroundReviewJob>();
+/** Reviews explicitly stopped by the user produce no fallback finding. */
+const cancelledBackgroundReviews = new Set<string>();
+/** Ignore abort/error trailing events after a hidden review has been folded
+ *  back and removed; otherwise they recreate an unreachable child thread. */
+const retiredBackgroundReviews = new Set<string>();
+/** Synthetic result parts must not make a quiet parent look like it started a
+ *  new model turn when their SSE update arrives. */
+const backgroundReviewResultParts = new Set<string>();
+/** Parent session holding the one global review slot. */
+let reviewInFlight: string | null = null;
+
+function mergePaths(target: Map<string, Set<string>>, sid: string, paths: Iterable<string>): void {
+  const merged = target.get(sid) ?? new Set<string>();
+  for (const path of paths) if (path) merged.add(path);
+  if (merged.size > 0) target.set(sid, merged);
+}
+
+function takePaths(target: Map<string, Set<string>>, sid: string): string[] {
+  const paths = [...(target.get(sid) ?? [])];
+  target.delete(sid);
+  return paths;
+}
+
+/** Forget every trace of a session's review state (session deleted, runtime
+ *  torn down) so a queued id can't resurrect a review for a gone session. */
+function forgetAutoReview(sid: string) {
+  dirtyTurns.delete(sid);
+  dirtyTurnPaths.delete(sid);
+  queuedReviewPaths.delete(sid);
+  const at = reviewQueue.indexOf(sid);
+  if (at >= 0) reviewQueue.splice(at, 1);
+  if (reviewInFlight === sid) reviewInFlight = null;
+  for (const [child, job] of backgroundReviewJobs) {
+    if (job.parentId !== sid && child !== sid) continue;
+    backgroundReviewJobs.delete(child);
+    remember(retiredBackgroundReviews, child);
+    void job.runtime.abortSession(child).catch(() => {});
+  }
+}
+
+/** Longest error text written to debug.log. The diagnostic value is in the first
+ *  sentence; some providers append an entire response body. */
+const LOG_ERROR_MAX = 300;
+
+/**
+ * An error message made safe to persist in debug.log. Provider errors are echoed
+ * verbatim from an HTTP response, so one could quote back the credential that
+ * failed — and debug.log is a plain file users attach to bug reports, where a key
+ * must never appear (AGENTS.md). Known key shapes go first, then any long
+ * secret-looking run, then a length cap.
+ */
+export function redactForLog(message: string): string {
+  const redacted = message
+    .replace(/\b(sk|pk|rk|ghp|gho|ghs|github_pat|xoxb|xoxp|xapp|glpat|hf)[-_][A-Za-z0-9_-]{6,}/g, "$1-***")
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{12,}/gi, "$1 ***")
+    .replace(/[A-Za-z0-9_-]{40,}/g, "***");
+  return redacted.length > LOG_ERROR_MAX ? `${redacted.slice(0, LOG_ERROR_MAX)}…` : redacted;
+}
+
+/**
+ * A runtime error with the one thing the user cannot work out alone appended.
+ * Only for failures whose text is accurate but leaves no way forward — the
+ * provider's own wording is always kept, never replaced.
+ */
+export function explainRuntimeError(message: string): string {
+  // A dangling default model (its provider removed or renamed) fails every send
+  // the same way — point at where the fix lives.
+  if (/model not found/i.test(message)) {
+    return `${message} Pick an available model in Settings → Models.`;
+  }
+  // OpenAI answers `invalid_prompt` / "Request blocked." when its content filter
+  // rejects the PROMPT — and a prompt is the whole conversation, resent on every
+  // turn. So "try again" reproduces it exactly (observed: three identical
+  // failures in a row), which reads as the app being broken. The way out is to
+  // stop resending the offending history, or to ask a provider that will take it.
+  if (/^request blocked\.?$/i.test(message.trim())) {
+    return (
+      `${message} The provider's content filter rejected this conversation, not just your last message — ` +
+      `every retry resends the same history, so it will keep failing. Edit or delete the recent messages, ` +
+      `start a new session, or switch to another model or provider.`
+    );
+  }
+  return message;
+}
 
 /** Server-side truth for "is this session's turn over": the last message is an
  *  assistant message that has finished streaming (time.completed set). A last
@@ -501,13 +798,23 @@ export function turnStillStreaming(messages: HistoryMessage[]): boolean {
 }
 
 /** Streamed events that prove a session's turn is still in flight. Any of them
- *  re-locks a session whose local running flag is missing — see the handler. */
+ *  re-locks a session whose local running flag is missing — see the handler.
+ *
+ *  Every member is ASSISTANT progress. `message.agent` is deliberately absent
+ *  even though it arrives mid-turn: the SDK emits it only for USER messages, so
+ *  it cannot witness the assistant working — and OpenCode re-emits the turn's
+ *  user message once the turn ENDS, about 40 ms after `session.idle`. Treating
+ *  that as activity re-locked the session the instant it finished, leaving a
+ *  spinner under a completed answer until `reconcileRunning` polled the server
+ *  ~15 s later and rebuilt the whole thread to clear it (observed 62 times in one
+ *  user's log). A turn started by ANOTHER client is still caught: by the events
+ *  below once the assistant does anything, and by `turnStillStreaming` from
+ *  server truth whenever the session is opened. */
 const ACTIVITY_EVENTS: ReadonlySet<OpenCodeEvent["type"]> = new Set([
   "text.updated",
   "reasoning.updated",
   "step.updated",
   "tool.updated",
-  "message.agent",
   "session.retry",
   "question.asked",
   "permission.asked",
@@ -659,29 +966,28 @@ async function performTurn(
     // race the focus effect. Only a legacy (no-draftKey) send reuses currentId.
     let id = target ?? (draftKey ? null : get().currentId);
     if (!id) {
-      // Lazy-create the session on the first message (#3). Unless the user
-      // pinned a folder via the workspace switcher, a new session gets its
-      // own fresh dated folder (~/Documents/OpenScience/sessions/<date-time>) first,
-      // so its files never pile up in the bare base folder.
-      if (isTauri && !get().workspacePinned) {
+      // Lazy-create the session on the first message (#3), in THIS draft's own
+      // folder. A draft the user aimed at a project carries that folder; one
+      // that does not gets its own fresh dated folder
+      // (~/Documents/OpenScience/sessions/<date-time>) so its files never pile
+      // up in the bare base folder.
+      const chosen = isTauri ? get().draftWorkspaces[draftSrc] : undefined;
+      if (isTauri) {
         set({ switching: true });
         try {
-          await newDatedWorkspace(datedWorkspaceName());
-          await kernelReset().catch(() => {});
-          await get().connectRetry();
-        } finally {
-          set({ switching: false });
-        }
-        if (get().status !== "ready" || !client) {
-          throw new Error("Runtime did not reconnect after creating the session folder.");
-        }
-      } else if (isTauri && get().workspacePinned) {
-        // /new and /clear intentionally keep the same folder, but the old
-        // session route may have just torn down/reopened directory-scoped SSE.
-        // Rebuild the scoped client before creating the next session so first
-        // send cannot hang on a stale workspace instance.
-        set({ switching: true });
-        try {
+          if (!chosen) {
+            await newDatedWorkspace(datedWorkspaceName());
+            await kernelReset().catch(() => {});
+          } else if (chosen !== get().workspace) {
+            // The active folder wandered off — opening any session follows it
+            // into that session's folder. Go back to the one this draft was
+            // aimed at, or the session lands wherever the user last looked (#69).
+            await setWorkspace(chosen);
+            await kernelReset().catch(() => {});
+          }
+          // Always rebuild the scoped client: /new and /clear keep the folder,
+          // but the old session route may have just torn down directory-scoped
+          // SSE, and a first send must not hang on a stale workspace instance.
           await get().connectRetry();
         } finally {
           set({ switching: false });
@@ -706,6 +1012,10 @@ async function performTurn(
           sessionAgents[id!] = sessionAgents[draftSrc];
           delete sessionAgents[draftSrc];
         }
+        // The destination has done its job: the session now carries its own
+        // folder. Leaving the entry would silently aim this pane's NEXT draft
+        // at the same project long after the user moved on.
+        const { draftWorkspaces = s.draftWorkspaces } = forgetDraftFolder(s, draftSrc);
         // Move the in-flight send lock too, so a pane keyed on the new id (the
         // draft pane follows currentId onto the real session) still reads itself
         // as sending across the graft — no flicker to an unlocked composer.
@@ -725,9 +1035,20 @@ async function performTurn(
           sessionVariants[id!] = sessionVariants[draftSrc];
           delete sessionVariants[draftSrc];
         }
-        return { currentId: id, threads, panes, sessionAgents, sendingSessions, sessionModels, sessionVariants };
+        return {
+          currentId: id,
+          threads,
+          panes,
+          sessionAgents,
+          sendingSessions,
+          sessionModels,
+          sessionVariants,
+          draftWorkspaces,
+        };
       });
       lockKey = id;
+      // A fresh ACP session reports the agent's own selectors — surface them.
+      syncAcpConfig(set, id);
       // The draft's model/effort override moved onto the real id — repersist so
       // a relaunch restores this pane's model, not the global default.
       saveRecord(SESSION_MODELS_KEY, get().sessionModels);
@@ -828,6 +1149,308 @@ async function performTurn(
   }
 }
 
+/** Take `sid` and its coalesced changed-file scope out of the review queue. */
+function dequeueReview(sid: string): string[] | null {
+  const at = reviewQueue.indexOf(sid);
+  if (at < 0) return null;
+  reviewQueue.splice(at, 1);
+  return takePaths(queuedReviewPaths, sid);
+}
+
+function reviewFence(review: ReviewerBlock): string {
+  return `\`\`\`review\n${JSON.stringify({ findings: review.findings, note: review.note })}\n\`\`\``;
+}
+
+function backgroundReviewPartId(reviewSid: string): string {
+  const time = (BigInt(Date.now()) * 0x1000n).toString(16).padStart(12, "0").slice(-12);
+  const suffix = reviewSid.replace(/[^A-Za-z0-9]/g, "").slice(-14).padStart(14, "0");
+  return `prt_${time}${suffix}`;
+}
+
+/** Move one hidden review's structured result onto its parent checkpoint. The
+ *  synthetic part persists with the parent but starts no model turn, so it is
+ *  visible after reload and becomes context for the parent's next turn. */
+function finishAutoReview(
+  set: StoreSet,
+  get: StoreGet,
+  reviewSid: string,
+  completed: boolean,
+): boolean {
+  const job = backgroundReviewJobs.get(reviewSid);
+  if (!job) return false;
+  backgroundReviewJobs.delete(reviewSid);
+  remember(retiredBackgroundReviews, reviewSid);
+  if (reviewInFlight === job.parentId) reviewInFlight = null;
+
+  const cancelled = cancelledBackgroundReviews.delete(reviewSid);
+  const blocks = get().threads[reviewSid]?.blocks ?? [];
+  const emitted = [...blocks].reverse().find((block): block is ReviewerBlock => block.kind === "reviewer");
+  const result = cancelled
+    ? null
+    : emitted ?? {
+        kind: "reviewer" as const,
+        findings: [],
+        note: completed
+          ? "Background review finished without a structured result."
+          : "Background review could not complete; no findings were recorded.",
+      };
+  const partId = backgroundReviewPartId(reviewSid);
+  if (result) remember(backgroundReviewResultParts, `${job.parentId}:${partId}`);
+
+  set((s) => {
+    const backgroundReviews = { ...s.backgroundReviews };
+    delete backgroundReviews[job.parentId];
+    const sessionParents = { ...s.sessionParents };
+    delete sessionParents[reviewSid];
+    const threads = { ...s.threads };
+    delete threads[reviewSid];
+    const runningSessions = { ...s.runningSessions };
+    const stepCounts = { ...s.stepCounts };
+    const retryNotices = { ...s.retryNotices };
+    const shellTurns = { ...s.shellTurns };
+    delete runningSessions[reviewSid];
+    delete stepCounts[reviewSid];
+    delete retryNotices[reviewSid];
+    delete shellTurns[reviewSid];
+    if (result) {
+      const parent = threads[job.parentId] ?? emptyThread();
+      const blocks = [...parent.blocks];
+      let insertAt = blocks.length;
+      if (job.checkpointUserMessageId) {
+        const checkpointUserAt = blocks.findIndex(
+          (block) =>
+            block.kind === "user" && block.messageID === job.checkpointUserMessageId,
+        );
+        if (checkpointUserAt >= 0) {
+          const nextUserAt = blocks.findIndex(
+            (block, index) => index > checkpointUserAt && block.kind === "user",
+          );
+          if (nextUserAt >= 0) insertAt = nextUserAt;
+        }
+      }
+      blocks.splice(insertAt, 0, result);
+      const index = Object.fromEntries(
+        Object.entries(parent.index).map(([key, value]) => [
+          key,
+          value >= insertAt ? value + 1 : value,
+        ]),
+      );
+      index[`review:${partId}`] = insertAt;
+      threads[job.parentId] = {
+        ...parent,
+        blocks,
+        index,
+        loaded: true,
+      };
+    }
+    return {
+      backgroundReviews,
+      sessionParents,
+      threads,
+      runningSessions,
+      stepCounts,
+      retryNotices,
+      shellTurns,
+      questions: s.questions.filter((question) => question.sessionId !== reviewSid),
+      permissions: s.permissions.filter((permission) => permission.sessionId !== reviewSid),
+      sessions: s.sessions.filter((session) => session.id !== reviewSid),
+    };
+  });
+
+  if (result) {
+    void job.runtime
+      .appendTextPart(job.parentId, job.checkpointMessageId, reviewFence(result), partId)
+      .catch((err) =>
+        logDebug(
+          `auto-review result not persisted: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+  }
+  drainReviewQueue(set, get);
+  return true;
+}
+
+/** Release a review that was cancelled while its hidden fork was still being
+ * prepared. A later queued review may start only if auto-review is still on. */
+function releaseAutoReviewReservation(set: StoreSet, get: StoreGet, sid: string): void {
+  if (reviewInFlight === sid) reviewInFlight = null;
+  set((s) => {
+    const backgroundReviews = { ...s.backgroundReviews };
+    delete backgroundReviews[sid];
+    return { backgroundReviews };
+  });
+  drainReviewQueue(set, get);
+}
+
+/** Run the reviewer in a hidden fork of the completed parent checkpoint. The
+ *  parent remains idle and usable while this independent session streams. */
+async function startAutoReview(
+  set: StoreSet,
+  get: StoreGet,
+  sid: string,
+  paths: string[],
+): Promise<void> {
+  const runtime = clientForSession(get, sid);
+  if (!runtime) {
+    drainReviewQueue(set, get);
+    return;
+  }
+  reviewInFlight = sid;
+  set((s) => ({
+    backgroundReviews: { ...s.backgroundReviews, [sid]: "running" },
+  }));
+  let reviewSid: string | null = null;
+  try {
+    const messages = await runtime.getMessages(sid);
+    let checkpointAt = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "assistant" && messages[i]?.id) {
+        checkpointAt = i;
+        break;
+      }
+    }
+    const checkpoint = checkpointAt >= 0 ? messages[checkpointAt]?.id : undefined;
+    if (!checkpoint) throw new Error("The completed checkpoint has no assistant message id");
+    // Fork's boundary is exclusive. A newer user message may already exist if
+    // the foreground continued immediately; stop before it so the completed
+    // assistant checkpoint is included and the newer turn is not.
+    const boundary = messages.slice(checkpointAt + 1).find((message) => !!message.id)?.id;
+    let checkpointUserMessageId: string | undefined;
+    for (let i = checkpointAt - 1; i >= 0; i--) {
+      if (messages[i]?.role === "user" && messages[i]?.id) {
+        checkpointUserMessageId = messages[i]!.id;
+        break;
+      }
+    }
+    if (!get().autoReview || reviewInFlight !== sid) {
+      releaseAutoReviewReservation(set, get, sid);
+      return;
+    }
+
+    // Forking gives the reviewer the completed plan, prompts and response while
+    // keeping its reasoning/tools out of the foreground transcript.
+    reviewSid = await runtime.forkSession(sid, boundary);
+    if (!get().autoReview || reviewInFlight !== sid) {
+      void runtime.abortSession(reviewSid).catch(() => {});
+      releaseAutoReviewReservation(set, get, sid);
+      return;
+    }
+    backgroundReviewJobs.set(reviewSid, {
+      parentId: sid,
+      checkpointMessageId: checkpoint,
+      checkpointUserMessageId,
+      runtime,
+      paths,
+    });
+    const parent = get().sessions.find((session) => session.id === sid);
+    set((s) => ({
+      sessionParents: { ...s.sessionParents, [reviewSid!]: sid },
+      sessions: s.sessions.some((session) => session.id === reviewSid)
+        ? s.sessions
+        : [
+            ...s.sessions,
+            {
+              id: reviewSid!,
+              title: "Background review",
+              parentId: sid,
+              directory: parent?.directory,
+              created: Date.now(),
+              updated: Date.now(),
+            },
+          ],
+    }));
+    void runtime.renameSession(reviewSid, "Background review").catch(() => {});
+    await runtime.setSessionArchived(reviewSid, true).catch((err) =>
+      logDebug(
+        `auto-review child not archived: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+    // No model or effort is passed on purpose: the reviewer's own model and
+    // reasoning effort come from its per-agent config (#71), and an explicit
+    // per-turn model would override exactly that setting.
+    await runtime.sendPrompt(reviewSid, autoReviewPrompt(paths), REVIEWER_AGENT);
+    void logDebug(`auto-review ${reviewSid} → ${sid}`);
+  } catch (err) {
+    void logDebug(`auto-review failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (reviewSid && finishAutoReview(set, get, reviewSid, false)) return;
+    if (reviewInFlight === sid) reviewInFlight = null;
+    set((s) => {
+      const backgroundReviews = { ...s.backgroundReviews };
+      delete backgroundReviews[sid];
+      return { backgroundReviews };
+    });
+    drainReviewQueue(set, get);
+  }
+}
+
+/** Start the next waiting review, if the single slot is free. */
+function drainReviewQueue(set: StoreSet, get: StoreGet): void {
+  if (!get().autoReview) {
+    const queued = reviewQueue.splice(0);
+    queuedReviewPaths.clear();
+    if (queued.length > 0) {
+      set((s) => {
+        const backgroundReviews = { ...s.backgroundReviews };
+        for (const sid of queued) delete backgroundReviews[sid];
+        return { backgroundReviews };
+      });
+    }
+    return;
+  }
+  if (reviewInFlight) return;
+  const next = reviewQueue.shift();
+  if (next) void startAutoReview(set, get, next, takePaths(queuedReviewPaths, next));
+}
+
+/**
+ * Auto-review bookkeeping for one `session.idle`. `reviewable` is false when the
+ * turn ended in a user interrupt: there is nothing to review, but the slot still
+ * has to be released if the interrupted turn WAS the review.
+ */
+function onTurnIdle(set: StoreSet, get: StoreGet, sid: string, reviewable: boolean): void {
+  if (finishAutoReview(set, get, sid, reviewable)) return;
+  // This turn's own changes are settled either way, so clear them. A review the
+  // session was already OWED is different: the files that earned it are on disk
+  // whether or not this turn touched anything, so its queue entry is consumed
+  // only on an idle that can actually act on it — otherwise an interrupted or
+  // errored turn silently cancels a review earned by an earlier one.
+  const dirty = dirtyTurns.delete(sid);
+  const paths = takePaths(dirtyTurnPaths, sid);
+  // Both are consumed, never one or the other: `dirty || dequeueReview(sid)`
+  // short-circuits, so a session that was dirty AND already owed a review kept
+  // its queue entry — and the moment that review ended early (interrupted, or
+  // dead server-side) the drain turned the leftover into a second paid review of
+  // the same state.
+  const owed = reviewable ? dequeueReview(sid) : null;
+  const changedFiles = reviewable && (dirty || owed !== null);
+  const scope = [...new Set([...paths, ...(owed ?? [])])];
+  const s = get();
+  if (
+    reviewable &&
+    shouldAutoReview({
+      enabled: s.autoReview,
+      changedFiles,
+      wasReview: false,
+      isSubagent: !!s.sessionParents[sid],
+      hasReviewer: s.agents.some((a) => a.name === REVIEWER_AGENT),
+    })
+  ) {
+    // The queue is the SET of sessions owed a review, so an id already waiting
+    // must not be added twice: each duplicate survives the drain that started
+    // its review and becomes a second, redundant paid review of the same state.
+    if (reviewInFlight) {
+      if (!reviewQueue.includes(sid)) reviewQueue.push(sid);
+      mergePaths(queuedReviewPaths, sid, scope);
+      set((state) => ({
+        backgroundReviews: state.backgroundReviews[sid]
+          ? state.backgroundReviews
+          : { ...state.backgroundReviews, [sid]: "queued" },
+      }));
+    } else void startAutoReview(set, get, sid, scope);
+    return;
+  }
+}
+
 /** Shared core of the two destructive "go back to a past message" actions
  *  (edit-and-resend, and plain revert): stop any running turn, revert the
  *  session to `messageID` — OpenCode drops it and every later message and rolls
@@ -890,9 +1513,34 @@ function variantExposed(
     ?.models.find((mm) => mm.id === model.slice(i + 1));
   return m?.variants?.includes(variant) ? variant : undefined;
 }
+/** OpenCode's primary agent when the composer is not in plan mode. */
+export const PRIMARY_AGENT = "build";
+
+/**
+ * Which agent will actually run this pane's next turn, or null when the catalog
+ * has no such agent (an older or custom sidecar). Null means nothing may be
+ * inferred from a per-agent setting, so the caller keeps sending the model.
+ */
+export function agentForTurn(
+  state: Pick<RuntimeState, "sessionAgents" | "agents">,
+  key: string,
+): string | null {
+  const name = state.sessionAgents[key] === "plan" ? "plan" : PRIMARY_AGENT;
+  return state.agents.some((a) => a.name === name) ? name : null;
+}
+
 /** The model + reasoning effort for a session's turn: its own per-pane override
- *  if set, else the global default. Lets each split pane run a different model. */
+ *  if set, else a configured agent model (#96), else the global default. */
 function modelForSession(state: RuntimeState, key: string): { model: string | null; variant: string | undefined } {
+  // An agent carrying its own configured model OWNS the turn: sending an
+  // explicit per-turn model would override exactly that setting, which is why
+  // the `build` row used to do nothing and Plan mode ignored its own model
+  // (#96). Only a model picked in THIS conversation outranks it — the same rule
+  // the background reviewer already relied on by passing no model at all.
+  if (!state.sessionModels[key]) {
+    const agent = agentForTurn(state, key);
+    if (agent && state.agentModels[agent]) return { model: null, variant: undefined };
+  }
   const model = state.sessionModels[key] ?? state.defaultModel;
   const variant = variantExposed(
     state.providers,
@@ -905,11 +1553,28 @@ function modelForSession(state: RuntimeState, key: string): { model: string | nu
 export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   status: "offline",
   serverUrl: initialUrl(),
+  // Reconciled with the saved selection on every connect; OpenCode until then,
+  // which is what a first paint before any connection is actually driving.
+  runtimeKind: "opencode",
+  acpAgentName: null,
+  acpConfigOptions: {},
+  setAcpConfigOption: async (sessionId, configId, value) => {
+    const rt = acpRuntime;
+    if (!rt || client !== rt) return;
+    try {
+      const options = await rt.setConfigOption(sessionId, configId, value);
+      set((s) => ({ acpConfigOptions: { ...s.acpConfigOptions, [sessionId]: options } }));
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  },
   sessions: [],
   currentId: null,
   threads: {},
   skills: [],
   agents: [],
+  agentModels: {},
+  agentVariants: {},
   commands: [],
   defaultModel: null,
   providers: [],
@@ -920,6 +1585,48 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       else window.localStorage.removeItem(REASONING_KEY);
     }
     set({ reasoningVariant: variant });
+  },
+  autoReview: initialAutoReview(),
+  setAutoReview: (enabled) => {
+    if (typeof window !== "undefined") {
+      if (enabled) window.localStorage.setItem(AUTO_REVIEW_KEY, "1");
+      else window.localStorage.removeItem(AUTO_REVIEW_KEY);
+    }
+    set({ autoReview: enabled });
+    if (!enabled) {
+      // "Off" is immediate: discard work that has not started and abort the
+      // one hidden reviewer that may currently hold the global slot.
+      const pending = new Set([...reviewQueue, ...Object.keys(get().backgroundReviews)]);
+      for (const sid of pending) get().cancelAutoReview(sid);
+      drainReviewQueue(set, get);
+    }
+  },
+  backgroundReviews: {},
+  cancelAutoReview: (sessionId) => {
+    const queuedAt = reviewQueue.indexOf(sessionId);
+    if (queuedAt >= 0) reviewQueue.splice(queuedAt, 1);
+    queuedReviewPaths.delete(sessionId);
+    const active = [...backgroundReviewJobs.entries()].find(
+      ([, job]) => job.parentId === sessionId,
+    );
+    if (active) {
+      const [reviewSid, job] = active;
+      cancelledBackgroundReviews.add(reviewSid);
+      void job.runtime.abortSession(reviewSid).then(
+        () => finishAutoReview(set, get, reviewSid, false),
+        () => finishAutoReview(set, get, reviewSid, false),
+      );
+    } else if (reviewInFlight === sessionId) {
+      // The fork is still being created. Clearing the reservation makes
+      // startAutoReview abort it as soon as the id arrives.
+      reviewInFlight = null;
+      drainReviewQueue(set, get);
+    }
+    set((s) => {
+      const backgroundReviews = { ...s.backgroundReviews };
+      delete backgroundReviews[sessionId];
+      return { backgroundReviews };
+    });
   },
   modelSwitchError: null,
   approvalMode: "approve",
@@ -939,6 +1646,18 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       saveRecord(SESSION_MODELS_KEY, sessionModels);
       return { sessionModels };
     }),
+  clearSessionModel: (sessionId) =>
+    set((s) => {
+      if (!(sessionId in s.sessionModels)) return {};
+      const sessionModels = { ...s.sessionModels };
+      delete sessionModels[sessionId];
+      saveRecord(SESSION_MODELS_KEY, sessionModels);
+      // The effort was picked FOR that model, so it goes with it.
+      const sessionVariants = { ...s.sessionVariants };
+      delete sessionVariants[sessionId];
+      saveRecord(SESSION_VARIANTS_KEY, sessionVariants);
+      return { sessionModels, sessionVariants };
+    }),
   setSessionVariant: (sessionId, variant) =>
     set((s) => {
       const sessionVariants = { ...s.sessionVariants, [sessionId]: variant };
@@ -950,7 +1669,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   projects: [],
   workspace: null,
   webReadOnly: false,
-  workspacePinned: false,
+  draftWorkspaces: {},
   switching: false,
   sending: false,
   sendingSessions: {},
@@ -1045,8 +1764,25 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     set({ serverUrl, modelSwitchError: null });
   },
 
+  refreshAgentModels: async () => {
+    // Desktop-only config (the helpers answer {} in the browser). Never worth
+    // failing a connect over: an unreadable config just means "no overrides",
+    // and the send then keeps passing an explicit model, which is the old
+    // behavior rather than a broken one.
+    try {
+      const [agentModels, agentVariants] = await Promise.all([
+        getAgentModels(),
+        getAgentVariants(),
+      ]);
+      set({ agentModels, agentVariants });
+    } catch {
+      /* leave whatever we already had */
+    }
+  },
+
   loadCatalog: async () => {
     if (!client) return;
+    void get().refreshAgentModels();
     try {
       const [firstSkills, agents, defaultModel, commands, providers] = await Promise.all([
         client.listSkills(),
@@ -1186,10 +1922,18 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   },
 
   connect: async () => {
+    // The runtime SELECTOR, decided before anything is torn down: a live ACP
+    // agent for the SAME configured entry is reused across this reconnect
+    // (see `acpRuntime`) — the workspace moves, the agent process does not.
+    const acpAgent = !isGatewayWeb && isTauri ? activeAcpAgent() : null;
+    const reusableAcp =
+      acpAgent && acpRuntime && acpRuntimeAgentId === acpAgent.id && acpRuntime.getStatus() === "ready"
+        ? acpRuntime
+        : null;
     // Quiet teardown of any previous connection: within a (re)connect the
     // status must never pass through "offline" — on first boot the retry loop
     // runs for minutes (macOS TCC) and each flip repaints the whole page.
-    teardownClient();
+    teardownClient(reusableAcp);
     let directory: string | null;
     let password: string | null;
     let baseUrl = get().serverUrl;
@@ -1223,19 +1967,74 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // gets null and connects to a user-run passwordless server.
       password = await runtimePassword();
     }
-    const c = new OpenCodeClient({
-      baseUrl,
-      directory: directory ?? undefined,
-      password: password ?? undefined,
-    });
-    opencodeClient = c;
-    client = c;
-    // Background streams reuse the same sidecar; the foreground now streams this
-    // folder, so drop any background stream that was covering it (avoid a double
-    // fold of the same events).
-    streamBaseUrl = baseUrl;
-    streamPassword = password ?? undefined;
-    if (directory) removeStreamClient(directory);
+    // A configured ACP agent replaces `OpenCodeClient` as THE runtime for this
+    // connection (docs/rfc/multi-agent-acp.md) — same `AgentRuntime` seam, so the
+    // store, the thread, provenance and runs are unchanged. Desktop only: the
+    // agent is a child process on this host, which a phone running the gateway
+    // web client does not have.
+    let c: AgentRuntime;
+    if (acpAgent) {
+      // ACP takes the workspace folder per session (`session/new`'s cwd) — so
+      // without one there is nothing to create a session in.
+      if (!directory) {
+        set({ error: "No workspace folder to run the ACP agent in.", status: "error" });
+        return;
+      }
+      let acp: AcpRuntime;
+      try {
+        if (reusableAcp) {
+          // Same agent, still alive: point new sessions at this folder and keep
+          // the process. Sessions it already holds keep their own folder — the
+          // agent binds cwd per session, so nothing that is running moves.
+          reusableAcp.setCwd(directory);
+          acp = reusableAcp;
+        } else {
+          const transport = await acpTransport(acpAgent.id, acpAgent.command, acpAgent.args);
+          acp = new AcpRuntime({ transport, cwd: directory, name: acpAgent.name });
+          acpRuntime = acp;
+          acpRuntimeAgentId = acpAgent.id;
+        }
+        client = acp;
+        c = acp;
+        // No OpenCode instance backs this connection: `getClient()` must answer
+        // null so Settings' provider/MCP surface hides instead of PATCHing a
+        // sidecar that is not driving anything.
+        opencodeClient = null;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        void logDebug(`acp start FAILED (${acpAgent.command}): ${msg}`);
+        set({ error: msg, status: "error", runtimeKind: "acp", acpAgentName: acpAgent.name });
+        return;
+      }
+      // The app's own connectors are per-session in ACP, so the agent has to
+      // know them BEFORE any session is created (#14). Awaited only on a fresh
+      // child: on a reuse the list is already loaded, and every new session
+      // reconnects — paying a config round-trip each time would put the
+      // sidecar's latency in front of every "New".
+      if (reusableAcp) void shareMcpServers(acp, baseUrl, password);
+      else await shareMcpServers(acp, baseUrl, password);
+      // The OpenCode catalog belongs to the runtime that is no longer driving:
+      // an ACP agent owns its own model choice (v1 changes it through
+      // `session/set_config_option`, from the agent's own list), so leaving the
+      // old providers on screen would offer a switch that does nothing.
+      set({ runtimeKind: "acp", acpAgentName: acpAgent.name, providers: [], defaultModel: null });
+    } else {
+      const oc = new OpenCodeClient({
+        baseUrl,
+        directory: directory ?? undefined,
+        password: password ?? undefined,
+      });
+      opencodeClient = oc;
+      client = oc;
+      c = oc;
+      set({ runtimeKind: "opencode", acpAgentName: null });
+      // Background streams reuse the same sidecar; the foreground now streams
+      // this folder, so drop any background stream that was covering it (avoid a
+      // double fold of the same events).
+      streamBaseUrl = baseUrl;
+      streamPassword = password ?? undefined;
+      if (directory) removeStreamClient(directory);
+    }
     clientStatusUnsub = c.onStatus((status) => {
       void logDebug(`status → ${status}`);
       if (status === "connecting" && get().status === "ready") {
@@ -1261,7 +2060,27 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         event.type !== "reasoning.updated" &&
         !(event.type === "tool.updated" && event.status === "running")
       )
-        void logDebug(`event ← ${event.type}${"sessionId" in event ? " " + event.sessionId : ""}`);
+        void logDebug(
+          `event ← ${event.type}${"sessionId" in event ? " " + event.sessionId : ""}` +
+            // An error's TEXT is the whole diagnostic value; logging only "error"
+            // meant a real report ("Request blocked." on every retry) could not be
+            // explained without reading the runtime's SQLite by hand. Redacted and
+            // capped: a provider echoing a credential back must not land on disk.
+            (event.type === "error" ? `: ${redactForLog(event.message)}` : ""),
+        );
+      if (
+        "sessionId" in event &&
+        event.sessionId &&
+        retiredBackgroundReviews.has(event.sessionId)
+      )
+        return;
+      const backgroundReviewParent =
+        "sessionId" in event && event.sessionId
+          ? backgroundReviewJobs.get(event.sessionId)?.parentId
+          : undefined;
+      const isBackgroundReviewResult =
+        event.type === "text.updated" &&
+        backgroundReviewResultParts.has(`${event.sessionId}:${event.partId}`);
       if ("sessionId" in event && event.sessionId) {
         sseLast.set(event.sessionId, ++sseSeq);
         while (sseLast.size > 500) {
@@ -1286,6 +2105,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         const active = event.sessionId;
         if (
           ACTIVITY_EVENTS.has(event.type) &&
+          !backgroundReviewParent &&
+          !isBackgroundReviewResult &&
           !interruptedSessions.has(active) &&
           !get().runningSessions[active]
         ) {
@@ -1300,13 +2121,25 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         // After a user interrupt the abort's own "aborted" error is expected —
         // the thread already says "Interrupted"; don't add a second red line.
         if (sid) clearLiveFolds(sid);
+        if (sid && backgroundReviewParent) {
+          finishAutoReview(set, get, sid, false);
+          set((s) => {
+            const runningSessions = { ...s.runningSessions };
+            const retryNotices = { ...s.retryNotices };
+            delete runningSessions[sid];
+            delete retryNotices[sid];
+            return { runningSessions, retryNotices };
+          });
+          return;
+        }
         if (sid && interruptedSessions.has(sid)) return;
-        // A dangling default model (its provider removed or renamed) fails
-        // every send the same way — point at where the fix lives.
-        const message = /model not found/i.test(event.message)
-          ? `${event.message} Pick an available model in Settings → Models.`
-          : event.message;
+        const message = explainRuntimeError(event.message);
         if (sid) {
+          // This path ends the turn instead of session.idle (and returns before
+          // the fold), so it owes the same auto-review bookkeeping: a turn that
+          // died is not reviewed — the work is half-finished — but a REVIEW that
+          // died must hand its slot back, or no session is ever reviewed again.
+          onTurnIdle(set, get, sid, false);
           set((s) => {
             const cur = s.threads[sid] ?? emptyThread();
             const runningSessions = { ...s.runningSessions };
@@ -1423,9 +2256,12 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           }
           // A user message names its agent. This is how the pill follows
           // OpenCode's own plan_exit "Yes" (it injects a build user message)
-          // — and it self-confirms our own sends.
-          if (event.agent) {
-            const mode: AgentMode = event.agent === "plan" ? "plan" : "build";
+          // — and it self-confirms our own sends. Any OTHER agent (the auto-review
+          // turn's `reviewer`, or a custom primary) is left alone: the pill only
+          // speaks for the two modes it can actually show, and must not claim
+          // "Build" because a turn the user did not send ran on something else.
+          if (event.agent === "plan" || event.agent === "build") {
+            const mode: AgentMode = event.agent;
             if (get().sessionAgents[event.sessionId] !== mode)
               set((s) => ({
                 sessionAgents: { ...s.sessionAgents, [event.sessionId]: mode },
@@ -1458,8 +2294,50 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           delete shellTurns[sid];
           return { runningSessions, shellTurns };
         });
+        // A turn the user stopped is not reviewed — half-finished work is not
+        // what a review is for — but a stopped REVIEW still has to hand back
+        // its slot.
+        onTurnIdle(set, get, sid, false);
         void get().refreshSessions();
         return;
+      }
+      // Only a file the agent actually wrote earns a review; a read-only turn
+      // (questions, searches, plain analysis) has nothing to audit.
+      if (
+        event.type === "tool.updated" &&
+        !backgroundReviewParent &&
+        isMutatingTool(event.tool, event.status)
+      ) {
+        // Credited to the session at the top of the subagent chain, not to the one
+        // that ran the tool. A subagent's own session is never reviewed (see the
+        // `isSubagent` gate) because its parent's turn is what gets reviewed — so
+        // attributing the write to the child meant a turn that delegated ALL of
+        // its file work was reviewed by nobody.
+        const root = rootSessionOf(get().sessionParents, sid);
+        dirtyTurns.add(root);
+        const directPath = str(event.input?.filePath) || str(event.input?.path);
+        mergePaths(
+          dirtyTurnPaths,
+          root,
+          directPath
+            ? [directPath, ...provenanceInputsFromEvent(event).map((input) => input.path)]
+            : provenanceInputsFromEvent(event).map((input) => input.path),
+        );
+      }
+      // The agent reached a compute host that authenticates interactively and
+      // asked us to sign in (#73). The dialog opens here, in the conversation the
+      // user is already watching, and the tool waits for the shared connection —
+      // so the run continues instead of dying on "Permission denied".
+      if (
+        event.type === "tool.updated" &&
+        event.tool === "ssh_connect" &&
+        (event.status === "running" || event.status === "pending")
+      ) {
+        const host = str(event.input?.host);
+        if (host && !relayedSignIns.has(event.callId)) {
+          remember(relayedSignIns, event.callId);
+          void useSshStore.getState().connect(host);
+        }
       }
       // A task tool names the subagent session it spawned — remember the
       // parent link so the child's permission/question asks surface in THIS
@@ -1481,29 +2359,31 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
             ev,
             { shellTurn: !!s.shellTurns[sid] },
           );
+          const threads = { ...s.threads, [sid]: { ...cur, ...folded, loaded: true } };
           // The turn is over — unlock the composer and drop the "Working…" row.
           // The shell flag clears HERE (not when the POST settles): within the
           // SSE stream the bash-output event always precedes session.idle.
+          //
+          // ONLY session.idle may touch these three maps. Cloning them on every
+          // folded event handed a NEW identity to every whole-map subscriber on
+          // every streamed token — repainting every pane and the sidebar for a
+          // BACKGROUND session's stream, which is exactly what #34's per-field
+          // selectors exist to prevent. With concurrent subagents that fan-out
+          // multiplied per live child and starved the main thread (#50).
+          if (ev.type !== "session.idle") return { threads };
           const runningSessions = { ...s.runningSessions };
           const shellTurns = { ...s.shellTurns };
           const stepCounts = { ...s.stepCounts };
-          if (ev.type === "session.idle") {
-            delete runningSessions[sid];
-            delete shellTurns[sid];
-            delete stepCounts[sid];
-          }
-          return {
-            runningSessions,
-            shellTurns,
-            stepCounts,
-            threads: { ...s.threads, [sid]: { ...cur, ...folded, loaded: true } },
-          };
+          delete runningSessions[sid];
+          delete shellTurns[sid];
+          delete stepCounts[sid];
+          return { runningSessions, shellTurns, stepCounts, threads };
         });
       // A running bash tool streams its stdout tail on every write — dozens
       // of events per second under a progress bar. Fold at most one partial
       // update per LIVE_FOLD_MS per call (latest wins); everything else
       // (status changes, completion) folds immediately and supersedes.
-      if (event.type === "tool.updated") {
+      if (event.type === "tool.updated" && !backgroundReviewParent) {
         if (event.status === "running" && event.partialOutput !== undefined) {
           const now = Date.now();
           const last = liveFoldLast.get(event.callId) ?? 0;
@@ -1534,6 +2414,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         }
       }
       applyFold(event);
+      // After the fold, which is what clears this session's running lock — the
+      // review claims it again for its own turn.
+      if (event.type === "session.idle") onTurnIdle(set, get, sid, true);
       const presentationEventKey =
         event.type === "tool.updated" ? `${sid}:${event.callId}` : null;
       if (
@@ -1627,14 +2510,19 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       }
       // A completed experiment execution (bash running code) becomes a run —
       // its reproducibility recipe (once per call).
-      if (event.type === "tool.updated" && !recordedRuns.has(event.callId)) {
+      if (
+        event.type === "tool.updated" &&
+        !backgroundReviewParent &&
+        !recordedRuns.has(event.callId)
+      ) {
         const run = runInputFromEvent(event);
         if (run) {
           remember(recordedRuns, event.callId);
           void recordRun(run, sid, get().defaultModel);
         }
       }
-      if (event.type === "session.idle") {
+      if (event.type === "session.idle" && !backgroundReviewParent) {
+        syncAcpConfig(set, sid);
         void get().refreshSessions();
         // Name the session in the snapshot: a project folder is shared by many
         // sessions, and its git history must say which one made each change.
@@ -1681,7 +2569,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       void logDebug(`connect → ${get().serverUrl}`);
       await c.connect();
       void logDebug("connect OK");
-      set({ error: null });
+      // Take the status from the runtime rather than waiting for a transition:
+      // a REUSED ACP agent is already "ready", so its idempotent connect emits
+      // nothing and the store would sit on the "connecting" this attempt set.
+      set({ error: null, status: c.getStatus() });
       await get().refreshSessions();
       void get().refreshProjects();
       // Catalog (skills/agents/commands) fills in behind the page — a session
@@ -1696,12 +2587,14 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // that guess made OpenCode manufacture a context-overflow and abort (#52).
       // Reset those once per run. Desktop only: a gateway web client may hold a
       // read-only token, and the host app does this anyway.
-      if (!isGatewayWeb && !contextLimitsCleaned) {
+      // (OpenCode config; an ACP agent has no such config to clean.)
+      const oc = opencodeClient;
+      if (!isGatewayWeb && !contextLimitsCleaned && oc) {
         contextLimitsCleaned = true;
         // Best-effort: deferred into a promise chain so no failure — even a
         // synchronous throw — can flip an otherwise successful connect.
         void Promise.resolve()
-          .then(() => c.clearDefaultCustomModelContextLimits())
+          .then(() => oc.clearDefaultCustomModelContextLimits())
           .catch((err) =>
             logDebug(`context-limit cleanup skipped: ${err instanceof Error ? err.message : String(err)}`),
           );
@@ -1787,9 +2680,27 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   },
 
   disconnect: () => {
+    // Closing the event stream does not stop server-side turns. Explicitly
+    // abort hidden reviewers first so reconnecting cannot leave paid work
+    // running with no UI or completion handler attached.
+    for (const [reviewSid, job] of backgroundReviewJobs) {
+      remember(retiredBackgroundReviews, reviewSid);
+      void job.runtime.abortSession(reviewSid).catch(() => {});
+    }
     teardownClient();
     teardownStreamClients();
-    set({ status: "offline", modelSwitchError: null });
+    // Nothing can be reviewed without a runtime; a stale queue would fire into
+    // the next connection.
+    dirtyTurns.clear();
+    dirtyTurnPaths.clear();
+    reviewQueue.length = 0;
+    queuedReviewPaths.clear();
+    backgroundReviewJobs.clear();
+    cancelledBackgroundReviews.clear();
+    retiredBackgroundReviews.clear();
+    backgroundReviewResultParts.clear();
+    reviewInFlight = null;
+    set({ status: "offline", modelSwitchError: null, backgroundReviews: {} });
   },
 
   refreshSessions: async () => {
@@ -1810,16 +2721,15 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
   // "New" opens a blank draft — no session is created until the first message (#3).
   // A fresh draft also drops any pinned folder: back to the dated-folder default.
-  startDraft: () =>
-    set((s) => {
-      const threads = { ...s.threads };
-      delete threads[DRAFT_KEY]; // leftovers from an aborted first message
-      const panes = { ...s.panes };
-      delete panes[DRAFT_KEY]; // a fresh draft starts with a closed pane
-      const sessionAgents = { ...s.sessionAgents };
-      delete sessionAgents[DRAFT_KEY]; // and in Build mode
-      return { currentId: null, workspacePinned: false, threads, panes, sessionAgents };
-    }),
+  startDraft: () => set((s) => ({ ...blankDraft(s), ...forgetDraftFolder(s, DRAFT_KEY) })),
+
+  // Re-blank the draft VIEW without touching where the next session will live.
+  // The folder is chosen at send time from the draft's own entry, but the user picks
+  // it much earlier ("+ new session in project X"). Anything between the two
+  // that merely resets the view — the focus effect when a pane loses its
+  // session — must not reroute the session to a dated folder (#69); only an
+  // explicit New may unpin.
+  resetDraftView: () => set((s) => blankDraft(s)),
 
   // Local /new and /clear: clear the visible chat context, but keep the active
   // folder. The first next message creates a new OpenCode session in that same
@@ -1845,7 +2755,12 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       delete panes[key];
       const sessionAgents = { ...s.sessionAgents };
       delete sessionAgents[key];
-      return { currentId: null, workspacePinned: true, threads, panes, sessionAgents };
+      // /new and /clear deliberately stay put: aim this draft at the folder
+      // it is already in, so the next session lands there and not in a dated one.
+      const draftWorkspaces = s.workspace
+        ? { ...s.draftWorkspaces, [key]: s.workspace }
+        : s.draftWorkspaces;
+      return { currentId: null, draftWorkspaces, threads, panes, sessionAgents };
     }),
 
   refreshProjects: async () => {
@@ -1901,41 +2816,46 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     void get().refreshProjects();
   },
 
-  startDraftInWorkspace: async (path) => {
-    if (get().workspace === path) {
-      // Already inside the project — a clean pinned draft, no reconnect.
-      set((s) => {
-        const threads = { ...s.threads };
-        delete threads[DRAFT_KEY];
-        const panes = { ...s.panes };
-        delete panes[DRAFT_KEY];
-        const sessionAgents = { ...s.sessionAgents };
-        delete sessionAgents[DRAFT_KEY];
-        return { currentId: null, workspacePinned: true, threads, panes, sessionAgents };
-      });
+  startDraftInWorkspace: async (path, key = DRAFT_KEY) => {
+    // Aim the draft slot the composer will actually send under. "+ new session
+    // in project X" opens its own pane, so that is `draft:<leafId>`, not the
+    // global slot — aiming the wrong one sent the session to a dated folder.
+    const aim = (s: RuntimeState) => ({
+      draftWorkspaces: { ...s.draftWorkspaces, [key]: path },
+    });
+    if (samePath(get().workspace, path)) {
+      // Already inside the project — a clean draft, no reconnect.
+      set((s) => ({ ...blankDraft(s, key), ...aim(s) }));
       return;
     }
-    await get().switchWorkspace({ path });
+    await get().switchWorkspace({ path, key });
   },
 
   ensureDraftWorkspace: async () => {
     const s = get();
-    // A session already has its folder; a pinned draft's folder is reused on
-    // send. Only a fresh, unpinned draft needs its dated folder materialized now
-    // so composer files and the eventual session share one workspace.
-    if (!isTauri || s.currentId || s.workspacePinned) return;
+    // A session already has its folder; a draft aimed at one reuses it on send.
+    // Only a draft with no folder of its own needs its dated folder materialized
+    // now, so composer files and the eventual session share one workspace.
+    if (!isTauri || s.currentId || s.draftWorkspaces[DRAFT_KEY]) return;
     await get().switchWorkspace({ dated: datedWorkspaceName() });
   },
 
   switchWorkspace: async (target) => {
     set({ switching: true });
     try {
-      if ("dated" in target) await newDatedWorkspace(target.dated);
-      else await setWorkspace(target.path);
+      // Either way the draft ends up aimed at a real folder: the one the user
+      // picked, or the dated one just materialized (so a file pasted into the
+      // draft and the eventual session share it, rather than the send creating
+      // a second dated folder and orphaning the file).
+      // Both commands answer with the canonical path the runtime resolved —
+      // which is exactly what the session's own `directory` will report, so aim
+      // the draft at that, not at the raw string the caller passed.
+      const landed =
+        "dated" in target ? await newDatedWorkspace(target.dated) : await setWorkspace(target.path);
       // Reset the local kernel so it respawns in the new folder, then reconnect
       // the event stream scoped to it (connect() re-reads the active folder —
-      // the sidecar itself keeps running). An explicit switch pins the folder,
-      // so the next new session lands exactly there.
+      // the sidecar itself keeps running). The switch aims the draft at that
+      // folder, so the next new session lands exactly there.
       await kernelReset().catch(() => {});
       set((s) => {
         // Back to a draft in the new folder — the draft pane must not carry
@@ -1944,7 +2864,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         delete panes[DRAFT_KEY];
         const sessionAgents = { ...s.sessionAgents };
         delete sessionAgents[DRAFT_KEY];
-        return { currentId: null, panes, workspacePinned: true, sessionAgents };
+        const draftWorkspaces = { ...s.draftWorkspaces, [target.key ?? DRAFT_KEY]: landed };
+        return { currentId: null, panes, draftWorkspaces, sessionAgents };
       });
       await get().connectRetry();
       await Promise.all([get().refreshSessions(), get().loadCatalog()]);
@@ -2014,6 +2935,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     try {
       const messages = await client.getMessages(id);
       if (seq !== openSessionSeq || get().currentId !== id) return;
+      // A replayed ACP session reports its selectors during the load — show the
+      // model it is actually on, not the one the last session used.
+      syncAcpConfig(set, id);
       set((s) => ({
         threads: {
           ...s.threads,
@@ -2072,7 +2996,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
   // The send lifecycle (new → input → send → response) is shared by plain
   // prompts, "!" shell commands and "/" slash commands — see performTurn.
-  sendPrompt: (text, sessionId, draftKey) => {
+  sendPrompt: (text, sessionId, draftKey, attachments) => {
     // Capture the mode BEFORE performTurn: on a draft, currentId is still null
     // here (the session is created inside), so this reads the pane's draft slot
     // correctly. Pin "plan" only when the catalog actually has it — a stale mode
@@ -2090,8 +3014,19 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       set,
       get,
       text,
-      (sid) => withRetry(() => client!.sendPrompt(sid, text, agent, model, variant)),
-      false,
+      // Attachment bytes are read INSIDE the send, not before performTurn: the
+      // echo and the spinner must appear on click, not after a multi-MB read.
+      (sid) =>
+        withRetry(async () => {
+          const files = await imageAttachmentParts(attachments ?? []);
+          await client!.sendPrompt(sid, text, agent, model, variant, files);
+        }),
+      // An ACP turn is a SYNC turn: `session/prompt` is one JSON-RPC request that
+      // answers when the turn is over, where OpenCode's `prompt_async` answers as
+      // soon as it is accepted. Without this the running lock would be taken
+      // AFTER the turn's own `session.idle` had already cleared it, leaving a
+      // spinner turning under a finished answer until the next reconcile.
+      s.runtimeKind === "acp",
       false,
       sessionId,
       draftKey,
@@ -2244,6 +3179,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         set({ error: err instanceof Error ? err.message : String(err) });
       }
     }
+    // A queued review for a session that no longer exists would send into a
+    // deleted conversation, and one in flight holds the slot forever.
+    forgetAutoReview(id);
+    drainReviewQueue(set, get);
     set((s) => {
       const threads = { ...s.threads };
       delete threads[id];
@@ -2253,12 +3192,15 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       delete panes[id];
       const sessionAgents = { ...s.sessionAgents };
       delete sessionAgents[id];
+      const backgroundReviews = { ...s.backgroundReviews };
+      delete backgroundReviews[id];
       return {
         sessions: s.sessions.filter((x) => x.id !== id),
         threads,
         runningSessions,
         panes,
         sessionAgents,
+        backgroundReviews,
         currentId: s.currentId === id ? null : s.currentId,
       };
     });
@@ -2353,7 +3295,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // folder, so the user's next new session goes back to the default.
       if (isTauri) {
         await get().switchWorkspace({ dated: datedWorkspaceName() });
-        set({ workspacePinned: false });
+        set((s) => forgetDraftFolder(s, DRAFT_KEY));
         if (get().status !== "ready" || !client) {
           throw new Error("Runtime did not reconnect after creating the install folder.");
         }
@@ -2390,7 +3332,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         get,
         echo,
         (sid) => withRetry(() => client!.sendPrompt(sid, prompt, undefined, model)),
-        false,
+        // Same reason as the composer's send: an ACP `session/prompt` answers
+        // when the turn is OVER, so its lock has to be taken before the call.
+        get().runtimeKind === "acp",
         false,
         id,
       );
@@ -2541,7 +3485,7 @@ export function foldEvent(
       const { clean, review } = splitReview(event.text);
       const key = `text:${event.partId}`;
       if (key in index) blocks[index[key]] = { kind: "agent", markdown: clean };
-      else {
+      else if (clean) {
         blocks.push({ kind: "agent", markdown: clean });
         index[key] = blocks.length - 1;
       }
@@ -2704,7 +3648,11 @@ function mapToolStatus(status?: string): ToolCallStatus {
 export function lastAgentMode(messages: HistoryMessage[]): AgentMode {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m.role === "user" && m.agent) return m.agent === "plan" ? "plan" : "build";
+    // Only the two modes the pill can show count. A turn on any other agent —
+    // the auto-review's `reviewer`, a custom primary — says nothing about which
+    // mode the user left the composer in, so it is skipped rather than read as
+    // Build (which would silently drop a session out of Plan mode on reload).
+    if (m.role === "user" && (m.agent === "plan" || m.agent === "build")) return m.agent;
   }
   return "build";
 }
@@ -2757,6 +3705,10 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
         .map((p) => p.text ?? "")
         .join("")
         .trim();
+      // The app's own auto-review turn (#72): the user never wrote it, so it is
+      // not shown as their message — on reload as well as live. The reviewer's
+      // answer and its findings card stay.
+      if (text === AUTO_REVIEW_PROMPT) continue;
       const command = asTypedCommand(text);
       // Tag with the message id so the row can be edited (revert + resend).
       // A "/command" echo keeps the id too — editing re-runs the command.

@@ -592,12 +592,14 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((s) => {
         const g = s.groups.find((x) => x.id === groupId);
         if (!g) return {};
-        // Switching AWAY from the tentative screen pins it — only a direct
-        // sidebar session-click (openSessionEphemeral) keeps it tentative.
-        const ephemeralGroupId =
-          s.ephemeralGroupId && s.ephemeralGroupId !== groupId ? null : s.ephemeralGroupId;
+        // Looking at another Screen is NOT work done in the tentative one, so it
+        // stays tentative and the next sidebar click reuses it. Pinning here
+        // instead meant every glance away stranded a preview Screen and the next
+        // click built another, so they piled up without limit (#78) — which also
+        // multiplies the panes a Screen switch has to render (#92). Only real
+        // work in the pane pins it, via pinEphemeral.
         persist(s.groups, groupId);
-        return { activeGroupId: groupId, tree: g.tree, focusedLeafId: g.focusedLeafId, zoomedLeafId: g.zoomedLeafId, ephemeralGroupId };
+        return { activeGroupId: groupId, tree: g.tree, focusedLeafId: g.focusedLeafId, zoomedLeafId: g.zoomedLeafId };
       }),
 
     split: (dir, sessionId) => {

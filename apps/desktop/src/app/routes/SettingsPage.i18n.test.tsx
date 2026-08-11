@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { renderAt } from "@/test/render";
@@ -45,6 +45,30 @@ describe("Settings page strings (i18n)", () => {
 
     renderAt("/settings/models");
     expect(await screen.findByText("Connect the runtime to configure models.")).toBeInTheDocument();
+  });
+
+  it("shows auto-review for OpenCode and hides the inapplicable control for ACP", async () => {
+    const originalKind = useRuntimeStore.getState().runtimeKind;
+    let view: ReturnType<typeof renderAt> | undefined;
+    try {
+      act(() => useRuntimeStore.setState({ runtimeKind: "opencode" }));
+      view = renderAt("/settings");
+      expect(
+        await screen.findByRole("switch", { name: "Review after every turn that changes files" }),
+      ).toBeInTheDocument();
+      view.unmount();
+
+      act(() => useRuntimeStore.setState({ runtimeKind: "acp" }));
+      view = renderAt("/settings");
+      expect(screen.getByRole("heading", { level: 2, name: "Workspace" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { level: 2, name: "Review" })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("switch", { name: "Review after every turn that changes files" }),
+      ).not.toBeInTheDocument();
+    } finally {
+      view?.unmount();
+      act(() => useRuntimeStore.setState({ runtimeKind: originalKind }));
+    }
   });
 
   it("renders separate model browsing and provider management surfaces when connected", async () => {

@@ -24,6 +24,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { isGatewayWeb } from "@/lib/webMode";
 import { isTauri, pickFolder, writeExportFile } from "@/lib/tauri";
 import { toast } from "@/lib/toast";
+import { pathKey, samePath } from "@/lib/workspacePath";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 /** Rows fetched per request. The server answers a 200-row page in ~10 ms at
@@ -121,7 +122,12 @@ export function HistoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, showArchived, status]);
 
-  const projectByPath = useMemo(() => new Map(projects.map((p) => [p.path, p])), [projects]);
+  // Keyed by comparison key — a project path (from Rust) and a session directory
+  // (from the sidecar) spell the same Windows folder differently (#76).
+  const projectByPath = useMemo(
+    () => new Map(projects.map((p) => [pathKey(p.path), p])),
+    [projects],
+  );
 
   const now = Date.now();
   const byBucket = new Map<TimeBucket, SessionMeta[]>();
@@ -276,7 +282,7 @@ export function HistoryPage() {
               </h2>
               <div className="divide-y divide-border border-t border-border">
                 {group.map((s) => {
-                  const owner = s.directory ? projectByPath.get(s.directory) : undefined;
+                  const owner = s.directory ? projectByPath.get(pathKey(s.directory)) : undefined;
                   return (
                     <div
                       key={s.id}
@@ -373,14 +379,14 @@ export function HistoryPage() {
                                     {projects.map((p) => (
                                       <DropdownMenu.Item
                                         key={p.id}
-                                        disabled={p.path === s.directory}
+                                        disabled={samePath(p.path, s.directory)}
                                         onSelect={() => {
                                           patchRow(s.id, { directory: p.path });
                                           void moveSessionToWorkspace(s.id, p.path);
                                         }}
                                         className={cn(
                                           "flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2",
-                                          p.path === s.directory &&
+                                          samePath(p.path, s.directory) &&
                                             "cursor-default text-muted opacity-60",
                                         )}
                                       >

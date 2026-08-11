@@ -82,7 +82,7 @@ capabilities only, not heavy computation.
 ### 5.1 Choice: OpenCode (bundled)
 
 The agent runtime is **OpenCode** (`anomalyco/opencode`, MIT), pinned to a stable
-release (`OPENCODE_VERSION`, currently 1.17.13). It is distributed as a **single
+release (`OPENCODE_VERSION`, currently 1.18.12). It is distributed as a **single
 binary**, which makes it ideal to bundle as a desktop sidecar — no Python/Node runtime
 to package. It supports MCP, skills, and agents, is model-agnostic (BYOK), and serves as
 an open-source coding/agent runtime in the spirit of Claude Code.

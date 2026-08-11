@@ -7,12 +7,14 @@ import { Sidebar } from "@/components/sidebar/Sidebar";
 import { CommandPalette } from "@/components/command-palette/CommandPalette";
 import { PaneDragGhost } from "@/components/session/PaneDragGhost";
 import { Toaster } from "@/components/ui/Toaster";
+import { SshSignInDialog } from "@/components/ui/SshSignInDialog";
 import { mockProject } from "@/lib/mock";
 import { useRuntimeStore } from "@/lib/runtime";
 import { ensureSetupProgressListener } from "@/lib/setup";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { ensureJupyter, openExternal, watchFullscreen } from "@/lib/tauri";
+import { useSshStore } from "@/lib/ssh";
 import { useUpdateStore } from "@/lib/update";
 import { isGatewayWeb, gatewayToken, setUnauthorizedHandler } from "@/lib/webMode";
 import { WebTokenGate } from "@/components/web/WebTokenGate";
@@ -108,6 +110,7 @@ export function AppShell() {
     // One app-lifetime listener for uv provisioning progress, so a running
     // download's live output survives navigating between pages.
     ensureSetupProgressListener();
+    void useSshStore.getState().init();
     if (!import.meta.env.TEST) {
       void useUpdateStore.getState().maybeAutoCheck();
     }
@@ -234,6 +237,10 @@ export function AppShell() {
       </main>
       <CommandPalette />
       <Toaster />
+      {/* Sign-in for an interactively authenticated compute host (#73): app-wide,
+          because the prompt has to reach the user wherever the need arose — the
+          Settings card or the conversation the agent is working in. */}
+      <SshSignInDialog />
       <PaneDragGhost />
     </div>
   );

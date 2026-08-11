@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useRuntimeStore } from "@/lib/runtime";
+import { samePath } from "@/lib/workspacePath";
 import {
   getMemoryEnabled,
   readMemory,
@@ -32,7 +33,7 @@ export function MemoryCard() {
   const reconnect = useRuntimeStore((s) => s.connectRetry);
   // Project memory belongs to a named project folder — a dated one-off session
   // folder is not somewhere a user would look for lasting notes.
-  const project = projects.find((p) => p.path === workspace) ?? null;
+  const project = projects.find((p) => samePath(p.path, workspace)) ?? null;
 
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);

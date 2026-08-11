@@ -5,6 +5,7 @@ import type {
   OpenCodeEvent,
   PermissionAskedEvent,
   PermissionReply,
+  PromptFile,
   QuestionAskedEvent,
   RuntimeStatus,
   SessionMeta,
@@ -41,6 +42,9 @@ export interface AgentRuntime {
   // ---- sessions (a conversation) ----
   /** Create a session, optionally giving the runtime a concise initial title. */
   createSession(title?: string): Promise<string>;
+  /** Fork a conversation, optionally stopping before `beforeMessageId`.
+   *  Without a boundary the child receives the full current context. */
+  forkSession(sessionId: string, beforeMessageId?: string): Promise<string>;
   /** The RECENT conversations, newest first, across every workspace folder,
    *  archived ones excluded. Bounded — a multi-year history is never held in
    *  memory; reach the rest through `querySessions`. */
@@ -54,18 +58,29 @@ export interface AgentRuntime {
   /** Give a session a title of the user's choosing. */
   renameSession(sessionId: string, title: string): Promise<void>;
   getMessages(sessionId: string): Promise<HistoryMessage[]>;
+  /** Persist one synthetic text part on an existing message without starting a
+   *  model turn. Used for results produced by an independent background agent. */
+  appendTextPart(
+    sessionId: string,
+    messageId: string,
+    text: string,
+    partId?: string,
+  ): Promise<string>;
   /** `agent` pins a specific agent for the turn (e.g. the read-only "plan"
    *  agent); omit for the runtime default. `model` ("provider/model") pins the
    *  turn to the current default, overriding a session's stale creation-time
    *  binding; omit to use the session/runtime default. `variant` picks a
    *  per-turn reasoning-effort level (a name from the model's `variants`); omit
-   *  for the model's default effort. See lib/runtime.ts. */
+   *  for the model's default effort. `files` sends attachments as real
+   *  multimodal parts so a vision model sees the image, not just its name (#88).
+   *  See lib/runtime.ts. */
   sendPrompt(
     sessionId: string,
     text: string,
     agent?: string,
     model?: string | null,
     variant?: string | null,
+    files?: PromptFile[],
   ): Promise<void>;
   abortSession(sessionId: string): Promise<void>;
   /** Revert the session to (and including) `messageID`, dropping it and every

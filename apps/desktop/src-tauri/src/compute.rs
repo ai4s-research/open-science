@@ -38,6 +38,10 @@ pub struct GpuInfo {
 pub struct ComputeProbe {
     pub reachable: bool,
     pub message: Option<String>,
+    /// The host answered, but it wants credentials this app cannot supply
+    /// non-interactively — a password, a one-time code, or both (#73). The card
+    /// offers a sign-in instead of showing an ssh error the user cannot act on.
+    pub needs_sign_in: bool,
     pub os: Option<String>,
     pub cores: Option<u32>,
     pub load1: Option<f32>,
@@ -87,7 +91,7 @@ fn parse_probe(stdout: &str) -> ComputeProbe {
 
 /// `user@host` or `host` made only of safe characters. Rejects anything that
 /// could smuggle an ssh option (leading `-`) or shell metacharacters.
-fn is_safe_host(host: &str) -> bool {
+pub(crate) fn is_safe_host(host: &str) -> bool {
     let rest = host.split_once('@').map(|(u, h)| {
         (!u.is_empty() && u.chars().all(is_host_char)).then_some(h)
     });
@@ -160,18 +164,32 @@ async fn run_ssh(app: &AppHandle, host: &str, command: &str) -> Result<(i32, Str
     if !is_safe_host(host) {
         return Err("invalid host".into());
     }
+    // Run through the app-managed config so this call rides an existing shared
+    // connection when the user has signed in (#73). BatchMode stays on: riding a
+    // master needs no authentication, and without one this behaves exactly as it
+    // did before — key-based hosts are untouched.
+    let mut args: Vec<String> = Vec::new();
+    if let Some(config) = crate::ssh_session::config_path(app) {
+        args.push("-F".into());
+        args.push(config.to_string_lossy().to_string());
+    }
+    for a in [
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=8",
+        // Never trust an unknown host key on the app's behalf (safety
+        // default: remote connections need the user's approval) — the
+        // user verifies the fingerprint once in their own terminal.
+        "-o", "StrictHostKeyChecking=yes",
+        "--",
+    ] {
+        args.push(a.into());
+    }
+    args.push(host.into());
+    args.push(command.into());
     let out = app
         .shell()
         .command("ssh")
-        .args([
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=8",
-            // Never trust an unknown host key on the app's behalf (safety
-            // default: remote connections need the user's approval) — the
-            // user verifies the fingerprint once in their own terminal.
-            "-o", "StrictHostKeyChecking=yes",
-            "--", host, command,
-        ])
+        .args(args)
         .output()
         .await
         .map_err(|e| format!("ssh failed to run: {e}"))?;
@@ -394,6 +412,27 @@ pub fn remove_compute_machine(app: AppHandle, host: String) -> Result<(), String
     Ok(())
 }
 
+/// Whether an ssh failure means "this host wants credentials interactively"
+/// rather than something the user must fix elsewhere. `BatchMode=yes` turns
+/// every interactive method into one of these refusals, so the distinction is
+/// what tells the card to offer a sign-in (#73) instead of an error the user can
+/// do nothing about. Host-key and network failures deliberately do NOT match:
+/// signing in would not help, and the existing guidance is better.
+pub(crate) fn wants_interactive_auth(stderr: &str) -> bool {
+    if stderr.contains("Host key verification failed") {
+        return false;
+    }
+    let s = stderr.to_ascii_lowercase();
+    s.contains("permission denied")
+        || s.contains("no supported authentication methods")
+        || s.contains("authentication failed")
+        // OpenSSH's own words when BatchMode refuses a method that would have
+        // prompted (password, keyboard-interactive, 2FA).
+        || s.contains("batchmode")
+        || s.contains("keyboard-interactive")
+        || s.contains("password authentication")
+}
+
 /// Probe a host and, when reachable, write its static caps back into
 /// compute.json (only if the host is already saved — probing during add is fine
 /// because add runs first). Live usage in the return value is never cached.
@@ -408,7 +447,16 @@ pub async fn compute_probe(app: AppHandle, host: String) -> Result<ComputeProbe,
                  and accept its fingerprint, then retry"
             );
         }
-        return Ok(ComputeProbe { reachable: false, message: Some(detail), ..Default::default() });
+        let needs_sign_in = wants_interactive_auth(&stderr);
+        if needs_sign_in {
+            detail = "this machine asks for a password or a one-time code".into();
+        }
+        return Ok(ComputeProbe {
+            reachable: false,
+            message: Some(detail),
+            needs_sign_in,
+            ..Default::default()
+        });
     }
     let mut probe = parse_probe(&stdout);
     probe.reachable = true;
@@ -448,7 +496,26 @@ pub async fn compute_cancel(app: AppHandle, host: String, job_id: String) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::{is_safe_host, is_safe_job_id, parse_squeue, parse_ssh_hosts};
+    use super::{is_safe_host, is_safe_job_id, parse_squeue, parse_ssh_hosts, wants_interactive_auth};
+
+    #[test]
+    fn tells_a_sign_in_requirement_apart_from_failures_signing_in_cannot_fix() {
+        // What BatchMode leaves behind on a cluster that wanted a password, a
+        // one-time code, or keyboard-interactive: the sign-in dialog helps.
+        assert!(wants_interactive_auth("asq@login: Permission denied (publickey,keyboard-interactive).\n"));
+        assert!(wants_interactive_auth("Permission denied, please try again.\n"));
+        assert!(wants_interactive_auth(
+            "login: no supported authentication methods available (server sent: password)\n"
+        ));
+        // Not an auth problem — signing in would not help, and the existing
+        // fingerprint guidance is the useful message.
+        assert!(!wants_interactive_auth(
+            "Host key verification failed.\nsomething about keyboard-interactive\n"
+        ));
+        assert!(!wants_interactive_auth("ssh: connect to host x port 22: Operation timed out\n"));
+        assert!(!wants_interactive_auth("ssh: Could not resolve hostname x\n"));
+        assert!(!wants_interactive_auth(""));
+    }
 
     #[test]
     fn parses_hosts_and_skips_wildcards() {

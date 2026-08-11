@@ -114,7 +114,10 @@
       "reasoning": "추론 강도",
       "reasoningDefault": "모델 기본값",
       "faster": "더 빠르게",
-      "smarter": "더 똑똑하게"
+      "smarter": "더 똑똑하게",
+      "followingAgent": "{{agent}} 에이전트 설정을 따르는 중",
+      "followAgent": "{{agent}} 에이전트 설정 따르기",
+      "useDefault": "전역 기본값 사용"
     },
     "reference": {
       "filesAria": "작업 공간 파일",
@@ -193,6 +196,12 @@
       "retrying": "제공자 오류 — 재시도 중 ({{attempt}}회차)",
       "working": "작업 중…",
       "step": "{{count}}단계"
+    },
+    "review": {
+      "queued": "백그라운드 검토 대기 중…",
+      "running": "이 체크포인트를 백그라운드에서 검토 중…",
+      "cancelAria": "백그라운드 검토 중지",
+      "cancelTitle": "이 검토 중지"
     },
     "placeholder": {
       "disconnected": "채팅하려면 연결하세요",

@@ -153,6 +153,34 @@ Key points:
 6. **First agent to prove it.** Gemini CLI (native ACP) is the lowest-friction
    target; Codex needs `codex-acp`. Which should be the Phase 2 proof-of-concept?
 
+## Answers (2026-08-05, against ACP schema 1.6.0)
+
+The questions above were written when v1 was young. Re-read against the current
+spec and the agents in the registry, four of the six are settled — by evidence,
+not by preference:
+
+1. **Model selection — (a), through the agent.** v1 has
+   `session/set_config_option` and a `configOptions` list whose entries carry a
+   semantic `category` (`model`, `model_config`, `thought_level`, `mode`). The
+   spec calls this "the preferred way to expose session-level configuration" and
+   says `modes` will be removed. So the composer renders the AGENT's options for
+   an ACP session; our own model catalog stays with OpenCode.
+2. **Provider/MCP configuration — OpenCode-only, for now.** `getClient()`
+   answers null under an ACP agent, so Settings hides that surface instead of
+   PATCHing a sidecar that is not driving anything. (Agents advertise their own
+   `providers` / `auth` capabilities; consuming them is future work.)
+3. **Where the children live — Rust.** `src-tauri/src/acp.rs` supervises them
+   like the OpenCode sidecar: the webview has no `child_process`, and kill-on-exit
+   has to be the host's job.
+4. **Stdio vs. the bundled sidecar — do not generalize the port model.** ACP
+   binds a folder PER SESSION (`session/new`'s `cwd`, which the spec requires be
+   used "regardless of where the Agent subprocess was spawned"), so one
+   long-lived child serves every workspace. Nothing about Rust's port+url
+   `RuntimeState` needed to change.
+
+Still open: (5) the server direction (Open Science *as* an ACP agent), and
+(6) is answered in practice — codex-acp was the agent this was proven against.
+
 ## Alternatives considered
 
 - **Per-agent adapters against `AgentRuntime`.** Rejected as the primary path:

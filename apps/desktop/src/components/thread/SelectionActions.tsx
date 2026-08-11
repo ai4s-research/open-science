@@ -6,6 +6,7 @@ import { toast } from "@/lib/toast";
 import { useUiStore } from "@/lib/store";
 import { useRuntimeStore } from "@/lib/runtime";
 import { appendMemory, isTauri } from "@/lib/tauri";
+import { samePath } from "@/lib/workspacePath";
 
 /** Longest excerpt carried into a follow-up or into memory. A whole answer
  *  pasted back would just re-fill the context this feature exists to save. */
@@ -100,7 +101,7 @@ export function SelectionActions({ sessionId }: { sessionId: string | null }) {
   // Memory follows the session's own folder: a passage worth keeping usually
   // belongs to that project, and falls back to global memory otherwise.
   const directory = sessions.find((s) => s.id === sessionId)?.directory;
-  const project = projects.find((p) => p.path === directory);
+  const project = projects.find((p) => samePath(p.path, directory));
   const remember = async () => {
     try {
       await appendMemory(

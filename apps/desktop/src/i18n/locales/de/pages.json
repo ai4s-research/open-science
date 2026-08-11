@@ -74,7 +74,8 @@
       "detectionUnavailable": "Die Umgebungserkennung läuft in der Desktop-App.",
       "found": "gefunden",
       "notFound": "nicht gefunden",
-      "note": "OpenCode führt Code mit dem aus, was hier installiert ist (z. B. Python über sein Shell-Tool). Python/R/Jupyter sind nicht gebündelt; installieren Sie sie oder ein Science Pack, um Analysen zu ermöglichen."
+      "appManaged": "app-verwaltet",
+      "note": "OpenCode führt Code mit dem aus, was hier installiert ist (z. B. Python über sein Shell-Tool). uv ist in der App enthalten, und Jupyter kann unter Einstellungen → Konnektoren von der App verwaltet werden. Python und R sind nicht gebündelt – installieren Sie sie oder ein Science Pack, um Analysen zu ermöglichen."
     },
     "agentsSection": {
       "sectionTitle": "Agenten ({{count}})",

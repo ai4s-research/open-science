@@ -57,6 +57,24 @@
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
     "mirrorHint": "Optional mirrors, used only when setting up Python tools (Jupyter, science databases) on networks where pypi.org / github.com are slow. Leave blank for defaults."
   },
+  "acp": {
+    "title": "Agent",
+    "hint": "Which agent this app drives: the bundled OpenCode runtime, or any agent that speaks the Agent Client Protocol (ACP) over stdio.",
+    "bundled": "OpenCode (bundled)",
+    "bundledHint": "The default runtime — providers, skills, plan mode and saved conversations.",
+    "add": "Add an agent",
+    "edit": "Edit",
+    "remove": "Remove",
+    "nameLabel": "Name",
+    "namePlaceholder": "Name (Codex, Gemini CLI, …)",
+    "commandLabel": "Command",
+    "commandPlaceholder": "Command (npx, gemini, …)",
+    "argsLabel": "Arguments",
+    "argsPlaceholder": "Arguments (-y @agentclientprotocol/codex-acp)",
+    "limits": "An ACP agent runs as a command on this computer, in the current workspace folder. It owns its own model, skills and history, so the model picker, plan mode and saved conversations stay with OpenCode — sessions started on an ACP agent are listed only while the app is running.",
+    "running": "Connected to the ACP agent.",
+    "starting": "Starting the ACP agent…"
+  },
   "updates": {
     "title": "App updates",
     "hint": "Checks GitHub Releases at most once every 24 hours",
@@ -175,9 +193,6 @@
     "browseAs": "Browse as",
     "isolated": "Isolated — fresh, logged out",
     "showWindow": "Show the browser window",
-    "headedOffTitle": "Turn the window off?",
-    "headedOffBody": "You're reusing your Chrome login (“{{profile}}”), so the agent drives your real Chrome — it will usually still open a window even with this off, especially while Chrome is already running. For a true no-window (headless) browser, switch “Browse as” to the private browser.",
-    "headedOffConfirm": "Turn off anyway",
     "noChrome": "No Chrome found",
     "download": "Download a browser",
     "noChromeWillDownload": "No Chrome detected — a private browser will be downloaded on first use.",
@@ -206,6 +221,12 @@
     "unavailable": "available in the desktop app",
     "change": "Change…",
     "reveal": "Reveal"
+  },
+  "review": {
+    "title": "Review",
+    "hint": "A read-only reviewer agent that audits finished work for traceability, statistics, units and provenance.",
+    "autoTitle": "Review after every turn that changes files",
+    "autoHint": "Runs one extra model turn in the background per change. The conversation stays usable; read-only turns are skipped."
   },
   "python": {
     "title": "Local Python kernel",
@@ -319,7 +340,13 @@
     "toast": {
       "couldNotCancel": "Could not cancel {{id}}",
       "jobCanceled": "Job {{id}} canceled"
-    }
+    },
+    "signIn": "Sign in",
+    "signInRequired": "sign-in required — this machine asks for a password or a code",
+    "signedIn": "signed in",
+    "signOut": "Sign out",
+    "signOutTitle": "Close the shared connection to this machine",
+    "sharingUnavailable": "needs a password or code, which requires OpenSSH connection sharing (unavailable on Windows)"
   },
   "remote": {
     "title": "Remote Access",
@@ -350,7 +377,10 @@
     "copied": "Copied to clipboard",
     "error": "Remote access change failed",
     "connect": "Connect",
-    "connectPrompt": "Enter the access token from the desktop app → Settings → Remote Access."
+    "connectPrompt": "Enter the access token from the desktop app → Settings → Remote Access.",
+    "acpTitle": "External editors (ACP)",
+    "acpHint": "Drive this workspace from Zed, JetBrains, Neovim or any editor that speaks the Agent Client Protocol. Paste this agent entry into the editor's settings; it connects over the gateway above, with the access the token allows.",
+    "acpNodeHint": "The editor launches this script with Node 18+. The token is passed in the environment, not on the command line."
   },
   "memory": {
     "title": "Memory",
@@ -370,11 +400,25 @@
     "disabledNote": "Memory is switched off, so this file is not loaded right now."
   },
   "agentModels": {
-    "title": "Model per agent",
-    "hint": "Run a reviewer or explorer on a fast model while the main agent reasons on a strong one.",
+    "title": "Model and effort per agent",
+    "hint": "Run a reviewer or explorer on a fast model while the main agent reasons on a strong one, and pin how hard each one thinks.",
     "noModels": "Connect a provider to choose models.",
     "followDefault": "Default model",
     "followDefaultNamed": "Default ({{model}})",
-    "modelFor": "Model for {{agent}}"
+    "modelFor": "Model for {{agent}}",
+    "defaultEffort": "Default effort",
+    "effortFor": "Reasoning effort for {{agent}}",
+    "primaryHint": "build and plan run the messages you send. A model set here applies unless you pick one inside a conversation, which wins for that conversation only."
+  },
+  "ssh": {
+    "title": "Sign in to {{host}}",
+    "hint": "This machine authenticates interactively. Sign in once and every later command — yours and the agent's — reuses the same connection.",
+    "connecting": "Connecting…",
+    "failed": "Sign-in failed.",
+    "submit": "Continue",
+    "close": "Close",
+    "reveal": "Show what you typed",
+    "hide": "Hide what you typed",
+    "privacy": "Sent only to ssh on this machine. Never stored, logged, or written to provenance."
   }
 }

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useRuntimeStore } from "@/lib/runtime";
 import { WorkspaceChip } from "./WorkspaceChip";
+import { DRAFT_KEY } from "@/lib/runtime";
 
 // workspacePath reflects the folder setWorkspace last persisted, like the real bridge.
 const mocks = vi.hoisted(() => ({ pickedFolder: null as string | null, activePath: "/ws/base" }));
@@ -55,7 +56,7 @@ describe("WorkspaceChip", () => {
   beforeEach(() => {
     mocks.pickedFolder = null;
     mocks.activePath = "/ws/base";
-    useRuntimeStore.setState({ currentId: null, workspacePinned: false, workspace: "/ws/base" });
+    useRuntimeStore.setState({ currentId: null, draftWorkspaces: {}, workspace: "/ws/base" });
   });
 
   it("is a bare folder icon for a fresh draft (dated folder is the default)", () => {
@@ -70,14 +71,41 @@ describe("WorkspaceChip", () => {
     mocks.pickedFolder = "/ws/mine";
     render(<WorkspaceChip />);
     await userEvent.click(screen.getByRole("button", { name: "Choose session folder" }));
-    await waitFor(() => expect(useRuntimeStore.getState().workspacePinned).toBe(true));
+    await waitFor(() =>
+      expect(useRuntimeStore.getState().draftWorkspaces[DRAFT_KEY]).toBe("/ws/mine"),
+    );
     expect(await screen.findByText("mine")).toBeInTheDocument();
+  });
+
+  // #69: a new screen is a layout action — it leaves the active folder pointing
+  // at the session the user was just reading. The chip must name where THIS
+  // draft's session will actually be created (a fresh dated folder), not that.
+  it("shows no folder for a new screen's pane while another folder is active", () => {
+    useRuntimeStore.setState({
+      workspace: "/ws/毕设",
+      draftWorkspaces: { [DRAFT_KEY]: "/ws/毕设" },
+    });
+    render(<WorkspaceChip draftKey="draft:leaf-new" />);
+
+    expect(screen.queryByText("毕设")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose session folder" }).title).toContain(
+      "new dated folder",
+    );
+  });
+
+  it("names the folder a pane's own draft was aimed at", () => {
+    useRuntimeStore.setState({
+      workspace: "/ws/other",
+      draftWorkspaces: { "draft:leaf-7": "/ws/毕设" },
+    });
+    render(<WorkspaceChip draftKey="draft:leaf-7" />);
+    expect(screen.getByText("毕设")).toBeInTheDocument();
   });
 
   it("cancelling the picker changes nothing", async () => {
     render(<WorkspaceChip />);
     await userEvent.click(screen.getByRole("button", { name: "Choose session folder" }));
-    expect(useRuntimeStore.getState().workspacePinned).toBe(false);
+    expect(useRuntimeStore.getState().draftWorkspaces[DRAFT_KEY]).toBeUndefined();
   });
 
   it("disappears for an open session (the Files toggle names the folder instead)", () => {

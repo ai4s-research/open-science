@@ -114,7 +114,10 @@
       "reasoning": "Denkaufwand",
       "reasoningDefault": "Modellstandard",
       "faster": "Schneller",
-      "smarter": "Klüger"
+      "smarter": "Klüger",
+      "followingAgent": "Folgt dem Agenten {{agent}}",
+      "followAgent": "Dem Agenten {{agent}} folgen",
+      "useDefault": "Globale Vorgabe verwenden"
     },
     "reference": {
       "filesAria": "Dateien im Arbeitsbereich",
@@ -193,6 +196,12 @@
       "retrying": "Anbieterfehler — neuer Versuch (Versuch {{attempt}})",
       "working": "Arbeitet…",
       "step": "Schritt {{count}}"
+    },
+    "review": {
+      "queued": "Hintergrundprüfung wartet…",
+      "running": "Dieser Prüfpunkt wird im Hintergrund geprüft…",
+      "cancelAria": "Hintergrundprüfung stoppen",
+      "cancelTitle": "Diese Prüfung stoppen"
     },
     "placeholder": {
       "disconnected": "Zum Chatten verbinden",

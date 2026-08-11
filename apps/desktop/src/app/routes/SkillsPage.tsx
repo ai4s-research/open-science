@@ -91,6 +91,13 @@ export function SkillsPage() {
                 <span className="flex-1 truncate font-mono text-xs text-muted">
                   {tool.found ? tool.version ?? t("skills.environment.found") : t("skills.environment.notFound")}
                 </span>
+                {/* #68: the bundled uv and the managed Jupyter env are off any
+                    PATH — say so, instead of reading as the user's own install. */}
+                {tool.managed && (
+                  <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                    {t("skills.environment.appManaged")}
+                  </span>
+                )}
               </div>
             ))}
             <p className="px-4 py-2 text-xs text-muted">{t("skills.environment.note")}</p>

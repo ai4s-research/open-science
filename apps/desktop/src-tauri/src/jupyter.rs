@@ -89,7 +89,10 @@ fn kill_orphan_jupyter(app: &AppHandle) {
     }
 }
 
-fn bin(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
+/// Path to a binary in the managed env (provisioned or not — callers check
+/// existence). Also read by the Skills-page tool probe, which must look here
+/// because this env is deliberately off any PATH (#68).
+pub(crate) fn env_bin(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     let dir = env_dir(app)?;
     #[cfg(windows)]
     return Ok(dir.join("Scripts").join(format!("{name}.exe")));
@@ -101,7 +104,7 @@ fn bin(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
 /// DEFAULT interpreter (kernel::python_bin), so the app's Run button and the
 /// agent's Jupyter MCP share one Python — same packages, same results.
 pub(crate) fn env_python(app: &AppHandle) -> Option<PathBuf> {
-    bin(app, "python").ok().filter(|p| p.exists())
+    env_bin(app, "python").ok().filter(|p| p.exists())
 }
 
 /// Port + token are chosen once at setup and reused so the MCP config entry
@@ -135,7 +138,7 @@ pub struct JupyterStatus {
 }
 
 fn status_of(app: &AppHandle, state: &JupyterState) -> JupyterStatus {
-    let installed = bin(app, "jupyter-lab").map(|p| p.exists()).unwrap_or(false);
+    let installed = env_bin(app, "jupyter-lab").map(|p| p.exists()).unwrap_or(false);
     let running = *state.running.lock().unwrap();
     let meta = load_meta(app);
     JupyterStatus {
@@ -143,7 +146,7 @@ fn status_of(app: &AppHandle, state: &JupyterState) -> JupyterStatus {
         running,
         url: meta.as_ref().map(|m| format!("http://127.0.0.1:{}", m.port)),
         token: meta.map(|m| m.token),
-        mcp_command: bin(app, "jupyter-mcp-server")
+        mcp_command: env_bin(app, "jupyter-mcp-server")
             .ok()
             .filter(|p| p.exists())
             .map(|p| p.to_string_lossy().to_string()),
@@ -172,7 +175,7 @@ pub async fn setup_jupyter(app: AppHandle) -> Result<(), String> {
         crate::uv::create_venv(&app, "jupyter", &dir).await?;
     }
 
-    let py = bin(&app, "python")?;
+    let py = env_bin(&app, "python")?;
     let mut args = vec![
         "pip".to_string(),
         "install".to_string(),
@@ -209,7 +212,7 @@ pub fn start_jupyter(app: AppHandle, state: State<'_, JupyterState>) -> Result<J
 /// Spawn jupyter-lab rooted in the CURRENT active workspace. Caller holds the
 /// lifecycle lock and has ensured no managed instance is running.
 fn spawn_lab(app: &AppHandle, state: &JupyterState) -> Result<JupyterStatus, String> {
-    let lab = bin(app, "jupyter-lab")?;
+    let lab = env_bin(app, "jupyter-lab")?;
     if !lab.exists() {
         return Err("Jupyter is not set up yet".into());
     }

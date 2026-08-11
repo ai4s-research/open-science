@@ -278,10 +278,10 @@ const browserSession: Session = {
     },
     {
       kind: "step-summary",
-      summary: "Drove browser-control through bioRxiv, extracted 60 preprints, wrote a CSV",
+      summary: "Drove open-science-browser through bioRxiv, extracted 60 preprints, wrote a CSV",
       steps: 9,
       details: [
-        "browser-control MCP · your Chrome profile (headed)",
+        "open-science-browser MCP · your Chrome profile (headed)",
         "biorxiv.org/collection/neuroscience",
         "paged 'Load more' ×3 — results are client-rendered",
         "environment: web-harvest (local)",
@@ -290,11 +290,11 @@ const browserSession: Session = {
     {
       kind: "agent",
       markdown:
-        "bioRxiv's collection page renders results client-side and offers no clean feed, so I'm driving your Chrome through `browser-control` instead of fetching HTML. I snapshot the accessibility tree, page to the end, then read titles, authors, and subject tags straight off the DOM.",
+        "bioRxiv's collection page renders results client-side and offers no clean feed, so I'm driving your Chrome through `open-science-browser` instead of fetching HTML. I snapshot the accessibility tree, page to the end, then read titles, authors, and subject tags straight off the DOM.",
     },
     {
       kind: "tool-call",
-      tool: "browser-control",
+      tool: "open-science-browser",
       verb: "Fetched",
       title: "navigate → biorxiv.org/collection/neuroscience",
       status: "success",
@@ -302,7 +302,7 @@ const browserSession: Session = {
     },
     {
       kind: "tool-call",
-      tool: "browser-control",
+      tool: "open-science-browser",
       verb: "Fetched",
       title: "snapshot → accessibility tree",
       status: "success",
@@ -312,7 +312,7 @@ const browserSession: Session = {
     },
     {
       kind: "tool-call",
-      tool: "browser-control",
+      tool: "open-science-browser",
       verb: "Ran",
       title: "click @e41 'Load more' · pages 2–4",
       status: "success",
@@ -320,7 +320,7 @@ const browserSession: Session = {
     },
     {
       kind: "tool-call",
-      tool: "browser-control",
+      tool: "open-science-browser",
       verb: "Fetched",
       title: "eval → extract {title, authors, subject, doi}",
       status: "success",
@@ -332,7 +332,7 @@ const browserSession: Session = {
       kind: "figure",
       title: "biorxiv_neuro.png",
       src: biorxivShot,
-      caption: "browser-control · your Chrome profile · headed — the page as the agent read it",
+      caption: "open-science-browser · your Chrome profile · headed — the page as the agent read it",
     },
     {
       kind: "table",
@@ -390,7 +390,7 @@ fig.savefig("subfield_mix.png", dpi=200)`,
     executionLog:
       "$ python chart_subfields.py\n[ok] read 60 rows from preprints_2026-07-20.csv\n[ok] 8 subfields\n[ok] wrote subfield_mix.png  148 KB  1300x720\nfinished in 1.9s",
     environment:
-      "python 3.11 · pandas 2.2 · matplotlib 3.9\nbrowser-control · agent-browser (Chrome 126, your profile, headed)\nkernel: web-harvest (local)",
+      "python 3.11 · pandas 2.2 · matplotlib 3.9\nopen-science-browser · agent-browser (Chrome 126, your profile, headed)\nkernel: web-harvest (local)",
     messages: [
       "pull this week's neuroscience preprints, tag them by subfield",
       "make the subfield bar chart and save the CSV",
