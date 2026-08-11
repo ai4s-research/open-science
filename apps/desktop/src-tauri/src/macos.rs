@@ -1,10 +1,26 @@
 //! macOS-only window chrome fixes.
 
-use tauri::Window;
+use tauri::{Manager, Window};
 
-/// Keep in sync with `trafficLightPosition` in `tauri.macos.conf.json`.
+/// Fallback for a config with no `trafficLightPosition` at all. The real value
+/// is READ from the window config below — this used to be a hardcoded copy of
+/// it, which silently won over the JSON and drifted out of sync with it twice.
 const TRAFFIC_LIGHT_X: f64 = 13.0;
-const TRAFFIC_LIGHT_Y: f64 = 22.0;
+const TRAFFIC_LIGHT_Y: f64 = 26.0;
+
+/// The configured inset for `window`, from the SAME config the window was built
+/// from (on macOS that is `tauri.conf.json` merged with `tauri.macos.conf.json`).
+fn configured_inset(window: &Window) -> (f64, f64) {
+    window
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == window.label())
+        .and_then(|w| w.traffic_light_position.as_ref())
+        .map(|p| (p.x, p.y))
+        .unwrap_or((TRAFFIC_LIGHT_X, TRAFFIC_LIGHT_Y))
+}
 
 /// Re-pin the traffic lights to the configured inset.
 ///
@@ -16,6 +32,7 @@ const TRAFFIC_LIGHT_Y: f64 = 22.0;
 /// (focus, resize, theme change), which cover launch, zoom and the in-app
 /// theme switch.
 pub fn reapply_traffic_light_inset(window: &Window) {
+    let (inset_x, inset_y) = configured_inset(window);
     let w = window.clone();
     // AppKit is main-thread-only; window events usually arrive there already.
     let _ = window.run_on_main_thread(move || unsafe {
@@ -35,10 +52,10 @@ pub fn reapply_traffic_light_inset(window: &Window) {
             return;
         };
         // Grow the (hidden) titlebar container so the buttons can sit
-        // TRAFFIC_LIGHT_Y below the window top, then walk the three buttons to
-        // TRAFFIC_LIGHT_X keeping their native spacing.
+        // `inset_y` below the window top, then walk the three buttons to
+        // `inset_x` keeping their native spacing.
         let close_rect = close.frame();
-        let titlebar_height = close_rect.size.height + TRAFFIC_LIGHT_Y;
+        let titlebar_height = close_rect.size.height + inset_y;
         let mut container_rect = container.frame();
         container_rect.size.height = titlebar_height;
         container_rect.origin.y = ns.frame().size.height - titlebar_height;
@@ -46,7 +63,7 @@ pub fn reapply_traffic_light_inset(window: &Window) {
         let spacing = mini.frame().origin.x - close_rect.origin.x;
         for (i, button) in [&*close, &*mini, &*zoom].into_iter().enumerate() {
             let mut rect = button.frame();
-            rect.origin.x = TRAFFIC_LIGHT_X + i as f64 * spacing;
+            rect.origin.x = inset_x + i as f64 * spacing;
             button.setFrameOrigin(rect.origin);
         }
     });
