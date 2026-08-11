@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  ArrowDownToLine,
   ArrowLeft,
+  ArrowUpToLine,
   ExternalLink,
   History,
   Loader2,
@@ -72,6 +74,15 @@ export function NotebookEditor({
   // header button, offered wherever a notebook is viewed.
   const [jupyterInstalled, setJupyterInstalled] = useState(false);
   const [openingLab, setOpeningLab] = useState(false);
+  // The selected cell, and whether the keyboard is typing INTO it or driving it
+  // (Jupyter's edit vs command mode). Command mode is what makes "select a cell
+  // and press a/b" work at all — without it every key is just text (#93).
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [mode, setMode] = useState<"edit" | "command">("edit");
+  const cellRefs = useRef(new Map<number, HTMLDivElement | null>());
+  const codeRefs = useRef(new Map<number, HTMLTextAreaElement | null>());
+  /** Set when the keyboard put us into edit mode, so the caret lands at the end. */
+  const caretToEnd = useRef(false);
   const cellsRef = useRef<NotebookCell[] | null>(null);
   cellsRef.current = cells;
   const rawRef = useRef<string | null>(null);
@@ -240,16 +251,43 @@ export function NotebookEditor({
     }
   };
 
+  // `index` is both the cell's identity and the position shown as "[n]", and
+  // serialization follows array order — so every structural change renumbers.
+  // Without it, inserting in the middle would label cells [1] [4] [2].
+  const renumber = (list: NotebookCell[]) => list.map((c, i) => ({ ...c, index: i + 1 }));
+
   const addCell = () => {
+    const at = (cellsRef.current?.length ?? 0) + 1;
+    setCells((c) => renumber([...(c ?? []), { index: at, language, code: "" }]));
+    setActiveIndex(at);
+    setMode("edit");
+    setSaved(false);
+  };
+
+  /** Insert an empty cell beside `index`. `next` is the mode to land in: typing
+   *  after a button click, still driving after an `a`/`b` keystroke. */
+  const insertCell = (index: number, where: "above" | "below", next: "edit" | "command" = "edit") => {
     setCells((c) => {
-      const next = (c?.[c.length - 1]?.index ?? 0) + 1;
-      return [...(c ?? []), { index: next, language, code: "" }];
+      if (!c) return c;
+      const at = c.findIndex((cell) => cell.index === index);
+      if (at < 0) return c;
+      const list = [...c];
+      list.splice(where === "above" ? at : at + 1, 0, { index: 0, language, code: "" });
+      return renumber(list);
     });
+    // Renumbering means the new cell takes `index` itself when inserted above,
+    // and the slot after it when inserted below.
+    setActiveIndex(where === "above" ? index : index + 1);
+    setMode(next);
     setSaved(false);
   };
 
   const removeCell = (index: number) => {
-    setCells((c) => c?.filter((cell) => cell.index !== index) ?? null);
+    const remaining = (cellsRef.current?.length ?? 1) - 1;
+    setCells((c) => (c ? renumber(c.filter((cell) => cell.index !== index)) : null));
+    // Keep a cell selected: the one that slid into this slot, else the last.
+    setActiveIndex(remaining <= 0 ? null : Math.min(index, remaining));
+    setMode("command");
     setSaved(false);
   };
 
@@ -262,8 +300,72 @@ export function NotebookEditor({
     if ((e.metaKey || e.ctrlKey || e.shiftKey) && e.key === "Enter") {
       e.preventDefault();
       void run(cell);
+      return;
+    }
+    // Esc leaves the text and drives the cell instead — the same door into
+    // command mode Jupyter uses, and the only one that frees bare a/b/j/k.
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setActiveIndex(cell.index);
+      setMode("command");
     }
   };
+
+  /** Command mode: the cell is selected but not being typed into, so single
+   *  keys act on the notebook. Modified chords are left to the browser/OS. */
+  const onCellCommandKeyDown = (e: KeyboardEvent<HTMLDivElement>, cell: NotebookCell) => {
+    // Keys pressed in the textarea BUBBLE to this container, so without these
+    // guards typing "ab" in a cell would insert two cells instead of two
+    // characters. Only the container's own keys, and only in command mode.
+    if (e.target !== e.currentTarget || mode !== "command") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const last = cells?.length ?? 1;
+    switch (e.key) {
+      case "Enter":
+        e.preventDefault();
+        caretToEnd.current = true;
+        setMode("edit");
+        break;
+      case "a":
+        e.preventDefault();
+        insertCell(cell.index, "above", "command");
+        break;
+      case "b":
+        e.preventDefault();
+        insertCell(cell.index, "below", "command");
+        break;
+      case "ArrowUp":
+      case "k":
+        if (cell.index > 1) {
+          e.preventDefault();
+          setActiveIndex(cell.index - 1);
+        }
+        break;
+      case "ArrowDown":
+      case "j":
+        if (cell.index < last) {
+          e.preventDefault();
+          setActiveIndex(cell.index + 1);
+        }
+        break;
+    }
+  };
+
+  // Put the caret where the selection now is. Runs only on a real selection or
+  // mode change, so it never steals focus from whatever else the user clicked.
+  useEffect(() => {
+    if (activeIndex === null) return;
+    if (mode === "command") {
+      cellRefs.current.get(activeIndex)?.focus();
+      return;
+    }
+    const code = codeRefs.current.get(activeIndex);
+    code?.focus();
+    // Only when edit mode was ENTERED by keyboard: Jupyter drops the caret at
+    // the end of the cell. A click must keep the caret where it was clicked.
+    if (caretToEnd.current && code) code.setSelectionRange(code.value.length, code.value.length);
+    caretToEnd.current = false;
+  }, [activeIndex, mode]);
 
   return (
     <div className="flex h-full flex-col">
@@ -359,7 +461,20 @@ export function NotebookEditor({
             </div>
           )}
           {cells?.map((cell) => (
-            <div key={cell.index} className="group mb-4">
+            <div
+              key={cell.index}
+              // Focusable so command mode has somewhere to live; not in the tab
+              // order, because Esc from the code is the way in (as in Jupyter).
+              ref={(el) => void cellRefs.current.set(cell.index, el)}
+              tabIndex={-1}
+              onKeyDown={(e) => onCellCommandKeyDown(e, cell)}
+              className={cn(
+                "group mb-4 rounded-input outline-none",
+                mode === "command" &&
+                  activeIndex === cell.index &&
+                  "ring-1 ring-accent ring-offset-2 ring-offset-bg",
+              )}
+            >
               <div className="mb-1 flex items-center gap-2 text-xs text-muted">
                 <span className="font-mono">[{cell.index}]</span>
                 <span>{cell.language}</span>
@@ -388,6 +503,20 @@ export function NotebookEditor({
                     </button>
                   ))}
                 <button
+                  className="hidden rounded px-1 py-0.5 hover:bg-surface-2 hover:text-text group-hover:block"
+                  aria-label={`Insert cell above ${cell.index}`}
+                  onClick={() => insertCell(cell.index, "above")}
+                >
+                  <ArrowUpToLine size={11} />
+                </button>
+                <button
+                  className="hidden rounded px-1 py-0.5 hover:bg-surface-2 hover:text-text group-hover:block"
+                  aria-label={`Insert cell below ${cell.index}`}
+                  onClick={() => insertCell(cell.index, "below")}
+                >
+                  <ArrowDownToLine size={11} />
+                </button>
+                <button
                   className="hidden rounded px-1 py-0.5 hover:bg-surface-2 hover:text-error group-hover:block"
                   aria-label={`Delete cell ${cell.index}`}
                   onClick={() => removeCell(cell.index)}
@@ -396,9 +525,15 @@ export function NotebookEditor({
                 </button>
               </div>
               <textarea
+                ref={(el) => void codeRefs.current.set(cell.index, el)}
                 value={cell.code}
                 onChange={(e) => update(cell.index, { code: e.target.value })}
                 onKeyDown={(e) => onCellKeyDown(e, cell)}
+                // Typing in a cell IS selecting it, however focus got here.
+                onFocus={() => {
+                  setActiveIndex(cell.index);
+                  setMode("edit");
+                }}
                 rows={Math.min(Math.max(cell.code.split("\n").length, 1), 14)}
                 spellCheck={false}
                 className={cn(
