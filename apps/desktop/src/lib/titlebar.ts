@@ -8,6 +8,18 @@ import type { CSSProperties } from "react";
 export const TITLEBAR_HEIGHT_PX = 48; // matches Tailwind h-12
 export const TRAFFIC_LIGHT_INSET_PX = 78; // clears the three-button cluster
 
+/**
+ * The strips below centre their content in TITLEBAR_HEIGHT_PX, so the lights
+ * only look aligned if their own centre lands there too — and THAT is set by
+ * `trafficLightPosition` in BOTH `tauri.conf.json` and `tauri.macos.conf.json`
+ * (the macOS file replaces the windows array wholesale on merge, so a value
+ * changed in one and not the other silently wins or loses).
+ *
+ * Keep the two in sync with each other and with this height: the collapse
+ * button and the Screen tabs sitting a few points below the lights is what
+ * that mismatch looks like, and it has regressed once already.
+ */
+
 /** Inline style for a macOS overlay-titlebar strip. When `clearsLights` is
  *  true the strip insets past the traffic lights; otherwise it uses a small pad
  *  (matches pl-2). Both dimensions divide by --zoom so the strip covers the same

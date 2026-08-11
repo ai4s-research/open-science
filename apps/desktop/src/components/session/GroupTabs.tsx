@@ -56,7 +56,17 @@ export function GroupTabs() {
             <PanelLeft size={14} strokeWidth={1.5} />
           </button>
         )}
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        {/* This row is `flex-1`, so it covers the whole width left of the edge —
+            the empty space beside the tabs included. A bare drag region applies
+            to DIRECT clicks only (Tauri walks the composed path and requires
+            `el === target`), so without the attribute here the only draggable
+            part of the header was the hairline above and below this row. Tabs
+            and the + button stay undraggable: a tab is never the drag element
+            itself, and Tauri treats <button> as clickable, which blocks drag. */}
+        <div
+          data-tauri-drag-region={overlayTitlebar || undefined}
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        >
           {groups.map((g, i) => {
             const active = g.id === activeGroupId;
             const ephemeral = g.id === ephemeralGroupId;

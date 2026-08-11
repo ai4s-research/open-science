@@ -12,7 +12,7 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "zoomHotkeysEnabled": false,
-        "trafficLightPosition": { "x": 13, "y": 22 },
+        "trafficLightPosition": { "x": 13, "y": 26 },
         "transparent": true,
         "windowEffects": {
           "effects": ["sidebar"],
