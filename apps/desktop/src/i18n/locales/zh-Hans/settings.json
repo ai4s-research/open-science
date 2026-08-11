@@ -399,7 +399,8 @@
     "followDefaultNamed": "默认（{{model}}）",
     "modelFor": "{{agent}} 使用的模型",
     "defaultEffort": "默认强度",
-    "effortFor": "{{agent}} 的思考强度"
+    "effortFor": "{{agent}} 的思考强度",
+    "primaryHint": "build 与 plan 负责运行你发出的消息。这里设定的模型会生效，除非你在某个会话内单独选择了模型——那个选择只对该会话生效。"
   },
   "ssh": {
     "title": "登录 {{host}}",

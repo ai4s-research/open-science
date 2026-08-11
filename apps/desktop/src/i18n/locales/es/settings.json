@@ -401,7 +401,8 @@
     "followDefaultNamed": "Predeterminado ({{model}})",
     "modelFor": "Modelo para {{agent}}",
     "defaultEffort": "Esfuerzo predeterminado",
-    "effortFor": "Esfuerzo de razonamiento para {{agent}}"
+    "effortFor": "Esfuerzo de razonamiento para {{agent}}",
+    "primaryHint": "build y plan ejecutan los mensajes que envías. El modelo definido aquí se aplica salvo que elijas uno dentro de una conversación, que prevalece solo en esa conversación."
   },
   "ssh": {
     "title": "Iniciar sesión en {{host}}",

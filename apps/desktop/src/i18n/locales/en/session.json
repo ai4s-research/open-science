@@ -114,7 +114,10 @@
       "reasoning": "Reasoning effort",
       "reasoningDefault": "Model default",
       "faster": "Faster",
-      "smarter": "Smarter"
+      "smarter": "Smarter",
+      "followingAgent": "Following the {{agent}} agent",
+      "followAgent": "Follow the {{agent}} agent",
+      "useDefault": "Use the global default"
     },
     "reference": {
       "filesAria": "Workspace files",

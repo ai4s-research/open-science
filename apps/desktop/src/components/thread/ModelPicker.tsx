@@ -9,7 +9,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Check, ChevronDown, ChevronRight, Cpu, Loader2, Search, Star, X, Zap } from "lucide-react";
-import { useRuntimeStore } from "@/lib/runtime";
+import { agentForTurn, useRuntimeStore } from "@/lib/runtime";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { cn } from "@/lib/cn";
 import {
@@ -214,17 +214,32 @@ export function ModelPicker({ sessionId }: { sessionId?: string } = {}) {
   const sessionVariants = useRuntimeStore((s) => s.sessionVariants);
   const setSessionModel = useRuntimeStore((s) => s.setSessionModel);
   const setSessionVariant = useRuntimeStore((s) => s.setSessionVariant);
+  const clearSessionModel = useRuntimeStore((s) => s.clearSessionModel);
+  const agentModels = useRuntimeStore((s) => s.agentModels);
+  const agentVariants = useRuntimeStore((s) => s.agentVariants);
+  // The agent this pane's next turn runs on ("build", or "plan" in plan mode).
+  const turnAgent = useRuntimeStore((s) => (sessionId ? agentForTurn(s, sessionId) : null));
   const switching = useRuntimeStore((s) => s.switching);
 
   // When bound to a session (a split pane), the picker sets THAT pane's model /
   // effort — no global sidecar config PATCH, so other panes are untouched.
   // Without a sessionId it drives the global default (unchanged behavior).
-  const model = sessionId ? (sessionModels[sessionId] ?? defaultModel) : defaultModel;
-  const variantChoice = sessionId
-    ? sessionVariants[sessionId] !== undefined
-      ? sessionVariants[sessionId]
-      : reasoningVariant
-    : reasoningVariant;
+  //
+  // The displayed model mirrors the SEND's precedence exactly (pane pick >
+  // configured agent model > global default). Showing the global default while
+  // a configured `build` model was what actually ran is the whole confusion in
+  // #85/#96 — the chip has to name the model the next turn will really use.
+  const pinnedModel = sessionId ? sessionModels[sessionId] : undefined;
+  const followedAgent = !pinnedModel && sessionId ? turnAgent : null;
+  const agentModel = followedAgent ? agentModels[followedAgent] : undefined;
+  const model = pinnedModel ?? agentModel ?? defaultModel;
+  const variantChoice = agentModel
+    ? (agentVariants[followedAgent!] ?? null)
+    : sessionId
+      ? sessionVariants[sessionId] !== undefined
+        ? sessionVariants[sessionId]
+        : reasoningVariant
+      : reasoningVariant;
   const pickModel = (key: string): Promise<void> | void =>
     sessionId ? setSessionModel(sessionId, key) : setDefaultModel(key);
   const pickVariant = (v: string | null) =>
@@ -362,6 +377,29 @@ export function ModelPicker({ sessionId }: { sessionId?: string } = {}) {
           </button>
         )}
       </div>
+
+      {/* Where this pane's model comes from. Rendered ONLY when it is not the
+          plain global default, so the common case stays uncluttered and the
+          surprising case (an agent setting is in force, or this conversation
+          was pinned away from it) is stated instead of left to be guessed. */}
+      {sessionId && (agentModel || (pinnedModel && turnAgent)) && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-faint px-2.5 py-1.5">
+          {agentModel ? (
+            <span className="truncate text-[11px] text-muted">
+              {t("composer.model.followingAgent", { agent: followedAgent })}
+            </span>
+          ) : (
+            <button
+              className="truncate rounded px-1.5 py-0.5 text-[11px] text-accent hover:bg-accent/10"
+              onClick={() => clearSessionModel(sessionId)}
+            >
+              {agentModels[turnAgent!]
+                ? t("composer.model.followAgent", { agent: turnAgent })
+                : t("composer.model.useDefault")}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Filter chips */}
       {options.length > 0 && (

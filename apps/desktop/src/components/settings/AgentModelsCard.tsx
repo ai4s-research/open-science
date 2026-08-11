@@ -140,6 +140,11 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
         <p className="text-[13px] text-muted">{t("agentModels.noModels")}</p>
       ) : (
         <div className="divide-y divide-faint">
+          {/* Which of these rows affect the messages the user actually sends,
+              and how a conversation's own pick relates to them (#85, #96). */}
+          <p className="pb-2 text-[12px] leading-relaxed text-muted">
+            {t("agentModels.primaryHint")}
+          </p>
           {rows.map((name) => {
             const variants = variantsFor(name);
             return (

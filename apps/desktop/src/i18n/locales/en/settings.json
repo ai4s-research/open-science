@@ -401,7 +401,8 @@
     "followDefaultNamed": "Default ({{model}})",
     "modelFor": "Model for {{agent}}",
     "defaultEffort": "Default effort",
-    "effortFor": "Reasoning effort for {{agent}}"
+    "effortFor": "Reasoning effort for {{agent}}",
+    "primaryHint": "build and plan run the messages you send. A model set here applies unless you pick one inside a conversation, which wins for that conversation only."
   },
   "ssh": {
     "title": "Sign in to {{host}}",

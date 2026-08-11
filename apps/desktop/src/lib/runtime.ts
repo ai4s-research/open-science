@@ -31,6 +31,8 @@ import {
   importProject as importProjectFolder,
   setProjectPinned as setProjectPinnedCmd,
   deleteProject as deleteProjectCmd,
+  getAgentModels,
+  getAgentVariants,
   getApprovalMode,
   installSkillMarkdown,
   isTauri,
@@ -175,6 +177,13 @@ interface RuntimeState {
   threads: Record<string, Thread>;
   skills: SkillInfo[];
   agents: AgentInfo[];
+  /** Per-agent model / reasoning effort from OpenCode's config (Settings →
+   *  Models → per agent). Consulted when a pane has no explicit pick, so a
+   *  configured agent model is what actually runs the turn (#96). */
+  agentModels: Record<string, string>;
+  agentVariants: Record<string, string>;
+  /** Re-read the per-agent config after Settings writes it. */
+  refreshAgentModels: () => Promise<void>;
   /** Slash commands the runtime can run ("/" palette): config commands,
    *  skills and MCP prompts, one merged list from GET /command. */
   commands: CommandInfo[];
@@ -239,6 +248,9 @@ interface RuntimeState {
   sessionVariants: Record<string, string | null>;
   /** Set a session's model (per-pane); no sidecar config PATCH / reconnect. */
   setSessionModel: (sessionId: string, model: string) => void;
+  /** Drop a pane's explicit pick so the turn follows the agent config / default
+   *  again — without this a session model could be changed but never undone. */
+  clearSessionModel: (sessionId: string) => void;
   /** Set a session's reasoning effort (per-pane). */
   setSessionVariant: (sessionId: string, variant: string | null) => void;
   // The pane/agent setters and turn actions below take an optional `sessionId`
@@ -1501,9 +1513,34 @@ function variantExposed(
     ?.models.find((mm) => mm.id === model.slice(i + 1));
   return m?.variants?.includes(variant) ? variant : undefined;
 }
+/** OpenCode's primary agent when the composer is not in plan mode. */
+export const PRIMARY_AGENT = "build";
+
+/**
+ * Which agent will actually run this pane's next turn, or null when the catalog
+ * has no such agent (an older or custom sidecar). Null means nothing may be
+ * inferred from a per-agent setting, so the caller keeps sending the model.
+ */
+export function agentForTurn(
+  state: Pick<RuntimeState, "sessionAgents" | "agents">,
+  key: string,
+): string | null {
+  const name = state.sessionAgents[key] === "plan" ? "plan" : PRIMARY_AGENT;
+  return state.agents.some((a) => a.name === name) ? name : null;
+}
+
 /** The model + reasoning effort for a session's turn: its own per-pane override
- *  if set, else the global default. Lets each split pane run a different model. */
+ *  if set, else a configured agent model (#96), else the global default. */
 function modelForSession(state: RuntimeState, key: string): { model: string | null; variant: string | undefined } {
+  // An agent carrying its own configured model OWNS the turn: sending an
+  // explicit per-turn model would override exactly that setting, which is why
+  // the `build` row used to do nothing and Plan mode ignored its own model
+  // (#96). Only a model picked in THIS conversation outranks it — the same rule
+  // the background reviewer already relied on by passing no model at all.
+  if (!state.sessionModels[key]) {
+    const agent = agentForTurn(state, key);
+    if (agent && state.agentModels[agent]) return { model: null, variant: undefined };
+  }
   const model = state.sessionModels[key] ?? state.defaultModel;
   const variant = variantExposed(
     state.providers,
@@ -1536,6 +1573,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   threads: {},
   skills: [],
   agents: [],
+  agentModels: {},
+  agentVariants: {},
   commands: [],
   defaultModel: null,
   providers: [],
@@ -1606,6 +1645,18 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       const sessionModels = { ...s.sessionModels, [sessionId]: model };
       saveRecord(SESSION_MODELS_KEY, sessionModels);
       return { sessionModels };
+    }),
+  clearSessionModel: (sessionId) =>
+    set((s) => {
+      if (!(sessionId in s.sessionModels)) return {};
+      const sessionModels = { ...s.sessionModels };
+      delete sessionModels[sessionId];
+      saveRecord(SESSION_MODELS_KEY, sessionModels);
+      // The effort was picked FOR that model, so it goes with it.
+      const sessionVariants = { ...s.sessionVariants };
+      delete sessionVariants[sessionId];
+      saveRecord(SESSION_VARIANTS_KEY, sessionVariants);
+      return { sessionModels, sessionVariants };
     }),
   setSessionVariant: (sessionId, variant) =>
     set((s) => {
@@ -1713,8 +1764,25 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     set({ serverUrl, modelSwitchError: null });
   },
 
+  refreshAgentModels: async () => {
+    // Desktop-only config (the helpers answer {} in the browser). Never worth
+    // failing a connect over: an unreadable config just means "no overrides",
+    // and the send then keeps passing an explicit model, which is the old
+    // behavior rather than a broken one.
+    try {
+      const [agentModels, agentVariants] = await Promise.all([
+        getAgentModels(),
+        getAgentVariants(),
+      ]);
+      set({ agentModels, agentVariants });
+    } catch {
+      /* leave whatever we already had */
+    }
+  },
+
   loadCatalog: async () => {
     if (!client) return;
+    void get().refreshAgentModels();
     try {
       const [firstSkills, agents, defaultModel, commands, providers] = await Promise.all([
         client.listSkills(),

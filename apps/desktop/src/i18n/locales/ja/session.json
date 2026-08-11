@@ -114,7 +114,10 @@
       "reasoning": "推論の強度",
       "reasoningDefault": "モデルの既定",
       "faster": "高速",
-      "smarter": "高性能"
+      "smarter": "高性能",
+      "followingAgent": "{{agent}} エージェントの設定に従っています",
+      "followAgent": "{{agent}} エージェントの設定に従う",
+      "useDefault": "グローバル既定を使用"
     },
     "reference": {
       "filesAria": "ワークスペースのファイル",

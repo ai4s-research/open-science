@@ -114,7 +114,10 @@
       "reasoning": "推理强度",
       "reasoningDefault": "模型默认",
       "faster": "更快",
-      "smarter": "更强"
+      "smarter": "更强",
+      "followingAgent": "跟随 {{agent}} 智能体设置",
+      "followAgent": "跟随 {{agent}} 智能体设置",
+      "useDefault": "使用全局默认模型"
     },
     "reference": {
       "filesAria": "工作区文件",

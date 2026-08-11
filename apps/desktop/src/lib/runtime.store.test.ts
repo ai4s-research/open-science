@@ -2377,3 +2377,85 @@ describe("auto-review on turn completion", () => {
     expect(reviewCalls()[1]![0]).toBe("ses_review_2");
   });
 });
+
+// #96: an agent carrying its own configured model must actually get to use it.
+// The send used to pass an explicit per-turn model unconditionally, which
+// overrode exactly that setting — so the `build` row did nothing to the
+// messages you send, and Plan mode ignored its own model (#85).
+describe("per-agent model precedence", () => {
+  const withAgents = async (agentModels: Record<string, string>) => {
+    mocks.currentModel = "openai/gpt-5";
+    await useRuntimeStore.getState().loadCatalog();
+    useRuntimeStore.setState({
+      agents: [
+        { name: "build", description: "" },
+        { name: "plan", description: "" },
+      ],
+      agentModels,
+      agentVariants: {},
+      defaultModel: "openai/gpt-5",
+      // Start from a clean pane: a per-session model set by an earlier test
+      // grafts onto the session its first send creates, and `currentId` would
+      // then carry that pick into this one.
+      sessionModels: {},
+      sessionVariants: {},
+      sessionAgents: {},
+      currentId: null,
+    });
+  };
+  const lastSend = () => {
+    const calls = mocks.sendPromptFullSpy.mock.calls;
+    return calls[calls.length - 1]!;
+  };
+
+  it("sends no model when the build agent has one, so its setting is what runs", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    const [, , agent, model] = lastSend();
+    expect(agent).toBeUndefined();
+    expect(model).toBeNull();
+  });
+
+  it("still pins the default when no agent model is configured (#8 unchanged)", async () => {
+    await withAgents({});
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(lastSend()[3]).toBe("openai/gpt-5");
+  });
+
+  it("a model picked in THIS conversation outranks the agent setting", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    useRuntimeStore.getState().setSessionModel(DRAFT_KEY, "openai/o3");
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(lastSend()[3]).toBe("openai/o3");
+  });
+
+  it("clearing the pick hands the turn back to the agent setting", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    useRuntimeStore.getState().setSessionModel(DRAFT_KEY, "openai/o3");
+    useRuntimeStore.getState().clearSessionModel(DRAFT_KEY);
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(lastSend()[3]).toBeNull();
+  });
+
+  it("plan mode follows the plan agent's model, not the build one", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    useRuntimeStore.setState({ sessionAgents: { [DRAFT_KEY]: "plan" } });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    const [, , agent, model] = lastSend();
+    expect(agent).toBe("plan");
+    // `plan` has no configured model, so the default is still pinned…
+    expect(model).toBe("openai/gpt-5");
+
+    // …and once it does, the turn stops overriding it.
+    useRuntimeStore.setState({ agentModels: { build: "x/y", plan: "openai/o3" } });
+    await useRuntimeStore.getState().sendPrompt("hi again");
+    expect(lastSend()[3]).toBeNull();
+  });
+
+  it("infers nothing from a catalog without the agent (older sidecar)", async () => {
+    await withAgents({ build: "anthropic/claude-opus-4-8" });
+    useRuntimeStore.setState({ agents: [] });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    expect(lastSend()[3]).toBe("openai/gpt-5");
+  });
+});

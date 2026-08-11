@@ -114,7 +114,10 @@
       "reasoning": "Esfuerzo de razonamiento",
       "reasoningDefault": "Predeterminado del modelo",
       "faster": "Más rápido",
-      "smarter": "Más inteligente"
+      "smarter": "Más inteligente",
+      "followingAgent": "Siguiendo al agente {{agent}}",
+      "followAgent": "Seguir al agente {{agent}}",
+      "useDefault": "Usar el modelo predeterminado global"
     },
     "reference": {
       "filesAria": "Archivos del espacio de trabajo",

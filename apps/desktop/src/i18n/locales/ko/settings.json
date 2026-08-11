@@ -399,7 +399,8 @@
     "followDefaultNamed": "기본값 ({{model}})",
     "modelFor": "{{agent}}의 모델",
     "defaultEffort": "기본 강도",
-    "effortFor": "{{agent}}의 추론 강도"
+    "effortFor": "{{agent}}의 추론 강도",
+    "primaryHint": "build와 plan은 보낸 메시지를 실행합니다. 여기서 설정한 모델이 적용되며, 대화 안에서 모델을 고르면 그 대화에서만 우선합니다."
   },
   "ssh": {
     "title": "{{host}}에 로그인",

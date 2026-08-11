@@ -114,7 +114,10 @@
       "reasoning": "Denkaufwand",
       "reasoningDefault": "Modellstandard",
       "faster": "Schneller",
-      "smarter": "Klüger"
+      "smarter": "Klüger",
+      "followingAgent": "Folgt dem Agenten {{agent}}",
+      "followAgent": "Dem Agenten {{agent}} folgen",
+      "useDefault": "Globale Vorgabe verwenden"
     },
     "reference": {
       "filesAria": "Dateien im Arbeitsbereich",

@@ -399,7 +399,8 @@
     "followDefaultNamed": "既定 ({{model}})",
     "modelFor": "{{agent}} のモデル",
     "defaultEffort": "既定の強度",
-    "effortFor": "{{agent}} の推論の強度"
+    "effortFor": "{{agent}} の推論の強度",
+    "primaryHint": "build と plan は送信したメッセージを実行します。ここで設定したモデルが適用されますが、会話内でモデルを選ぶとその会話でのみ優先されます。"
   },
   "ssh": {
     "title": "{{host}} にサインイン",

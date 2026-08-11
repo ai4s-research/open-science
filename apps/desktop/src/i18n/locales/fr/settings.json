@@ -401,7 +401,8 @@
     "followDefaultNamed": "Par défaut ({{model}})",
     "modelFor": "Modèle pour {{agent}}",
     "defaultEffort": "Effort par défaut",
-    "effortFor": "Effort de raisonnement pour {{agent}}"
+    "effortFor": "Effort de raisonnement pour {{agent}}",
+    "primaryHint": "build et plan exécutent les messages que vous envoyez. Le modèle défini ici s'applique, sauf si vous en choisissez un dans une conversation, qui l'emporte pour cette conversation uniquement."
   },
   "ssh": {
     "title": "Se connecter à {{host}}",

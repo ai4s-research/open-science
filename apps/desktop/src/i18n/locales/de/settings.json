@@ -401,7 +401,8 @@
     "followDefaultNamed": "Standard ({{model}})",
     "modelFor": "Modell für {{agent}}",
     "defaultEffort": "Standardaufwand",
-    "effortFor": "Denkaufwand für {{agent}}"
+    "effortFor": "Denkaufwand für {{agent}}",
+    "primaryHint": "build und plan führen die Nachrichten aus, die du sendest. Ein hier gesetztes Modell gilt, sofern du nicht innerhalb einer Unterhaltung eines wählst — das gewinnt nur dort."
   },
   "ssh": {
     "title": "Bei {{host}} anmelden",
