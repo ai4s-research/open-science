@@ -271,8 +271,11 @@ export interface HistoryPart {
     output?: string;
     /** Epoch ms the tool started/finished — persisted with the part. */
     time?: { start?: number; end?: number };
-    /** Tool-specific extras (bash stdout tail, edit diff, task session link). */
-    metadata?: { output?: string; diff?: string };
+    /** Tool-specific extras (bash stdout tail, edit diff, task session link).
+     *  `sessionId` is the subagent session a `task` tool spawned — the live
+     *  event stream reads the same field, and without it here a RELOADED
+     *  conversation loses every link to its subagents' own transcripts. */
+    metadata?: { output?: string; diff?: string; sessionId?: string };
   };
 }
 

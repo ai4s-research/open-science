@@ -325,6 +325,35 @@ describe("historyToThread", () => {
     expect(t.blocks[2]).toMatchObject({ kind: "tool-call", status: "success" });
   });
 
+  // Every subagent in a reloaded conversation was unopenable: the live fold
+  // keeps the spawned session id from the event, but rebuilding history dropped
+  // it, so the panel had nothing to open.
+  it("restores the subagent session a task spawned", () => {
+    const msgs: HistoryMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "go" }] },
+      {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool",
+            tool: "task",
+            state: {
+              status: "completed",
+              title: "Explore data adapters",
+              metadata: { sessionId: "ses_child_1" },
+            },
+          },
+        ],
+      },
+    ];
+    const t = historyToThread(msgs);
+    expect(t.blocks[t.blocks.length - 1]).toMatchObject({
+      kind: "tool-call",
+      tool: "task",
+      childSessionId: "ses_child_1",
+    });
+  });
+
   it("restores reasoning parts on reload as reasoning blocks, before the answer", () => {
     const msgs: HistoryMessage[] = [
       { role: "user", parts: [{ type: "text", text: "hi" }] },

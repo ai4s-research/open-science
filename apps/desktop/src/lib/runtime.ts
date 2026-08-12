@@ -3828,6 +3828,12 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
               : {}),
             ...(typeof p.state?.time?.start === "number" ? { startedAt: p.state.time.start } : {}),
             ...(typeof p.state?.time?.end === "number" ? { endedAt: p.state.time.end } : {}),
+            // The subagent session this task spawned. The live fold keeps it
+            // from the event; rebuilding history dropped it, so every subagent
+            // in a reloaded conversation became unopenable.
+            ...(p.state?.metadata?.sessionId
+              ? { childSessionId: p.state.metadata.sessionId }
+              : {}),
             ...(userShell && p.state?.output?.trim()
               ? { outputSummary: p.state.output.replace(/\s+$/, "") }
               : {}),
