@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThreadBlock } from "@ai4s/shared";
 import { useRuntimeStore } from "@/lib/runtime";
@@ -12,7 +13,12 @@ function seed(blocks: Record<string, ThreadBlock[]>) {
   });
 }
 
-afterEach(() => useRuntimeStore.setState({ threads: {} }));
+afterEach(() => {
+  // Unmount BEFORE clearing the store: a still-mounted row subscribes to its
+  // child thread, and wiping it underneath produced an act() warning.
+  cleanup();
+  act(() => useRuntimeStore.setState({ threads: {} }));
+});
 
 describe("SubagentPane", () => {
   it("lists every subagent with its task and status, running and finished alike", () => {
@@ -51,6 +57,53 @@ describe("SubagentPane", () => {
     // A finished subagent keeps its elapsed time; the running one shows its step.
     expect(screen.getByText("12s")).toBeInTheDocument();
     expect(screen.getByText("reading results.csv")).toBeInTheDocument();
+  });
+
+  // The panel used to stop at "which subagent, on what, for how long" — the one
+  // thing you could not see was what the subagent actually DID.
+  it("opens a subagent into its own transcript, and only on request", async () => {
+    seed({
+      parent: [
+        {
+          kind: "tool-call",
+          tool: "task",
+          title: "Review the statistics",
+          status: "success",
+          childSessionId: "child-1",
+          startedAt: 1000,
+          endedAt: 5000,
+        },
+      ],
+      "child-1": [
+        { kind: "tool-call", tool: "bash", title: "python3 check.py", status: "success" },
+        { kind: "agent", markdown: "The residuals look fine." },
+      ],
+    });
+    render(<SubagentPane sessionId="parent" onClose={vi.fn()} />);
+
+    // Collapsed by default: a tool-heavy child thread is exactly the cost that
+    // must not be paid for every subagent at once (#92).
+    const row = screen.getByRole("button", { name: /Review the statistics/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("The residuals look fine.")).not.toBeInTheDocument();
+
+    await userEvent.click(row);
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("The residuals look fine.")).toBeInTheDocument();
+    expect(screen.getByText("python3 check.py")).toBeInTheDocument();
+
+    await userEvent.click(row);
+    expect(screen.queryByText("The residuals look fine.")).not.toBeInTheDocument();
+  });
+
+  it("keeps a subagent that never started as a plain, unopenable row", () => {
+    seed({
+      parent: [{ kind: "tool-call", tool: "task", title: "Never ran", status: "pending" }],
+    });
+    render(<SubagentPane sessionId="parent" onClose={vi.fn()} />);
+
+    expect(screen.getByText("Never ran")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Never ran/ })).not.toBeInTheDocument();
   });
 
   it("says so plainly when the conversation has spawned none", () => {

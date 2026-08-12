@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, CheckCircle2, CircleDashed, Loader2, X, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, ChevronRight, CircleDashed, Loader2, X, XCircle } from "lucide-react";
 import type { ToolCallStatus } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
 import { subagentActivity, useRuntimeStore } from "@/lib/runtime";
 import { PaneTitlebarInset } from "@/components/inspector/RightPane";
+import { BlockList } from "./BlockList";
 
 /** One subagent this conversation spawned. */
 interface Row {
@@ -28,6 +30,11 @@ function elapsed(row: Row, now: number): string {
  * as a collapsed tool row in the transcript: you cannot see which subagent is
  * running, on what, or how long it has been going. This panel lists them all —
  * finished ones included, so a finished run can still be reviewed.
+ *
+ * Each row opens into the subagent's OWN transcript. Collapsed by default and
+ * fetched on first open: a subagent's thread is usually tool-heavy, and
+ * mounting several of them at once is exactly the cost that made switching
+ * panes slow (#92).
  */
 export function SubagentPane({
   sessionId,
@@ -82,25 +89,73 @@ export function SubagentPane({
         ) : (
           <ul className="flex flex-col gap-1.5">
             {rows.map((row, i) => (
-              <li
-                key={`${row.childSessionId ?? "row"}:${i}`}
-                className="rounded-card border border-border bg-surface-2 px-2.5 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <StatusIcon status={row.status} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
-                  <span className="shrink-0 text-[11px] tabular-nums text-muted">
-                    {elapsed(row, now)}
-                  </span>
-                </div>
-                {row.childSessionId && row.status === "running" && (
-                  <Activity childId={row.childSessionId} />
-                )}
-              </li>
+              <SubagentRow key={`${row.childSessionId ?? "row"}:${i}`} row={row} now={now} />
             ))}
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One subagent: the summary line, and its full transcript once opened. A row
+ * without a child session (the task never started) stays a plain summary —
+ * there is nothing to open.
+ */
+function SubagentRow({ row, now }: { row: Row; now: number }) {
+  const [open, setOpen] = useState(false);
+  const childId = row.childSessionId;
+  return (
+    <li className="rounded-card border border-border bg-surface-2 px-2.5 py-2">
+      <div className="flex items-center gap-2">
+        <StatusIcon status={row.status} />
+        {childId ? (
+          <button
+            className="flex min-w-0 flex-1 items-center gap-1 text-left"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <ChevronRight
+              size={12}
+              className={cn("shrink-0 text-muted transition-transform", open && "rotate-90")}
+            />
+            <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
+        )}
+        <span className="shrink-0 text-[11px] tabular-nums text-muted">{elapsed(row, now)}</span>
+      </div>
+      {/* The one-line "current step" is what the collapsed row can say; once the
+          transcript is open it would just repeat the last line of it. */}
+      {childId && row.status === "running" && !open && <Activity childId={childId} />}
+      {childId && open && <Transcript childId={childId} />}
+    </li>
+  );
+}
+
+/** The subagent's own thread, fetched on first open. `loadHistory` is session-
+ *  scoped, so it needs no workspace switch and is a no-op once loaded. */
+function Transcript({ childId }: { childId: string }) {
+  const thread = useRuntimeStore((s) => s.threads[childId]);
+  const loadHistory = useRuntimeStore((s) => s.loadHistory);
+  // Idempotent: it returns immediately once the thread is loaded, and a live
+  // subagent's blocks are already being folded in by the event stream.
+  useEffect(() => {
+    void loadHistory(childId);
+  }, [childId, loadHistory]);
+  const blocks = thread?.blocks;
+  if (!blocks?.length) {
+    return (
+      <div className="flex justify-center py-3">
+        <Loader2 size={13} className="animate-spin text-muted" />
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1.5 border-t border-border pt-1.5 text-[12px]">
+      <BlockList blocks={blocks} />
     </div>
   );
 }
