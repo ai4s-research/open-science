@@ -378,6 +378,8 @@
     "closeAria": "Close the subagent panel",
     "count_one": "{{count}} task",
     "count_other": "{{count}} tasks",
-    "empty": "No subagents in this conversation yet."
+    "empty": "No subagents in this conversation yet.",
+    "noDetail": "No steps were recorded for this subagent.",
+    "loadingDetail": "Loading…"
   }
 }

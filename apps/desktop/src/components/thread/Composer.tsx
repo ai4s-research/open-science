@@ -41,6 +41,7 @@ import { useUiStore } from "@/lib/store";
 import { parkDraft, unparkDraft, type ComposerDraft } from "@/lib/composerStash";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
+import { useCompactWidth } from "@/lib/useCompactWidth";
 import { isGatewayWeb } from "@/lib/webMode";
 
 /** Composer width below which the toolbar shows icons without their labels. */
@@ -267,16 +268,7 @@ export function Composer({
   // toolbar keeps the icons and drops the labels; every one of those buttons
   // already carries an aria-label and a title, so nothing becomes unreachable.
   const rootRef = useRef<HTMLDivElement>(null);
-  const [compactToolbar, setCompactToolbar] = useState(false);
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([entry]) => {
-      setCompactToolbar((entry?.contentRect.width ?? 0) < TOOLBAR_LABEL_MIN_PX);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const compactToolbar = useCompactWidth(rootRef, TOOLBAR_LABEL_MIN_PX);
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   // Caret position, tracked so an "@"/"#" being typed can be recognized in
@@ -984,7 +976,8 @@ export function Composer({
               aria-label={t("composer.agent.aria")}
               title={t("composer.agent.title")}
               className={cn(
-                "flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs",
+                "flex h-7 items-center rounded-full text-xs",
+                compactToolbar ? "gap-0.5 px-1.5" : "gap-1.5 px-2.5",
                 agentMode === "plan"
                   ? "bg-link/15 text-link hover:bg-link/25"
                   : "text-muted hover:bg-surface-2 hover:text-text",
@@ -993,7 +986,7 @@ export function Composer({
             >
               {agentMode === "plan" ? <ClipboardList size={12} /> : <Hammer size={12} />}
               {!compactToolbar && <span>{agentCopy[agentMode].label}</span>}
-              <ChevronDown size={11} />
+              {!compactToolbar && <ChevronDown size={11} />}
             </button>
           </div>
         )}
@@ -1038,12 +1031,15 @@ export function Composer({
             <button
               aria-label={t("composer.approval.aria")}
               title={t("composer.approval.title")}
-              className="flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted hover:bg-surface-2 hover:text-text"
+              className={cn(
+                "flex h-7 items-center rounded-full text-xs text-muted hover:bg-surface-2 hover:text-text",
+                compactToolbar ? "gap-0.5 px-1.5" : "gap-1.5 px-2.5",
+              )}
               onClick={() => setApprovalOpen((o) => !o)}
             >
               {approvalMode === "full" ? <Zap size={12} /> : <Hand size={12} />}
               {!compactToolbar && <span>{approvalCopy[approvalMode].label}</span>}
-              <ChevronDown size={11} />
+              {!compactToolbar && <ChevronDown size={11} />}
             </button>
           </div>
         )}

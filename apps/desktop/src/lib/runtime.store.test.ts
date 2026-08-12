@@ -917,6 +917,39 @@ describe("subagent permission asks and long sync turns", () => {
     expect(useRuntimeStore.getState().error).toContain("500");
   });
 
+  // A step still in flight when Stop lands never finished. Reloading the session
+  // renders it "pending"; the live path has to agree, or its spinner turns
+  // forever on a turn that is already over.
+  it("settles the steps that were still running when the turn was interrupted", async () => {
+    await useRuntimeStore.getState().sendPrompt("go");
+    const sid = useRuntimeStore.getState().currentId!;
+    useRuntimeStore.setState((s) => ({
+      threads: {
+        ...s.threads,
+        [sid]: {
+          blocks: [
+            { kind: "tool-call", title: "python3 long.py", status: "running" },
+            { kind: "tool-call", title: "rm -rf tmp", status: "waiting-approval" },
+            { kind: "tool-call", title: "ls", status: "success" },
+          ],
+          index: {},
+          loaded: true,
+        },
+      },
+    }));
+
+    await useRuntimeStore.getState().interrupt(sid);
+
+    const blocks = useRuntimeStore.getState().threads[sid]!.blocks;
+    const tools = blocks.filter((b) => b.kind === "tool-call");
+    expect(tools.map((b) => (b as { status: string }).status)).toEqual([
+      "pending",
+      "pending",
+      "success", // a finished step keeps its own outcome
+    ]);
+    expect(blocks[blocks.length - 1]).toMatchObject({ kind: "status-line", text: "Interrupted" });
+  });
+
   it("sends one system notification for each new permission request", async () => {
     await useRuntimeStore.getState().sendPrompt("go");
     const permission = {

@@ -1,9 +1,10 @@
 import { memo } from "react";
-import { AlertTriangle, Check, Clock, Loader2, ShieldQuestion, X } from "lucide-react";
+import { AlertTriangle, Check, Clock, ShieldQuestion, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ToolCallBlock, ToolCallStatus } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
 import { SubagentActivity } from "./SubagentActivity";
+import { RunningDot } from "./RunningDot";
 
 // Icon + tone per status. The aria-label text is looked up from
 // `session:tool.status.*` at render time (`t(\`tool.status.${status}\`)`) so it
@@ -11,7 +12,7 @@ import { SubagentActivity } from "./SubagentActivity";
 // module-scope map.
 export const STATUS: Record<ToolCallStatus, { icon: React.ReactNode; className: string }> = {
   pending: { icon: <Clock size={13} />, className: "text-muted" },
-  running: { icon: <Loader2 size={13} className="animate-spin" />, className: "text-accent" },
+  running: { icon: <RunningDot />, className: "text-accent" },
   "waiting-approval": { icon: <ShieldQuestion size={14} />, className: "text-warn" },
   success: { icon: <Check size={13} />, className: "text-ok" },
   warning: { icon: <AlertTriangle size={14} />, className: "text-warn" },

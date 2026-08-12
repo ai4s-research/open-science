@@ -3141,6 +3141,24 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         delete shellTurns[id];
       }
       const cur = s.threads[sid] ?? emptyThread();
+      // A step that was mid-flight when the turn was stopped never finished, so
+      // it must stop looking active — its spinner otherwise turns forever on a
+      // turn that is over. Reloading the session already renders exactly this
+      // ("pending", see historyToThread), so the live path just has to agree.
+      // Subagent threads settle too: the abort took that whole subtree down.
+      const settled: Record<string, Thread> = {};
+      for (const id of [sid, ...descendants]) {
+        const t = id === sid ? cur : s.threads[id];
+        if (!t) continue;
+        settled[id] = {
+          ...t,
+          blocks: t.blocks.map((b) =>
+            b.kind === "tool-call" && (b.status === "running" || b.status === "waiting-approval")
+              ? { ...b, status: "pending" as const }
+              : b,
+          ),
+        };
+      }
       return {
         runningSessions,
         shellTurns,
@@ -3154,10 +3172,14 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         permissions: s.permissions.filter((p) => !stoppedAsk(s.sessionParents, sid, p.sessionId)),
         threads: {
           ...s.threads,
+          ...settled,
           [sid]: {
-            ...cur,
+            ...(settled[sid] ?? cur),
             loaded: true,
-            blocks: [...cur.blocks, { kind: "status-line", text: "Interrupted", tone: "error" }],
+            blocks: [
+              ...(settled[sid] ?? cur).blocks,
+              { kind: "status-line", text: "Interrupted", tone: "error" },
+            ],
           },
         },
       };

@@ -378,6 +378,8 @@
     "closeAria": "Fermer le panneau des sous-agents",
     "count_one": "{{count}} tâche",
     "count_other": "{{count}} tâches",
-    "empty": "Aucun sous-agent dans cette conversation pour l’instant."
+    "empty": "Aucun sous-agent dans cette conversation pour l’instant.",
+    "noDetail": "Aucune étape n'a été enregistrée pour ce sous-agent.",
+    "loadingDetail": "Chargement…"
   }
 }

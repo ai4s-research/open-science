@@ -24,6 +24,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { queryRuns } from "@/lib/runs";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
+import { useCompactWidth } from "@/lib/useCompactWidth";
 import { fileInspectorFromBlock } from "@/lib/artifacts";
 import { useChatScroll } from "@/lib/scrollMemory";
 import { BlockList, type BlockHandlers } from "@/components/thread/BlockList";
@@ -61,6 +62,9 @@ function findLastRunningTool(blocks?: ThreadBlocks): ToolCallBlock | undefined {
  * each streams and sends on its own. The focused-session lifecycle (openSession,
  * URL, reconcile) lives in the LiveSessionPage wrapper, not here.
  */
+/** Header width below which the tool buttons show icons without their labels. */
+const HEADER_LABEL_MIN_PX = 620;
+
 export function SessionView({
   sessionId,
   leafId,
@@ -284,6 +288,11 @@ export function SessionView({
   const showAgents = !activeArtifact && !showFiles && !showRuns && !!pane?.showAgents;
   const inspectorActive = !!activeArtifact || showFiles || showRuns || showAgents;
   const compactNotebooks = !solo || isMobile;
+  // Header tool labels ("Files", "Runs", "Subagents") need real room. `solo`
+  // only says this is the single pane, which a narrow window makes irrelevant.
+  const headerRef = useRef<HTMLDivElement>(null);
+  const headerCompact = useCompactWidth(headerRef, HEADER_LABEL_MIN_PX);
+  const showToolLabels = solo && !headerCompact;
   const openNotebook = (notebook: (typeof uniqueNotebooks)[number]) => {
     pinEphemeral();
     openArtifact(notebook, sid ?? undefined);
@@ -391,6 +400,7 @@ export function SessionView({
       {/* `relative` anchors the floating composer (absolute, below). */}
       <div className="relative flex h-full min-w-0 flex-1 flex-col">
         <div
+          ref={headerRef}
           data-tauri-drag-region={asTitlebar || undefined}
           style={sidebarCollapsed && asTitlebar ? overlayTitlebarStyle(true) : undefined}
           className={cn(
@@ -449,7 +459,7 @@ export function SessionView({
             >
               <FolderOpen size={13} />
               {/* Tiled panes are narrow — show just the icon, not the folder name. */}
-              {solo && (
+              {showToolLabels && (
                 <span className="max-w-[160px] truncate">
                   {sessionDir ? baseName(sessionDir) : t("live.filesToggle.default")}
                 </span>
@@ -470,7 +480,7 @@ export function SessionView({
               aria-pressed={showRuns}
             >
               <FlaskConical size={13} />
-              {solo && <span>{t("live.runsToggle.label")}</span>}
+              {showToolLabels && <span>{t("live.runsToggle.label")}</span>}
             </button>
           )}
           {/* Subagents: only offered once this conversation has spawned one,
@@ -489,7 +499,7 @@ export function SessionView({
               aria-pressed={showAgents}
             >
               <Bot size={13} />
-              {solo && <span>{t("subagents.title")}</span>}
+              {showToolLabels && <span>{t("subagents.title")}</span>}
             </button>
           )}
           {/* Split this pane — the visible, discoverable way to tile (no

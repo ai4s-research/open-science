@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, CheckCircle2, ChevronRight, CircleDashed, Loader2, X, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, ChevronRight, CircleDashed, X, XCircle } from "lucide-react";
 import type { ToolCallStatus } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
 import { subagentActivity, useRuntimeStore } from "@/lib/runtime";
 import { PaneTitlebarInset } from "@/components/inspector/RightPane";
 import { BlockList } from "./BlockList";
+import { RunningDot } from "./RunningDot";
 
 /** One subagent this conversation spawned. */
 interface Row {
@@ -107,30 +108,37 @@ function SubagentRow({ row, now }: { row: Row; now: number }) {
   const [open, setOpen] = useState(false);
   const childId = row.childSessionId;
   return (
-    <li className="rounded-card border border-border bg-surface-2 px-2.5 py-2">
-      <div className="flex items-center gap-2">
-        <StatusIcon status={row.status} />
-        {childId ? (
-          <button
-            className="flex min-w-0 flex-1 items-center gap-1 text-left"
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <ChevronRight
-              size={12}
-              className={cn("shrink-0 text-muted transition-transform", open && "rotate-90")}
-            />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
-          </button>
-        ) : (
+    <li className="rounded-card border border-border bg-surface-2">
+      {/* The WHOLE row toggles, not just the title: aiming at the words was a
+          target most people miss, and clicking the icon or the elapsed time
+          looked like the row simply did not respond. */}
+      {childId ? (
+        <button
+          className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <StatusIcon status={row.status} />
+          <ChevronRight
+            size={12}
+            className={cn("shrink-0 text-muted transition-transform", open && "rotate-90")}
+          />
           <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
-        )}
-        <span className="shrink-0 text-[11px] tabular-nums text-muted">{elapsed(row, now)}</span>
-      </div>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted">{elapsed(row, now)}</span>
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 px-2.5 py-2">
+          <StatusIcon status={row.status} />
+          <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted">{elapsed(row, now)}</span>
+        </div>
+      )}
+      <div className="px-2.5 pb-2">
       {/* The one-line "current step" is what the collapsed row can say; once the
           transcript is open it would just repeat the last line of it. */}
-      {childId && row.status === "running" && !open && <Activity childId={childId} />}
-      {childId && open && <Transcript childId={childId} />}
+        {childId && row.status === "running" && !open && <Activity childId={childId} />}
+        {childId && open && <Transcript childId={childId} />}
+      </div>
     </li>
   );
 }
@@ -138,6 +146,7 @@ function SubagentRow({ row, now }: { row: Row; now: number }) {
 /** The subagent's own thread, fetched on first open. `loadHistory` is session-
  *  scoped, so it needs no workspace switch and is a no-op once loaded. */
 function Transcript({ childId }: { childId: string }) {
+  const { t } = useTranslation(["session", "common"]);
   const thread = useRuntimeStore((s) => s.threads[childId]);
   const loadHistory = useRuntimeStore((s) => s.loadHistory);
   // Idempotent: it returns immediately once the thread is loaded, and a live
@@ -147,10 +156,12 @@ function Transcript({ childId }: { childId: string }) {
   }, [childId, loadHistory]);
   const blocks = thread?.blocks;
   if (!blocks?.length) {
+    // Distinguish "still fetching" from "there is genuinely nothing" — an
+    // endless spinner is indistinguishable from a dead click.
     return (
-      <div className="flex justify-center py-3">
-        <Loader2 size={13} className="animate-spin text-muted" />
-      </div>
+      <p className="py-2 text-center text-[11px] text-muted">
+        {thread?.loaded ? t("subagents.noDetail") : t("subagents.loadingDetail")}
+      </p>
     );
   }
   return (
@@ -171,7 +182,7 @@ function Activity({ childId }: { childId: string }) {
 function StatusIcon({ status }: { status: ToolCallStatus }) {
   const common = "shrink-0";
   if (status === "running")
-    return <Loader2 size={13} className={cn(common, "animate-spin text-accent")} />;
+    return <RunningDot className={cn(common, "text-accent")} />;
   if (status === "success") return <CheckCircle2 size={13} className={cn(common, "text-ok")} />;
   if (status === "failed") return <XCircle size={13} className={cn(common, "text-error")} />;
   return <CircleDashed size={13} className={cn(common, "text-muted")} />;

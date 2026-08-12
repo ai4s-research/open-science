@@ -542,7 +542,10 @@ export function ModelPicker({
         title={t("composer.model.title")}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex h-7 max-w-[190px] items-center gap-1.5 rounded-full px-2.5 text-xs text-muted hover:bg-surface-2 hover:text-text"
+        className={cn(
+          "flex h-7 items-center rounded-full text-xs text-muted hover:bg-surface-2 hover:text-text",
+          compact ? "gap-0.5 px-1.5" : "max-w-[190px] gap-1.5 px-2.5",
+        )}
         onClick={() => setOpen((o) => !o)}
       >
         {switching ? (
@@ -554,7 +557,7 @@ export function ModelPicker({
         {!compact && activeVariant && (
           <span className="shrink-0 text-muted">· {labelVariant(activeVariant)}</span>
         )}
-        <ChevronDown size={11} className="shrink-0" />
+        {!compact && <ChevronDown size={11} className="shrink-0" />}
       </button>
 
       {/* Desktop / wide-web: anchored popover above the chip */}

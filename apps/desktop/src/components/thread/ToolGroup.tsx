@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from "react";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ThreadBlock, ToolCallBlock } from "@ai4s/shared";
 import i18n from "@/i18n";
@@ -8,6 +8,7 @@ import { DiffView } from "@/components/code-viewer/DiffView";
 import { STATUS } from "./ToolCallRow";
 import { ReasoningRow } from "./ReasoningRow";
 import { SubagentActivity } from "./SubagentActivity";
+import { RunningDot } from "./RunningDot";
 
 // Codex-style tool activity: consecutive quiet tool steps fold into one
 // summary line ("Ran 3 commands, created a file"); expanding shows the list;
@@ -333,7 +334,7 @@ export function ToolGroup({
         className="group flex w-full items-center gap-2 rounded-input px-2 py-1 text-left text-[12.5px] text-muted hover:bg-surface-2 hover:text-text"
       >
         {active ? (
-          <Loader2 size={13} className="shrink-0 animate-spin text-accent" />
+          <RunningDot className="text-accent" />
         ) : (
           <ChevronRight
             size={13}

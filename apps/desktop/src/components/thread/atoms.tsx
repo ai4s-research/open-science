@@ -16,6 +16,7 @@ import { MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
 import { extractArtifactRefs, refToArtifactBlock } from "@/lib/artifacts";
 import { resolveArtifactPath } from "@/lib/artifactFile";
 import { useThrottledValue } from "@/lib/useThrottledValue";
+import { RunningDot } from "./RunningDot";
 
 // All block atoms are memoized on their props: a fold rebuilds only the one
 // block object it changed (the blocks-array copy preserves the rest by
@@ -307,7 +308,7 @@ export const RunningJobsOverlay = memo(function RunningJobsOverlay({
       <ul className="divide-y divide-border/60">
         {block.jobs.map((j, i) => (
           <li key={i} className="flex items-center gap-2 px-4 py-2 text-sm">
-            <Loader2 size={13} className="animate-spin text-accent" />
+            <RunningDot className="text-accent" />
             <span className="flex-1 truncate text-text">{j.label}</span>
             <span className="text-xs text-muted">{j.elapsed}</span>
           </li>

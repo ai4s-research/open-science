@@ -378,6 +378,8 @@
     "closeAria": "Subagenten-Panel schließen",
     "count_one": "{{count}} Aufgabe",
     "count_other": "{{count}} Aufgaben",
-    "empty": "In dieser Unterhaltung gibt es noch keine Subagenten."
+    "empty": "In dieser Unterhaltung gibt es noch keine Subagenten.",
+    "noDetail": "Für diesen Subagenten wurden keine Schritte aufgezeichnet.",
+    "loadingDetail": "Wird geladen…"
   }
 }

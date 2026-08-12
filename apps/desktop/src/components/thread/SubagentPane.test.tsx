@@ -83,6 +83,8 @@ describe("SubagentPane", () => {
 
     // Collapsed by default: a tool-heavy child thread is exactly the cost that
     // must not be paid for every subagent at once (#92).
+    // The whole row is the target — aiming at the words alone was a miss most
+    // people made, and it read as the row simply not responding.
     const row = screen.getByRole("button", { name: /Review the statistics/ });
     expect(row).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("The residuals look fine.")).not.toBeInTheDocument();
@@ -94,6 +96,24 @@ describe("SubagentPane", () => {
 
     await userEvent.click(row);
     expect(screen.queryByText("The residuals look fine.")).not.toBeInTheDocument();
+  });
+
+  it("says so instead of spinning forever when a subagent recorded nothing", async () => {
+    seed({
+      parent: [
+        {
+          kind: "tool-call",
+          tool: "task",
+          title: "Recorded nothing",
+          status: "success",
+          childSessionId: "child-empty",
+        },
+      ],
+      "child-empty": [],
+    });
+    render(<SubagentPane sessionId="parent" onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: /Recorded nothing/ }));
+    expect(screen.getByText("No steps were recorded for this subagent.")).toBeInTheDocument();
   });
 
   it("keeps a subagent that never started as a plain, unopenable row", () => {

@@ -378,6 +378,8 @@
     "closeAria": "Cerrar el panel de subagentes",
     "count_one": "{{count}} tarea",
     "count_other": "{{count}} tareas",
-    "empty": "Todavía no hay subagentes en esta conversación."
+    "empty": "Todavía no hay subagentes en esta conversación.",
+    "noDetail": "No se registraron pasos para este subagente.",
+    "loadingDetail": "Cargando…"
   }
 }
