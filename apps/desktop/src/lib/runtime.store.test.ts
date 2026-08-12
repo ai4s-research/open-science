@@ -267,7 +267,11 @@ vi.mock("@ai4s/sdk", () => {
       this.statusCb("offline");
     }
   }
-  return { OpenCodeClient, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
+  // Mirrors the real helper: the store uses it to tell an already-resolved
+  // permission (404) from a reply that genuinely failed.
+  const isApiStatus = (err: unknown, status: number) =>
+    err instanceof Error && (err as { status?: unknown }).status === status;
+  return { OpenCodeClient, isApiStatus, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
 });
 
 import type { ArtifactBlock } from "@ai4s/shared";
@@ -863,6 +867,54 @@ describe("subagent permission asks and long sync turns", () => {
     expect(mocks.replyPermission).toHaveBeenCalledTimes(3);
     expect(mocks.replyPermission).toHaveBeenCalledWith("per_b", "always");
     expect(useRuntimeStore.getState().permissions).toHaveLength(0);
+  });
+
+  // Splitting a pane (or any re-render that re-answers) can carry a request the
+  // runtime has already resolved. A 404 there means "already answered", not a
+  // failure the user can act on — surfacing it put a scary banner over a click
+  // that actually worked.
+  it("treats an already-resolved permission (404) as answered, not as an error", async () => {
+    await useRuntimeStore.getState().sendPrompt("go");
+    const ask = (requestId: string) =>
+      mocks.fireEvent({
+        type: "permission.asked",
+        sessionId: "ses_child",
+        requestId,
+        action: "external_directory",
+        resources: ["/repo/*"],
+      });
+    ask("per_stale");
+    ask("per_live");
+    const gone = Object.assign(new Error("Failed to reply to the permission (404: not found)"), {
+      status: 404,
+    });
+    mocks.replyPermission.mockImplementation((id: string) => {
+      if (id === "per_stale") throw gone;
+    });
+
+    await useRuntimeStore.getState().replyPermission("per_stale", "always");
+
+    expect(useRuntimeStore.getState().permissions).toHaveLength(0);
+    expect(useRuntimeStore.getState().error).toBeNull();
+  });
+
+  it("still reports a permission reply that failed for a real reason", async () => {
+    await useRuntimeStore.getState().sendPrompt("go");
+    mocks.fireEvent({
+      type: "permission.asked",
+      sessionId: "ses_child",
+      requestId: "per_x",
+      action: "external_directory",
+      resources: ["/repo/*"],
+    });
+    mocks.replyPermission.mockImplementation(() => {
+      throw Object.assign(new Error("Failed to reply to the permission (500: boom)"), {
+        status: 500,
+      });
+    });
+
+    await useRuntimeStore.getState().replyPermission("per_x", "always");
+    expect(useRuntimeStore.getState().error).toContain("500");
   });
 
   it("sends one system notification for each new permission request", async () => {

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   OpenCodeClient,
   DEFAULT_OPENCODE_URL,
+  isApiStatus,
   type AgentInfo,
   type AgentRuntime,
   type CommandInfo,
@@ -62,6 +63,7 @@ import { moveScrollMemory } from "./scrollMemory";
 import { deriveArtifact, deriveArtifactPresentation } from "./artifacts";
 import { useLayoutStore } from "./layout";
 import { provenanceInputsFromEvent, recordProvenance } from "./provenance";
+import { clearResolvedPaths } from "./artifactFile";
 import { imageAttachmentParts } from "./promptAttachments";
 import { recordRun, runInputFromEvent } from "./runs";
 import { splitReview } from "./review";
@@ -184,6 +186,11 @@ interface RuntimeState {
   agentVariants: Record<string, string>;
   /** Re-read the per-agent config after Settings writes it. */
   refreshAgentModels: () => Promise<void>;
+  /** Apply a change that makes the sidecar reload its config (per-agent model or
+   *  effort, an installed skill), keeping the Settings surfaces on screen while
+   *  it restarts. Without this the catalog is briefly unreachable and the page
+   *  collapses to its connect prompt — every tweak looked like a lost runtime. */
+  reloadRuntimeConfig: (apply: () => Promise<void>) => Promise<void>;
   /** Slash commands the runtime can run ("/" palette): config commands,
    *  skills and MCP prompts, one merged list from GET /command. */
   commands: CommandInfo[];
@@ -1752,9 +1759,18 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       `${x.sessionId}|${x.action}|${x.resources.join("|")}`;
     const batch = get().permissions.filter((x) => sig(x) === sig(p));
     set((s) => ({ permissions: s.permissions.filter((x) => sig(x) !== sig(p)) }));
-    try {
-      await Promise.all(batch.map((x) => c.replyPermission(x.requestId, reply)));
-    } catch (err) {
+    const results = await Promise.allSettled(
+      batch.map((x) => c.replyPermission(x.requestId, reply)),
+    );
+    // A 404 means that request is already resolved — the turn moved on, or a
+    // duplicate in this batch was answered by the same click. The user's answer
+    // landed; reporting it as a failure just alarms them about nothing. Only a
+    // real failure, and only if it is not merely a stale sibling, surfaces.
+    const failed = results.find(
+      (r) => r.status === "rejected" && !isApiStatus(r.reason, 404),
+    ) as PromiseRejectedResult | undefined;
+    if (failed) {
+      const err = failed.reason;
       set({ error: err instanceof Error ? err.message : String(err) });
     }
   },
@@ -1762,6 +1778,17 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   setServerUrl: (serverUrl) => {
     if (typeof window !== "undefined") window.localStorage.setItem(URL_KEY, serverUrl);
     set({ serverUrl, modelSwitchError: null });
+  },
+
+  reloadRuntimeConfig: async (apply) => {
+    set({ switching: true });
+    try {
+      await apply();
+      await get().connectRetry();
+      await get().loadCatalog();
+    } finally {
+      set({ switching: false });
+    }
   },
 
   refreshAgentModels: async () => {
@@ -1937,6 +1964,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     let directory: string | null;
     let password: string | null;
     let baseUrl = get().serverUrl;
+    // Artifact path resolutions are relative to the workspace folder, so a
+    // connect that lands somewhere else must not reuse them (#92).
+    const previousWorkspace = get().workspace;
     if (isGatewayWeb) {
       // Web client: same-origin gateway; the pasted token is the OpenCodeClient
       // password, and the workspace directory comes from /v1/whoami.
@@ -1963,6 +1993,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // Scope skill discovery to the sidecar's workspace (null in browser dev).
       directory = await workspacePath();
       set({ workspace: directory, approvalMode: await getApprovalMode() });
+      if (!samePath(previousWorkspace, directory)) clearResolvedPaths();
       // The bundled sidecar requires per-run Basic auth; browser dev (no Tauri)
       // gets null and connects to a user-run passwordless server.
       password = await runtimePassword();
@@ -2543,8 +2574,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         const pending = pendingSkillInstall;
         // Disarmed while the copy runs, so a second idle cannot adopt twice.
         pendingSkillInstall = null;
-        void adoptWorkspaceSkills(pending.known)
-          .then(async (adopted) => {
+        void get()
+          .reloadRuntimeConfig(async () => {
+            const adopted = await adoptWorkspaceSkills(pending.known);
             if (!adopted.length) {
               // The turn may have stopped to ask a question or wait for an
               // approval — stay armed for the turn that finishes the install
@@ -2552,16 +2584,18 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
               pendingSkillInstall ??= pending;
               return;
             }
-            // adoptWorkspaceSkills restarted the sidecar so discovery reruns.
-            await get().connectRetry();
-            await get().loadCatalog();
             toast.success(
               i18n.t("pages:skills.install.installed", { name: adopted.join(", ") }),
             );
           })
-          .catch((err) =>
-            logDebug(`skill adoption failed: ${err instanceof Error ? err.message : String(err)}`),
-          );
+          .catch((err) => {
+            // This used to go only to the debug log, so a skill that never made
+            // it out of the session folder simply vanished when the next one was
+            // created and the user had nothing to go on (#103).
+            const detail = err instanceof Error ? err.message : String(err);
+            void logDebug(`skill adoption failed: ${detail}`);
+            toast.error(i18n.t("pages:skills.install.adoptFailed", { detail }));
+          });
       }
       };
     c.onEvent(sharedEventHandler);

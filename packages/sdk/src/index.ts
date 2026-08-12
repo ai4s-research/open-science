@@ -1,4 +1,4 @@
-export { OpenCodeClient } from "./OpenCodeClient";
+export { OpenCodeClient, ApiError, isApiStatus } from "./OpenCodeClient";
 export type { AgentRuntime } from "./runtime";
 export { BaseAgentRuntime } from "./base-runtime";
 export {

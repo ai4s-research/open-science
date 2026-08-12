@@ -183,7 +183,12 @@ pub fn locate_under(root: &Path, rel: &str) -> Option<String> {
 
 /// Resolve a file mentioned in an agent message to a real workspace-relative
 /// path (searching by basename when the literal path does not exist), or None.
-#[tauri::command]
+/// `async`: a miss walks up to SEARCH_MAX_ENTRIES directory entries looking for
+/// the basename, and every agent message that names a file calls this when it
+/// mounts. On the UI thread that turned a workspace with tens of thousands of
+/// files into seconds of "Not Responding" on every pane switch (#92) — the same
+/// reason `read_artifact` below is async.
+#[tauri::command(async)]
 pub fn resolve_artifact(app: AppHandle, path: String) -> Result<Option<String>, String> {
     Ok(locate_under(&workspace_dir(&app)?, &path))
 }

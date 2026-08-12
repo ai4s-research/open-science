@@ -32,7 +32,9 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
   const { t } = useTranslation(["settings", "common"]);
   const agents = useRuntimeStore((s) => s.agents);
   const defaultModel = useRuntimeStore((s) => s.defaultModel);
-  const reconnect = useRuntimeStore((s) => s.connectRetry);
+  // Keeps this card (and the model browser) on screen while the sidecar
+  // restarts to pick the change up, instead of collapsing to the connect prompt.
+  const reloadRuntimeConfig = useRuntimeStore((s) => s.reloadRuntimeConfig);
 
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [efforts, setEfforts] = useState<Record<string, string>>({});
@@ -96,41 +98,44 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
 
   const choose = async (agent: string, model: string) => {
     setBusyAgent(agent);
-    await setAgentModel(agent, model);
-    // A pinned effort belongs to the model it was chosen for: the new model may
-    // not offer that level at all, and OpenCode would reject the turn. Drop it
-    // rather than leave a setting that cannot be honoured.
-    const kept = variantsByKey.get(model || defaultModel || "") ?? [];
-    const effort = efforts[agent];
-    if (effort && !kept.includes(effort)) {
-      await setAgentVariant(agent, "");
-      setEfforts((prev) => {
+    // Agents are constructed when the sidecar loads its config, so this restarts
+    // it — done inside reloadRuntimeConfig so the surface survives the gap.
+    await reloadRuntimeConfig(async () => {
+      await setAgentModel(agent, model);
+      // A pinned effort belongs to the model it was chosen for: the new model
+      // may not offer that level at all, and OpenCode would reject the turn.
+      // Drop it rather than leave a setting that cannot be honoured.
+      const kept = variantsByKey.get(model || defaultModel || "") ?? [];
+      const effort = efforts[agent];
+      if (effort && !kept.includes(effort)) {
+        await setAgentVariant(agent, "");
+        setEfforts((prev) => {
+          const next = { ...prev };
+          delete next[agent];
+          return next;
+        });
+      }
+      setOverrides((prev) => {
         const next = { ...prev };
-        delete next[agent];
+        if (model) next[agent] = model;
+        else delete next[agent];
         return next;
       });
-    }
-    setOverrides((prev) => {
-      const next = { ...prev };
-      if (model) next[agent] = model;
-      else delete next[agent];
-      return next;
     });
-    // Agents are constructed when the sidecar loads its config.
-    await reconnect();
     setBusyAgent(null);
   };
 
   const chooseEffort = async (agent: string, variant: string) => {
     setBusyAgent(agent);
-    await setAgentVariant(agent, variant);
-    setEfforts((prev) => {
-      const next = { ...prev };
-      if (variant) next[agent] = variant;
-      else delete next[agent];
-      return next;
+    await reloadRuntimeConfig(async () => {
+      await setAgentVariant(agent, variant);
+      setEfforts((prev) => {
+        const next = { ...prev };
+        if (variant) next[agent] = variant;
+        else delete next[agent];
+        return next;
+      });
     });
-    await reconnect();
     setBusyAgent(null);
   };
 

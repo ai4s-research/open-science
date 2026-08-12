@@ -25,6 +25,26 @@ import { DEFAULT_OPENCODE_URL } from "./types";
 import type { AgentRuntime } from "./runtime";
 import { BaseAgentRuntime } from "./base-runtime";
 
+/**
+ * An error from an OpenCode API call, carrying the HTTP status so a caller can
+ * tell "this is already gone" (404) from a real failure. Answering a permission
+ * request that the runtime has already resolved is the former, and it must not
+ * read to the user as a broken action.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** True when `err` is an API failure with this HTTP status. */
+export function isApiStatus(err: unknown, status: number): boolean {
+  return err instanceof Error && (err as { status?: unknown }).status === status;
+}
+
 /** The blind context window earlier versions wrote for custom-endpoint models
  *  whose real limit was unknown. We no longer write it (a wrong guess is worse
  *  than none — see addCustomProvider), and clearDefaultCustomModelContextLimits
@@ -1008,7 +1028,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     } catch {
       /* not JSON — keep the status alone */
     }
-    return new Error(`${what} (${res.status}${detail ? `: ${detail}` : ""})`);
+    return new ApiError(`${what} (${res.status}${detail ? `: ${detail}` : ""})`, res.status);
   }
 
   /** Real agents configured in OpenCode. */
