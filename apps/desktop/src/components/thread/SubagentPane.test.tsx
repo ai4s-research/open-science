@@ -75,6 +75,9 @@ describe("SubagentPane", () => {
         },
       ],
       "child-1": [
+        // The opening block is the brief the parent handed the subagent, not
+        // the user speaking — it must not render as a chat bubble.
+        { kind: "user", text: "Check the residuals and report blocking issues." },
         { kind: "tool-call", tool: "bash", title: "python3 check.py", status: "success" },
         { kind: "agent", markdown: "The residuals look fine." },
       ],
@@ -93,6 +96,11 @@ describe("SubagentPane", () => {
     expect(row).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("The residuals look fine.")).toBeInTheDocument();
     expect(screen.getByText("python3 check.py")).toBeInTheDocument();
+    // The brief is shown, flat — not as the right-aligned user bubble the main
+    // conversation uses, which in a narrow panel read as a ragged indent.
+    const brief = screen.getByText(/Check the residuals/);
+    expect(brief.tagName).toBe("P");
+    expect(brief.className).not.toContain("rounded-card");
 
     await userEvent.click(row);
     expect(screen.queryByText("The residuals look fine.")).not.toBeInTheDocument();

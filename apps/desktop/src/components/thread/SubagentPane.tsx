@@ -164,9 +164,28 @@ function Transcript({ childId }: { childId: string }) {
       </p>
     );
   }
+  // The leading user block is not the user talking — it is the brief the parent
+  // handed this subagent. Rendered as the chat's own user message it came out as
+  // a right-aligned 85%-wide bubble whose surface matches the row behind it, so
+  // in a narrow panel it read as text randomly indented into a ragged column.
+  // It belongs at the top, full width and quiet, as the task it is.
+  const firstAgentStep = blocks.findIndex((b) => b.kind !== "user");
+  const brief = (firstAgentStep === -1 ? blocks : blocks.slice(0, firstAgentStep))
+    .map((b) => (b.kind === "user" ? b.text : ""))
+    .filter(Boolean)
+    .join("\n\n");
+  const rest = firstAgentStep === -1 ? [] : blocks.slice(firstAgentStep);
+
   return (
-    <div className="mt-1.5 border-t border-border pt-1.5 text-[12px]">
-      <BlockList blocks={blocks} />
+    // A rail marks the whole expansion as this row's content rather than a
+    // sibling of the rows around it.
+    <div className="nested-transcript mt-1.5 border-l border-border pl-2.5">
+      {brief && (
+        <p className="whitespace-pre-wrap break-words pb-2 text-[11px] leading-relaxed text-muted">
+          {brief}
+        </p>
+      )}
+      {rest.length > 0 && <BlockList blocks={rest} />}
     </div>
   );
 }
