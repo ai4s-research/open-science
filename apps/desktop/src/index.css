@@ -149,6 +149,25 @@ body,
   height: 100%;
 }
 
+/* This is app chrome, not a document: the window itself must never scroll or
+   rubber-band. Without this, dragging anywhere — including the sidebar, the
+   Screen tabs and a pane header, none of which scroll — bounced the whole
+   window a few points and sprang back, so fixed furniture did not feel fixed. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* A real scroller reaching its end must not hand the leftover gesture to its
+   ancestors (which is what made the window bounce from inside a list). Keyed to
+   the utility classes the app actually scrolls with. */
+.overflow-y-auto,
+.overflow-auto,
+.overflow-x-auto {
+  overscroll-behavior: contain;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -156,6 +175,14 @@ body {
   font-family: Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* Sidebar icon weight. lucide ships stroke-width 2, which next to the 1.5 of the
+   collapse button read thick and slightly fuzzy at these sizes. One rule instead
+   of a prop on every call site, so an icon added later matches by default.
+   (A CSS stroke-width beats the presentation attribute lucide sets inline.) */
+.sidebar-surface svg {
+  stroke-width: 1.5;
 }
 
 /* Sidebar background. With window vibrancy (macOS desktop app, data-vibrancy

@@ -43,6 +43,9 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { isGatewayWeb } from "@/lib/webMode";
 
+/** Composer width below which the toolbar shows icons without their labels. */
+const TOOLBAR_LABEL_MIN_PX = 440;
+
 /** A paste longer than this becomes a workspace file chip instead of raw text. */
 const PASTE_AS_FILE_CHARS = 2000;
 const PASTE_AS_FILE_LINES = 25;
@@ -259,6 +262,22 @@ export function Composer({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [agentOpen]);
+  // A narrow pane cannot fit "Approve for me · Build · GPT-5.6 sol · High" as
+  // words — the row wrapped and ate the composer's height. Below this width the
+  // toolbar keeps the icons and drops the labels; every one of those buttons
+  // already carries an aria-label and a title, so nothing becomes unreachable.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [compactToolbar, setCompactToolbar] = useState(false);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => {
+      setCompactToolbar((entry?.contentRect.width ?? 0) < TOOLBAR_LABEL_MIN_PX);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const taRef = useRef<HTMLTextAreaElement>(null);
   // Caret position, tracked so an "@"/"#" being typed can be recognized in
   // place — mid-sentence references matter as much as ones at the start.
@@ -707,6 +726,7 @@ export function Composer({
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "relative rounded-card border bg-surface px-2 py-2 shadow-card",
         // Plan mode gets the blue link tone — distinct from shell (warn) and
@@ -972,7 +992,7 @@ export function Composer({
               onClick={() => setAgentOpen((o) => !o)}
             >
               {agentMode === "plan" ? <ClipboardList size={12} /> : <Hammer size={12} />}
-              <span>{agentCopy[agentMode].label}</span>
+              {!compactToolbar && <span>{agentCopy[agentMode].label}</span>}
               <ChevronDown size={11} />
             </button>
           </div>
@@ -1022,7 +1042,7 @@ export function Composer({
               onClick={() => setApprovalOpen((o) => !o)}
             >
               {approvalMode === "full" ? <Zap size={12} /> : <Hand size={12} />}
-              <span>{approvalCopy[approvalMode].label}</span>
+              {!compactToolbar && <span>{approvalCopy[approvalMode].label}</span>}
               <ChevronDown size={11} />
             </button>
           </div>
@@ -1030,7 +1050,7 @@ export function Composer({
         {/* Model picker + send kept together, pushed right (and wrapping as a
             unit) so the send button is always reachable on a narrow pane. */}
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          {showModelPicker && <ModelPicker sessionId={modelSessionId} />}
+          {showModelPicker && <ModelPicker sessionId={modelSessionId} compact={compactToolbar} />}
           {configOptions && onConfigOption && (
             <AcpConfigPicker options={configOptions} onChange={onConfigOption} disabled={working} />
           )}

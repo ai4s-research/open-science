@@ -66,7 +66,7 @@ export function SubagentPane({
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-surface">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+      <div className="flex h-12 shrink-0 select-none items-center gap-2 border-b border-border px-4">
         <PaneTitlebarInset />
         <Bot size={14} strokeWidth={1.5} className="shrink-0 text-text" />
         <span className="text-sm font-medium text-text">{t("subagents.title")}</span>

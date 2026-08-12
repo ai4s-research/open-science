@@ -394,7 +394,9 @@ export function SessionView({
           data-tauri-drag-region={asTitlebar || undefined}
           style={sidebarCollapsed && asTitlebar ? overlayTitlebarStyle(true) : undefined}
           className={cn(
-            "flex shrink-0 items-center border-faint",
+            // `select-none`: this row is chrome (title, zoom, panel toggles) —
+            // dragging across it used to leave stray highlight behind.
+            "flex shrink-0 select-none items-center border-faint",
             // Tiled panes get a compact header — h-12 wastes vertical space in
             // a small pane. Solo/web keeps the full-height titlebar row.
             solo ? "gap-2 px-6" : "gap-1 px-2.5",

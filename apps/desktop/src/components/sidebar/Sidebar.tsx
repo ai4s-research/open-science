@@ -1124,7 +1124,7 @@ function NavRow({
       onClick={onClick}
       className="flex items-center gap-2 rounded-input px-2 py-1 text-[13px] text-text hover:bg-surface-2"
     >
-      <span className="text-muted">{icon}</span>
+      <span className="text-text">{icon}</span>
       <span>{label}</span>
     </button>
   );

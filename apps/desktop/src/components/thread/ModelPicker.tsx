@@ -200,7 +200,15 @@ function ReasoningSlider({
  * One picker body renders in two shells: an anchored popover on desktop/wide
  * web, a bottom sheet on phone-width viewports (`useIsMobile`).
  */
-export function ModelPicker({ sessionId }: { sessionId?: string } = {}) {
+export function ModelPicker({
+  sessionId,
+  compact,
+}: {
+  sessionId?: string;
+  /** Narrow composer: show the chip as an icon only. The button keeps its
+   *  aria-label and title, so the model stays discoverable without the words. */
+  compact?: boolean;
+} = {}) {
   const { t } = useTranslation(["session", "common"]);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -542,8 +550,8 @@ export function ModelPicker({ sessionId }: { sessionId?: string } = {}) {
         ) : (
           <Cpu size={12} className="shrink-0" />
         )}
-        <span className="truncate text-text">{chipLabel}</span>
-        {activeVariant && (
+        {!compact && <span className="truncate text-text">{chipLabel}</span>}
+        {!compact && activeVariant && (
           <span className="shrink-0 text-muted">· {labelVariant(activeVariant)}</span>
         )}
         <ChevronDown size={11} className="shrink-0" />

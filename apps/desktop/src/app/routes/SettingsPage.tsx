@@ -808,7 +808,10 @@ export function SettingsPage() {
     : [];
 
   return (
-    <div className="h-full overflow-y-auto">
+    // `select-none`: Settings is chrome, not a document. Right-clicking or
+    // dragging across a label used to leave stray highlight behind; the inputs
+    // opt back in globally (see index.css).
+    <div className="h-full select-none overflow-y-auto">
       {/* Modest top padding: the AppShell titlebar strip already clears 48px. */}
       <div className="mx-auto max-w-2xl px-4 pb-16 pt-4 sm:px-8">
         <h1 className="font-serif text-2xl text-text">{t(`nav.${section}`)}</h1>
