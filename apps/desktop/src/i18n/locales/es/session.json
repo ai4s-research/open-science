@@ -293,7 +293,8 @@
   "interaction": {
     "question": {
       "heading": "El agente necesita tu opinión",
-      "customPlaceholder": "O escribe tu propia respuesta…"
+      "customPlaceholder": "O escribe tu propia respuesta…",
+      "other": "Otra cosa…"
     },
     "permission": {
       "heading": "El agente solicita permiso:"

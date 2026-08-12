@@ -285,7 +285,8 @@
   "interaction": {
     "question": {
       "heading": "에이전트가 입력을 요청합니다",
-      "customPlaceholder": "또는 직접 답변을 입력하세요…"
+      "customPlaceholder": "또는 직접 답변을 입력하세요…",
+      "other": "기타…"
     },
     "permission": {
       "heading": "에이전트가 권한을 요청합니다:"

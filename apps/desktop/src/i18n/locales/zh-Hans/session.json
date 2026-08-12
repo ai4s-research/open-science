@@ -285,7 +285,8 @@
   "interaction": {
     "question": {
       "heading": "代理需要您的输入",
-      "customPlaceholder": "或输入您自己的答案…"
+      "customPlaceholder": "或输入您自己的答案…",
+      "other": "其他…"
     },
     "permission": {
       "heading": "代理请求权限："

@@ -285,7 +285,8 @@
   "interaction": {
     "question": {
       "heading": "エージェントが入力を必要としています",
-      "customPlaceholder": "または自分で回答を入力…"
+      "customPlaceholder": "または自分で回答を入力…",
+      "other": "その他…"
     },
     "permission": {
       "heading": "エージェントが許可を求めています："

@@ -293,7 +293,8 @@
   "interaction": {
     "question": {
       "heading": "L'agent a besoin de votre réponse",
-      "customPlaceholder": "Ou saisissez votre propre réponse…"
+      "customPlaceholder": "Ou saisissez votre propre réponse…",
+      "other": "Autre chose…"
     },
     "permission": {
       "heading": "L'agent demande une autorisation :"

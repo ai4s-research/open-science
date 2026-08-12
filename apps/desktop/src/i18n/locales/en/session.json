@@ -293,7 +293,8 @@
   "interaction": {
     "question": {
       "heading": "The agent needs your input",
-      "customPlaceholder": "Or type your own answer…"
+      "customPlaceholder": "Or type your own answer…",
+      "other": "Something else…"
     },
     "permission": {
       "heading": "The agent asks permission:"

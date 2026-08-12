@@ -293,7 +293,8 @@
   "interaction": {
     "question": {
       "heading": "Der Agent benötigt Ihre Eingabe",
-      "customPlaceholder": "Oder geben Sie Ihre eigene Antwort ein…"
+      "customPlaceholder": "Oder geben Sie Ihre eigene Antwort ein…",
+      "other": "Etwas anderes…"
     },
     "permission": {
       "heading": "Der Agent bittet um Erlaubnis:"
