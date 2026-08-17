@@ -149,6 +149,25 @@ body,
   height: 100%;
 }
 
+/* This is app chrome, not a document: the window itself must never scroll or
+   rubber-band. Without this, dragging anywhere — including the sidebar, the
+   Screen tabs and a pane header, none of which scroll — bounced the whole
+   window a few points and sprang back, so fixed furniture did not feel fixed. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* A real scroller reaching its end must not hand the leftover gesture to its
+   ancestors (which is what made the window bounce from inside a list). Keyed to
+   the utility classes the app actually scrolls with. */
+.overflow-y-auto,
+.overflow-auto,
+.overflow-x-auto {
+  overscroll-behavior: contain;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -156,6 +175,26 @@ body {
   font-family: Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* A subagent's transcript is a NESTED, secondary read inside a narrow panel.
+   The thread's own type scale (15px body) is sized for the main conversation
+   and overwhelms it there. The block components set their sizes explicitly, so
+   the step down is applied once here rather than threaded as a prop through
+   every one of them. */
+.nested-transcript,
+.nested-transcript p,
+.nested-transcript li {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* Sidebar icon weight. lucide ships stroke-width 2, which next to the 1.5 of the
+   collapse button read thick and slightly fuzzy at these sizes. One rule instead
+   of a prop on every call site, so an icon added later matches by default.
+   (A CSS stroke-width beats the presentation attribute lucide sets inline.) */
+.sidebar-surface svg {
+  stroke-width: 1.5;
 }
 
 /* Sidebar background. With window vibrancy (macOS desktop app, data-vibrancy
@@ -343,4 +382,30 @@ textarea,
   user-select: none !important;
   -webkit-user-select: none !important;
   cursor: grabbing !important;
+}
+
+/* Hover-revealed rows under a message: Copy, and the turn's timing/context
+   readout. Shown by the message the pointer is actually over (lib/hoverTracking
+   sets `data-hovered`), NOT by `:hover` — WebKit leaves that flag on whatever
+   the cursor last touched, so rows stayed lit after the pointer had gone.
+   Keyboard focus reveals them too; a click does not, or the row would stay lit
+   for as long as the button kept focus. Pointer-less devices (touch) get them
+   unconditionally: there is no hover to reveal anything with. */
+@media (hover: hover) {
+  /* `visibility`, not opacity alone: opacity is a compositor property, and on a
+     long conversation (hundreds of rows in one scroller) WebKit left the old
+     tiles on screen — the computed style said hidden while the pixels stayed.
+     A dump taken in that state proved it: 351 rows, exactly one of them
+     visible by computed style, several still drawn. Visibility invalidates
+     differently and cannot be animated on the compositor, so the row goes when
+     it is told to. No transition, for the same reason. */
+  [data-hover-row] {
+    opacity: 0;
+    visibility: hidden;
+  }
+  [data-hovered] [data-hover-row],
+  [data-hover-row]:has(:focus-visible) {
+    opacity: 1;
+    visibility: visible;
+  }
 }

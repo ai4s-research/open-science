@@ -78,6 +78,20 @@ describe("GoalPill", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("compact mode opens its popover in a body portal, not inside the pane", async () => {
+    const { container } = render(<GoalPill sessionId="s-compact" compact />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Goal:/ }));
+
+    const dialog = screen.getByRole("dialog");
+    // Anchored but escaping the pane: a pane clips its overflow, so a popover
+    // rendered inside the pill's own subtree was cut off in a tiled layout.
+    expect(container.contains(dialog)).toBe(false);
+    expect(document.body.contains(dialog)).toBe(true);
+    expect(dialog.className).toContain("fixed");
+    expect(dialog).toHaveTextContent("Reproduce figure 3 from the paper");
+  });
+
   it("shows the blocker tone when the goal is unmet", async () => {
     goalState.mockResolvedValue({
       objective: "x",

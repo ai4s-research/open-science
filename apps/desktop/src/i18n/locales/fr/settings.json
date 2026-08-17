@@ -112,6 +112,7 @@
     "currentDefault": "Modèle par défaut actuel",
     "switching": "Changement…",
     "unavailableDefault": "Modèle configuré indisponible : {{model}}",
+    "retiredDefault": "Retiré par son fournisseur : {{model}} n’est plus servi et chaque tour échouera. Choisissez un autre modèle ci-dessous.",
     "catalogUnavailable": "Le catalogue de modèles est actuellement indisponible.",
     "catalogLoading": "Chargement du catalogue de modèles…",
     "noModels": "Aucun modèle disponible.",
@@ -408,6 +409,7 @@
     "modelFor": "Modèle pour {{agent}}",
     "defaultEffort": "Effort par défaut",
     "effortFor": "Effort de raisonnement pour {{agent}}",
+    "retiredOption": "{{model}} — plus disponible",
     "primaryHint": "build et plan exécutent les messages que vous envoyez. Le modèle défini ici s'applique, sauf si vous en choisissez un dans une conversation, qui l'emporte pour cette conversation uniquement."
   },
   "ssh": {

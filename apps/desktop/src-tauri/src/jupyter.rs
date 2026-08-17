@@ -64,7 +64,7 @@ fn kill_orphan_jupyter(app: &AppHandle) {
     #[cfg(unix)]
     if let Ok(dir) = env_dir(app) {
         let pattern = format!("{}/bin/jupyter-lab", dir.to_string_lossy());
-        let _ = std::process::Command::new("pkill").args(["-9", "-f", &pattern]).output();
+        let _ = crate::runtime::quiet_command("pkill").args(["-9", "-f", &pattern]).output();
         std::thread::sleep(std::time::Duration::from_millis(400));
     }
     // Windows: taskkill the recorded PID, filtered to python.exe so a recycled

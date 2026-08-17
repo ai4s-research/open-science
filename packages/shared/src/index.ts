@@ -69,6 +69,39 @@ export interface AgentMessageBlock {
   kind: "agent";
   /** Markdown; inline `code` tokens are rendered as blue mono. */
   markdown: string;
+  /** OpenCode message id this text belongs to — the handle `usage` and the
+   *  timings are stamped against as the turn reports them. */
+  messageID?: string;
+  /** Epoch ms the assistant message started / finished. `completed` is absent
+   *  while the turn is still streaming. */
+  created?: number;
+  completed?: number;
+  /** What the turn cost in tokens. Absent until the runtime reports it, and
+   *  always absent for ACP sessions — ACP v1 has no usage channel. */
+  usage?: MessageUsage;
+}
+
+/** Token accounting for one assistant turn, as OpenCode reports it.
+ *
+ *  `input + cacheRead + cacheWrite + output + reasoning` is what the model
+ *  actually held for this turn, so the newest assistant message answers "how
+ *  full is the context right now" — see `contextUsed()`. */
+export interface MessageUsage {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** USD for this turn, as reported by the runtime (0 for local models). */
+  cost: number;
+}
+
+/** Tokens the model held for the turn `u` describes — the whole prompt it was
+ *  sent (fresh input plus whatever came from cache) plus everything it
+ *  produced. Measured against the model's `contextLimit` this is the share of
+ *  the context window in use. */
+export function contextUsed(u: MessageUsage): number {
+  return u.input + u.cacheRead + u.cacheWrite + u.output + u.reasoning;
 }
 
 /** The model's reasoning ("thinking") for a step — rendered dimmed and

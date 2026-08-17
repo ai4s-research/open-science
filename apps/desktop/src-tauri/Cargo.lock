@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "ai4s-workbench"
-version = "0.3.3"
+version = "0.4.2"
 dependencies = [
  "getrandom 0.4.3",
  "notify",

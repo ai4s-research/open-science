@@ -30,6 +30,7 @@ export function renderBlock(
   handlers?: BlockHandlers,
   liveReasoningIndex?: number,
   workspaceDirectory?: string,
+  contextLimit?: number,
 ) {
   switch (block.kind) {
     case "user":
@@ -42,7 +43,17 @@ export function renderBlock(
         />
       );
     case "agent":
-      return <AgentMessage key={i} markdown={block.markdown} onOpenArtifact={handlers?.onArtifactOpen} />;
+      return (
+        <AgentMessage
+          key={i}
+          markdown={block.markdown}
+          created={block.created}
+          completed={block.completed}
+          usage={block.usage}
+          contextLimit={contextLimit}
+          onOpenArtifact={handlers?.onArtifactOpen}
+        />
+      );
     case "reasoning":
       return <ReasoningRow key={i} block={block} streaming={i === liveReasoningIndex} />;
     case "step-summary":
@@ -79,6 +90,7 @@ export const BlockList = memo(function BlockList({
   handlers,
   liveReasoningIndex,
   workspaceDirectory,
+  contextLimit,
 }: {
   blocks: ThreadBlock[];
   handlers?: BlockHandlers;
@@ -87,6 +99,9 @@ export const BlockList = memo(function BlockList({
   liveReasoningIndex?: number;
   /** Workspace directory that owns inline artifact files. */
   workspaceDirectory?: string;
+  /** Context window of the model this session uses, so each answer's meta line
+   *  can say how full it is. 0/undefined ⇒ tokens shown without a percentage. */
+  contextLimit?: number;
 }) {
   // Runs of quiet tool steps render as one collapsible group (Codex-style);
   // everything else — text, artifacts, prominent tool cards — on its own.
@@ -101,7 +116,14 @@ export const BlockList = memo(function BlockList({
             liveReasoningIndex={liveReasoningIndex}
           />
         ) : (
-          renderBlock(item.block, item.index, handlers, liveReasoningIndex, workspaceDirectory)
+          renderBlock(
+            item.block,
+            item.index,
+            handlers,
+            liveReasoningIndex,
+            workspaceDirectory,
+            contextLimit,
+          )
         ),
       )}
     </>

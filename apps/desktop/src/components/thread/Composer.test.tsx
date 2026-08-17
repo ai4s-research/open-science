@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useUiStore } from "@/lib/store";
 import { resetParkedDrafts } from "@/lib/composerStash";
@@ -350,6 +350,57 @@ describe("agent mode switch (Build / Plan)", () => {
     );
     expect(container.firstElementChild?.className).toContain("border-link/60");
     expect(screen.getByLabelText("Agent mode").className).toContain("text-link");
+  });
+});
+
+// A narrow pane could not fit "Approve for me · Build · GPT-5.6 sol · High" as
+// words, so the toolbar wrapped and ate the composer's height.
+describe("Composer toolbar in a narrow pane", () => {
+  /** Drive the ResizeObserver the composer measures itself with. */
+  function withWidth(width: number) {
+    const observers: ((w: number) => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private cb: (e: { contentRect: { width: number } }[]) => void) {
+          observers.push((w) => this.cb([{ contentRect: { width: w } }]));
+        }
+        observe() {
+          observers[observers.length - 1]!(width);
+        }
+        disconnect() {}
+      },
+    );
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps the labels when there is room", () => {
+    withWidth(900);
+    render(<Composer onSend={vi.fn()} agentMode="build" onAgentModeChange={vi.fn()} />);
+    expect(screen.getByLabelText("Agent mode").textContent).toContain("Build");
+  });
+
+  it("drops the labels but keeps the control reachable when narrow", () => {
+    withWidth(320);
+    render(
+      <Composer
+        onSend={vi.fn()}
+        agentMode="build"
+        onAgentModeChange={vi.fn()}
+        approvalMode="approve"
+        onApprovalModeChange={vi.fn()}
+      />,
+    );
+    const agent = screen.getByLabelText("Agent mode");
+    const approval = screen.getByLabelText("Approval mode");
+    // The words are gone …
+    expect(agent.textContent).not.toContain("Build");
+    expect(approval.textContent).not.toContain("Approve for me");
+    // … but the buttons are still there, still named, and still work.
+    expect(agent).toBeInTheDocument();
+    fireEvent.click(agent);
+    expect(screen.getByRole("menuitemradio", { name: /Plan/ })).toBeInTheDocument();
   });
 });
 

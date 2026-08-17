@@ -90,6 +90,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             runtime::start_runtime,
+            runtime::restart_runtime,
+            runtime::runtime_started_at,
             runtime::runtime_password,
             gateway::gateway_status,
             gateway::acp_server_script,
@@ -119,6 +121,7 @@ pub fn run() {
             runtime::adopt_workspace_skills,
             runtime::import_opencode_login,
             model_probe::probe_endpoint_models,
+            model_probe::zen_models,
             runtime::provider_auth_exists,
             runtime::remove_config_entry,
             jupyter::jupyter_status,

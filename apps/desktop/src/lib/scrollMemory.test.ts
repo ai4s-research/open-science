@@ -182,4 +182,92 @@ describe("useChatScroll", () => {
       globalThis.ResizeObserver = OriginalResizeObserver;
     }
   });
+
+  // Screens stay mounted while hidden, so a pane can be away and back without
+  // ever unmounting. Coming back must not strand a reader who was pinned to
+  // the latest at a message that is no longer last.
+  it("re-pins a follower to the latest when its Screen comes back", () => {
+    let height = 1_000;
+    const el = document.createElement("div");
+    Object.defineProperties(el, {
+      scrollHeight: { get: () => height, configurable: true },
+      clientHeight: { value: 200, configurable: true },
+    });
+    el.scrollTop = 800; // at the bottom
+    const hook = renderHook(
+      ({ visible }) => {
+        const ref = useRef<HTMLElement | null>(el);
+        return useChatScroll(ref, "chat:ses_back", visible);
+      },
+      { initialProps: { visible: true } },
+    );
+
+    hook.rerender({ visible: false }); // Screen switched away
+    height = 3_000; // the conversation kept streaming
+    hook.rerender({ visible: true }); // and back
+
+    expect(el.scrollTop).toBe(3_000);
+  });
+
+  it("leaves a reader of older turns where they were, on the way back", () => {
+    let height = 1_000;
+    const el = document.createElement("div");
+    Object.defineProperties(el, {
+      scrollHeight: { get: () => height, configurable: true },
+      clientHeight: { value: 200, configurable: true },
+    });
+    const hook = renderHook(
+      ({ visible }) => {
+        const ref = useRef<HTMLElement | null>(el);
+        return useChatScroll(ref, "chat:ses_reading", visible);
+      },
+      { initialProps: { visible: true } },
+    );
+    act(() => {
+      el.scrollTop = 200; // reading history
+      hook.result.current.onScroll({ currentTarget: el } as unknown as UIEvent<HTMLElement>);
+    });
+
+    hook.rerender({ visible: false });
+    height = 3_000;
+    hook.rerender({ visible: true });
+
+    expect(el.scrollTop).toBe(200);
+  });
+
+  // The same pane pointed at another session is a FIRST entry, not a return:
+  // it must land where that session was left, not inherit the follow state of
+  // the conversation it used to show.
+  it("does not carry one session's follow state into the next", () => {
+    const el = document.createElement("div");
+    Object.defineProperties(el, {
+      scrollHeight: { value: 5_000, configurable: true },
+      clientHeight: { value: 200, configurable: true },
+    });
+    el.scrollTop = 4_900; // following session one
+    const hook = renderHook(
+      ({ key }) => {
+        const ref = useRef<HTMLElement | null>(el);
+        return useChatScroll(ref, key);
+      },
+      { initialProps: { key: "chat:ses_one" } },
+    );
+
+    // Session two was last read near its start.
+    act(() => {
+      el.scrollTop = 4_900;
+      hook.result.current.onScroll({ currentTarget: el } as unknown as UIEvent<HTMLElement>);
+    });
+    hook.rerender({ key: "chat:ses_two" });
+
+    expect(el.scrollTop).toBe(5_000); // unseen key → its own default, not a re-pin
+    act(() => {
+      el.scrollTop = 300;
+      hook.result.current.onScroll({ currentTarget: el } as unknown as UIEvent<HTMLElement>);
+    });
+    hook.rerender({ key: "chat:ses_one" });
+    hook.rerender({ key: "chat:ses_two" });
+
+    expect(el.scrollTop).toBe(300); // came back to where session two was left
+  });
 });

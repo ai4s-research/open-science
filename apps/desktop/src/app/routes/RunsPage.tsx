@@ -173,7 +173,7 @@ function RunsView({ sessionId }: { sessionId?: string }) {
                 accent
               />
             ))}
-            <div className="flex shrink-0 items-center rounded-full border border-border bg-surface p-0.5 text-xs">
+            <div className="flex shrink-0 select-none items-center rounded-full border border-border bg-surface p-0.5 text-xs">
               {/* eslint-disable-next-line i18next/no-literal-string -- internal filter-window keys; "24h"/"7d"/"30d" are displayed verbatim as time-unit shorthand (consistent with existing convention, e.g. "eV"/"GB" units elsewhere), only "all" is display-translated via t("filter.anytime") */}
               {(["all", "24h", "7d", "30d"] as const).map((k) => {
                 const active = (filter.since ?? "all") === k;

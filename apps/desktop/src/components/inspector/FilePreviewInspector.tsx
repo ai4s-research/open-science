@@ -32,6 +32,7 @@ import { QCodeView } from "./QCodeView";
 import { AnomalyMapView } from "./AnomalyMapView";
 import { PhaseView } from "./PhaseView";
 import { useScrollMemory } from "@/lib/scrollMemory";
+import { useWheelChain } from "@/lib/wheelChain";
 import { cn } from "@/lib/cn";
 import { PaneTitlebarInset } from "./RightPane";
 
@@ -216,12 +217,15 @@ export function FilePreviewInspector({
     showHistory ? `history:${data.path}` : `file:${data.path}`,
     showHistory || !loading,
   );
+  // A code or table preview is a horizontal scroll box; without this a vertical
+  // trackpad swipe over one moves nothing at all.
+  useWheelChain(scrollRef);
 
   return (
     <div className={cn("flex h-full flex-col", embedded && "overflow-hidden rounded-card border border-border bg-surface")}>
       <header
         className={cn(
-          "flex shrink-0 items-center border-b",
+          "flex shrink-0 select-none items-center border-b",
           embedded
             ? "h-10 gap-2 border-border px-3"
             : compactHeader

@@ -117,7 +117,11 @@
       "smarter": "高性能",
       "followingAgent": "{{agent}} エージェントの設定に従っています",
       "followAgent": "{{agent}} エージェントの設定に従う",
-      "useDefault": "グローバル既定を使用"
+      "useDefault": "グローバル既定を使用",
+      "unknownContextTitle": "コンテキストウィンドウが不明です",
+      "unknownContextBody": "このモデルでは自動圧縮が働かないため、会話が際限なく大きくなり、長いターンは最終的に停止します。「設定 → モデル」でウィンドウサイズを設定してください。",
+      "retiredTitle": "モデルはプロバイダーが提供を終了しました",
+      "retiredBody": "{{model}} は設定されたままですが、プロバイダーが提供を終了したため、すべてのターンが失敗します。上から別のモデルを選んでください。"
     },
     "reference": {
       "filesAria": "ワークスペースのファイル",
@@ -285,7 +289,8 @@
   "interaction": {
     "question": {
       "heading": "エージェントが入力を必要としています",
-      "customPlaceholder": "または自分で回答を入力…"
+      "customPlaceholder": "または自分で回答を入力…",
+      "other": "その他…"
     },
     "permission": {
       "heading": "エージェントが許可を求めています："
@@ -355,6 +360,21 @@
     "at": "日時: {{time}}",
     "originalKept": "元の会話全体はローカルに保存されたままです。"
   },
+  "meta": {
+    "context": "{{used}} / {{limit}}（{{percent}}%）",
+    "contextUnknown": "{{used}} トークン",
+    "durationTitle": "この返信にかかった時間",
+    "costTitle": "このターンの費用",
+    "tooltip": {
+      "input": "入力: {{n}}",
+      "cacheRead": "キャッシュ読み取り: {{n}}",
+      "cacheWrite": "キャッシュ書き込み: {{n}}",
+      "output": "出力: {{n}}",
+      "reasoning": "推論: {{n}}",
+      "context": "使用中のコンテキスト: {{used}} / {{limit}}",
+      "contextUnknown": "使用中のコンテキスト: {{used}}（ウィンドウ不明）"
+    }
+  },
   "selection": {
     "aria": "選択したテキストへの操作",
     "quote": "引用",
@@ -369,6 +389,14 @@
     "toggleTitle": "サブエージェントの状況を表示",
     "closeAria": "サブエージェントパネルを閉じる",
     "count_other": "{{count}} 件のタスク",
-    "empty": "この会話にはまだサブエージェントがいません。"
+    "empty": "この会話にはまだサブエージェントがいません。",
+    "noDetail": "このサブエージェントの手順は記録されていません。",
+    "loadingDetail": "読み込み中…"
+  },
+  "splitDestination": {
+    "title": "新しいペインのセッションの作成先",
+    "continueIn": "{{name}} を引き継ぐ",
+    "newFolder": "新しいフォルダー",
+    "chooseOther": "別のフォルダーを選択…"
   }
 }

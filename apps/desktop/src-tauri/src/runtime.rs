@@ -15,6 +15,16 @@ struct RuntimeLifecycle {
     child: Option<CommandChild>,
     url: Option<String>,
     port: Option<u16>,
+    /// Epoch ms the current sidecar was spawned. The frontend needs it to tell
+    /// a turn that is streaming now from one that was streaming when an earlier
+    /// sidecar died: both persist identically, and only "was this message
+    /// created before the process that would be producing it" separates them.
+    started_at: Option<u64>,
+    /// Bumped on every spawn. The exit watcher captures the value its own
+    /// sidecar was spawned with and only clears the lifecycle while it still
+    /// matches, so a late exit from an already-replaced sidecar cannot wipe
+    /// the live one.
+    generation: u64,
 }
 
 /// One lock owns every sidecar lifecycle field. Keeping child/url/port in
@@ -1066,7 +1076,7 @@ fn system_proxy_url() -> Option<String> {
     None
 }
 
-fn spawn_sidecar(app: &AppHandle, port: u16) -> Result<CommandChild, String> {
+fn spawn_sidecar(app: &AppHandle, port: u16, generation: u64) -> Result<CommandChild, String> {
     let root = runtime_root(app)?;
     let cfg = root.join("xdg-config");
     let data = root.join("xdg-data");
@@ -1095,6 +1105,20 @@ fn spawn_sidecar(app: &AppHandle, port: u16) -> Result<CommandChild, String> {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         std::fs::write(&cfg_file, seeded).map_err(|e| e.to_string())?;
+    }
+    // Installs that chose a mode before this app wrote any `external_directory`
+    // rules kept OpenCode's builtin ask on every path outside the workspace —
+    // the switch alone would never have refreshed them, since a chosen mode is
+    // never re-seeded. Back-fill once; it is additive and idempotent.
+    let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+    if let Some(migrated) = crate::opencode_config::migrate_external_directory(&existing) {
+        std::fs::write(&cfg_file, migrated).map_err(|e| e.to_string())?;
+    }
+    // Same reason, same one-time shape: approve mode gained a browser ask rule
+    // after these installs picked their mode.
+    let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+    if let Some(migrated) = crate::opencode_config::migrate_browser_permission(&existing) {
+        std::fs::write(&cfg_file, migrated).map_err(|e| e.to_string())?;
     }
     // Rename the legacy browser MCP id, then hide the incompatible user skill
     // with that old name while the official connector is configured.
@@ -1243,6 +1267,22 @@ fn spawn_sidecar(app: &AppHandle, port: u16) -> Result<CommandChild, String> {
                         &app,
                         &format!("[opencode] terminated: code={:?} signal={:?}", status.code, status.signal),
                     );
+                    // Forget the dead sidecar. Without this the handle and URL
+                    // stayed behind, `start_runtime`'s "already running" early
+                    // return handed the frontend the URL of a process that no
+                    // longer existed, and the app retried that dead port
+                    // forever — a crash the runtime could have recovered from
+                    // in seconds instead needed the whole app restarted.
+                    // The port is kept: it is free again, and reusing it means
+                    // the frontend's URL survives the respawn.
+                    if let Some(state) = app.try_state::<RuntimeState>() {
+                        if let Ok(mut lifecycle) = state.lifecycle.lock() {
+                            if lifecycle.generation == generation {
+                                lifecycle.child = None;
+                                lifecycle.url = None;
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -1267,7 +1307,9 @@ fn restart_sidecar_if_running(
     let _ = child.kill();
 
     let port = *lifecycle.port.get_or_insert_with(free_port);
-    let child = spawn_sidecar(app, port)?;
+    lifecycle.generation += 1;
+    lifecycle.started_at = Some(now_ms());
+    let child = spawn_sidecar(app, port, lifecycle.generation)?;
     let url = format!("http://127.0.0.1:{port}");
     lifecycle.child = Some(child);
     lifecycle.url = Some(url.clone());
@@ -1292,11 +1334,62 @@ pub fn start_runtime(app: AppHandle, state: State<'_, RuntimeState>) -> Result<S
 
     // Reuse a stable port across restarts so the frontend URL doesn't change.
     let port = *lifecycle.port.get_or_insert_with(free_port);
-    let child = spawn_sidecar(&app, port)?;
+    lifecycle.generation += 1;
+    lifecycle.started_at = Some(now_ms());
+    let child = spawn_sidecar(&app, port, lifecycle.generation)?;
     let url = format!("http://127.0.0.1:{port}");
     lifecycle.child = Some(child);
     lifecycle.url = Some(url.clone());
     Ok(url)
+}
+
+/// Force a fresh sidecar, whatever state the current one is in.
+///
+/// `start_runtime` reuses a runtime it believes is running, which is right
+/// until the process is alive but no longer *serving*: nothing terminates, so
+/// nothing clears the lifecycle, and the app retries a port that will never
+/// answer again. A dead process is handled by the exit watcher; this is the
+/// escape hatch for a wedged one, and the reconnect loop reaches for it once
+/// plain retrying has clearly stopped helping.
+///
+/// Takes a NEW port rather than reusing the old one: the process being killed
+/// is by definition not responding, and kill() does not guarantee the port is
+/// released by the time we rebind. The caller adopts the returned URL.
+#[tauri::command]
+pub fn restart_runtime(app: AppHandle, state: State<'_, RuntimeState>) -> Result<String, String> {
+    let mut lifecycle = state.lifecycle.lock().unwrap();
+    if let Some(child) = lifecycle.child.take() {
+        let _ = child.kill();
+    }
+    lifecycle.url = None;
+    lifecycle.port = None;
+    let port = *lifecycle.port.get_or_insert_with(free_port);
+    lifecycle.generation += 1;
+    lifecycle.started_at = Some(now_ms());
+    let child = spawn_sidecar(&app, port, lifecycle.generation)?;
+    let url = format!("http://127.0.0.1:{port}");
+    lifecycle.child = Some(child);
+    lifecycle.url = Some(url.clone());
+    crate::debug_log::append(&app, &format!("runtime force-restarted on {url}"));
+    Ok(url)
+}
+
+/// Epoch ms, for stamping the sidecar's start time.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Epoch ms the current sidecar started, or 0 when none is running. The
+/// frontend compares stored message timestamps against it: anything written
+/// before this process began cannot be something this process is still
+/// producing.
+#[tauri::command]
+pub fn runtime_started_at(state: State<'_, RuntimeState>) -> Result<u64, String> {
+    let lifecycle = state.lifecycle.lock().map_err(|e| e.to_string())?;
+    Ok(lifecycle.started_at.unwrap_or(0))
 }
 
 /// The workspace directory the sidecar runs in — the frontend passes it to the
@@ -1525,6 +1618,35 @@ mod tests {
         workspace_skill_dirs,
     };
     use std::fs;
+
+    /// The rule stated above `quiet_command`, enforced. A raw `Command::new` in
+    /// shipped code opens a console window on Windows — 0.4.0 shipped one that
+    /// stayed open beside the app for every agent-browser MCP server the runtime
+    /// started (#114). Test code is exempt: it never runs inside the packaged app.
+    #[test]
+    fn shipped_code_never_spawns_with_a_raw_command() {
+        const DEFINITION: &str = "let mut cmd = std::process::Command::new(bin);";
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        for entry in fs::read_dir(&src).expect("src/ is readable") {
+            let path = entry.expect("directory entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).expect("source is readable");
+            // Everything from the file's first `#[cfg(test)]` on is test-only.
+            let shipped = text.split("#[cfg(test)]").next().unwrap_or_default();
+            for (i, line) in shipped.lines().enumerate() {
+                if line.contains("Command::new(") && line.trim() != DEFINITION {
+                    offenders.push(format!("{}:{}", path.display(), i + 1));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "spawn through crate::runtime::quiet_command instead: {offenders:?}"
+        );
+    }
 
     #[test]
     fn auth_store_provider_lookup() {

@@ -112,6 +112,7 @@
     "currentDefault": "当前默认",
     "switching": "切换中…",
     "unavailableDefault": "已配置的模型不可用：{{model}}",
+    "retiredDefault": "已被供应商下架：{{model}} 已不再提供，每个回合都会失败。请在下方另选一个模型。",
     "catalogUnavailable": "模型目录当前不可用。",
     "catalogLoading": "正在加载模型目录…",
     "noModels": "没有可用模型。",
@@ -406,6 +407,7 @@
     "modelFor": "{{agent}} 使用的模型",
     "defaultEffort": "默认强度",
     "effortFor": "{{agent}} 的思考强度",
+    "retiredOption": "{{model}} — 已下架",
     "primaryHint": "build 与 plan 负责运行你发出的消息。这里设定的模型会生效，除非你在某个会话内单独选择了模型——那个选择只对该会话生效。"
   },
   "ssh": {

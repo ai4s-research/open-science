@@ -67,7 +67,8 @@
       "hintDisconnected": "Verbinden Sie zuerst die Runtime.",
       "installed": "„{{name}}“ installiert — in jedem Arbeitsbereich verfügbar.",
       "agentPrompt": "Der Nutzer hat dies in das Feld zum Installieren von Skills eingegeben:\n\n---\n{{input}}\n---\n\nBitte hilf geduldig bei der Installation: Finde heraus, welcher Skill gemeint ist (URL abrufen, suchen oder bei Unklarheit nachfragen), und speichere ihn dann als Skill-Datei unter .opencode/skills/<name>/SKILL.md innerhalb dieses Arbeitsbereichs — niemals außerhalb; die App stellt ihn danach in jedem Arbeitsbereich bereit. Das Format ist im Skill customize-opencode beschrieben. Antworte am Ende mit dem Namen des installierten Skills.",
-      "echo": "Bitte hilf mir, diesen Skill zu installieren:\n\n{{input}}"
+      "echo": "Bitte hilf mir, diesen Skill zu installieren:\n\n{{input}}",
+      "adoptFailed": "Der Skill wurde geschrieben, ließ sich aber nicht in dein Profil verschieben — er verschwindet, sobald der Ordner dieser Sitzung ersetzt wird: {{detail}}"
     },
     "environment": {
       "sectionTitle": "Wissenschaftliche Umgebung",

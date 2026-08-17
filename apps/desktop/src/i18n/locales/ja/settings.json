@@ -112,6 +112,7 @@
     "currentDefault": "現在のデフォルト",
     "switching": "切り替え中…",
     "unavailableDefault": "設定済みモデルは利用できません: {{model}}",
+    "retiredDefault": "プロバイダーが提供を終了しました: {{model}} はもう利用できず、すべてのターンが失敗します。下から別のモデルを選んでください。",
     "catalogUnavailable": "モデルカタログは現在利用できません。",
     "catalogLoading": "モデルカタログを読み込み中…",
     "noModels": "利用可能なモデルがありません。",
@@ -406,6 +407,7 @@
     "modelFor": "{{agent}} のモデル",
     "defaultEffort": "既定の強度",
     "effortFor": "{{agent}} の推論の強度",
+    "retiredOption": "{{model}} — 提供終了",
     "primaryHint": "build と plan は送信したメッセージを実行します。ここで設定したモデルが適用されますが、会話内でモデルを選ぶとその会話でのみ優先されます。"
   },
   "ssh": {

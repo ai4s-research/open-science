@@ -117,7 +117,11 @@
       "smarter": "更强",
       "followingAgent": "跟随 {{agent}} 智能体设置",
       "followAgent": "跟随 {{agent}} 智能体设置",
-      "useDefault": "使用全局默认模型"
+      "useDefault": "使用全局默认模型",
+      "unknownContextTitle": "上下文窗口未知",
+      "unknownContextBody": "该模型的自动压缩不会生效，对话会无限增长，长回合最终会卡住。请在“设置 → 模型”里填写窗口大小。",
+      "retiredTitle": "该模型已被供应商下架",
+      "retiredBody": "{{model}} 仍在配置中，但供应商已不再提供，每个回合都会失败。请在上方另选一个模型。"
     },
     "reference": {
       "filesAria": "工作区文件",
@@ -285,7 +289,8 @@
   "interaction": {
     "question": {
       "heading": "代理需要您的输入",
-      "customPlaceholder": "或输入您自己的答案…"
+      "customPlaceholder": "或输入您自己的答案…",
+      "other": "其他…"
     },
     "permission": {
       "heading": "代理请求权限："
@@ -355,6 +360,21 @@
     "at": "时间：{{time}}",
     "originalKept": "完整的原始对话仍然保存在本地。"
   },
+  "meta": {
+    "context": "{{used}} / {{limit}}（{{percent}}%）",
+    "contextUnknown": "{{used}} tokens",
+    "durationTitle": "本次回复耗时",
+    "costTitle": "本轮花费",
+    "tooltip": {
+      "input": "输入：{{n}}",
+      "cacheRead": "缓存读取：{{n}}",
+      "cacheWrite": "缓存写入：{{n}}",
+      "output": "输出：{{n}}",
+      "reasoning": "推理：{{n}}",
+      "context": "已用上下文：{{used}} / {{limit}}",
+      "contextUnknown": "已用上下文：{{used}}（窗口大小未知）"
+    }
+  },
   "selection": {
     "aria": "对所选文本的操作",
     "quote": "引用",
@@ -369,6 +389,14 @@
     "toggleTitle": "查看子智能体在做什么",
     "closeAria": "关闭子智能体面板",
     "count_other": "{{count}} 个任务",
-    "empty": "这个会话还没有子智能体。"
+    "empty": "这个会话还没有子智能体。",
+    "noDetail": "这个子智能体没有记录到步骤。",
+    "loadingDetail": "加载中…"
+  },
+  "splitDestination": {
+    "title": "新窗格的会话将建在",
+    "continueIn": "沿用 {{name}}",
+    "newFolder": "新建文件夹",
+    "chooseOther": "选择其他文件夹…"
   }
 }

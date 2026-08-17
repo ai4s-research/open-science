@@ -7,15 +7,20 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type {
   ArtifactBlock,
   DataTableBlock,
+  MessageUsage,
   RunningJobsBlock,
   StatusLineBlock,
   UserMessageBlock,
 } from "@ai4s/shared";
+import { MessageMeta } from "./MessageMeta";
 import { cn } from "@/lib/cn";
 import { MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
 import { extractArtifactRefs, refToArtifactBlock } from "@/lib/artifacts";
 import { resolveArtifactPath } from "@/lib/artifactFile";
 import { useThrottledValue } from "@/lib/useThrottledValue";
+import { HSCROLL_ATTR } from "@/lib/wheelChain";
+import { HOVER_HOST } from "@/lib/hoverTracking";
+import { RunningDot } from "./RunningDot";
 
 // All block atoms are memoized on their props: a fold rebuilds only the one
 // block object it changed (the blocks-array copy preserves the rest by
@@ -135,11 +140,14 @@ export const UserMessage = memo(function UserMessage({
   }
 
   return (
-    <div className="group flex flex-col items-end">
+    <div {...{ [HOVER_HOST]: "" }} className="flex flex-col items-end">
       <div className="w-fit max-w-[85%] whitespace-pre-wrap break-words rounded-card bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed text-text">
         {block.text}
       </div>
-      <div className="flex items-center gap-0.5 pr-0.5 pt-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+      <div
+        data-hover-row
+        className="flex items-center gap-0.5 pr-0.5 pt-1"
+      >
         <button
           onClick={copy}
           title={copied ? t("message.copied") : t("message.copy")}
@@ -176,9 +184,19 @@ export const UserMessage = memo(function UserMessage({
 
 export const AgentMessage = memo(function AgentMessage({
   markdown,
+  created,
+  completed,
+  usage,
+  contextLimit,
   onOpenArtifact,
 }: {
   markdown: string;
+  /** Turn timings and token accounting, when the runtime reported them —
+   *  rendered beside Copy in the hover row (see MessageMeta). */
+  created?: number;
+  completed?: number;
+  usage?: MessageUsage;
+  contextLimit?: number;
   onOpenArtifact?: (a: ArtifactBlock) => void;
 }) {
   const { t } = useTranslation(["session", "common"]);
@@ -225,7 +243,7 @@ export const AgentMessage = memo(function AgentMessage({
   return (
     // Marked so a text selection inside an ANSWER (never a tool log or the
     // user's own message) can offer follow-up actions — see SelectionActions.
-    <div className="group" data-agent-message>
+    <div {...{ [HOVER_HOST]: "" }} data-agent-message>
       <MarkdownViewer>{shown}</MarkdownViewer>
       {refs.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
@@ -242,15 +260,24 @@ export const AgentMessage = memo(function AgentMessage({
           ))}
         </div>
       )}
-      <div className="flex items-center gap-0.5 pt-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+      <div
+        data-hover-row
+        className="flex min-w-0 items-center gap-1.5 pt-1"
+      >
         <button
           onClick={copy}
           title={copied ? t("message.copied") : t("message.copy")}
           aria-label={t("message.copy")}
-          className="rounded p-1 text-muted hover:bg-surface-2 hover:text-text"
+          className="shrink-0 rounded p-1 text-muted hover:bg-surface-2 hover:text-text"
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
+        <MessageMeta
+          created={created}
+          completed={completed}
+          usage={usage}
+          contextLimit={contextLimit}
+        />
       </div>
     </div>
   );
@@ -258,7 +285,14 @@ export const AgentMessage = memo(function AgentMessage({
 
 export const DataTable = memo(function DataTable({ block }: { block: DataTableBlock }) {
   return (
-    <div className="overflow-x-auto rounded-card border border-border bg-surface shadow-card">
+    // `overflow-y-hidden`: a lone `overflow-x` makes the other axis `auto` too,
+    // and the scrollbar's own height then made this card eat vertical wheel
+    // events that belonged to the conversation. The marker hands WebKit's
+    // latched trackpad gestures back as well (lib/wheelChain).
+    <div
+      {...{ [HSCROLL_ATTR]: "" }}
+      className="overflow-x-auto overflow-y-hidden rounded-card border border-border bg-surface shadow-card"
+    >
       {block.caption && (
         <div className="border-b border-border px-4 py-2 text-xs text-muted">{block.caption}</div>
       )}
@@ -307,7 +341,7 @@ export const RunningJobsOverlay = memo(function RunningJobsOverlay({
       <ul className="divide-y divide-border/60">
         {block.jobs.map((j, i) => (
           <li key={i} className="flex items-center gap-2 px-4 py-2 text-sm">
-            <Loader2 size={13} className="animate-spin text-accent" />
+            <RunningDot className="text-accent" />
             <span className="flex-1 truncate text-text">{j.label}</span>
             <span className="text-xs text-muted">{j.elapsed}</span>
           </li>

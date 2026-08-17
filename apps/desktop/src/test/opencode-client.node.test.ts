@@ -115,6 +115,36 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     expect(models.find((m) => m.id === "gpt-4")?.variants).toEqual([]);
   });
 
+  it("surfaces each model's context window, and 0 when OpenCode has none", async () => {
+    // Load-bearing, not decorative: OpenCode short-circuits auto-compaction on
+    // `limit.context === 0`, so a model whose window it does not know never gets
+    // compacted and its conversation grows until long turns stall. Observed on a
+    // real install — the bundled catalog models report a window, custom-endpoint
+    // models report 0. Absent and 0 must normalise to the same thing so callers
+    // test one value.
+    const body = {
+      providers: [
+        {
+          id: "apevon",
+          name: "Apevon",
+          models: {
+            "gpt-5.6-sol": { name: "Sol", limit: { context: 0, output: 0 } },
+            "laguna-s": { name: "Laguna", limit: { context: 256000, output: 32000 } },
+            "no-limit-key": { name: "Bare" },
+          },
+        },
+      ],
+    };
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify(body), { status: 200 });
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    const models = (await client.listProviders())[0].models;
+    expect(models.find((m) => m.id === "laguna-s")?.contextLimit).toBe(256000);
+    expect(models.find((m) => m.id === "gpt-5.6-sol")?.contextLimit).toBe(0);
+    expect(models.find((m) => m.id === "no-limit-key")?.contextLimit).toBe(0);
+  });
+
   it("surfaces a model's whole effort vocabulary including `max` (#74)", async () => {
     // From 1.18 on, OpenCode builds a model's variants from the catalog's own
     // `reasoning_options`, so the top of the range is whatever the catalog says —
@@ -403,6 +433,102 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
       requestTimeoutMs: 10,
     });
     await expect(client.getMessages("ses_hung")).rejects.toThrow("Timed out waiting for OpenCode");
+  });
+});
+
+// The numbers exist only on the assistant message — nowhere else in the
+// protocol — so a client that narrows them away leaves the app unable to say
+// how full the context window is at all.
+describe("token usage", () => {
+  it("surfaces a turn's running totals as message.usage", async () => {
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+
+    await client.sendPrompt(sessionId, "run a literature review");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    const usage = events.filter(
+      (e): e is Extract<OpenCodeEvent, { type: "message.usage" }> => e.type === "message.usage",
+    );
+    // Republished as the turn runs, ending with the final numbers.
+    expect(usage.length).toBeGreaterThan(1);
+    expect(usage[usage.length - 1]).toMatchObject({
+      messageID: "m1",
+      completed: 2,
+      usage: { input: 3000, output: 900, reasoning: 0, cacheRead: 118000, cacheWrite: 2100, cost: 0.42 },
+    });
+    client.close();
+  });
+
+  it("ties streamed text to its message, including the parts that arrive as deltas", async () => {
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+
+    await client.sendPrompt(sessionId, "run a literature review");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    const text = events.filter(
+      (e): e is Extract<OpenCodeEvent, { type: "text.updated" }> => e.type === "text.updated",
+    );
+    // A delta-driven update that forgot the id would blank it out on the block.
+    expect(text.every((e) => e.messageID === "m1")).toBe(true);
+    client.close();
+  });
+
+  it("recovers the same usage from history", async () => {
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+    await client.sendPrompt(sessionId, "run a literature review");
+    // The turn stores its messages as it ends; reading before that gets the
+    // server's empty placeholder.
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    const msgs = await client.getMessages(sessionId);
+    const assistant = msgs.find((m) => m.role === "assistant");
+    expect(assistant?.usage).toEqual({
+      input: 3000,
+      output: 900,
+      reasoning: 0,
+      cacheRead: 118000,
+      cacheWrite: 2100,
+      cost: 0.42,
+    });
+    // A user message has no tokens at all — not a zeroed-out object.
+    expect(msgs.find((m) => m.role === "user")?.usage).toBeUndefined();
+    client.close();
+  });
+});
+
+// OpenCode's SessionCompaction.create writes a message with role "user" and
+// hangs the compaction part off it. The echoed-user-text guard therefore ate
+// every compaction marker before it could be emitted — #62 shipped a renderer
+// nothing ever fed.
+describe("compaction arrives on a user-role message", () => {
+  it("emits session.compacted anyway", async () => {
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+
+    await client.sendPrompt(sessionId, "compact the context");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    expect(events.filter((e) => e.type === "session.compacted")).toEqual([
+      { type: "session.compacted", sessionId: "ses_mock", auto: true, overflow: true },
+    ]);
+    // The marker message carries no text; nothing should be echoed for it.
+    expect(events.some((e) => e.type === "text.updated" && e.text === "")).toBe(false);
+    client.close();
   });
 });
 

@@ -9,6 +9,7 @@ import {
   setLeafSession,
   adjacentLeafId,
   normalize,
+  recentScreens,
   useLayoutStore,
   MIN_SIZE,
   type PaneNode,
@@ -141,6 +142,25 @@ describe("N-ary pane-tree ops", () => {
     expect(adjacentLeafId(tree, a, "next")).toBe(b);
     expect(adjacentLeafId(tree, c, "next")).toBe(a); // wrap
     expect(adjacentLeafId(tree, a, "prev")).toBe(c); // wrap
+  });
+});
+
+describe("recentScreens", () => {
+  it("puts the screen on display first and keeps the rest in visit order", () => {
+    expect(recentScreens(["b", "c"], "a", 4)).toEqual(["a", "b", "c"]);
+    expect(recentScreens(["a", "b", "c"], "c", 4)).toEqual(["c", "a", "b"]);
+  });
+
+  it("drops the oldest past the limit — but never the active screen", () => {
+    // Five screens visited in turn, keeping four: the first one falls off.
+    let kept: string[] = [];
+    for (const id of ["s1", "s2", "s3", "s4", "s5"]) kept = recentScreens(kept, id, 4);
+    expect(kept).toEqual(["s5", "s4", "s3", "s2"]);
+
+    // Returning to the dropped one puts it back at the front (it is rebuilt).
+    expect(recentScreens(kept, "s1", 4)).toEqual(["s1", "s5", "s4", "s3"]);
+    // Even a nonsensical limit keeps the screen the user is looking at.
+    expect(recentScreens(kept, "s1", 0)).toEqual(["s1"]);
   });
 });
 
@@ -362,6 +382,18 @@ describe("layout store — groups", () => {
     expect(S().groups[0].tree).toBeNull();
   });
 
+  // The caller needs the id to aim the new pane's own `draft:<leafId>` folder
+  // slot; there is no other handle on a pane that was just created.
+  it("split returns the new leaf id, and null when there is nothing to split", () => {
+    const id = S().split("row", null);
+    expect(id).toBe(S().focusedLeafId);
+    expect(leaves(S().tree!).map((l) => l.id)).toContain(id);
+
+    S().closePane(S().focusedLeafId!);
+    S().closePane(S().focusedLeafId!); // empty group — no focused leaf left
+    expect(S().split("row", null)).toBeNull();
+  });
+
   it("split then close re-equalizes and stays within the active group", () => {
     S().split("row", "B"); // A | B
     expect(leaves(S().tree!).map((l) => l.sessionId)).toEqual(["A", "B"]);
@@ -388,6 +420,93 @@ describe("layout store — groups", () => {
     const after = leaves(S().tree!);
     expect(after.find((l) => l.id === a.id)?.zoom).toBe(0.75);
     expect(after.find((l) => l.id === b.id)?.zoom).toBeUndefined();
+  });
+
+  it("openSessionEphemeral reveals a session already on screen instead of opening another", () => {
+    // Two Screens, the second tiled with the session the user clicks.
+    const solo = makeLeaf("A");
+    const first = makeLeaf("B");
+    const tiled = insertLeaf(first, first.id, "right", makeLeaf("C"));
+    useLayoutStore.setState({
+      groups: [
+        { id: "g0", name: "", tree: solo, focusedLeafId: solo.id, zoomedLeafId: null },
+        { id: "g1", name: "", tree: tiled, focusedLeafId: first.id, zoomedLeafId: null },
+      ],
+      activeGroupId: "g0",
+      tree: solo,
+      focusedLeafId: solo.id,
+      ephemeralGroupId: null,
+    });
+
+    S().openSessionEphemeral("C");
+
+    expect(S().groups).toHaveLength(2); // no new Screen
+    expect(S().activeGroupId).toBe("g1");
+    const focused = findLeaf(S().tree!, S().focusedLeafId!);
+    expect(focused?.sessionId).toBe("C"); // and its own pane has the focus
+  });
+
+  it("revealing a session undoes a zoom that would hide its pane", () => {
+    const first = makeLeaf("B");
+    const tiled = insertLeaf(first, first.id, "right", makeLeaf("C"));
+    const other = leaves(tiled).find((l) => l.sessionId === "C")!;
+    useLayoutStore.setState({
+      groups: [{ id: "g0", name: "", tree: tiled, focusedLeafId: first.id, zoomedLeafId: first.id }],
+      activeGroupId: "g0",
+      tree: tiled,
+      focusedLeafId: first.id,
+      zoomedLeafId: first.id,
+      ephemeralGroupId: null,
+    });
+
+    S().openSessionEphemeral("C");
+
+    expect(S().focusedLeafId).toBe(other.id);
+    expect(S().zoomedLeafId).toBeNull();
+  });
+
+  it("openSessionEphemeral still opens a Screen for a session nowhere in the layout", () => {
+    S().openSessionEphemeral("Z");
+    expect(S().groups).toHaveLength(2);
+    expect(leaves(S().tree!).map((l) => l.sessionId)).toEqual(["Z"]);
+    expect(S().ephemeralGroupId).toBe(S().activeGroupId);
+  });
+
+  // "Screen 3" says nothing about what is in it; a session opened from a project
+  // names its Screen after that project — including when the tentative Screen is
+  // reused for a session from somewhere else.
+  it("names the Screen after the session's project, and relabels a reused one", () => {
+    S().openSessionEphemeral("Z", "Thesis");
+    expect(S().groups.find((g) => g.id === S().activeGroupId)?.name).toBe("Thesis");
+
+    S().openSessionEphemeral("Y", "BCI trends");
+    expect(S().groups).toHaveLength(2); // the tentative Screen was reused
+    expect(S().groups.find((g) => g.id === S().activeGroupId)?.name).toBe("BCI trends");
+
+    // A session that belongs to no project falls back to the numbered default.
+    S().openSessionEphemeral("X");
+    expect(S().groups.find((g) => g.id === S().activeGroupId)?.name).toBe("");
+  });
+
+  it("bindSession binds the pane's OWN Screen, even after switching away", () => {
+    // A draft pane in g0 sends; the user moves to another Screen before the
+    // session id comes back. Screens stay mounted, so that pane is still there
+    // waiting for its id — binding must not miss it because another Screen is
+    // active (which would leave a live conversation showing an empty draft).
+    const draft = makeLeaf(null);
+    useLayoutStore.setState({
+      groups: [
+        { id: "g0", name: "", tree: draft, focusedLeafId: draft.id, zoomedLeafId: null },
+        { id: "g1", name: "", tree: makeLeaf("B"), focusedLeafId: null, zoomedLeafId: null },
+      ],
+    });
+    S().setActiveGroup("g1");
+
+    S().bindSession(draft.id, "created-session");
+
+    expect(leaves(S().groups[0].tree!).map((l) => l.sessionId)).toEqual(["created-session"]);
+    expect(S().activeGroupId).toBe("g1"); // the switch is not undone
+    expect(leaves(S().tree!).map((l) => l.sessionId)).toEqual(["B"]);
   });
 
   it("persists layout to localStorage on mutation", () => {

@@ -117,7 +117,11 @@
       "smarter": "Más inteligente",
       "followingAgent": "Siguiendo al agente {{agent}}",
       "followAgent": "Seguir al agente {{agent}}",
-      "useDefault": "Usar el modelo predeterminado global"
+      "useDefault": "Usar el modelo predeterminado global",
+      "unknownContextTitle": "Ventana de contexto desconocida",
+      "unknownContextBody": "La compactación automática no se aplica a este modelo, la conversación crece sin límite y los turnos largos acaban bloqueándose. Define la ventana en Ajustes → Modelos.",
+      "retiredTitle": "El proveedor retiró el modelo",
+      "retiredBody": "{{model}} sigue configurado, pero el proveedor ya no lo sirve, así que todos los turnos fallan. Elige otro modelo arriba."
     },
     "reference": {
       "filesAria": "Archivos del espacio de trabajo",
@@ -293,7 +297,8 @@
   "interaction": {
     "question": {
       "heading": "El agente necesita tu opinión",
-      "customPlaceholder": "O escribe tu propia respuesta…"
+      "customPlaceholder": "O escribe tu propia respuesta…",
+      "other": "Otra cosa…"
     },
     "permission": {
       "heading": "El agente solicita permiso:"
@@ -363,6 +368,21 @@
     "at": "Cuándo: {{time}}",
     "originalKept": "La conversación original completa sigue guardada en local."
   },
+  "meta": {
+    "context": "{{used}} / {{limit}} ({{percent}} %)",
+    "contextUnknown": "{{used}} tokens",
+    "durationTitle": "Lo que tardó esta respuesta",
+    "costTitle": "Lo que costó este turno",
+    "tooltip": {
+      "input": "Entrada: {{n}}",
+      "cacheRead": "Lectura de caché: {{n}}",
+      "cacheWrite": "Escritura de caché: {{n}}",
+      "output": "Salida: {{n}}",
+      "reasoning": "Razonamiento: {{n}}",
+      "context": "Contexto en uso: {{used}} de {{limit}}",
+      "contextUnknown": "Contexto en uso: {{used}} (ventana desconocida)"
+    }
+  },
   "selection": {
     "aria": "Acciones para el texto seleccionado",
     "quote": "Citar",
@@ -378,6 +398,14 @@
     "closeAria": "Cerrar el panel de subagentes",
     "count_one": "{{count}} tarea",
     "count_other": "{{count}} tareas",
-    "empty": "Todavía no hay subagentes en esta conversación."
+    "empty": "Todavía no hay subagentes en esta conversación.",
+    "noDetail": "No se registraron pasos para este subagente.",
+    "loadingDetail": "Cargando…"
+  },
+  "splitDestination": {
+    "title": "La sesión del nuevo panel se creará en",
+    "continueIn": "Continuar en {{name}}",
+    "newFolder": "Carpeta nueva",
+    "chooseOther": "Elegir otra carpeta…"
   }
 }

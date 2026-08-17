@@ -67,33 +67,45 @@ cp "$SRC/LICENSE" "$SKILL_OUT/LICENSE.txt"
 # OpenCode requires the frontmatter name to match its directory. The adapter
 # maps upstream's CLI-oriented examples onto the already-configured MCP tools
 # and explains the app-enforced conversation lease and ownership boundary.
-awk '
+#
+# The adapter prose lives in a quoted heredoc, never inside the awk program:
+# awk's script is single-quoted, so one apostrophe in the prose ("this
+# conversation's browser") closes it and the rest of the file is parsed as
+# shell. That is exactly how this script broke once already.
+ADAPTER="$TMP/adapter.md"
+cat > "$ADAPTER" <<'ADAPTER_EOF'
+
+## Open Science Desktop MCP adapter
+
+When Browser Control is enabled in Settings, this app provides the version-matched `open-science-browser` MCP server. Apply the official workflow below through its `agent_browser_*` MCP tools.
+
+- A browser is the last rung of the ladder, not the first. Read a page, an API, or a file with the built-in web fetch tool; find pages with the built-in web search tool; use `gh` for anything on GitHub and `curl` or another CLI tool for a plain download. Open a browser only for what those cannot do: JavaScript-rendered content, a signed-in session, interaction, or a screenshot — or when one of them has actually failed. Being enabled is not a reason to use it. Every browser step also costs the user an approval prompt.
+- Never install, upgrade, or run `agent-browser` through Bash. Do not load a user skill named `browser-control`; it belongs to a different integration.
+- If the `agent_browser_*` tools are unavailable, ask the user to enable Browser Control in Settings; do not fall back to the CLI.
+- Before the first browser action, call `agent_browser_inventory`. It reports this conversation's browser and tabs, whether to open or reuse them, and only aggregate counts for other conversations.
+- A browser lease is assigned automatically from the current conversation. Never pass `session`, `namespace`, restore fields, `extraArgs`, `headed`, or `webgpu`; the MCP boundary does not expose them.
+- Never pass the per-call `allowedDomains` argument. The app owns domain policy through Settings; upstream rejects `allowedDomains` when a Chrome profile is active.
+- Browsers opened by the user outside Open Science Desktop are external resources: never attach to, inspect, navigate, or close them. Other conversations' managed browsers are equally off-limits.
+- If inventory shows a current browser, reuse a suitable current tab. Otherwise open the target URL directly. Never call `open` without a URL; never create a tab merely to test availability.
+- For multiple sequential URLs, call `open(url)` on the reusable current tab. Use `tab_new` only when the task genuinely requires concurrent pages or the user asks for them.
+- Before the final answer, close this conversation's browser unless the user explicitly asks to keep it open for a handoff. Never request close-all. Idle timeout and app exit reclaim abandoned app-managed leases.
+ADAPTER_EOF
+
+awk -v adapter="$ADAPTER" '
   NR == 1 && $0 == "---" { frontmatter = 1 }
   frontmatter == 1 && $0 == "name: core" {
     print "name: open-science-browser"
     next
   }
   frontmatter == 1 && $0 ~ /^description:/ {
-    print "description: Official version-matched agent-browser guide for Open Science Desktop. Use this skill for browser navigation, interaction, extraction, screenshots, tabs, forms, and authentication in this app; do not use the unrelated browser-control skill."
+    print "description: Official version-matched agent-browser guide for Open Science Desktop. Use this skill only when a task needs a real browser: JavaScript-rendered pages, a signed-in session, clicking or typing, forms, tabs, or screenshots. To read a page, an API, or a file, use the built-in web fetch tool; to find pages, the built-in web search tool; for GitHub use gh and for a plain download use curl. Do not use the unrelated browser-control skill."
     next
   }
   {
     print
     if (frontmatter == 1 && NR > 1 && $0 == "---") {
-      print ""
-      print "## Open Science Desktop MCP adapter"
-      print ""
-      print "When Browser Control is enabled in Settings, this app provides the version-matched `open-science-browser` MCP server. Apply the official workflow below through its `agent_browser_*` MCP tools."
-      print ""
-      print "- Never install, upgrade, or run `agent-browser` through Bash. Do not load a user skill named `browser-control`; it belongs to a different integration."
-      print "- If the `agent_browser_*` tools are unavailable, ask the user to enable Browser Control in Settings; do not fall back to the CLI."
-      print "- Before the first browser action, call `agent_browser_inventory`. It reports this conversation's browser and tabs, whether to open or reuse them, and only aggregate counts for other conversations."
-      print "- A browser lease is assigned automatically from the current conversation. Never pass `session`, `namespace`, restore fields, `extraArgs`, `headed`, or `webgpu`; the MCP boundary does not expose them."
-      print "- Never pass the per-call `allowedDomains` argument. The app owns domain policy through Settings; upstream rejects `allowedDomains` when a Chrome profile is active."
-      print "- Browsers opened by the user outside Open Science Desktop are external resources: never attach to, inspect, navigate, or close them. Other conversations' managed browsers are equally off-limits."
-      print "- If inventory shows a current browser, reuse a suitable current tab. Otherwise open the target URL directly. Never call `open` without a URL; never create a tab merely to test availability."
-      print "- For multiple sequential URLs, call `open(url)` on the reusable current tab. Use `tab_new` only when the task genuinely requires concurrent pages or the user asks for them."
-      print "- Before the final answer, close this conversation's browser unless the user explicitly asks to keep it open for a handoff. Never request close-all. Idle timeout and app exit reclaim abandoned app-managed leases."
+      while ((getline line < adapter) > 0) print line
+      close(adapter)
       frontmatter = 2
     }
   }
@@ -102,4 +114,9 @@ awk '
 printf '%s\n' "$AGENT_BROWSER_VERSION" > "$SKILLS_OUT/.version"
 grep -q '^name: open-science-browser$' "$SKILL_OUT/SKILL.md"
 grep -q '^## Open Science Desktop MCP adapter$' "$SKILL_OUT/SKILL.md"
+# Both halves of the "cheaper tools first" policy must survive the rewrite: the
+# description decides whether the skill is loaded at all, the bullet decides
+# what happens once it is.
+grep -q '^description: .*built-in web fetch tool' "$SKILL_OUT/SKILL.md"
+grep -q '^- A browser is the last rung of the ladder' "$SKILL_OUT/SKILL.md"
 echo "Placed official agent-browser skill v$AGENT_BROWSER_VERSION at $SKILL_OUT"

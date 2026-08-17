@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   autoReviewPrompt,
@@ -65,5 +67,26 @@ describe("autoReviewPrompt", () => {
     expect(prompt).toContain("- analysis.py\n- report.md");
     expect(prompt).toContain("checkpoint only");
     expect(prompt).toContain("absent Git HEAD");
+  });
+});
+
+// The reviewer is deployed into the OpenCode profile as a real agent. `mode`
+// decides who may invoke it: `all` also puts it on the task tool's delegation
+// menu, so a model could spawn it by itself and reviews turned up inside
+// subagents even with auto-review switched off. The app pins it as the agent of
+// its own background session — the primary role — so `primary` is what keeps
+// the feature working without handing it to the model.
+describe("the reviewer agent's profile", () => {
+  it("is not offered to the task tool", () => {
+    // vitest runs from apps/desktop; the profile lives at the repo root.
+    const md = readFileSync(
+      resolve(process.cwd(), "../../runtime/opencode-profile/agent/reviewer.md"),
+      "utf8",
+    );
+    const frontmatter = md.split("---")[1] ?? "";
+    const mode = /^mode:\s*(\S+)/m.exec(frontmatter)?.[1];
+    expect(mode).toBe("primary");
+    // It also may not spawn tasks of its own — a review that delegates is a loop.
+    expect(frontmatter).toMatch(/task:\s*deny/);
   });
 });

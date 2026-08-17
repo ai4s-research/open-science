@@ -117,7 +117,11 @@
       "smarter": "Klüger",
       "followingAgent": "Folgt dem Agenten {{agent}}",
       "followAgent": "Dem Agenten {{agent}} folgen",
-      "useDefault": "Globale Vorgabe verwenden"
+      "useDefault": "Globale Vorgabe verwenden",
+      "unknownContextTitle": "Kontextfenster unbekannt",
+      "unknownContextBody": "Die automatische Komprimierung bleibt für dieses Modell aus, das Gespräch wächst unbegrenzt und lange Durchläufe bleiben irgendwann hängen. Fenstergröße unter Einstellungen → Modelle setzen.",
+      "retiredTitle": "Modell vom Anbieter eingestellt",
+      "retiredBody": "{{model}} ist weiterhin konfiguriert, wird vom Anbieter aber nicht mehr bereitgestellt, daher schlägt jeder Durchlauf fehl. Oben ein anderes Modell wählen."
     },
     "reference": {
       "filesAria": "Dateien im Arbeitsbereich",
@@ -293,7 +297,8 @@
   "interaction": {
     "question": {
       "heading": "Der Agent benötigt Ihre Eingabe",
-      "customPlaceholder": "Oder geben Sie Ihre eigene Antwort ein…"
+      "customPlaceholder": "Oder geben Sie Ihre eigene Antwort ein…",
+      "other": "Etwas anderes…"
     },
     "permission": {
       "heading": "Der Agent bittet um Erlaubnis:"
@@ -363,6 +368,21 @@
     "at": "Zeitpunkt: {{time}}",
     "originalKept": "Die vollständige ursprüngliche Unterhaltung bleibt lokal gespeichert."
   },
+  "meta": {
+    "context": "{{used}} / {{limit}} ({{percent}} %)",
+    "contextUnknown": "{{used}} Tokens",
+    "durationTitle": "Dauer dieser Antwort",
+    "costTitle": "Kosten dieses Zuges",
+    "tooltip": {
+      "input": "Eingabe: {{n}}",
+      "cacheRead": "Cache gelesen: {{n}}",
+      "cacheWrite": "Cache geschrieben: {{n}}",
+      "output": "Ausgabe: {{n}}",
+      "reasoning": "Schlussfolgern: {{n}}",
+      "context": "Belegter Kontext: {{used}} von {{limit}}",
+      "contextUnknown": "Belegter Kontext: {{used}} (Fenster unbekannt)"
+    }
+  },
   "selection": {
     "aria": "Aktionen für den markierten Text",
     "quote": "Zitieren",
@@ -378,6 +398,14 @@
     "closeAria": "Subagenten-Panel schließen",
     "count_one": "{{count}} Aufgabe",
     "count_other": "{{count}} Aufgaben",
-    "empty": "In dieser Unterhaltung gibt es noch keine Subagenten."
+    "empty": "In dieser Unterhaltung gibt es noch keine Subagenten.",
+    "noDetail": "Für diesen Subagenten wurden keine Schritte aufgezeichnet.",
+    "loadingDetail": "Wird geladen…"
+  },
+  "splitDestination": {
+    "title": "Sitzung des neuen Bereichs wird angelegt in",
+    "continueIn": "In {{name}} fortfahren",
+    "newFolder": "Neuer Ordner",
+    "chooseOther": "Anderen Ordner wählen…"
   }
 }

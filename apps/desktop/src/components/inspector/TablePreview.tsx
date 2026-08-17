@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { HSCROLL_ATTR } from "@/lib/wheelChain";
 
 // Shared tabular preview: first row of data is the header (csv and xlsx alike).
 export interface TableData {
@@ -11,7 +12,14 @@ export function TablePreview({ table }: { table: TableData }) {
   const { t } = useTranslation(["inspector", "common"]);
   return (
     <div className="p-3">
-      <div className="overflow-x-auto rounded-input border border-border bg-surface">
+      {/* `overflow-y-hidden` keeps this a horizontal scroller only — otherwise
+          CSS promotes the other axis to `auto` and the table swallows the
+          pane's vertical wheel. The marker returns WebKit's latched trackpad
+          gestures to the pane as well (lib/wheelChain). */}
+      <div
+        {...{ [HSCROLL_ATTR]: "" }}
+        className="overflow-x-auto overflow-y-hidden rounded-input border border-border bg-surface"
+      >
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted">

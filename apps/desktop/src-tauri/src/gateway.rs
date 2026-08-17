@@ -9,12 +9,13 @@
 // The ONLY thing that ever binds off-loopback is this gateway, and it is the only
 // thing that understands the external bearer token — the sidecar stays
 // 127.0.0.1-only always. See docs/rfc/remote-access-gateway.md.
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -97,6 +98,34 @@ fn normalize_mode(m: &str) -> String {
 struct Shared {
     token: Mutex<String>,
     read_only: AtomicBool,
+    /// Live file tickets: id → (issued, resolved absolute path). See `issue_ticket`.
+    tickets: Mutex<HashMap<String, (Instant, PathBuf)>>,
+}
+
+/// How long a file ticket stays valid. Long enough for a <video> to stream and
+/// seek through one sitting, short enough that a leaked URL is quickly worthless.
+const TICKET_TTL: Duration = Duration::from_secs(600);
+
+/// Mint a capability for ONE already-resolved file.
+///
+/// The gateway token must never appear in a URL that ends up inside a document
+/// — an `<iframe>`/`<img>` src, or a tab opened on an artifact. A page can read
+/// its own `location` whatever its sandbox, and the agent writes the HTML in
+/// this workspace: one prompt-injected report would post the token out and hand
+/// an attacker the whole gateway. A ticket names one file and expires.
+fn issue_ticket(ctx: &Ctx, full: PathBuf) -> String {
+    let mut tickets = ctx.shared.tickets.lock().unwrap();
+    let now = Instant::now();
+    tickets.retain(|_, (issued, _)| now.duration_since(*issued) < TICKET_TTL);
+    let id = random_hex(24);
+    tickets.insert(id.clone(), (now, full));
+    id
+}
+
+fn redeem_ticket(ctx: &Ctx, id: &str) -> Option<PathBuf> {
+    let tickets = ctx.shared.tickets.lock().unwrap();
+    let (issued, path) = tickets.get(id)?;
+    (Instant::now().duration_since(*issued) < TICKET_TTL).then(|| path.clone())
 }
 
 struct Running {
@@ -134,6 +163,12 @@ fn bind_listener(lan: bool) -> std::io::Result<TcpListener> {
 }
 
 fn start(app: &AppHandle, state: &GatewayState, p: &Persisted) -> Result<u16, String> {
+    // An empty token would make `ct_eq` accept `Authorization: Bearer ` (also
+    // empty) — i.e. no auth at all on an off-loopback listener. Callers mint one
+    // before enabling; refuse here too rather than trust every caller to.
+    if p.token.is_empty() {
+        return Err("gateway token is not set".into());
+    }
     stop(state);
     let listener = bind_listener(p.lan).map_err(|e| format!("gateway bind failed: {e}"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
@@ -142,6 +177,7 @@ fn start(app: &AppHandle, state: &GatewayState, p: &Persisted) -> Result<u16, St
     let shared = Arc::new(Shared {
         token: Mutex::new(p.token.clone()),
         read_only: AtomicBool::new(p.mode == "read-only"),
+        tickets: Mutex::new(HashMap::new()),
     });
     let ctx = Arc::new(Ctx { app: app.clone(), shared: shared.clone() });
     let sf = stop_flag.clone();
@@ -272,6 +308,19 @@ fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
     if req.method == "GET" && path == "/v1/health" {
         respond_json(stream, 200, "{\"ok\":true,\"service\":\"open-science-gateway\"}");
         return;
+    }
+
+    // A ticket stands in for the token on exactly one file (see `issue_ticket`),
+    // which is the whole point: it is the only credential allowed to ride in a
+    // URL a document can read back. Checked before the token gate.
+    if req.method == "GET" && path == "/v1/fs/read" {
+        if let Some(id) = req.query_get("ticket") {
+            match redeem_ticket(ctx, &id) {
+                Some(full) => send_file(stream, &full),
+                None => respond_json(stream, 403, "{\"error\":\"ticket expired\"}"),
+            }
+            return;
+        }
     }
 
     // ---- /v1 contract API (CLI / curl / the SPA's file browser) ----
@@ -405,6 +454,16 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str) {
         }
         ("GET", ["fs", "list"]) => fs_list(stream, req, ctx),
         ("GET", ["fs", "read"]) => fs_read(stream, req, ctx),
+        // Trade the token for a short-lived, single-file read capability the
+        // client can safely put in an <iframe>/<img> src. A GET (not a POST) so
+        // a read-only token can still preview files.
+        ("GET", ["fs", "ticket"]) => match fs_resolve(ctx, req) {
+            Ok(full) => {
+                let payload = serde_json::json!({ "ticket": issue_ticket(ctx, full) });
+                respond_json(stream, 200, &payload.to_string());
+            }
+            Err(e) => respond_json(stream, 404, &err_json(&e)),
+        },
         // Read-only projects + runs (local state the sidecar doesn't own) so the
         // web client can see existing projects and run history.
         ("GET", ["projects"]) => match crate::project::list_projects(ctx.app.clone()) {
@@ -432,6 +491,17 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str) {
                 Err(e) => respond_json(stream, 404, &err_json(&e)),
             }
         }
+        // Which models OpenCode Zen still serves. The browser cannot ask
+        // opencode.ai itself (no CORS headers), so the web client asks us and
+        // gets the identical list the desktop picker filters by. Carries no
+        // credentials in either direction.
+        ("GET", ["zen-models"]) => match crate::model_probe::fetch_zen_models() {
+            Ok(ids) => {
+                let payload = serde_json::json!({ "models": ids });
+                respond_json(stream, 200, &payload.to_string());
+            }
+            Err(e) => respond_json(stream, 502, &err_json(&e)),
+        },
         ("GET", ["events"]) => {
             let dir = ws_dir(ctx);
             events(stream, ctx, &dir);
@@ -606,23 +676,64 @@ fn fs_list(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
     }
 }
 
-fn fs_read(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
+/// The workspace file a `path` (+ `root`/`dir` scope) query names, sandboxed by
+/// `fs_base` + `resolve_under`.
+fn fs_resolve(ctx: &Ctx, req: &Request) -> Result<PathBuf, String> {
     let rel = req.query_get("path").unwrap_or_default();
-    let base = match fs_base(ctx, req) {
-        Ok(b) => b,
-        Err(e) => return respond_json(stream, 400, &err_json(&e)),
-    };
+    let base = fs_base(ctx, req)?;
     // Resolve by basename like the desktop preview server: agent prose often
     // names a file without its directory ("figure1.png" for "figures/figure1.png").
     let located = locate_under(&base, &rel).unwrap_or(rel);
-    let full = match resolve_under(&base, &located) {
-        Ok(p) => p,
-        Err(e) => return respond_json(stream, 404, &err_json(&e)),
-    };
+    resolve_under(&base, &located)
+}
+
+fn fs_read(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
+    match fs_resolve(ctx, req) {
+        Ok(full) => send_file(stream, &full),
+        Err(e) => respond_json(stream, 404, &err_json(&e)),
+    }
+}
+
+/// Send a resolved workspace file. HTML gets `CSP: sandbox` so a page the agent
+/// wrote lands in an OPAQUE origin however it is loaded — including a tab opened
+/// directly on it, which no `<iframe sandbox>` attribute can cover — and so can
+/// never read this origin's storage or act as the user. `allow-scripts` keeps
+/// interactive reports (plots, widgets) working.
+fn send_file(stream: &mut TcpStream, full: &Path) {
+    // `resolve_under` accepts any existing path, and `File::open` on a directory
+    // SUCCEEDS on Unix — without this the response would be a 200 whose
+    // Content-Length nothing can satisfy, cut off mid-body.
+    if !full.is_file() {
+        return respond_json(stream, 404, "{\"error\":\"not a file\"}");
+    }
     let ext = full.extension().and_then(|s| s.to_str()).unwrap_or("");
     let (mime, _is_text) = mime_for(ext);
-    match std::fs::read(&full) {
-        Ok(bytes) => respond(stream, 200, mime, &bytes),
+    let extra = if mime == "text/html" {
+        "Content-Security-Policy: sandbox allow-scripts\r\n"
+    } else {
+        ""
+    };
+    match std::fs::File::open(full).and_then(|f| Ok((f.metadata()?.len(), f))) {
+        Ok((total, mut file)) => {
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {total}\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\n{extra}Connection: close\r\n\r\n"
+            );
+            if stream.write_all(head.as_bytes()).is_err() {
+                return;
+            }
+            // Chunked, like preview_server: a multi-GB dataset or video must not
+            // be pulled into memory whole just to answer one request.
+            let mut buf = vec![0u8; total.clamp(1, 1024 * 1024) as usize];
+            let mut left = total;
+            while left > 0 {
+                let n = left.min(buf.len() as u64) as usize;
+                if file.read_exact(&mut buf[..n]).is_err() || stream.write_all(&buf[..n]).is_err() {
+                    return;
+                }
+                left -= n as u64;
+            }
+            let _ = stream.flush();
+        }
         Err(e) => respond_json(stream, 404, &err_json(&e.to_string())),
     }
 }

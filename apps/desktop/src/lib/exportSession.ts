@@ -1,4 +1,5 @@
 import type { HistoryMessage, SessionMeta } from "@ai4s/sdk";
+import { isGoalInjectedPrompt } from "./goalPrompts";
 
 /** Tool output kept per step in an export. A transcript is for reading and
  *  archiving, not for replaying a build log; a runaway 5 MB stdout would bury
@@ -37,6 +38,9 @@ export function sessionToMarkdown(session: SessionMeta, messages: HistoryMessage
 
     if (m.role === "user") {
       if (!texts.length) continue;
+      // Goal mode writes its own turns into the session; exporting them under
+      // "You" would credit the user with prompts they never wrote.
+      if (texts.every((text) => isGoalInjectedPrompt(text))) continue;
       lines.push("## You", "", texts.join("\n\n"), "");
       continue;
     }

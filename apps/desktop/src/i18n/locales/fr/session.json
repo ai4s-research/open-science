@@ -117,7 +117,11 @@
       "smarter": "Plus intelligent",
       "followingAgent": "Suit l'agent {{agent}}",
       "followAgent": "Suivre l'agent {{agent}}",
-      "useDefault": "Utiliser le modèle par défaut global"
+      "useDefault": "Utiliser le modèle par défaut global",
+      "unknownContextTitle": "Fenêtre de contexte inconnue",
+      "unknownContextBody": "La compaction automatique reste désactivée pour ce modèle : la conversation grossit sans limite et les tours longs finissent par se bloquer. Définissez la fenêtre dans Réglages → Modèles.",
+      "retiredTitle": "Modèle retiré par son fournisseur",
+      "retiredBody": "{{model}} est toujours configuré, mais le fournisseur ne le sert plus : chaque tour échoue. Choisissez un autre modèle ci-dessus."
     },
     "reference": {
       "filesAria": "Fichiers de l’espace de travail",
@@ -293,7 +297,8 @@
   "interaction": {
     "question": {
       "heading": "L'agent a besoin de votre réponse",
-      "customPlaceholder": "Ou saisissez votre propre réponse…"
+      "customPlaceholder": "Ou saisissez votre propre réponse…",
+      "other": "Autre chose…"
     },
     "permission": {
       "heading": "L'agent demande une autorisation :"
@@ -363,6 +368,21 @@
     "at": "Quand : {{time}}",
     "originalKept": "La conversation d’origine complète reste stockée en local."
   },
+  "meta": {
+    "context": "{{used}} / {{limit}} ({{percent}} %)",
+    "contextUnknown": "{{used}} jetons",
+    "durationTitle": "Durée de cette réponse",
+    "costTitle": "Coût de ce tour",
+    "tooltip": {
+      "input": "Entrée : {{n}}",
+      "cacheRead": "Lecture du cache : {{n}}",
+      "cacheWrite": "Écriture du cache : {{n}}",
+      "output": "Sortie : {{n}}",
+      "reasoning": "Raisonnement : {{n}}",
+      "context": "Contexte utilisé : {{used}} sur {{limit}}",
+      "contextUnknown": "Contexte utilisé : {{used}} (fenêtre inconnue)"
+    }
+  },
   "selection": {
     "aria": "Actions sur le texte sélectionné",
     "quote": "Citer",
@@ -378,6 +398,14 @@
     "closeAria": "Fermer le panneau des sous-agents",
     "count_one": "{{count}} tâche",
     "count_other": "{{count}} tâches",
-    "empty": "Aucun sous-agent dans cette conversation pour l’instant."
+    "empty": "Aucun sous-agent dans cette conversation pour l’instant.",
+    "noDetail": "Aucune étape n'a été enregistrée pour ce sous-agent.",
+    "loadingDetail": "Chargement…"
+  },
+  "splitDestination": {
+    "title": "La session du nouveau volet sera créée dans",
+    "continueIn": "Continuer dans {{name}}",
+    "newFolder": "Nouveau dossier",
+    "chooseOther": "Choisir un autre dossier…"
   }
 }

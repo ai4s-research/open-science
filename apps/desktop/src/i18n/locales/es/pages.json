@@ -67,7 +67,8 @@
       "hintDisconnected": "Conecta primero el entorno de ejecución.",
       "installed": "«{{name}}» instalada: disponible en todos los espacios de trabajo.",
       "agentPrompt": "El usuario escribió esto en el cuadro de instalación de habilidades:\n\n---\n{{input}}\n---\n\nAyúdale con paciencia a instalarla: averigua a qué habilidad se refiere (descarga la URL, búscala o pregúntale si es ambiguo) y luego guárdala como archivo de habilidad en .opencode/skills/<name>/SKILL.md dentro de este espacio de trabajo, nunca fuera de él; después la aplicación la pone a disposición en todos los espacios de trabajo. La habilidad customize-opencode documenta el formato. Al final responde con el nombre de la habilidad instalada.",
-      "echo": "Ayúdame a instalar esta habilidad:\n\n{{input}}"
+      "echo": "Ayúdame a instalar esta habilidad:\n\n{{input}}",
+      "adoptFailed": "La skill se escribió pero no se pudo mover a tu perfil, así que desaparecerá cuando se reemplace la carpeta de esta sesión: {{detail}}"
     },
     "environment": {
       "sectionTitle": "Entorno científico",

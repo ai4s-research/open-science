@@ -1,7 +1,7 @@
 name: build
 
-# Builds macOS (.dmg/.app), Windows (NSIS .exe / .msi) and Linux
-# (.deb/.rpm/.AppImage) installers. Each platform's installer can only be
+# Builds macOS (.dmg/.app), Windows (NSIS .exe + WiX .msi) and Linux
+# (.deb/.rpm) installers. Each platform's installer can only be
 # produced on its own runner — hence the matrix. On a `v*` tag push the
 # installers are also attached to a draft GitHub Release.
 
@@ -83,6 +83,33 @@ jobs:
         shell: bash
         run: bash scripts/dev/fetch-goal-plugin.sh
 
+      # A fetch script can fail without failing its step: a bash syntax error in
+      # fetch-agent-browser.sh aborted the script on every platform, but macOS's
+      # bash 3.2 still exited 0, so macOS shipped installers missing the bundled
+      # browser skill while Linux and Windows failed loudly. Assert the bundled
+      # resources exist rather than trusting the fetch steps' exit codes.
+      - name: Verify bundled resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""
+          case "${{ matrix.target }}" in *windows*) ext=".exe" ;; esac
+          status=0
+          for path in \
+            runtime/skills/external/ai4s-skills \
+            runtime/skills/external/anthropic-skills \
+            runtime/skills/external/agent-browser/open-science-browser/SKILL.md \
+            runtime/goal-plugin/goal-plugin.server.js \
+            "apps/desktop/src-tauri/binaries/opencode-${{ matrix.target }}$ext" \
+            "apps/desktop/src-tauri/binaries/uv-${{ matrix.target }}$ext" \
+            "apps/desktop/src-tauri/binaries/agent-browser-${{ matrix.target }}$ext"; do
+            if [ ! -e "$path" ]; then
+              echo "Missing bundled resource: $path" >&2
+              status=1
+            fi
+          done
+          exit "$status"
+
       - name: Configure macOS release signing
         if: runner.os == 'macOS'
         shell: bash
@@ -126,10 +153,17 @@ jobs:
           # Linux: deb+rpm only. AppImage is off because linuxdeploy runs ldd
           # on every bundled ELF and ldd exits 1 on the Bun-built opencode
           # sidecar, aborting the whole bundle (tauri-apps/tauri#8929).
+          # Windows ships BOTH: the NSIS .exe is the default download
+          # (per-user, no admin), and the WiX .msi exists for IT-managed
+          # deployment, which is what Group Policy and Intune consume — 6-10%
+          # of Windows downloads have taken it every release. They must not be
+          # presented as interchangeable: installing one over the other leaves
+          # the app registered twice, which is the mess issue #113 sits next
+          # to. The release notes label them by audience.
           # macOS submits the signed app without blocking inside Tauri. The
           # following steps preserve that exact app, wait with a bounded retry
           # loop, staple it, and create the final DMG.
-          args: --target ${{ matrix.target }} ${{ startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ENABLED == 'true' && '--bundles app --skip-stapling' || startsWith(matrix.platform, 'macos') && '--bundles dmg' || startsWith(matrix.platform, 'ubuntu') && '--bundles deb,rpm' || '' }}
+          args: --target ${{ matrix.target }} ${{ startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ENABLED == 'true' && '--bundles app --skip-stapling' || startsWith(matrix.platform, 'macos') && '--bundles dmg' || startsWith(matrix.platform, 'ubuntu') && '--bundles deb,rpm' || '--bundles nsis,msi' }}
           # On a v* tag push, attach installers to a draft GitHub Release.
           # Empty tagName (workflow_dispatch) skips release creation.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
@@ -145,8 +179,11 @@ jobs:
             - Developer ID-signed and notarized. Open the DMG and drag **Open Science** into Applications.
             - When you use an existing project in place, allow access to its folder if macOS asks.
 
-            **Windows** — `…_x64-setup.exe` or `…_x64_en-US.msi`
+            **Windows** — `…_x64-setup.exe` (start here) · `…_x64_en-US.msi` (IT-managed deployment only)
             - SmartScreen shows *"Windows protected your PC"* → **More info** → **Run anyway**.
+            - Upgrading: choose **"Install over it, keeping my data"**. Removing the old version first is only for repairing a failed upgrade.
+            - Uninstalling: leave **"Also delete my sessions, run history and settings"** unchecked unless you mean it — it erases `%APPDATA%\com.ai4s.workbench`.
+            - Pick one format and stay on it. Installing the `.exe` over an `.msi` install (or the reverse) registers the app twice; uninstall the old one from **Settings → Apps** first.
 
             **Linux** — `.deb` / `.rpm`
             - `sudo apt install ./…_amd64.deb`  or  `sudo rpm -i …x86_64.rpm`
@@ -231,5 +268,4 @@ jobs:
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
           if-no-files-found: warn

@@ -3,6 +3,10 @@
 // offer them instead of asking for hand-typed ids (#49). Runs in Rust because
 // the webview's fetch is subject to CORS, which local model servers (vLLM,
 // LM Studio, llama.cpp) generally do not send headers for.
+//
+// The same reason puts `zen_models` here: opencode.ai sends no CORS headers
+// either, and the model picker needs its list to stop offering models OpenCode
+// Zen has retired.
 
 use serde::Serialize;
 use std::time::Duration;
@@ -24,6 +28,38 @@ pub async fn probe_endpoint_models(
     tauri::async_runtime::spawn_blocking(move || probe(&base_url, api_key.as_deref(), &kind))
         .await
         .map_err(|e| format!("model probe task failed: {e}"))?
+}
+
+/// OpenCode Zen's own serving list — the built-in free provider's gateway.
+///
+/// The picker's model list comes from the models.dev catalog, which is a
+/// SUPERSET of what Zen actually serves: 29 of its 91 zen entries, including 19
+/// of the 25 `*-free` ones, are retired and answer the first turn with
+/// `401 {"type":"ModelError","message":"Model <id> is not supported"}`
+/// (measured 2026-08-15). This endpoint is the authority on what is live.
+///
+/// Deliberately sent WITHOUT credentials: the answer is then the gateway's full
+/// public catalog (it lists the paid models too) rather than an account-scoped
+/// view, so a user with a Zen key never has their own models filtered away —
+/// and no key leaves the keychain to reach it.
+const ZEN_MODELS_URL: &str = "https://opencode.ai/zen/v1/models";
+
+#[tauri::command]
+pub async fn zen_models() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(fetch_zen_models)
+        .await
+        .map_err(|e| format!("zen model list task failed: {e}"))?
+}
+
+pub fn fetch_zen_models() -> Result<Vec<String>, String> {
+    let body = client()?
+        .get(ZEN_MODELS_URL)
+        .send()
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| format!("could not reach the OpenCode Zen model list: {e}"))?
+        .text()
+        .map_err(|e| format!("could not read the OpenCode Zen model list: {e}"))?;
+    Ok(parse_openai_models(&body)?.into_iter().map(|m| m.id).collect())
 }
 
 fn probe(base_url: &str, api_key: Option<&str>, kind: &str) -> Result<Vec<ProbedModel>, String> {
@@ -270,3 +306,4 @@ mod tests {
         assert_eq!(models, vec![ProbedModel { id: "vllm-model".into(), context: Some(32768) }]);
     }
 }
+

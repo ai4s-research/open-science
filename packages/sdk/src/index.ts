@@ -1,4 +1,4 @@
-export { OpenCodeClient } from "./OpenCodeClient";
+export { OpenCodeClient, ApiError, isApiStatus } from "./OpenCodeClient";
 export { MINIMAX_CUSTOM_PROVIDER_PRESETS } from "./customProviderPresets";
 export type {
   CustomProviderCompatibility,

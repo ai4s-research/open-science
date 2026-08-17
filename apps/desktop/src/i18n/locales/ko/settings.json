@@ -112,6 +112,7 @@
     "currentDefault": "현재 기본값",
     "switching": "전환 중…",
     "unavailableDefault": "구성된 모델을 사용할 수 없음: {{model}}",
+    "retiredDefault": "제공자가 제공을 중단함: {{model}}은(는) 더 이상 제공되지 않으며 모든 턴이 실패합니다. 아래에서 다른 모델을 선택하세요.",
     "catalogUnavailable": "모델 카탈로그를 현재 사용할 수 없습니다.",
     "catalogLoading": "모델 카탈로그를 불러오는 중…",
     "noModels": "사용 가능한 모델이 없습니다.",
@@ -406,6 +407,7 @@
     "modelFor": "{{agent}}의 모델",
     "defaultEffort": "기본 강도",
     "effortFor": "{{agent}}의 추론 강도",
+    "retiredOption": "{{model}} — 제공 중단",
     "primaryHint": "build와 plan은 보낸 메시지를 실행합니다. 여기서 설정한 모델이 적용되며, 대화 안에서 모델을 고르면 그 대화에서만 우선합니다."
   },
   "ssh": {

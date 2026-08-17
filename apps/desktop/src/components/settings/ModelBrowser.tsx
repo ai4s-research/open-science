@@ -7,6 +7,7 @@ import { inputCls } from "./inputCls";
 import {
   filterModelOptions,
   flattenModelOptions,
+  selectableModelOptions,
   type ModelFilter,
   type ModelOption,
 } from "./modelCatalog";
@@ -33,11 +34,19 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
   const [pendingModel, setPendingModel] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<ModelPreferences>(loadModelPreferences);
   const options = useMemo(() => flattenModelOptions(providers), [providers]);
+  // What the card counts and offers: retired models are not choices. `options`
+  // stays whole so the configured model still resolves for the notices below.
+  const selectable = useMemo(() => selectableModelOptions(options), [options]);
   const visible = useMemo(
     () => filterModelOptions(options, filter, query, preferences.favorites, preferences.recent),
     [filter, options, preferences, query],
   );
-  const unavailableDefault = Boolean(defaultModel && !options.some((model) => model.key === defaultModel));
+  const defaultOption = defaultModel ? options.find((model) => model.key === defaultModel) : undefined;
+  const unavailableDefault = Boolean(defaultModel && !defaultOption);
+  // Configured, still in the catalog, but the provider no longer serves it —
+  // a distinct problem from a model that vanished, and the only place the list
+  // omitting it is explained.
+  const retiredDefault = defaultOption?.available === false;
   const disabled = busy || pendingModel !== null;
 
   useEffect(() => {
@@ -66,7 +75,7 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
   const filterCount = (kind: "favorites" | "recent") =>
     filterModelOptions(options, { kind }, "", preferences.favorites, preferences.recent).length;
   const filters: Array<{ filter: ModelFilter; label: string; count: number; recent?: boolean }> = [
-    { filter: { kind: "all" }, label: t("model.allModels"), count: options.length },
+    { filter: { kind: "all" }, label: t("model.allModels"), count: selectable.length },
     { filter: { kind: "favorites" }, label: t("model.favorites"), count: filterCount("favorites") },
     { filter: { kind: "recent" }, label: t("model.recent"), count: filterCount("recent"), recent: true },
   ];
@@ -89,10 +98,15 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
           {t("model.unavailableDefault", { model: defaultModel })}
         </div>
       )}
-      {defaultModel === null && options.length > 0 && (
+      {retiredDefault && (
+        <div className="mb-3 rounded-input border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+          {t("model.retiredDefault", { model: defaultModel })}
+        </div>
+      )}
+      {defaultModel === null && selectable.length > 0 && (
         <p className="mb-3 text-xs text-muted">{t("model.notSet")}</p>
       )}
-      {options.length === 0 ? (
+      {selectable.length === 0 ? (
         <div className="px-4 py-8 text-center">
           <p className="text-[13px] text-muted">{t("model.noModels")}</p>
           <button className="mt-2 text-xs font-medium text-accent hover:underline" onClick={onManageProviders}>
@@ -110,7 +124,10 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
             {providers.map((provider) => {
               // eslint-disable-next-line i18next/no-literal-string -- discriminated-union key, not display text
               const providerFilter: ModelFilter = { kind: "provider", providerID: provider.id };
-              return <FilterButton key={provider.id} label={provider.name} count={provider.models.length}
+              // Counts what the filter will actually show — retired models are
+              // filtered out of the list, so counting them here would lie.
+              const count = selectable.filter((model) => model.providerID === provider.id).length;
+              return <FilterButton key={provider.id} label={provider.name} count={count}
                 active={sameFilter(filter, providerFilter)} onClick={() => setFilter(providerFilter)} />;
             })}
           </nav>

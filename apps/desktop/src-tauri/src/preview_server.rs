@@ -168,9 +168,30 @@ fn parse_range(v: &str) -> Option<(Option<u64>, Option<u64>)> {
     Some((start, end))
 }
 
+/// Largest slice held in memory at once. Bodies are copied to the socket in
+/// chunks of this size: a Range of `bytes=0-` — the FIRST thing every <video>
+/// element asks for — names the whole file, so allocating the requested span
+/// would pull a multi-GB video into RAM and take the app down with it.
+const CHUNK_BYTES: u64 = 1024 * 1024;
+
+/// Copy `len` bytes from `file`'s current position to the socket, a chunk at a
+/// time, so peak memory stays at CHUNK_BYTES no matter how big the file is.
+fn copy_n(file: &mut std::fs::File, stream: &mut TcpStream, len: u64) -> std::io::Result<()> {
+    let mut buf = vec![0u8; len.clamp(1, CHUNK_BYTES) as usize];
+    let mut left = len;
+    while left > 0 {
+        let n = left.min(buf.len() as u64) as usize;
+        file.read_exact(&mut buf[..n])?;
+        stream.write_all(&buf[..n])?;
+        left -= n as u64;
+    }
+    Ok(())
+}
+
 /// Serve a file body: 206 for a satisfiable Range, 416 for an unsatisfiable one,
-/// else a full 200. Ranged reads stream only the requested slice, so a large
-/// video never loads whole into memory.
+/// else a full 200. Both paths stream in CHUNK_BYTES slices, so a large video
+/// never loads whole into memory. The header goes out only once the file is
+/// open, so a missing/unreadable file is still a clean 500.
 fn serve_file(
     stream: &mut TcpStream,
     path: &Path,
@@ -204,38 +225,40 @@ fn serve_file(
             return;
         }
         let len = end - start + 1;
-        let mut body = vec![0u8; len as usize];
-        let read_ok = std::fs::File::open(path).and_then(|mut f| {
+        let opened = std::fs::File::open(path).and_then(|mut f| {
             f.seek(SeekFrom::Start(start))?;
-            f.read_exact(&mut body)?;
-            Ok(())
+            Ok(f)
         });
-        if read_ok.is_err() {
-            write_response(stream, "500 Internal Server Error", "text/plain", b"read failed", head_only);
-            return;
-        }
+        let mut file = match opened {
+            Ok(f) => f,
+            Err(_) => {
+                write_response(stream, "500 Internal Server Error", "text/plain", b"read failed", head_only);
+                return;
+            }
+        };
         let header = format!(
             "HTTP/1.1 206 Partial Content\r\nContent-Type: {mime}\r\nContent-Length: {len}\r\nContent-Range: bytes {start}-{end}/{total}\r\nAccept-Ranges: bytes\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
         );
         let _ = stream.write_all(header.as_bytes());
         if !head_only {
-            let _ = stream.write_all(&body);
+            let _ = copy_n(&mut file, stream, len);
         }
         return;
     }
 
-    match std::fs::read(path) {
-        Ok(body) => {
-            let header = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            let _ = stream.write_all(header.as_bytes());
-            if !head_only {
-                let _ = stream.write_all(&body);
-            }
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => {
+            write_response(stream, "500 Internal Server Error", "text/plain", b"read failed", head_only);
+            return;
         }
-        Err(_) => write_response(stream, "500 Internal Server Error", "text/plain", b"read failed", head_only),
+    };
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {total}\r\nAccept-Ranges: bytes\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+    );
+    let _ = stream.write_all(header.as_bytes());
+    if !head_only {
+        let _ = copy_n(&mut file, stream, total);
     }
 }
 
@@ -392,6 +415,41 @@ mod tests {
         let (h, _) = get_with(port, "/tok/w/v.mp4", Some("bytes=50-60"));
         assert!(h.starts_with("HTTP/1.1 416"), "{h}");
         assert!(h.contains("Content-Range: bytes */10"), "{h}");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A body larger than one chunk must come back byte-for-byte. `bytes=0-` is
+    /// what a <video> asks for first and it names the WHOLE file, so this is the
+    /// case that used to allocate the entire file into one Vec.
+    #[test]
+    fn bodies_larger_than_one_chunk_stream_intact() {
+        let root = std::env::temp_dir().join(format!("ai4s-preview-big-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let size = (CHUNK_BYTES as usize) * 2 + 517; // spans 3 chunks, last one partial
+        let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+        std::fs::write(root.join("big.mp4"), &data).unwrap();
+
+        let port = serve("tok", {
+            let root = root.clone();
+            move |scope| (scope == "w").then(|| root.clone())
+        })
+        .unwrap();
+
+        let (h, body) = get(port, "/tok/w/big.mp4");
+        assert!(h.starts_with("HTTP/1.1 200"), "{h}");
+        assert!(h.contains(&format!("Content-Length: {size}")), "{h}");
+        assert_eq!(body, data);
+
+        let (h, body) = get_with(port, "/tok/w/big.mp4", Some("bytes=0-"));
+        assert!(h.starts_with("HTTP/1.1 206"), "{h}");
+        assert_eq!(body, data, "an open-ended range must serve the whole file");
+
+        // A slice that straddles a chunk boundary.
+        let (start, end) = (CHUNK_BYTES - 10, CHUNK_BYTES + 10);
+        let (h, body) = get_with(port, "/tok/w/big.mp4", Some(&format!("bytes={start}-{end}")));
+        assert!(h.starts_with("HTTP/1.1 206"), "{h}");
+        assert_eq!(body, data[start as usize..=end as usize]);
 
         let _ = std::fs::remove_dir_all(root);
     }

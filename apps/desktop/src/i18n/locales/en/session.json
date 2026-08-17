@@ -117,7 +117,11 @@
       "smarter": "Smarter",
       "followingAgent": "Following the {{agent}} agent",
       "followAgent": "Follow the {{agent}} agent",
-      "useDefault": "Use the global default"
+      "useDefault": "Use the global default",
+      "unknownContextTitle": "Context window unknown",
+      "unknownContextBody": "Auto-compaction stays off for this model, so the conversation grows without limit and long turns eventually stall. Set the window in Settings → Models.",
+      "retiredTitle": "Model retired by its provider",
+      "retiredBody": "{{model}} is still configured, but the provider no longer serves it, so every turn fails. Pick another model above."
     },
     "reference": {
       "filesAria": "Workspace files",
@@ -293,7 +297,8 @@
   "interaction": {
     "question": {
       "heading": "The agent needs your input",
-      "customPlaceholder": "Or type your own answer…"
+      "customPlaceholder": "Or type your own answer…",
+      "other": "Something else…"
     },
     "permission": {
       "heading": "The agent asks permission:"
@@ -363,6 +368,21 @@
     "at": "When: {{time}}",
     "originalKept": "The full original conversation is still stored locally."
   },
+  "meta": {
+    "context": "{{used}} / {{limit}} ({{percent}}%)",
+    "contextUnknown": "{{used}} tokens",
+    "durationTitle": "How long this reply took",
+    "costTitle": "What this turn cost",
+    "tooltip": {
+      "input": "Input: {{n}}",
+      "cacheRead": "Cache read: {{n}}",
+      "cacheWrite": "Cache write: {{n}}",
+      "output": "Output: {{n}}",
+      "reasoning": "Reasoning: {{n}}",
+      "context": "Context in use: {{used}} of {{limit}}",
+      "contextUnknown": "Context in use: {{used}} (window unknown)"
+    }
+  },
   "selection": {
     "aria": "Actions for the selected text",
     "quote": "Quote",
@@ -378,6 +398,14 @@
     "closeAria": "Close the subagent panel",
     "count_one": "{{count}} task",
     "count_other": "{{count}} tasks",
-    "empty": "No subagents in this conversation yet."
+    "empty": "No subagents in this conversation yet.",
+    "noDetail": "No steps were recorded for this subagent.",
+    "loadingDetail": "Loading…"
+  },
+  "splitDestination": {
+    "title": "The new pane's session will be created in",
+    "continueIn": "Continue in {{name}}",
+    "newFolder": "New folder",
+    "chooseOther": "Choose another folder…"
   }
 }

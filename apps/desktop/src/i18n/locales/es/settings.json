@@ -112,6 +112,7 @@
     "currentDefault": "Predeterminado actual",
     "switching": "Cambiando…",
     "unavailableDefault": "El modelo configurado no está disponible: {{model}}",
+    "retiredDefault": "Retirado por el proveedor: {{model}} ya no se sirve y todos los turnos fallarán. Elige otro modelo abajo.",
     "catalogUnavailable": "El catálogo de modelos no está disponible en este momento.",
     "catalogLoading": "Cargando el catálogo de modelos…",
     "noModels": "No hay modelos disponibles.",
@@ -408,6 +409,7 @@
     "modelFor": "Modelo para {{agent}}",
     "defaultEffort": "Esfuerzo predeterminado",
     "effortFor": "Esfuerzo de razonamiento para {{agent}}",
+    "retiredOption": "{{model}} — ya no se sirve",
     "primaryHint": "build y plan ejecutan los mensajes que envías. El modelo definido aquí se aplica salvo que elijas uno dentro de una conversación, que prevalece solo en esa conversación."
   },
   "ssh": {

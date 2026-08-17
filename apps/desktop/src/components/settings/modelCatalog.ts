@@ -6,6 +6,10 @@ export interface ModelOption {
   providerName: string;
   modelID: string;
   modelName: string;
+  /** False when the provider has retired the model — see ProviderModelInfo.
+   *  Selectable lists must leave these out; lookups by key must not, or the
+   *  model a user already has configured would resolve to nothing. */
+  available: boolean;
 }
 
 export type ModelFilter =
@@ -22,30 +26,46 @@ export function flattenModelOptions(providers: ProviderInfo[]): ModelOption[] {
       providerName: provider.name,
       modelID: model.id,
       modelName: model.name,
+      available: model.available !== false,
     })),
   );
+}
+
+/** The options a user may pick, i.e. everything the provider still serves. */
+export function selectableModelOptions(options: ModelOption[]): ModelOption[] {
+  return options.filter((model) => model.available);
 }
 
 /**
  * Where the configured default model should land after a provider change made
  * it dangling (provider removed, or its models renamed): null when the default
- * is still available — or nothing is available to fall back to — otherwise the
+ * is still in the catalog — or nothing is left to fall back to — otherwise the
  * closest valid "provider/model" key: the same provider's first model when the
  * provider survived, else the first model of the first provider.
  */
 export function fallbackDefaultModel(providers: ProviderInfo[], defaultModel: string): string | null {
   const options = flattenModelOptions(providers);
-  if (options.length === 0 || options.some((m) => m.key === defaultModel)) return null;
+  // A retired model still counts as configured: silently re-pointing it would
+  // change the user's model without asking — onto a paid one, for a provider
+  // like Zen where the free tier is what they chose. The pickers say so and let
+  // them choose. Only a model that has left the catalog entirely is dangling.
+  if (options.some((m) => m.key === defaultModel)) return null;
+  const candidates = selectableModelOptions(options);
+  if (candidates.length === 0) return null;
   const providerID = defaultModel.split("/")[0];
-  return (options.find((m) => m.providerID === providerID) ?? options[0]).key;
+  return (candidates.find((m) => m.providerID === providerID) ?? candidates[0]).key;
 }
 
 function baseOptions(
-  options: ModelOption[],
+  all: ModelOption[],
   filter: ModelFilter,
   favorites: string[],
   recent: string[],
 ): ModelOption[] {
+  // Every list here is a list to pick from, so a retired model belongs in none
+  // of them — including favorites and recents, where it is exactly the model a
+  // user is most likely to reach for again.
+  const options = selectableModelOptions(all);
   if (filter.kind === "provider") return options.filter((m) => m.providerID === filter.providerID);
   if (filter.kind === "favorites") {
     const favoriteSet = new Set(favorites);

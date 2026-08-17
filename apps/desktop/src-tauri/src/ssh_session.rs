@@ -431,7 +431,7 @@ pub fn is_shared(app: &AppHandle, host: &str) -> bool {
     let Some(config) = config_path(app) else {
         return false;
     };
-    std::process::Command::new("ssh")
+    crate::runtime::quiet_command("ssh")
         .args([
             "-F",
             &config.to_string_lossy(),
@@ -653,7 +653,7 @@ pub fn ssh_answer(app: AppHandle, host: String, secret: String) -> Result<(), St
 
 fn ssh_disconnect_inner(app: &AppHandle, host: &str) -> Result<(), String> {
     if let Some(config) = config_path(app) {
-        let _ = std::process::Command::new("ssh")
+        let _ = crate::runtime::quiet_command("ssh")
             .args(["-F", &config.to_string_lossy(), "-O", "exit", "--", host])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())

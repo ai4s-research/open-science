@@ -1,9 +1,9 @@
-import type { RuntimeStatus, ToolCallStatus } from "@ai4s/shared";
+import type { MessageUsage, RuntimeStatus, ToolCallStatus } from "@ai4s/shared";
 
 export type { RuntimeStatus, ToolCallStatus };
 
 /** Pinned OpenCode release this client targets. */
-export const OPENCODE_VERSION = "1.18.12";
+export const OPENCODE_VERSION = "1.18.18";
 
 /** OpenCode server defaults (`opencode serve`). */
 export const DEFAULT_OPENCODE_URL = "http://127.0.0.1:4096";
@@ -17,6 +17,9 @@ export interface TextUpdatedEvent {
   sessionId: string;
   partId: string;
   text: string;
+  /** The assistant message this text belongs to. It is what lets a later
+   *  `message.usage` find the block to stamp its tokens onto. */
+  messageID?: string;
 }
 /** The model's reasoning ("thinking") for a step — streamed like text but kept
  *  separate so the UI can show it dimmed, apart from the final answer. Without
@@ -151,10 +154,27 @@ export interface CompactedEvent {
   overflow?: boolean;
 }
 
+/** Running token totals for an assistant turn. OpenCode republishes the whole
+ *  message on every update, so this arrives repeatedly during a turn and one
+ *  last time with the final numbers — the app just overwrites.
+ *
+ *  Without it the app cannot answer "how full is the context" at all: the
+ *  numbers exist only here and in history, nowhere else in the protocol. */
+export interface MessageUsageEvent {
+  type: "message.usage";
+  sessionId: string;
+  messageID: string;
+  usage: MessageUsage;
+  /** Epoch ms from the message's own clock — `completed` unset while running. */
+  created?: number;
+  completed?: number;
+}
+
 export type OpenCodeEvent =
   | TextUpdatedEvent
   | ReasoningUpdatedEvent
   | CompactedEvent
+  | MessageUsageEvent
   | StepUpdatedEvent
   | ToolUpdatedEvent
   | SessionIdleEvent
@@ -247,6 +267,12 @@ export interface HistoryMessage {
   /** Epoch ms when the message finished — unset while it is still streaming.
    *  On the LAST message this is the server's truth for "is the turn over". */
   completed?: number;
+  /** Epoch ms when the message was created. Needed to tell a turn that is
+   *  streaming RIGHT NOW from one that was streaming when its runtime died:
+   *  both persist identically (assistant, no `completed`, no `error`), and
+   *  only the timestamp says whether any live process could still be producing
+   *  it. See `turnStillStreaming`. */
+  created?: number;
   /** The error that ended this assistant turn, when it failed. Without it a
    *  failed turn whose live session.error was missed (SSE reconnect, app
    *  restart) reloads as an empty reply with no explanation at all. */
@@ -255,6 +281,9 @@ export interface HistoryMessage {
    *  on user messages; the app derives a session's agent mode from the last
    *  user message when (re)opening it. */
   agent?: string;
+  /** Token accounting for an assistant message. Assistant-only, and absent on
+   *  runtimes that don't report it (ACP) or on mock/synthetic messages. */
+  usage?: MessageUsage;
   parts: HistoryPart[];
 }
 export interface HistoryPart {
@@ -271,8 +300,11 @@ export interface HistoryPart {
     output?: string;
     /** Epoch ms the tool started/finished — persisted with the part. */
     time?: { start?: number; end?: number };
-    /** Tool-specific extras (bash stdout tail, edit diff, task session link). */
-    metadata?: { output?: string; diff?: string };
+    /** Tool-specific extras (bash stdout tail, edit diff, task session link).
+     *  `sessionId` is the subagent session a `task` tool spawned — the live
+     *  event stream reads the same field, and without it here a RELOADED
+     *  conversation loses every link to its subagents' own transcripts. */
+    metadata?: { output?: string; diff?: string; sessionId?: string };
   };
 }
 
@@ -325,6 +357,20 @@ export interface ProviderModelInfo {
    *  native param (OpenAI reasoningEffort, Anthropic thinking, …). `listProviders`
    *  always sets it (possibly []); optional so terse fixtures can omit it. */
   variants?: string[];
+  /** Context window in tokens, or 0 when OpenCode does not know it — which it
+   *  does not for any model missing from models.dev whose limit nobody typed
+   *  in, i.e. most custom endpoints. Load-bearing, not decorative: OpenCode
+   *  skips auto-compaction outright on a zero window (`limit.context === 0`
+   *  short-circuits its threshold check), so the conversation grows unbounded
+   *  and long agentic turns eventually stall sending it. Surfaced so the UI can
+   *  say so instead of leaving the user with a spinner. */
+  contextLimit?: number;
+  /** False when the provider still advertises this model but no longer serves
+   *  it, so picking it can only fail. `listProviders` never sets this — the
+   *  runtime's catalog cannot tell — it is filled in by whoever can ask the
+   *  provider directly (the app does, for OpenCode Zen). Undefined means
+   *  nobody knows, which every consumer must read as available. */
+  available?: boolean;
 }
 
 /** A provider OpenCode can use right now (auth present or public). */

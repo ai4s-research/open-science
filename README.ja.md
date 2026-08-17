@@ -35,6 +35,7 @@ Formerly Open Science. Claude Science などの AI-for-science ワークベン�
 
 ## ニュース
 
+- **2026-08-13** — 🔌 **Agent Client Protocol に双方向で対応。** Codex、Gemini CLI、Claude Code などの ACP エージェントを、そのエージェント自身のモデル・履歴と本アプリの MCP コネクタごと、このアプリの中から動かせます。逆に Zed、JetBrains、Neovim から Open Science を動かすこともできます。 *(v0.4.0)*
 - **2026-08-01** — 🗂️ **プロジェクト・メモリ・全履歴。** セッションを名前付きプロジェクトにまとめ（既存リポジトリはコピーせず**その場で**インポート）、グローバルとプロジェクトの永続メモリを持たせ、過去のすべての会話を検索可能な履歴（アーカイブ／復元／エクスポート付き）から辿れます。 *(v0.3.1)*
 - **2026-07-24** — 🪟 **分割ペインのタイリング。** セッションを並べて表示し、ペインをドラッグして再配置し、独立した「スクリーン」を複数保持でき、ペインごとに別のモデルを使えます。 *(v0.3.0)*
 - **2026-07-21** — 🌐 **どこからでもアクセス——スマホからでも。** トークン認証ゲートウェイが*本物の*デスクトップ UI を CLI、LAN 上のブラウザ、あるいはスマホへ配信します（既定はループバック、LAN はオプトイン）。デスクで実行を開始し、完成した図とレポートをスマホで読めます。 *(v0.2.3)*
@@ -134,6 +135,7 @@ Formerly Open Science. Claude Science などの AI-for-science ワークベン�
 | 外観 | Light / Warm / Dark の 3 テーマ（テーマ別アクセント）と UI ズーム。 |
 | ファイル | グローバル/セッション内のファイルブラウズ、右クリック操作、外部アプリで開く、パスコピー、ローカルプレビューサーバー。 |
 | リモートアクセス | 本物の UI を CLI、LAN 上の Web ブラウザ、またはスマホへ配信するトークン認証ゲートウェイ（既定はループバック、LAN はオプトイン）。読み取り専用/フルアクセスの各モード。トークンを埋め込んだリンクをコピーし、ワンタップで接続。API キーが通信路を渡ることはありません。 |
+| エディタ連携（ACP） | Agent Client Protocol に双方向で対応：任意の ACP エージェント（Codex、Gemini CLI、Claude Code など）を通常の UI の背後のランタイムとして動かし、そのエージェント自身のモデル／推論レベルの選択、履歴の再生、本アプリの MCP コネクタをそのまま使えます。逆に外部エディタ（Zed、JetBrains、Neovim など）がゲートウェイのトークンを再利用して Open Science を駆動することもできます。 |
 | ブラウザ制御 | エージェントがあなた自身の Chrome を——プロファイルとログイン状態を保ったまま——操作し、アクセシビリティツリーを通じてページを読み取ります。必要に応じて分離された/プライベートなブラウザも使えます。 |
 | ノートブック | 実際の `.ipynb`、Python/R ノートブック作成、ローカルカーネル実行、バンドル `uv` による Jupyter 環境、JupyterLab 起動。 |
 | 実行記録 | 追記型 run log、グローバル SQLite インデックス、検索/ファセット/ページング、出力リンク、ログ、再現プロンプト。 |
@@ -152,7 +154,7 @@ Formerly Open Science. Claude Science などの AI-for-science ワークベン�
 [Releases](https://github.com/ai4s-research/open-science/releases/latest) から最新版をダウンロードしてください。
 
 - **macOS**: `.dmg` / `.app`、Apple Silicon と Intel、macOS 13 Ventura 以降。
-- **Windows**: NSIS `.exe` と `.msi`、Windows 10/11 x64。
+- **Windows**: NSIS `.exe`、Windows 10/11 x64 — ユーザーごとにインストールされ、管理者権限は不要です。IT 部門による一括配布向けに `.msi` も配布しています。どちらか一方に統一してください。
 - **Linux**: x86_64 Linux 向け `.deb` と `.rpm`。
 
 macOS パッケージは Developer ID 署名・Notarization・staple 済みで、そのまま開けます（`xattr` の回避策は不要）。Windows と Linux のビルドはまだ署名されていません。
@@ -212,8 +214,8 @@ pnpm lint
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.3},
-  doi     = {10.5281/zenodo.21805331},
+  version = {0.4.2},
+  doi     = {10.5281/zenodo.21967622},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

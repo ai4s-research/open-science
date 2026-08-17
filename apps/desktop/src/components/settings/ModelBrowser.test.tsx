@@ -137,6 +137,26 @@ describe("ModelBrowser", () => {
     expect(screen.getByText("Not set — pick a default model")).toBeInTheDocument();
   });
 
+  // The provider still advertises the model but no longer runs it. It cannot be
+  // a choice, yet the card is where a user goes after a turn fails, so the one
+  // they configured has to be accounted for rather than quietly absent.
+  it("drops a retired model from the list and says why the configured one is gone", () => {
+    const withRetired: ProviderInfo[] = [
+      { id: "opencode", name: "OpenCode Zen", models: [
+        { id: "hy3-free", name: "HY3", available: true },
+        { id: "glm-5-free", name: "GLM-5", available: false },
+      ] },
+    ];
+    render(<ModelBrowser providers={withRetired} defaultModel="opencode/glm-5-free" busy={false}
+      onSelect={vi.fn()} onManageProviders={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /^HY3/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^GLM-5/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Retired by its provider/)).toBeInTheDocument();
+    // Counted as one model, not two: the filter would show only HY3.
+    const filters = screen.getByRole("navigation", { name: "Model filters" });
+    expect(within(filters).getByRole("button", { name: /OpenCode Zen/ })).toHaveTextContent("1");
+  });
+
   it("keeps the current model row keyboard-focusable without selecting it again", async () => {
     const onSelect = vi.fn().mockResolvedValue(true);
     render(<ModelBrowser providers={providers} defaultModel="openai/o3" busy={false}

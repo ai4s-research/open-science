@@ -17,19 +17,24 @@ const APP_OWNED_ARGUMENTS = [
   "webgpu",
 ] as const;
 
-export function sanitizeBrowserToolArgs(tool: string, args: unknown): void {
+// Nothing here is exported but the plugin factory. OpenCode's external-plugin
+// loader calls every export it finds as a factory, so an exported helper is
+// invoked with no arguments at load time — `sanitizeBrowserToolArgs` threw on
+// `tool.startsWith`, the whole module failed to register, and the lease this
+// plugin exists to inject was never attached to a single browser call.
+function sanitizeBrowserToolArgs(tool: string, args: unknown): void {
   if (!tool.startsWith(BROWSER_TOOL_PREFIX) || !args || typeof args !== "object") return;
   const values = args as Record<string, unknown>;
   for (const key of APP_OWNED_ARGUMENTS) delete values[key];
 }
 
-export function browserLeaseSession(conversationID: string): string {
+function browserLeaseSession(conversationID: string): string {
   const safe = conversationID.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 120);
   if (!safe) throw new Error("browser call has no conversation identity");
   return `osd-${safe}`;
 }
 
-export function applyBrowserLease(
+function applyBrowserLease(
   tool: string,
   args: unknown,
   conversationID: string,

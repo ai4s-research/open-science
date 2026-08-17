@@ -112,6 +112,7 @@
     "currentDefault": "Current default",
     "switching": "Switching…",
     "unavailableDefault": "Configured model unavailable: {{model}}",
+    "retiredDefault": "Retired by its provider: {{model}} is no longer served and every turn will fail. Pick another model below.",
     "catalogUnavailable": "The model catalog is currently unavailable.",
     "catalogLoading": "Loading the model catalog…",
     "noModels": "No models available.",
@@ -408,6 +409,7 @@
     "modelFor": "Model for {{agent}}",
     "defaultEffort": "Default effort",
     "effortFor": "Reasoning effort for {{agent}}",
+    "retiredOption": "{{model}} — no longer served",
     "primaryHint": "build and plan run the messages you send. A model set here applies unless you pick one inside a conversation, which wins for that conversation only."
   },
   "ssh": {

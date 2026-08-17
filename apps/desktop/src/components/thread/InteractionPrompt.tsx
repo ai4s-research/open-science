@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, HelpCircle, ShieldQuestion } from "lucide-react";
+import { Check, HelpCircle, Pencil, ShieldQuestion } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PermissionAskedEvent, PermissionReply, QuestionAskedEvent } from "@ai4s/sdk";
 import { cn } from "@/lib/cn";
@@ -68,6 +68,11 @@ function QuestionCard({
   // One selection set + one custom string per question.
   const [selected, setSelected] = useState<Record<number, Set<string>>>({});
   const [custom, setCustom] = useState<Record<number, string>>({});
+  // Which questions have their own-words field open. Every question can always
+  // be answered in the user's own words: a model that offers an "Other" option
+  // but forgets `custom` used to leave nowhere to say WHAT — and in quick-pick
+  // that answered the whole question with the bare word "Other".
+  const [ownWords, setOwnWords] = useState<Record<number, boolean>>({});
 
   const items = question.questions;
   const toggle = (qi: number, label: string, multiple: boolean) =>
@@ -78,15 +83,27 @@ function QuestionCard({
       return { ...s, [qi]: cur };
     });
 
+  /** Open the own-words field. Single-select questions drop their pick, the way
+   *  choosing any other option would. */
+  const openOwnWords = (qi: number, multiple: boolean) => {
+    setOwnWords((o) => ({ ...o, [qi]: true }));
+    if (!multiple) setSelected((s) => ({ ...s, [qi]: new Set() }));
+  };
+
   const answerFor = (qi: number): string[] => {
     const picked = [...(selected[qi] ?? [])];
     const c = custom[qi]?.trim();
+    // The typed text IS the answer — never the label of the row that revealed
+    // the field, which would tell the agent nothing.
     return c ? [...picked, c] : picked;
   };
   const ready = items.every((_, qi) => answerFor(qi).length > 0);
 
-  // Single question, single-select, no custom: click an option to answer at once.
-  const isQuickPick = items.length === 1 && !items[0].multiple && !items[0].custom;
+  // Single question, single-select, no free text yet: click an option to answer
+  // at once. Opening the own-words field ends quick-pick — there is now
+  // something to type and a Send to press.
+  const isQuickPick =
+    items.length === 1 && !items[0].multiple && !items[0].custom && !ownWords[0];
 
   return (
     <div className="rounded-card border border-accent/40 bg-surface shadow-card">
@@ -149,9 +166,24 @@ function QuestionCard({
                     </button>
                   );
                 })}
+                {/* The guaranteed escape hatch. Hidden behind a row so a
+                    question with good options stays a clean list, but always
+                    one click away — the agent asking cannot take it away by
+                    forgetting a flag. Skipped when it already asked for free
+                    text, which shows the field outright. */}
+                {!it.custom && !ownWords[qi] && (
+                  <button
+                    onClick={() => openOwnWords(qi, multiple)}
+                    className="flex items-center gap-2.5 rounded-input border border-dashed border-border px-3 py-2 text-left text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                  >
+                    <Pencil size={13} className="shrink-0" />
+                    {t("interaction.question.other")}
+                  </button>
+                )}
               </div>
-              {it.custom && (
+              {(it.custom || ownWords[qi]) && (
                 <input
+                  autoFocus={!!ownWords[qi]}
                   value={custom[qi] ?? ""}
                   onChange={(e) => setCustom((c) => ({ ...c, [qi]: e.target.value }))}
                   placeholder={t("interaction.question.customPlaceholder")}

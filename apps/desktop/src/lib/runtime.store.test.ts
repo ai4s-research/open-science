@@ -76,12 +76,14 @@ const mocks = vi.hoisted(() => ({
   }),
   notifyPermissionRequest: vi.fn(async () => true),
   startRuntime: vi.fn(async () => "http://127.0.0.1:1"),
+  restartRuntime: vi.fn(async () => "http://127.0.0.1:2"),
   /** Skill install bridges (#61). */
   installSkillMarkdown: vi.fn(async (_text: string) => "pasted-skill"),
   workspaceSkillNames: vi.fn(async () => ["already-there"]),
   adoptWorkspaceSkills: vi.fn(async (_known: string[]) => ["agent-skill"]),
   /** Constructor options every OpenCodeClient was created with. */
   clientOpts: [] as Record<string, unknown>[],
+  closedDirs: [] as string[],
 }));
 
 vi.mock("./tauri", () => ({
@@ -89,6 +91,7 @@ vi.mock("./tauri", () => ({
   logDebug: async () => {},
   detectTools: async () => [],
   startRuntime: mocks.startRuntime,
+  restartRuntime: mocks.restartRuntime,
   workspacePath: async () => "/ws/base",
   setWorkspace: mocks.setWorkspace,
   newDatedWorkspace: mocks.newDatedWorkspace,
@@ -111,7 +114,9 @@ vi.mock("@ai4s/sdk", () => {
     /** The real client keeps its status (BaseAgentRuntime); the store reads it
      *  after connecting rather than waiting for a transition. */
     private status = "offline";
+    private opts: Record<string, unknown>;
     constructor(opts: Record<string, unknown>) {
+      this.opts = opts;
       mocks.clientOpts.push(opts);
     }
     getStatus() {
@@ -264,14 +269,20 @@ vi.mock("@ai4s/sdk", () => {
     // The real client emits "offline" on teardown — the store must keep that
     // away from the UI while reconnecting (first-boot flicker regression).
     close() {
+      const dir = this.opts.directory;
+      if (typeof dir === "string") mocks.closedDirs.push(dir);
       this.statusCb("offline");
     }
   }
-  return { OpenCodeClient, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
+  // Mirrors the real helper: the store uses it to tell an already-resolved
+  // permission (404) from a reply that genuinely failed.
+  const isApiStatus = (err: unknown, status: number) =>
+    err instanceof Error && (err as { status?: unknown }).status === status;
+  return { OpenCodeClient, isApiStatus, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
 });
 
 import type { ArtifactBlock } from "@ai4s/shared";
-import { DRAFT_KEY, rootSessionOf, useRuntimeStore } from "./runtime";
+import { DRAFT_KEY, adoptSourceFolder, rootSessionOf, useRuntimeStore } from "./runtime";
 import { useSshStore } from "./ssh";
 import { leaves, makeLeaf, useLayoutStore } from "./layout";
 
@@ -296,6 +307,7 @@ beforeEach(async () => {
   mocks.reviewSessionCounter = 0;
   mocks.notifyPermissionRequest.mockResolvedValue(true);
   mocks.createSessionSpy.mockClear();
+  mocks.closedDirs.length = 0;
   useRuntimeStore.setState({
     currentId: null,
     draftWorkspaces: {},
@@ -367,6 +379,77 @@ describe("runtime authentication", () => {
     expect(second).toBe(first);
     await Promise.all([first, second]);
     expect(mocks.startRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it("respawns the sidecar when reconnecting to a dead one", async () => {
+    // The sidecar crashes on its own (Effect ServeError, exit 1). Retrying the
+    // socket alone never recovers — nothing is listening and nothing puts it
+    // back — so the app hammered a dead port until the user restarted it.
+    // Every failed attempt must go through startRuntime, which respawns a dead
+    // runtime and is a no-op for a live one.
+    mocks.startRuntime.mockClear();
+    const connect = vi
+      .spyOn(useRuntimeStore.getState(), "connect")
+      .mockImplementation(async () => {
+        useRuntimeStore.setState({ status: "error", error: "stream closed" });
+      });
+
+    const ok = await useRuntimeStore.getState().connectRetry(3);
+
+    expect(ok).toBe(false);
+    expect(mocks.startRuntime).toHaveBeenCalledTimes(3); // one per failed attempt
+    connect.mockRestore();
+  });
+
+  it("forces a fresh sidecar once retrying has stopped helping", async () => {
+    // The case startRuntime cannot see: the process is alive, so nothing
+    // terminates and nothing clears the lifecycle, but it has stopped serving.
+    // start_runtime keeps handing back the same dead URL, so retrying alone
+    // never recovers — observed as "opencode disconnects and will not
+    // reconnect". After the threshold, force a new process exactly once.
+    mocks.startRuntime.mockClear();
+    mocks.restartRuntime.mockClear();
+    const connect = vi
+      .spyOn(useRuntimeStore.getState(), "connect")
+      .mockImplementation(async () => {
+        useRuntimeStore.setState({ status: "error", error: "stream closed" });
+      });
+
+    const url = useRuntimeStore.getState().serverUrl;
+    // 9 attempts: eight quick retries (250 ms) then the forced one — enough to
+    // cross the threshold, short enough to stay inside the test timeout.
+    await useRuntimeStore.getState().connectRetry(9);
+
+    expect(mocks.restartRuntime).toHaveBeenCalledTimes(1); // once, not every attempt
+    expect(mocks.startRuntime).toHaveBeenCalledTimes(8); // the attempts before it
+    expect(useRuntimeStore.getState().serverUrl).toBe("http://127.0.0.1:2");
+    connect.mockRestore();
+    useRuntimeStore.setState({ serverUrl: url, status: "ready", error: null });
+  });
+
+  it("a reconnect that lands fast never repaints the status", async () => {
+    // Switching Screens goes openSession → setWorkspace → connectRetry. Flipping
+    // the indicator to "connecting" synchronously made it stutter on a path
+    // where nothing was wrong, and — because `connected` is derived from status
+    // — dropped `connected` for a frame when `switching` cleared, re-running the
+    // pane-stream effect and re-handshaking streams that were already fine.
+    useRuntimeStore.setState({ status: "ready" });
+    const connect = vi
+      .spyOn(useRuntimeStore.getState(), "connect")
+      .mockImplementation(async () => {
+        useRuntimeStore.setState({ status: "ready" });
+      });
+
+    const seen: string[] = [];
+    const unsub = useRuntimeStore.subscribe((s) => {
+      if (seen[seen.length - 1] !== s.status) seen.push(s.status);
+    });
+    await useRuntimeStore.getState().connectRetry(3);
+    unsub();
+
+    expect(seen).not.toContain("connecting");
+    expect(useRuntimeStore.getState().status).toBe("ready");
+    connect.mockRestore();
   });
 
   it("connect() passes the per-run runtime password to the SDK client", async () => {
@@ -456,6 +539,29 @@ describe("per-session workspace folders", () => {
     mocks.newDatedWorkspace.mockClear();
     await useRuntimeStore.getState().sendPrompt("second", undefined, "draft:leaf-7");
     expect(mocks.newDatedWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  // Cmd+D splits without asking, so the new pane inherits the folder in front
+  // of the user. (The header's split buttons ask first — SplitMenu — and aim
+  // the pane at the answer.)
+  it("adoptSourceFolder aims a split pane at its source's folder", () => {
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_1", title: "t", directory: "/ws/毕设" } as never],
+    });
+
+    adoptSourceFolder("leaf-9", { leafId: "leaf-1", sessionId: "ses_1" });
+
+    expect(useRuntimeStore.getState().draftWorkspaces["draft:leaf-9"]).toBe("/ws/毕设");
+  });
+
+  it("adoptSourceFolder leaves a pane with nothing to continue alone", () => {
+    // No source (an empty Screen), and a source draft that was never aimed:
+    // both mean the new pane makes its own dated folder.
+    adoptSourceFolder("leaf-10", null);
+    adoptSourceFolder("leaf-11", { leafId: "leaf-2", sessionId: null });
+
+    expect(useRuntimeStore.getState().draftWorkspaces["draft:leaf-10"]).toBeUndefined();
+    expect(useRuntimeStore.getState().draftWorkspaces["draft:leaf-11"]).toBeUndefined();
   });
 
   it("restores the draft's folder when the active one wandered off", async () => {
@@ -863,6 +969,87 @@ describe("subagent permission asks and long sync turns", () => {
     expect(mocks.replyPermission).toHaveBeenCalledTimes(3);
     expect(mocks.replyPermission).toHaveBeenCalledWith("per_b", "always");
     expect(useRuntimeStore.getState().permissions).toHaveLength(0);
+  });
+
+  // Splitting a pane (or any re-render that re-answers) can carry a request the
+  // runtime has already resolved. A 404 there means "already answered", not a
+  // failure the user can act on — surfacing it put a scary banner over a click
+  // that actually worked.
+  it("treats an already-resolved permission (404) as answered, not as an error", async () => {
+    await useRuntimeStore.getState().sendPrompt("go");
+    const ask = (requestId: string) =>
+      mocks.fireEvent({
+        type: "permission.asked",
+        sessionId: "ses_child",
+        requestId,
+        action: "external_directory",
+        resources: ["/repo/*"],
+      });
+    ask("per_stale");
+    ask("per_live");
+    const gone = Object.assign(new Error("Failed to reply to the permission (404: not found)"), {
+      status: 404,
+    });
+    mocks.replyPermission.mockImplementation((id: string) => {
+      if (id === "per_stale") throw gone;
+    });
+
+    await useRuntimeStore.getState().replyPermission("per_stale", "always");
+
+    expect(useRuntimeStore.getState().permissions).toHaveLength(0);
+    expect(useRuntimeStore.getState().error).toBeNull();
+  });
+
+  it("still reports a permission reply that failed for a real reason", async () => {
+    await useRuntimeStore.getState().sendPrompt("go");
+    mocks.fireEvent({
+      type: "permission.asked",
+      sessionId: "ses_child",
+      requestId: "per_x",
+      action: "external_directory",
+      resources: ["/repo/*"],
+    });
+    mocks.replyPermission.mockImplementation(() => {
+      throw Object.assign(new Error("Failed to reply to the permission (500: boom)"), {
+        status: 500,
+      });
+    });
+
+    await useRuntimeStore.getState().replyPermission("per_x", "always");
+    expect(useRuntimeStore.getState().error).toContain("500");
+  });
+
+  // A step still in flight when Stop lands never finished. Reloading the session
+  // renders it "pending"; the live path has to agree, or its spinner turns
+  // forever on a turn that is already over.
+  it("settles the steps that were still running when the turn was interrupted", async () => {
+    await useRuntimeStore.getState().sendPrompt("go");
+    const sid = useRuntimeStore.getState().currentId!;
+    useRuntimeStore.setState((s) => ({
+      threads: {
+        ...s.threads,
+        [sid]: {
+          blocks: [
+            { kind: "tool-call", title: "python3 long.py", status: "running" },
+            { kind: "tool-call", title: "rm -rf tmp", status: "waiting-approval" },
+            { kind: "tool-call", title: "ls", status: "success" },
+          ],
+          index: {},
+          loaded: true,
+        },
+      },
+    }));
+
+    await useRuntimeStore.getState().interrupt(sid);
+
+    const blocks = useRuntimeStore.getState().threads[sid]!.blocks;
+    const tools = blocks.filter((b) => b.kind === "tool-call");
+    expect(tools.map((b) => (b as { status: string }).status)).toEqual([
+      "pending",
+      "pending",
+      "success", // a finished step keeps its own outcome
+    ]);
+    expect(blocks[blocks.length - 1]).toMatchObject({ kind: "status-line", text: "Interrupted" });
   });
 
   it("sends one system notification for each new permission request", async () => {
@@ -2457,5 +2644,57 @@ describe("per-agent model precedence", () => {
     useRuntimeStore.setState({ agents: [] });
     await useRuntimeStore.getState().sendPrompt("hi");
     expect(lastSend()[3]).toBe("openai/gpt-5");
+  });
+});
+
+// Switching Screens changes the whole set of tiled folders at once. Closing
+// each departing stream on the spot meant a flip between two Screens paid a
+// fresh SSE handshake every time — against a per-directory OpenCode instance
+// that starts lazily, i.e. a cold start on the switch's critical path (#92).
+describe("background pane streams", () => {
+  const dirsBuilt = () =>
+    mocks.clientOpts.map((o) => o.directory).filter((d): d is string => typeof d === "string");
+
+  beforeEach(() => {
+    useRuntimeStore.setState({ workspace: "/ws/foreground" });
+    mocks.clientOpts.length = 0;
+  });
+
+  it("survives a Screen switch away and back without reconnecting", () => {
+    const sync = useRuntimeStore.getState().syncPaneStreams;
+    sync(["/ws/a"]);
+    expect(dirsBuilt()).toEqual(["/ws/a"]);
+
+    // Switch to a Screen that shows neither folder…
+    sync([]);
+    expect(mocks.closedDirs).not.toContain("/ws/a");
+
+    // …and back: the same stream is still there, so nothing is rebuilt.
+    sync(["/ws/a"]);
+    expect(dirsBuilt()).toEqual(["/ws/a"]);
+    expect(mocks.closedDirs).not.toContain("/ws/a");
+  });
+
+  it("retires a stream that stays gone", () => {
+    vi.useFakeTimers();
+    try {
+      const sync = useRuntimeStore.getState().syncPaneStreams;
+      sync(["/ws/a"]);
+      sync([]);
+      vi.advanceTimersByTime(60_000);
+      expect(mocks.closedDirs).toContain("/ws/a");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Two live streams on one folder fold every event twice, so the foreground's
+  // own folder is still dropped the moment it is adopted — no grace period.
+  it("drops the foreground folder's background stream at once", () => {
+    const sync = useRuntimeStore.getState().syncPaneStreams;
+    sync(["/ws/a"]);
+    useRuntimeStore.setState({ workspace: "/ws/a" });
+    sync(["/ws/a"]);
+    expect(mocks.closedDirs).toContain("/ws/a");
   });
 });

@@ -112,6 +112,7 @@
     "currentDefault": "Aktueller Standard",
     "switching": "Wird gewechselt…",
     "unavailableDefault": "Konfiguriertes Modell nicht verfügbar: {{model}}",
+    "retiredDefault": "Vom Anbieter eingestellt: {{model}} wird nicht mehr bereitgestellt, jeder Durchlauf schlägt fehl. Unten ein anderes Modell wählen.",
     "catalogUnavailable": "Der Modellkatalog ist derzeit nicht verfügbar.",
     "catalogLoading": "Modellkatalog wird geladen…",
     "noModels": "Keine Modelle verfügbar.",
@@ -408,6 +409,7 @@
     "modelFor": "Modell für {{agent}}",
     "defaultEffort": "Standardaufwand",
     "effortFor": "Denkaufwand für {{agent}}",
+    "retiredOption": "{{model}} — nicht mehr verfügbar",
     "primaryHint": "build und plan führen die Nachrichten aus, die du sendest. Ein hier gesetztes Modell gilt, sofern du nicht innerhalb einer Unterhaltung eines wählst — das gewinnt nur dort."
   },
   "ssh": {

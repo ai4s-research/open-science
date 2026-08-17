@@ -382,7 +382,7 @@ export function NotebookEditor({
     <div className="flex h-full flex-col">
       <div
         className={cn(
-          "flex shrink-0 items-center border-b",
+          "flex shrink-0 select-none items-center border-b",
           compactHeader
             ? "h-8 gap-1 border-faint px-2.5"
             : "h-12 gap-2 border-border px-4",

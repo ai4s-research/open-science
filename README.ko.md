@@ -35,6 +35,7 @@ Formerly Open Science. Claude Science 및 유사한 AI-for-science 워크벤치�
 
 ## 소식
 
+- **2026-08-13** — 🔌 **Agent Client Protocol을 양방향으로 지원.** Codex, Gemini CLI, Claude Code 등 어떤 ACP 에이전트든 이 앱 안에서 — 그 에이전트 자신의 모델과 히스토리, 그리고 이 앱의 MCP 커넥터를 그대로 쓰면서 — 구동할 수 있고, 반대로 Zed, JetBrains, Neovim에서 Open Science를 구동할 수도 있습니다. *(v0.4.0)*
 - **2026-08-01** — 🗂️ **프로젝트, 메모리, 전체 히스토리.** 세션을 이름이 있는 프로젝트로 묶고(기존 저장소는 복사하지 않고 **그 자리에서** 가져옵니다), 에이전트에 전역·프로젝트 영속 메모리를 부여하며, 모든 과거 대화를 검색 가능한 히스토리에서 보관·복원·내보내기와 함께 찾을 수 있습니다. *(v0.3.1)*
 - **2026-07-24** — 🪟 **분할 페인 타일링.** 세션을 나란히 배치하고, 페인을 드래그해 재배치하며, 독립적인 화면을 여러 개 유지하고, 페인마다 다른 모델을 사용할 수 있습니다. *(v0.3.0)*
 - **2026-07-21** — 🌐 **어디서나 접속 — 심지어 휴대폰에서도.** 토큰 인증 게이트웨이가 *실제* 데스크톱 UI를 CLI, LAN 내 브라우저, 또는 휴대폰에 제공합니다(기본은 loopback, LAN은 선택적 활성화). 책상에서 실행을 시작하고 완성된 그림과 보고서를 휴대폰에서 확인하세요. *(v0.2.3)*
@@ -134,6 +135,7 @@ Formerly Open Science. Claude Science 및 유사한 AI-for-science 워크벤치�
 | 외관 | 테마별 강조색이 있는 Light / Warm / Dark 3종 테마와 UI 확대/축소. |
 | 파일 | 전역/세션 파일 탐색, 컨텍스트 메뉴, 외부 열기/표시, 경로 복사, 로컬 미리보기 서버. |
 | 원격 접속 | 실제 UI를 CLI, LAN 웹 브라우저, 또는 휴대폰에 제공하는 토큰 인증 게이트웨이(기본은 loopback, LAN은 선택적 활성화); 읽기 전용/전체 접근 모드; 토큰이 포함된 링크를 복사해 한 번의 탭으로 연결. API 키는 네트워크를 통해 전송되지 않습니다. |
+| 에디터 상호운용(ACP) | Agent Client Protocol을 양방향으로 지원합니다: 임의의 ACP 에이전트(Codex, Gemini CLI, Claude Code 등)를 일반 UI 뒤의 런타임으로 실행하면서 그 에이전트 자신의 모델·추론 강도 선택, 히스토리 재생, 이 앱의 MCP 커넥터를 그대로 사용하거나, 외부 에디터(Zed, JetBrains, Neovim 등)가 게이트웨이 토큰을 재사용해 Open Science를 구동하게 할 수 있습니다. |
 | 브라우저 제어 | 에이전트가 프로필과 로그인 상태가 보존된 당신의 Chrome을 조작해 접근성 트리로 페이지를 읽거나, 필요할 때 격리된/비공개 브라우저를 사용합니다. |
 | 노트북 | 실제 `.ipynb`, Python/R 노트북 생성, 로컬 커널 실행, 번들 `uv` 기반 Jupyter 환경, JupyterLab 열기. |
 | 실행 기록 | append-only run log, 전역 SQLite 인덱스, 검색/필터/페이지네이션, 로컬/원격 surface, 출력 링크, 로그, 재현 prompt. |
@@ -152,7 +154,7 @@ Formerly Open Science. Claude Science 및 유사한 AI-for-science 워크벤치�
 [Releases](https://github.com/ai4s-research/open-science/releases/latest)에서 최신 설치 파일을 받으세요.
 
 - **macOS**: `.dmg` / `.app`, Apple Silicon 및 Intel, macOS 13 Ventura 이상.
-- **Windows**: NSIS `.exe` 및 `.msi`, Windows 10/11 x64.
+- **Windows**: NSIS `.exe`, Windows 10/11 x64 — 사용자별로 설치되며 관리자 권한이 필요 없습니다. IT 일괄 배포용 `.msi`도 함께 제공하며, 두 형식을 섞어 설치하지 마세요.
 - **Linux**: x86_64용 `.deb` 및 `.rpm`.
 
 macOS 패키지는 Developer ID 서명·공증·스테이플이 완료되어 그대로 열립니다. `xattr` 우회는 필요하지 않습니다. Windows와 Linux 빌드는 아직 서명되지 않았습니다.
@@ -212,8 +214,8 @@ pnpm lint
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.3},
-  doi     = {10.5281/zenodo.21805331},
+  version = {0.4.2},
+  doi     = {10.5281/zenodo.21967622},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

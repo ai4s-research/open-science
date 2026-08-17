@@ -1,8 +1,9 @@
 import { memo, useState } from "react";
-import { Brain, ChevronRight, Loader2 } from "lucide-react";
+import { Brain, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ReasoningBlock } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
+import { RunningDot } from "./RunningDot";
 
 /**
  * The model's reasoning ("thinking"). It auto-expands and streams live while the
@@ -39,7 +40,7 @@ export const ReasoningRow = memo(function ReasoningRow({
         aria-expanded={open}
       >
         {streaming ? (
-          <Loader2 size={13} className="shrink-0 animate-spin text-muted/70" />
+          <RunningDot className="text-muted/70" />
         ) : (
           <Brain size={13} className="shrink-0 text-muted/60" />
         )}

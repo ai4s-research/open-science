@@ -18,11 +18,32 @@ export type ConfigureResult =
   | { ok: false; reason: "not-desktop" }
   | { ok: false; reason: "error"; message: string };
 
-/** Start the bundled OpenCode sidecar (desktop only). Returns its base URL. */
+/** Start the bundled OpenCode sidecar (desktop only). Returns its base URL.
+ *  Reuses a runtime it believes is running — see restartRuntime for when that
+ *  belief is wrong. */
 export async function startRuntime(): Promise<string | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<string>("start_runtime");
+}
+
+/** Epoch ms the current sidecar started, 0 when none is running. Used to tell
+ *  a turn that is streaming now from one left half-written by a runtime that
+ *  has since died — see `turnStillStreaming`. */
+export async function runtimeStartedAt(): Promise<number> {
+  if (!isTauri) return 0;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<number>("runtime_started_at");
+}
+
+/** Kill whatever sidecar is there and spawn a fresh one on a new port. For the
+ *  case startRuntime cannot fix: the process is alive but has stopped serving,
+ *  so nothing terminates, nothing clears the lifecycle, and reconnecting dials
+ *  a port that will never answer. Returns the new base URL. */
+export async function restartRuntime(): Promise<string | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("restart_runtime");
 }
 
 /**
@@ -56,6 +77,17 @@ export async function probeEndpointModels(
   if (!isTauri) return [];
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ProbedModel[]>("probe_endpoint_models", { baseUrl, apiKey, kind });
+}
+
+/**
+ * Model ids OpenCode Zen actually serves right now (desktop only — opencode.ai
+ * sends no CORS headers, so the request runs in Rust). Throws when the list
+ * cannot be fetched; callers must fail open rather than hide every model.
+ */
+export async function zenServedModelIds(): Promise<string[]> {
+  if (!isTauri) return [];
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string[]>("zen_models");
 }
 
 /**
@@ -107,7 +139,9 @@ export async function importOpenCodeLogin(): Promise<boolean> {
 
 /** How agent actions get approved — the composer's Codex-style switch.
  *  "approve": dangerous shell commands (delete / install / remote / privilege)
- *  and web fetches prompt first. "full": everything in-workspace just runs. */
+ *  and web fetches prompt first, as does any path outside the workspace except
+ *  the OS temp dirs. "full": nothing prompts, paths outside the workspace
+ *  included. */
 export type ApprovalMode = "approve" | "full";
 
 /** The approval mode OpenCode's config currently holds ("approve" until changed). */

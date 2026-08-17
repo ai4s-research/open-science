@@ -4,6 +4,7 @@ import {
   fallbackDefaultModel,
   filterModelOptions,
   flattenModelOptions,
+  selectableModelOptions,
   type ModelFilter,
 } from "./modelCatalog";
 
@@ -80,5 +81,51 @@ describe("fallbackDefaultModel", () => {
   it("has nothing to offer when no models exist", () => {
     expect(fallbackDefaultModel([], "openai/o3")).toBeNull();
     expect(fallbackDefaultModel([{ id: "empty", name: "Empty", models: [] }], "empty/x")).toBeNull();
+  });
+
+  it("leaves a retired default alone rather than switching the user's model for them", () => {
+    expect(fallbackDefaultModel(retiredProviders, "zen/dead")).toBeNull();
+  });
+
+  it("never re-points a dangling default at a retired model", () => {
+    expect(fallbackDefaultModel(retiredProviders, "zen/renamed-away")).toBe("zen/live");
+  });
+});
+
+// A provider that still advertises a model it no longer serves — Zen's actual
+// state for 19 of its 25 free models.
+const retiredProviders: ProviderInfo[] = [
+  {
+    id: "zen",
+    name: "Zen",
+    models: [
+      { id: "dead", name: "Dead", available: false },
+      { id: "live", name: "Live", available: true },
+    ],
+  },
+];
+
+describe("retired models", () => {
+  const retired = flattenModelOptions(retiredProviders);
+
+  it("reads a model with no availability info as available", () => {
+    expect(options.every((m) => m.available)).toBe(true);
+  });
+
+  it("keeps retired models out of every list a user picks from", () => {
+    expect(selectableModelOptions(retired).map((m) => m.key)).toEqual(["zen/live"]);
+    for (const filter of [
+      { kind: "all" } as ModelFilter,
+      { kind: "favorites" } as ModelFilter,
+      { kind: "recent" } as ModelFilter,
+      { kind: "provider", providerID: "zen" } as ModelFilter,
+    ]) {
+      const visible = filterModelOptions(retired, filter, "", ["zen/dead"], ["zen/dead"]);
+      expect(visible.map((m) => m.key)).not.toContain("zen/dead");
+    }
+  });
+
+  it("still resolves a retired model by key, so a configured one can be named", () => {
+    expect(retired.find((m) => m.key === "zen/dead")?.modelName).toBe("Dead");
   });
 });

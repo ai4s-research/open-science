@@ -123,4 +123,37 @@ describe("AgentModelsCard", () => {
     await waitFor(() => expect(setAgentModel).toHaveBeenCalledWith("reviewer", "anthropic/sonnet"));
     expect(setAgentVariant).not.toHaveBeenCalled();
   });
+
+  // A retired model is not a choice — but dropping it from the row that is
+  // pinned to it would leave the select with no matching value, so the browser
+  // would show "Default model" while the config still pins the dead one.
+  it("hides retired models, except in the row already pinned to one", async () => {
+    models.current = { reviewer: "opencode/glm-5-free" };
+    const withRetired: ProviderInfo[] = [
+      {
+        id: "opencode",
+        name: "OpenCode Zen",
+        models: [
+          { id: "hy3-free", name: "HY3", available: true },
+          { id: "glm-5-free", name: "GLM-5", available: false },
+        ],
+      },
+    ];
+    useRuntimeStore.setState({
+      agents: [{ name: "reviewer", mode: "subagent" }, { name: "plan", mode: "primary" }],
+    } as never);
+    render(<AgentModelsCard providers={withRetired} />);
+
+    const pinned = await screen.findByLabelText("Model for reviewer");
+    await waitFor(() => expect((pinned as HTMLSelectElement).value).toBe("opencode/glm-5-free"));
+    expect([...pinned.querySelectorAll("option")].map((o) => o.textContent)).toContain(
+      "opencode/glm-5-free — no longer served",
+    );
+
+    const other = screen.getByLabelText("Model for plan");
+    expect([...other.querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual([
+      "",
+      "opencode/hy3-free",
+    ]);
+  });
 });
