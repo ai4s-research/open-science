@@ -558,6 +558,20 @@ describe("historyToThread", () => {
     ]);
   });
 
+  it("explains a reloaded failure too — a restart is when the user knows least", () => {
+    const msgs: HistoryMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "hi" }] },
+      {
+        role: "assistant",
+        completed: 2,
+        error: "Free usage exceeded, subscribe to Go",
+        parts: [],
+      },
+    ];
+    const line = historyToThread(msgs).blocks.slice(-1)[0];
+    expect(line.kind === "status-line" && line.text).toMatch(/OpenCode Zen/);
+  });
+
   it("keeps user-interrupted turns quiet: an aborted error adds no red line", () => {
     const msgs: HistoryMessage[] = [
       { role: "user", parts: [{ type: "text", text: "hi" }] },
@@ -745,6 +759,60 @@ describe("runtime error explanations", () => {
     expect(out).toMatch(/tool call left without/i);
     expect(out).toMatch(/every retry resends/i);
     expect(out).toMatch(/new session/i);
+  });
+
+  it("names the provider behind a spent free allowance, from the runtime's own action", () => {
+    // #117: the final error text names no provider, so the cause has to come
+    // from the action the retry status carried. The reporter filed this as the
+    // app's own quota being used up.
+    const out = explainRuntimeError("Free usage exceeded", {
+      reason: "free_tier_limit",
+      provider: "opencode",
+    });
+    expect(out).toContain("Free usage exceeded"); // upstream's words survive
+    expect(out).toMatch(/OpenCode Zen/);
+    expect(out).toMatch(/not a quota in this app/i);
+    expect(out).toContain("Settings → Models");
+  });
+
+  it("does not claim Zen for another provider's spent allowance", () => {
+    const out = explainRuntimeError("Free usage exceeded", {
+      reason: "free_tier_limit",
+      provider: "some-gateway",
+    });
+    expect(out).toContain("some-gateway");
+    expect(out).not.toMatch(/Zen/);
+  });
+
+  it("reads Zen's own free-tier constant with no action to go by", () => {
+    // A reloaded history has no action — but this whole sentence is a constant
+    // of the runtime's (GO_UPSELL_MESSAGE), so it is proof of the provider.
+    expect(explainRuntimeError("Free usage exceeded, subscribe to Go")).toMatch(/OpenCode Zen/);
+    // The prefix alone is not proof, and inventing a provider would be a lie.
+    expect(explainRuntimeError("Free usage exceeded on this endpoint")).toBe(
+      "Free usage exceeded on this endpoint",
+    );
+  });
+
+  it("offers a way out of a plan limit instead of only its reset time", () => {
+    const out = explainRuntimeError(
+      "Weekly usage limit reached. It will reset in 3 days 2 hours - https://opencode.ai/workspace/w/go",
+    );
+    expect(out).toContain("Settings → Models");
+    expect(
+      explainRuntimeError("Overloaded", { reason: "account_rate_limit" }),
+    ).toContain("Settings → Models");
+  });
+
+  it("separates a request that never reached the provider from a provider error", () => {
+    const out = explainRuntimeError(
+      "Cannot connect to API: The socket connection was closed unexpectedly",
+    );
+    expect(out).toMatch(/did not reach the provider/i);
+    expect(out).toMatch(/VPN or proxy/i);
+    // Not a blanket match on the word "connect".
+    const other = "The provider could not connect to its own upstream";
+    expect(explainRuntimeError(other)).toBe(other);
   });
 
   it("keeps the dangling-model hint and passes anything else through", () => {

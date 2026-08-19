@@ -198,6 +198,7 @@
       "paused": "Pausiert — der Agent benötigt Ihre Antwort unten",
       "startingSession": "Die Sitzung wird in ihrem Ordner gestartet…",
       "retrying": "Anbieterfehler — neuer Versuch (Versuch {{attempt}})",
+      "limitReached": "Anbieterlimit erreicht — Warten hilft nicht",
       "working": "Arbeitet…",
       "step": "Schritt {{count}}"
     },

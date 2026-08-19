@@ -371,6 +371,60 @@ describe("agent artifact presentation targets", () => {
   });
 });
 
+describe("retry notices", () => {
+  it("keeps the account-state action, and drops the notice on the next sign of life", () => {
+    // The action is what lets the pane say "waiting will not help" instead of
+    // "retrying (attempt 1)" for a spent allowance (#117).
+    mocks.fireEvent({
+      type: "session.retry",
+      sessionId: "ses_quota",
+      attempt: 1,
+      message: "Free usage exceeded, subscribe to Go",
+      nextAt: 0,
+      action: { reason: "free_tier_limit", provider: "opencode", link: "https://opencode.ai/go" },
+    });
+    expect(useRuntimeStore.getState().retryNotices["ses_quota"]).toMatchObject({
+      attempt: 1,
+      action: { reason: "free_tier_limit", provider: "opencode" },
+    });
+
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_quota" });
+    expect(useRuntimeStore.getState().retryNotices["ses_quota"]).toBeUndefined();
+  });
+
+  it("carries no action for an ordinary provider failure", () => {
+    mocks.fireEvent({
+      type: "session.retry",
+      sessionId: "ses_flaky",
+      attempt: 2,
+      message: "overloaded",
+      nextAt: 0,
+    });
+    expect(useRuntimeStore.getState().retryNotices["ses_flaky"]?.action).toBeUndefined();
+  });
+
+  it("the red line the turn ends on inherits the cause the notice named", async () => {
+    // The attempts run out and the failure arrives as a plain session error
+    // whose text names no provider. The action from the last retry is the only
+    // record of WHY, and it is about to be thrown away with the notice (#117).
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({
+      type: "session.retry",
+      sessionId: "ses_new",
+      attempt: 5,
+      message: "Free usage exceeded",
+      nextAt: 0,
+      action: { reason: "free_tier_limit", provider: "opencode" },
+    });
+    mocks.fireEvent({ type: "error", sessionId: "ses_new", message: "Free usage exceeded" });
+
+    const last = useRuntimeStore.getState().threads["ses_new"].blocks.slice(-1)[0];
+    expect(last).toMatchObject({ kind: "status-line", tone: "error" });
+    expect(last.kind === "status-line" && last.text).toMatch(/OpenCode Zen/);
+    expect(useRuntimeStore.getState().retryNotices["ses_new"]).toBeUndefined();
+  });
+});
+
 describe("runtime authentication", () => {
   it("deduplicates concurrent bootstrap calls", async () => {
     const first = useRuntimeStore.getState().bootstrap();

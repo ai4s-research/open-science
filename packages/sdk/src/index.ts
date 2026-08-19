@@ -9,6 +9,8 @@ export {
   type ToolUpdatedEvent,
   type SessionIdleEvent,
   type RuntimeErrorEvent,
+  type SessionRetryEvent,
+  type RetryAction,
   type OpenCodeClientOptions,
   type RuntimeStatus,
   type ToolCallStatus,

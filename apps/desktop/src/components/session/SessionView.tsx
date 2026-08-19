@@ -54,6 +54,10 @@ import { cn } from "@/lib/cn";
 type ThreadBlocks = NonNullable<ReturnType<typeof useRuntimeStore.getState>["threads"][string]>["blocks"];
 type ToolCallBlock = Extract<ThreadBlocks[number], { kind: "tool-call" }>;
 
+/** Retry causes that no number of attempts can clear — the account, not the
+ *  call, is what failed. Every other cause is reported as an ordinary retry. */
+const LIMIT_REASONS = new Set(["free_tier_limit", "account_rate_limit"]);
+
 /** The newest still-running tool step, or undefined. Allocation-free: a live
  *  pane re-derives this on every render, so it must not copy the block list. */
 function findLastRunningTool(blocks?: ThreadBlocks): ToolCallBlock | undefined {
@@ -793,7 +797,15 @@ export function SessionView({
                   {activeRequest
                     ? t("live.status.paused")
                     : retryNotice
-                      ? t("live.status.retrying", { attempt: Math.max(1, retryNotice.attempt) })
+                      ? // A spent allowance or a reached plan limit does not
+                        // resolve by waiting, so it must not be labelled as a
+                        // retry the user should sit through (#117). Only these
+                        // two: another cause the runtime may name later could
+                        // well be transient, and "waiting will not help" would
+                        // then be our own invention.
+                        LIMIT_REASONS.has(retryNotice.action?.reason ?? "")
+                        ? t("live.status.limitReached")
+                        : t("live.status.retrying", { attempt: Math.max(1, retryNotice.attempt) })
                       : sending && !eid
                         ? t("live.status.startingSession")
                         : t("live.status.working")}
@@ -804,7 +816,22 @@ export function SessionView({
                   </span>
                 )}
                 {!activeRequest && retryNotice && (
-                  <span className="truncate font-mono text-xs text-warn" title={retryNotice.message}>
+                  <span
+                    className="truncate font-mono text-xs text-warn"
+                    // The provider whose call failed, the runtime's own
+                    // actionable sentence and its link all belong to this
+                    // notice, and only the hover text has room for them. The
+                    // line itself stays the bare message: the provider id
+                    // ("opencode" for Zen) would read as the app on one line.
+                    title={[
+                      retryNotice.action?.provider,
+                      retryNotice.message,
+                      retryNotice.action?.message,
+                      retryNotice.action?.link,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  >
                     {retryNotice.message}
                   </span>
                 )}

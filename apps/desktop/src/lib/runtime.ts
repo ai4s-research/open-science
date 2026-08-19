@@ -12,6 +12,7 @@ import {
   type PermissionReply,
   type ProviderInfo,
   type QuestionAskedEvent,
+  type RetryAction,
   type SessionMeta,
   type SkillInfo,
   type ToolCallStatus,
@@ -81,7 +82,7 @@ import {
 import { isGoalInjectedPrompt } from "./goalPrompts";
 import { notifyPermissionRequest } from "./systemNotification";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
-import { listProvidersWithAvailability } from "./zenModels";
+import { listProvidersWithAvailability, ZEN_PROVIDER_ID } from "./zenModels";
 import { toast } from "@/lib/toast";
 import i18n from "@/i18n";
 
@@ -360,11 +361,13 @@ interface RuntimeState {
    *  output shows inline in the thread — the output IS the result the user
    *  asked for. Agent bash steps stay quiet single-line log entries. */
   shellTurns: Record<string, true>;
-  /** Sessions whose model call failed and is being retried server-side —
-   *  OpenCode backs off with no attempt cap, so this is what keeps a broken
-   *  provider from looking like a silent "Working…" forever. Cleared by the
-   *  session's next sign of life (stream events, idle, error). */
-  retryNotices: Record<string, { attempt: number; message: string }>;
+  /** Sessions whose model call failed and is being retried server-side — this
+   *  is what keeps a broken provider from looking like a silent "Working…".
+   *  Cleared by the session's next sign of life (stream events, idle, error).
+   *  `action` is present when the runtime recognised an account-state cause
+   *  (a spent free allowance, a plan limit): the attempts will run out without
+   *  it changing, so the UI must not call that "retrying" and leave it there. */
+  retryNotices: Record<string, { attempt: number; message: string; action?: RetryAction }>;
   /** Epoch ms the current sidecar started; 0 until known. Anything stored
    *  before it cannot be in flight now. */
   runtimeStartedAt: number;
@@ -873,12 +876,35 @@ export function redactForLog(message: string): string {
   return redacted.length > LOG_ERROR_MAX ? `${redacted.slice(0, LOG_ERROR_MAX)}…` : redacted;
 }
 
+/** How to name the provider an account-state failure belongs to. Zen is the
+ *  built-in one and its id says nothing to the person who never chose it. */
+function providerLabel(provider: string | undefined): string {
+  if (!provider) return "the provider";
+  return provider === ZEN_PROVIDER_ID ? "OpenCode Zen, the runtime's built-in provider" : provider;
+}
+
 /**
  * A runtime error with the one thing the user cannot work out alone appended.
  * Only for failures whose text is accurate but leaves no way forward — the
  * provider's own wording is always kept, never replaced.
+ *
+ * `action` is what the runtime said about the last failed attempt, when it said
+ * anything (see RetryAction). It is the only trustworthy source for WHICH
+ * provider ran out: the final error text names none, so matching text alone can
+ * only speak for messages that are provably one provider's (#117).
  */
-export function explainRuntimeError(message: string): string {
+export function explainRuntimeError(message: string, action?: RetryAction): string {
+  // Known cause, straight from the runtime — no guessing from wording.
+  if (action?.reason === "free_tier_limit") {
+    return (
+      `${message} — the free allowance of ${providerLabel(action.provider)} is spent for this ` +
+      `account; this is not a quota in this app. Pick a model from a provider you have your own ` +
+      `key for in Settings → Models, or add credits.`
+    );
+  }
+  if (action?.reason === "account_rate_limit") {
+    return `${message} — until it resets, pick a model from another provider in Settings → Models.`;
+  }
   // A dangling default model (its provider removed or renamed) fails every send
   // the same way — point at where the fix lives.
   if (/model not found/i.test(message)) {
@@ -906,6 +932,27 @@ export function explainRuntimeError(message: string): string {
       `${message} The stored history of this session is malformed — usually a tool call left without ` +
       `its result — and every retry resends it, so this session will keep failing. Edit or delete the ` +
       `last few messages to cut the damaged part out, or start a new session.`
+    );
+  }
+  // The same two causes with no action to go by — a reloaded history, or an
+  // error that arrived without one. Zen's free-tier message is a constant of the
+  // runtime's own (`GO_UPSELL_MESSAGE`), so the whole sentence is proof of which
+  // provider it is about; "free usage exceeded" alone would not be, and naming
+  // Zen on some other provider's wording would be a confident lie. The reporter
+  // of #117 filed this as the app's own quota being used up.
+  if (/free usage exceeded, subscribe to go/i.test(message)) {
+    return explainRuntimeError(message, { reason: "free_tier_limit", provider: ZEN_PROVIDER_ID });
+  }
+  if (/usage limit reached/i.test(message)) {
+    return explainRuntimeError(message, { reason: "account_rate_limit" });
+  }
+  // The request never reached the provider: a DNS failure, a dropped TLS
+  // connection, a VPN or proxy closing the socket. Distinct from a provider
+  // error, and the user is the only one who can act on it.
+  if (/^cannot connect to api\b/i.test(message.trim())) {
+    return (
+      `${message} The request did not reach the provider — check your network, VPN or proxy. ` +
+      `The runtime already retried a few times before reporting this.`
     );
   }
   return message;
@@ -2347,7 +2394,16 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           return;
         }
         if (sid && interruptedSessions.has(sid)) return;
-        const message = explainRuntimeError(event.message);
+        // The retry notice this session is carrying (about to be cleared below)
+        // is the only place the CAUSE was ever named: the final error text says
+        // what failed, the action said why the account could not make the call.
+        // Any streamed output between the last attempt and the failure would
+        // have cleared the notice first; the two causes that set an action are
+        // both refused before a token is produced, so that window stays shut.
+        const message = explainRuntimeError(
+          event.message,
+          sid ? get().retryNotices[sid]?.action : undefined,
+        );
         if (sid) {
           // This path ends the turn instead of session.idle (and returns before
           // the fold), so it owes the same auto-review bookkeeping: a turn that
@@ -2443,7 +2499,11 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           set((s) => ({
             retryNotices: {
               ...s.retryNotices,
-              [event.sessionId]: { attempt: event.attempt, message: event.message },
+              [event.sessionId]: {
+                attempt: event.attempt,
+                message: event.message,
+                ...(event.action ? { action: event.action } : {}),
+              },
             },
           }));
           return;
@@ -4200,7 +4260,9 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
       // empty reply followed by "done" explains nothing. User-interrupted
       // turns are not errors; the trailing "Interrupted" line covers those.
       if (m.error && !/abort/i.test(m.error)) {
-        blocks.push({ kind: "status-line", text: m.error, tone: "error" });
+        // Same explanation the live line got: a restart is exactly when the user
+        // no longer has the context to work out what to do about it.
+        blocks.push({ kind: "status-line", text: explainRuntimeError(m.error), tone: "error" });
       }
       shellTurn = false;
     }

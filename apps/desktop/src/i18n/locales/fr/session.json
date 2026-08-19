@@ -198,6 +198,7 @@
       "paused": "En pause — l'agent attend votre réponse ci-dessous",
       "startingSession": "Démarrage de la session dans son dossier…",
       "retrying": "Erreur du fournisseur — nouvelle tentative (essai {{attempt}})",
+      "limitReached": "Limite du fournisseur atteinte — attendre n'y changera rien",
       "working": "En cours…",
       "step": "étape {{count}}"
     },

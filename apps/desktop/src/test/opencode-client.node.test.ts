@@ -241,13 +241,15 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     await client.sendPrompt(sessionId, "flaky provider call");
     await waitFor(() => events.some((e) => e.type === "session.idle"));
 
-    // The server-side retry loop is unbounded — its status events are the only
-    // sign of life while every attempt fails, so they must reach the app.
-    expect(events.find((e) => e.type === "session.retry")).toMatchObject({
+    // The status events are the only sign of life while every attempt fails, so
+    // they must reach the app. An ordinary provider failure carries no `action`.
+    const retry = events.find((e) => e.type === "session.retry");
+    expect(retry).toMatchObject({
       sessionId,
       attempt: 2,
       message: "no channel available for this model",
     });
+    expect(retry && "action" in retry ? retry.action : undefined).toBeUndefined();
     expect(events.find((e) => e.type === "error")).toMatchObject({
       sessionId,
       message: "no channel available for this model",
@@ -258,6 +260,30 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     const last = messages[messages.length - 1];
     expect(last.role).toBe("assistant");
     expect(last.error).toBe("no channel available for this model");
+    client.close();
+  });
+
+  it("carries the account-state action a retry status names, not just its message", async () => {
+    // Without the action, "the free allowance is spent" and "the provider
+    // hiccuped" are the same event to the app, and it can only offer to wait
+    // out a condition that no number of attempts will change (#117).
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+    await client.sendPrompt(sessionId, "a turn that is out of quota");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    expect(events.find((e) => e.type === "session.retry")).toMatchObject({
+      sessionId,
+      message: "Free usage exceeded, subscribe to Go",
+      action: {
+        reason: "free_tier_limit",
+        provider: "opencode",
+        link: "https://opencode.ai/go",
+      },
+    });
     client.close();
   });
 

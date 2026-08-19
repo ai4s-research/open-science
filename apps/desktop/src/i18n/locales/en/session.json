@@ -198,6 +198,7 @@
       "paused": "Paused — the agent needs your answer below",
       "startingSession": "Starting the session in its folder…",
       "retrying": "Provider error — retrying (attempt {{attempt}})",
+      "limitReached": "Provider limit reached — waiting will not help",
       "working": "Working…",
       "step": "step {{count}}"
     },

@@ -15,6 +15,7 @@ import type {
   ProviderInfo,
   QuestionAskedEvent,
   PermissionAskedEvent,
+  RetryAction,
   SessionMeta,
   SessionPage,
   SessionQuery,
@@ -94,6 +95,22 @@ function errorText(error: unknown): string | undefined {
   const err = error as { name?: string; message?: string; data?: { message?: string } } | undefined;
   const full = err?.data?.message ?? err?.message ?? err?.name;
   return typeof full === "string" && full ? full.split("\n")[0] : undefined;
+}
+
+/** The `action` a retry status may carry, kept only when it has the one field
+ *  the app decides anything on. Every other field is optional and passed
+ *  through as-is when it is a string, so a runtime that adds one loses
+ *  nothing and a runtime that renames one cannot inject a non-string. */
+function retryAction(raw: unknown): RetryAction | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const it = raw as Record<string, unknown>;
+  if (typeof it.reason !== "string" || !it.reason) return undefined;
+  const action: RetryAction = { reason: it.reason };
+  for (const field of ["provider", "title", "message", "label", "link"] as const) {
+    const value = it[field];
+    if (typeof value === "string" && value) action[field] = value;
+  }
+  return action;
 }
 
 /** OpenCode's own token shape on an assistant message (both in history and on
@@ -1587,21 +1604,34 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         break;
       }
       case "session.status": {
-        // A failed model call being retried server-side. OpenCode's retry
-        // policy has NO attempt cap (exponential backoff only), so these are
-        // the ONLY sign of life while a broken provider fails every attempt —
-        // dropping them leaves the UI on a bare "Working…" forever. ("busy"
-        // and "idle" statuses carry nothing session.idle doesn't already.)
+        // A failed model call being retried server-side: the ONLY sign of life
+        // while a broken provider fails every attempt, so dropping these leaves
+        // the UI on a bare "Working…". ("busy" and "idle" statuses carry
+        // nothing session.idle doesn't already.)
+        //
+        // `action` rides the same payload and is the difference between "the
+        // provider hiccuped" and "this account cannot make this call at all"
+        // (Zen's free allowance spent, a Go plan's limit reached). Keeping only
+        // the message throws that away and leaves the app free to call a
+        // terminal condition a retry.
         const status = props.status as
-          | { type?: string; attempt?: number; message?: string; next?: number }
+          | {
+              type?: string;
+              attempt?: number;
+              message?: string;
+              next?: number;
+              action?: Record<string, unknown>;
+            }
           | undefined;
         if (status?.type !== "retry") break;
+        const action = retryAction(status.action);
         this.emit({
           type: "session.retry",
           sessionId: String(props.sessionID ?? ""),
           attempt: status.attempt ?? 0,
           message: status.message ?? "provider error",
           nextAt: status.next ?? 0,
+          ...(action ? { action } : {}),
         });
         break;
       }

@@ -198,6 +198,7 @@
       "paused": "已暂停——代理需要您在下方回答",
       "startingSession": "正在其文件夹中启动会话…",
       "retrying": "服务商报错——正在重试（第 {{attempt}} 次）",
+      "limitReached": "已达服务商额度上限——等待无法解决",
       "working": "正在处理…",
       "step": "第 {{count}} 步"
     },
