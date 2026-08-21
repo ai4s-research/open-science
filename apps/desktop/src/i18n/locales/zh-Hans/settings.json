@@ -242,6 +242,7 @@
     "couldNotSetModel": "无法设置模型",
     "defaultModelSet": "默认模型已设置为 {{model}}",
     "defaultModelReset": "默认模型 {{old}} 已不可用——已切换为 {{model}}",
+    "configRebuilt": "无法读取代理运行时的设置文件，已将其移至 {{path}} 并重建。服务商与 MCP 服务器可能需要重新添加。",
     "couldNotSaveKey": "无法保存密钥",
     "providerConnected": "{{providerID}} 已连接",
     "couldNotStartLogin": "无法开始登录",

@@ -242,6 +242,7 @@
     "couldNotSetModel": "모델을 설정할 수 없습니다",
     "defaultModelSet": "기본 모델이 {{model}}로 설정되었습니다",
     "defaultModelReset": "기본 모델 {{old}}을(를) 더 이상 사용할 수 없어 {{model}}(으)로 전환했습니다",
+    "configRebuilt": "에이전트 런타임 설정 파일을 읽을 수 없어 {{path}}(으)로 옮기고 새로 만들었습니다. 제공자와 MCP 서버를 다시 추가해야 할 수 있습니다.",
     "couldNotSaveKey": "키를 저장할 수 없습니다",
     "providerConnected": "{{providerID}} 연결됨",
     "couldNotStartLogin": "로그인을 시작할 수 없습니다",

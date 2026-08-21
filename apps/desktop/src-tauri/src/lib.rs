@@ -153,6 +153,8 @@ pub fn run() {
             runtime::workspace_skill_names,
             runtime::adopt_workspace_skills,
             runtime::import_opencode_login,
+            runtime::runtime_failure,
+            runtime::take_config_quarantine_notice,
             model_probe::probe_endpoint_models,
             model_probe::zen_models,
             runtime::provider_auth_exists,

@@ -24,6 +24,14 @@ struct RuntimeLifecycle {
     /// matches, so a late exit from an already-replaced sidecar cannot wipe
     /// the live one.
     generation: u64,
+    /// How many sidecars have exited, and what the last one said. A sidecar
+    /// that exits is a different failure from one that is merely slow to
+    /// listen, and only this side can tell them apart — so the reconnect loop
+    /// reads it instead of spawning a doomed process a hundred times, and the
+    /// UI can name the cause instead of "could not open the event stream"
+    /// (#118).
+    exits: u64,
+    last_failure: Option<String>,
 }
 
 /// One lock owns every sidecar lifecycle field. Keeping child/url/port in
@@ -32,6 +40,20 @@ struct RuntimeLifecycle {
 #[derive(Default)]
 pub struct RuntimeState {
     lifecycle: Mutex<RuntimeLifecycle>,
+    /// The tail of what the running sidecar wrote to stderr. A process that
+    /// refuses to start says why there and then exits, so without this the exit
+    /// status alone ("exit code 1") explains nothing — and it takes more than
+    /// one LINE: the runtime prints a headline plus the detail under it.
+    stderr_tail: Mutex<Vec<String>>,
+}
+
+/// A sidecar that exited: how many have, and the last one's own words. None
+/// until one does. The count is what separates "slow to boot" from "will never
+/// boot" — see `RuntimeLifecycle::exits`.
+pub fn runtime_failure(state: &RuntimeState) -> Option<(u64, String)> {
+    let lifecycle = state.lifecycle.lock().ok()?;
+    let message = lifecycle.last_failure.clone()?;
+    Some((lifecycle.exits, message))
 }
 
 /// App-private runtime root, e.g. ~/Library/Application Support/com.ai4s.workbench/runtime
@@ -178,6 +200,119 @@ fn effective_config_file(env: &Env) -> Result<PathBuf, String> {
         .map(|n| dir.join(n))
         .find(|p| p.exists())
         .unwrap_or_else(|| dir.join("opencode.json")))
+}
+
+/// Write a file the way a config has to be written: a temp file beside it, then
+/// a rename over the target.
+///
+/// `fs::write` truncates first and writes second, so anything that interrupts it
+/// between the two — the process being killed, a full disk, a Windows scanner
+/// holding the handle — leaves a TRUNCATED file behind. For the OpenCode config
+/// that is fatal and permanent: the runtime refuses to start on a config it
+/// cannot parse (measured: it exits with `Config file … is not valid JSON(C)`),
+/// and this app then respawns it forever. That was invisible until v0.5.0
+/// because v0.4.2 silently replaced any config it could not parse — losing the
+/// user's providers, MCP servers and approval mode, which is the data loss #116
+/// fixed (#118).
+///
+/// The rename is atomic on both platforms we ship to: POSIX replaces, and
+/// Windows' `MoveFileEx` with `MOVEFILE_REPLACE_EXISTING` (what `fs::rename`
+/// uses) replaces too. A reader therefore sees either the old file or the new
+/// one, never a half of either.
+pub fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    let dir = path.parent().ok_or("config path has no parent directory")?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    // Same directory, so the rename never crosses a filesystem — and unique per
+    // call, so two writers cannot land on each other's temp file.
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("config");
+    let tmp = dir.join(format!(".{name}.{}.tmp", random_hex(8)));
+    let write = || -> std::io::Result<()> {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(contents.as_bytes())?;
+        // Without this the rename can be durable while the CONTENT is not, which
+        // on a power loss is the same truncated file by another route.
+        file.sync_all()
+    };
+    if let Err(e) = write() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
+
+/// Quarantine EVERY config file the runtime would choke on, not just the one
+/// this app edits.
+///
+/// Measured against the pinned runtime: with both `opencode.json` and
+/// `opencode.jsonc` present it reads and MERGES them, so one unreadable file
+/// stops the runtime whichever name it has — while `effective_config_file`
+/// names only the one we would write to (#118).
+fn quarantine_unreadable_configs(env: &Env) -> Vec<PathBuf> {
+    let Ok(dir) = xdg_config_home(env).map(|d| d.join("opencode")) else {
+        return Vec::new();
+    };
+    ["opencode.json", "opencode.jsonc"]
+        .iter()
+        .filter_map(|name| quarantine_unreadable_config(env, &dir.join(name)))
+        .collect()
+}
+
+/// Move a config the runtime would refuse to start on out of the way, and leave
+/// an empty one in its place for the startup sequence to re-seed.
+///
+/// The file is never deleted — its bytes are the user's providers and keys, and
+/// the point of #116 was to stop destroying them. It is renamed to
+/// `<name>.broken-<epoch-ms>` and a note is left for the UI, so the user can
+/// see what happened and recover anything from it by hand. Doing nothing (0.5.0)
+/// leaves the app unable to start at all, which is worse than either.
+///
+/// Returns the quarantined path when it acted. A config that parses, or no
+/// config at all, is left completely alone.
+fn quarantine_unreadable_config(env: &Env, path: &Path) -> Option<PathBuf> {
+    let existing = std::fs::read_to_string(path).ok()?;
+    if existing.trim().is_empty() || crate::opencode_config::config_is_readable(&existing) {
+        return None;
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("opencode.json");
+    let aside = path.with_file_name(format!("{name}.broken-{}", now_ms()));
+    std::fs::rename(path, &aside).ok()?;
+    // An empty file, not a stub: every setting this app owns is re-seeded by the
+    // startup sequence that runs right after (permission mode, plugins,
+    // compaction, memory, the browser MCP server), so an empty config comes back
+    // fully formed rather than half-configured.
+    let _ = write_atomic(path, "{}\n");
+    let _ = write_atomic(
+        &config_quarantine_notice_file(env)?,
+        &aside.to_string_lossy(),
+    );
+    crate::debug_log::append(
+        env,
+        &format!(
+            "[config] unreadable config moved to {} and rebuilt — the runtime would not start on it",
+            aside.display()
+        ),
+    );
+    Some(aside)
+}
+
+/// Where the note about a quarantined config waits for the UI to pick it up.
+fn config_quarantine_notice_file(env: &Env) -> Option<PathBuf> {
+    Some(runtime_root(env).ok()?.join("config-quarantine.txt"))
+}
+
+/// The quarantined config's path, once, then forget it: the user is told when it
+/// happens, not on every launch afterwards.
+pub fn take_config_quarantine_notice(env: &Env) -> Option<String> {
+    let path = config_quarantine_notice_file(env)?;
+    let note = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    let note = note.trim().to_string();
+    (!note.is_empty()).then_some(note)
 }
 
 /// The user's existing OpenCode auth file (their login / free credits), if any.
@@ -1232,16 +1367,18 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     deploy_workbench_tools(env);
     // The reviewer agent and its commands, same profile, same refresh-on-start.
     deploy_profile_prompts(env);
+    // A config neither side can read stops the runtime from starting at all, so
+    // it has to be dealt with BEFORE the seeding below — which would otherwise
+    // all decline to touch it and leave the app respawning a process that exits
+    // every time (#118). The file is moved aside, never deleted.
+    quarantine_unreadable_configs(env);
+    let cfg_file = effective_config_file(env)?;
     // Safety default (AGENTS.md non-negotiable): on first run, seed the
     // "approve" permission mode so dangerous shell commands prompt for
     // approval. A mode the user chose (approve or full) is never overridden.
-    let cfg_file = effective_config_file(env)?;
     let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
     if let Some(seeded) = crate::opencode_config::seed_default_permission(&existing) {
-        if let Some(dir) = cfg_file.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&cfg_file, seeded).map_err(|e| e.to_string())?;
+        write_atomic(&cfg_file, &seeded)?;
     }
     // Installs that chose a mode before this app wrote any `external_directory`
     // rules kept OpenCode's builtin ask on every path outside the workspace —
@@ -1249,13 +1386,13 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     // never re-seeded. Back-fill once; it is additive and idempotent.
     let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
     if let Some(migrated) = crate::opencode_config::migrate_external_directory(&existing) {
-        std::fs::write(&cfg_file, migrated).map_err(|e| e.to_string())?;
+        write_atomic(&cfg_file, &migrated)?;
     }
     // Same reason, same one-time shape: approve mode gained a browser ask rule
     // after these installs picked their mode.
     let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
     if let Some(migrated) = crate::opencode_config::migrate_browser_permission(&existing) {
-        std::fs::write(&cfg_file, migrated).map_err(|e| e.to_string())?;
+        write_atomic(&cfg_file, &migrated)?;
     }
     // Rename the legacy browser MCP id, then hide the incompatible user skill
     // with that old name while the official connector is configured.
@@ -1263,7 +1400,7 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     let close_legacy_browser =
         crate::opencode_config::browser_uses_legacy_namespace(&existing);
     if let Some(migrated) = crate::opencode_config::migrate_browser_integration(&existing) {
-        std::fs::write(&cfg_file, migrated).map_err(|e| e.to_string())?;
+        write_atomic(&cfg_file, &migrated)?;
         if close_legacy_browser {
             close_legacy_agent_browser();
         }
@@ -1280,7 +1417,7 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
         if let Some(updated) =
             crate::opencode_config::ensure_browser_mcp_proxy(&existing, &proxy, &agent)
         {
-            std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+            write_atomic(&cfg_file, &updated)?;
         }
     }
     // Long conversations must not die on "Input exceeds context window" (#62):
@@ -1291,7 +1428,7 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     {
         let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
         if let Some(updated) = crate::opencode_config::seed_compaction(&existing) {
-            std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+            write_atomic(&cfg_file, &updated)?;
         }
         let global_memory = global_memory_file(env)?.to_string_lossy().replace('\\', "/");
         let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
@@ -1304,7 +1441,7 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
             if let Some(updated) =
                 crate::opencode_config::set_memory_enabled(&existing, &global_memory, true)
             {
-                std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+                write_atomic(&cfg_file, &updated)?;
             }
         }
     }
@@ -1315,7 +1452,7 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
         let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
         let path_str = plugin_path.to_string_lossy().replace('\\', "/");
         if let Some(updated) = crate::opencode_config::ensure_goal_plugin(&existing, &path_str) {
-            std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+            write_atomic(&cfg_file, &updated)?;
         }
     }
     // Browser launch/session policy is an app invariant, not a model hint.
@@ -1325,7 +1462,7 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
         if let Some(updated) =
             crate::opencode_config::ensure_browser_guard_plugin(&existing, &path_str)
         {
-            std::fs::write(&cfg_file, updated).map_err(|e| e.to_string())?;
+            write_atomic(&cfg_file, &updated)?;
         }
     }
     // Secrets live under the runtime root (provider/connector keys in
@@ -1410,6 +1547,21 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
                 }
                 let status = lifecycle.child.take().and_then(|mut c| c.wait().ok());
                 lifecycle.url = None;
+                // What the process said on its way out, kept where the UI and
+                // the reconnect loop can reach it. A config the runtime refuses
+                // to start on says so here and nowhere else the user will look
+                // (#118); without it every cause reads as "no event stream".
+                lifecycle.exits += 1;
+                let said = env
+                    .runtime()
+                    .stderr_tail
+                    .lock()
+                    .ok()
+                    .and_then(|tail| reason_from_stderr(&tail));
+                lifecycle.last_failure = Some(match said {
+                    Some(line) => line,
+                    None => format!("the agent runtime {}", describe_exit(status)),
+                });
                 status
             };
             crate::debug_log::append(
@@ -1419,6 +1571,59 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
         });
     }
     Ok(child)
+}
+
+/// How much of a dying sidecar's stderr to keep. Enough for a headline and the
+/// detail lines under it, few enough that a chatty process cannot turn the
+/// reason into a wall of unrelated log.
+const STDERR_TAIL_LINES: usize = 8;
+
+/// The reason a sidecar died, composed from the tail of its stderr.
+///
+/// Not simply the last line: the runtime prints a headline and then indents the
+/// detail beneath it, so the last line alone is a fragment — measured against
+/// the real binary, a config with a wrong type yields
+/// `Error: Configuration is invalid at <path>` followed by
+/// `↳ Expected string | undefined, got 123  model`, and only the pair is
+/// actionable. So the message runs from the last headline to the end, and falls
+/// back to the last line when nothing announced itself as an error.
+fn reason_from_stderr(tail: &[String]) -> Option<String> {
+    const MAX: usize = 500;
+    let start = tail
+        .iter()
+        .rposition(|l| l.to_lowercase().starts_with("error"))
+        .unwrap_or(tail.len().saturating_sub(1));
+    let joined = tail.get(start..)?.join(" ").trim().to_string();
+    if joined.is_empty() {
+        return None;
+    }
+    Some(match joined.char_indices().nth(MAX) {
+        Some((cut, _)) => format!("{}…", &joined[..cut]),
+        None => joined,
+    })
+}
+
+/// Drop ANSI CSI escape sequences (`ESC [ … final-byte`), leaving the text.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        if chars.peek() == Some(&'[') {
+            chars.next();
+            // Parameter/intermediate bytes run until a byte in @..~ ends it.
+            while let Some(&next) = chars.peek() {
+                chars.next();
+                if ('\u{40}'..='\u{7e}').contains(&next) {
+                    break;
+                }
+            }
+        }
+    }
+    out.trim().to_string()
 }
 
 /// Read a sidecar's stderr to EOF, one log line at a time.
@@ -1439,9 +1644,19 @@ fn drain_stderr<R: std::io::Read>(env: &Env, stderr: R) {
     let mut pending: Vec<u8> = Vec::new();
     let emit = |bytes: &[u8]| {
         let line = String::from_utf8_lossy(bytes);
-        let line = line.trim();
+        // Terminal colour codes are how the runtime formats its own errors; they
+        // belong in a log, not in a sentence shown to the user.
+        let line = strip_ansi(line.trim());
         if !line.is_empty() {
             crate::debug_log::append(env, &format!("[opencode] {line}"));
+            // Kept for the exit watcher: what a dying process last wrote is
+            // the reason it is dying.
+            if let Ok(mut tail) = env.runtime().stderr_tail.lock() {
+                tail.push(line);
+                while tail.len() > STDERR_TAIL_LINES {
+                    tail.remove(0);
+                }
+            }
         }
     };
     loop {
@@ -1789,6 +2004,7 @@ mod tests {
         workspace_skill_dirs,
     };
     use std::fs;
+    use std::path::PathBuf;
 
     /// The rule stated above `quiet_command`, enforced. A raw `Command::new` in
     /// shipped code opens a console window on Windows — 0.4.0 shipped one that
@@ -1856,6 +2072,362 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+
+    /// A temp runtime profile: returns (env, dir). The caller removes the dir.
+    fn temp_env(tag: &str) -> (crate::env::Env, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("os-{tag}-{}-{}", std::process::id(), random_hex(4)));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        (
+            crate::env::Env::new(dir.clone(), dir.join("res"), None, "0.0.0".into()),
+            dir,
+        )
+    }
+
+    /// The whole point of the atomic write: a reader never sees a partial file,
+    /// and the previous contents are replaced rather than truncated in place.
+    /// `fs::write` truncates first, so an interrupted write leaves a file the
+    /// agent runtime refuses to start on — and the app then respawns it forever
+    /// (#118).
+    #[test]
+    fn write_atomic_replaces_and_leaves_no_temp_file() {
+        let (_env, dir) = temp_env("atomic");
+        let path = dir.join("nested").join("opencode.json");
+        super::write_atomic(&path, "{\"a\":1}").expect("creates the parent directory");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"a\":1}");
+
+        // The mechanism, not just the result: a rename puts a NEW file at the
+        // path, while `fs::write` truncates the existing one in place. Only the
+        // first can never be observed half-written, and the inode is what tells
+        // them apart.
+        #[cfg(unix)]
+        let before = {
+            use std::os::unix::fs::MetadataExt;
+            fs::metadata(&path).unwrap().ino()
+        };
+        super::write_atomic(&path, "{\"b\":2}").expect("replaces an existing file");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"b\":2}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_ne!(
+                before,
+                fs::metadata(&path).unwrap().ino(),
+                "the config was truncated in place, not replaced by a rename"
+            );
+        }
+
+        // No temp file survives a successful write — a leftover `.opencode.json.*`
+        // beside the config would be read by nothing but would accumulate.
+        let strays: Vec<String> = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().to_string()))
+            .filter(|n| n != "opencode.json")
+            .collect();
+        assert!(strays.is_empty(), "{strays:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A config neither side can parse is moved aside and replaced, never
+    /// deleted: those bytes are the user's providers and keys. Leaving it (0.5.0)
+    /// means the runtime exits on every launch; overwriting it in place (0.4.2)
+    /// is the data loss #116 fixed.
+    #[test]
+    fn an_unreadable_config_is_moved_aside_and_rebuilt() {
+        let (env, dir) = temp_env("quarantine");
+        let cfg = dir.join("runtime/xdg-config/opencode/opencode.json");
+        fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+        let broken = "{\"provider\":{\"scnet\":{\"options\":{\"apiKey\":\"sk-t";
+        fs::write(&cfg, broken).unwrap();
+
+        let aside = super::quarantine_unreadable_config(&env, &cfg).expect("acted");
+
+        // The original bytes survive, byte for byte, under a name that says why.
+        assert_eq!(fs::read_to_string(&aside).unwrap(), broken);
+        assert!(aside.to_string_lossy().contains(".broken-"), "{}", aside.display());
+        // What is left in place parses, which is all the startup sequence needs
+        // to re-seed every setting this app owns.
+        let rebuilt = fs::read_to_string(&cfg).unwrap();
+        assert!(crate::opencode_config::config_is_readable(&rebuilt), "{rebuilt}");
+
+        // The user is told once, with the path, and never again.
+        let notice = super::take_config_quarantine_notice(&env).expect("a notice was left");
+        assert_eq!(notice, aside.to_string_lossy());
+        assert_eq!(super::take_config_quarantine_notice(&env), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Both config names have to be checked, not just the one this app writes:
+    /// the runtime reads and merges `opencode.json` AND `opencode.jsonc`
+    /// (measured), so an unreadable `.jsonc` stops it even while the `.json`
+    /// beside it is perfect (#118).
+    #[test]
+    fn both_config_names_are_checked_not_just_the_one_we_edit() {
+        let (env, dir) = temp_env("both");
+        let cfgdir = dir.join("runtime/xdg-config/opencode");
+        fs::create_dir_all(&cfgdir).unwrap();
+        fs::write(cfgdir.join("opencode.json"), "{\"model\":\"openai/gpt-5\"}").unwrap();
+        fs::write(cfgdir.join("opencode.jsonc"), "{\"provider\":{").unwrap();
+
+        let moved = super::quarantine_unreadable_configs(&env);
+
+        assert_eq!(moved.len(), 1, "only the broken one: {moved:?}");
+        assert!(moved[0].to_string_lossy().contains("opencode.jsonc.broken-"));
+        // The good file is untouched, the broken one replaced by a readable stub.
+        assert_eq!(
+            fs::read_to_string(cfgdir.join("opencode.json")).unwrap(),
+            "{\"model\":\"openai/gpt-5\"}"
+        );
+        assert!(crate::opencode_config::config_is_readable(
+            &fs::read_to_string(cfgdir.join("opencode.jsonc")).unwrap()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Anything the app CAN read is left completely alone — including the JSONC
+    /// and BOM forms the runtime accepts. Quarantining a working config would
+    /// throw away settings for no reason.
+    #[test]
+    fn a_readable_config_is_never_quarantined() {
+        let (env, dir) = temp_env("keep");
+        let cfg = dir.join("runtime/xdg-config/opencode/opencode.json");
+        fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+        for keep in [
+            "{\"model\":\"openai/gpt-5\"}",
+            "// a comment\n{\"model\":\"openai/gpt-5\"}",
+            "\u{feff}{\"model\":\"openai/gpt-5\"}",
+            "",
+        ] {
+            fs::write(&cfg, keep).unwrap();
+            assert!(
+                super::quarantine_unreadable_config(&env, &cfg).is_none(),
+                "quarantined a readable config: {keep:?}"
+            );
+            assert_eq!(fs::read_to_string(&cfg).unwrap(), keep);
+        }
+        assert_eq!(super::take_config_quarantine_notice(&env), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The reason a refusing runtime gives has to survive where the UI can reach
+    /// it — otherwise every cause reads as "could not open the event stream" and
+    /// the user is left guessing (#118). Both real shapes are covered: the
+    /// one-line "not valid JSON(C)" refusal, and the two-line schema refusal
+    /// whose last line alone ("↳ Expected string…") names neither the config nor
+    /// the file.
+    #[test]
+    fn the_reason_a_sidecar_died_survives_for_the_ui() {
+        let (env, dir) = temp_env("stderrtail");
+        let input = concat!(
+            "\u{1b}[2mstarting\u{1b}[0m\n",
+            "\u{1b}[91m\u{1b}[1mError: \u{1b}[0mConfiguration is invalid at /x/opencode.json\n",
+            "  \u{1b}[2m↳\u{1b}[0m Expected string | undefined, got 123  model\n",
+        );
+        super::drain_stderr(&env, std::io::Cursor::new(input.as_bytes().to_vec()));
+
+        let tail = env.runtime().stderr_tail.lock().unwrap().clone();
+        let reason = super::reason_from_stderr(&tail).expect("a reason");
+        assert!(reason.starts_with("Error: Configuration is invalid at /x/opencode.json"), "{reason}");
+        assert!(reason.contains("Expected string"), "the detail line too: {reason}");
+        assert!(!reason.contains("starting"), "unrelated log must not ride along: {reason}");
+        assert!(!reason.contains('\u{1b}'), "escape codes reached the UI: {reason:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// No headline at all — take the last line rather than nothing, and never
+    /// hand the UI an unbounded string.
+    #[test]
+    fn a_reason_without_a_headline_falls_back_and_stays_bounded() {
+        let lines: Vec<String> = vec!["warming up".into(), "killed by the OS".into()];
+        assert_eq!(super::reason_from_stderr(&lines).as_deref(), Some("killed by the OS"));
+        assert_eq!(super::reason_from_stderr(&[]), None);
+        assert_eq!(super::reason_from_stderr(&["".to_string()]), None);
+
+        let long = vec![format!("Error: {}", "x".repeat(2000))];
+        let reason = super::reason_from_stderr(&long).unwrap();
+        assert!(reason.chars().count() <= 501, "{}", reason.chars().count());
+        assert!(reason.ends_with('…'));
+    }
+
+    /// The runtime formats its own fatal errors with colour codes. The line is
+    /// shown to the user, so the escapes have to go — while the text, including
+    /// the path that makes it actionable, stays.
+    #[test]
+    fn stderr_lines_keep_their_text_and_lose_their_escapes() {
+        assert_eq!(
+            super::strip_ansi("\u{1b}[91m\u{1b}[1mError: \u{1b}[0mConfig file at /x/opencode.json is not valid JSON(C)"),
+            "Error: Config file at /x/opencode.json is not valid JSON(C)"
+        );
+        assert_eq!(super::strip_ansi("plain"), "plain");
+    }
+
+    /// The bundled sidecar, placed where `sidecar_bin` looks for it (beside the
+    /// running executable — for a test that is `target/<profile>/deps/`). The
+    /// build drops it one level up, so link it down. None when this tree has
+    /// never built the app, which is the only reason the end-to-end test skips.
+    fn link_real_sidecar() -> Option<PathBuf> {
+        let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+        let name = if cfg!(windows) { "opencode.exe" } else { "opencode" };
+        let beside = exe_dir.join(name);
+        if beside.exists() {
+            return Some(beside);
+        }
+        let built = exe_dir.parent()?.join(name);
+        if !built.exists() {
+            return None;
+        }
+        // Hard link, so nothing copies 140 MB and nothing is left dangling.
+        match std::fs::hard_link(&built, &beside) {
+            Ok(()) => Some(beside),
+            // Another test in this binary got there first.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Some(beside),
+            Err(_) => None,
+        }
+    }
+
+    /// The whole chain, against the REAL bundled runtime rather than a claim
+    /// about it: a config that OpenCode refuses to start on is moved aside, the
+    /// startup sequence re-seeds what this app owns, the sidecar spawns — and it
+    /// SERVES. Before this fix the same input left the app spawning a process
+    /// that exited every time, with the port changing on each round (#118).
+    ///
+    /// Deliberately end-to-end: every unit test above would still pass if the
+    /// runtime tolerated a broken config, or if it did not.
+    #[test]
+    fn a_broken_config_is_recovered_and_the_real_runtime_then_serves() {
+        let Some(sidecar) = link_real_sidecar() else {
+            eprintln!("skipped: no bundled opencode beside the test binary");
+            return;
+        };
+
+        let (env, dir) = temp_env("e2e");
+        // An isolated workspace, so nothing here can reach the real one.
+        let ws = dir.join("ws");
+        fs::create_dir_all(&ws).unwrap();
+        fs::create_dir_all(dir.join("runtime")).unwrap();
+        fs::write(dir.join("runtime/active-workspace.txt"), ws.to_string_lossy().as_bytes())
+            .unwrap();
+
+        // The failure as reported: a config truncated mid-write. Verified
+        // separately against this binary — it exits with "Config file … is not
+        // valid JSON(C)" rather than ignoring it.
+        let cfg = dir.join("runtime/xdg-config/opencode/opencode.json");
+        fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+        let broken = "{\"provider\":{\"scnet\":{\"options\":{\"apiKey\":\"sk-t";
+        fs::write(&cfg, broken).unwrap();
+
+        let url = super::start_runtime(&env).expect("the runtime starts");
+
+        // Serving is the claim, so ask it. The first start deploys skills and
+        // profile files, so allow a generous window.
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let mut status = None;
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Ok(r) = client
+                .get(format!("{url}/config"))
+                .basic_auth("opencode", Some(super::server_password()))
+                .send()
+            {
+                status = Some(r.status().as_u16());
+                if r.status().is_success() {
+                    break;
+                }
+            }
+        }
+        super::stop_runtime(env.runtime());
+        assert_eq!(status, Some(200), "the runtime never served on {url}");
+        assert!(sidecar.exists());
+
+        // The user's bytes are still there, under a name that says what happened.
+        let aside: Vec<PathBuf> = fs::read_dir(cfg.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.to_string_lossy().contains(".broken-"))
+            .collect();
+        assert_eq!(aside.len(), 1, "{aside:?}");
+        assert_eq!(fs::read_to_string(&aside[0]).unwrap(), broken);
+        assert_eq!(
+            super::take_config_quarantine_notice(&env).as_deref(),
+            Some(aside[0].to_string_lossy().as_ref()),
+            "the user is told, with the path"
+        );
+
+        // And the rebuilt config is not a bare stub: the startup sequence put
+        // this app's own settings back, approval mode first (AGENTS.md).
+        let rebuilt = fs::read_to_string(&cfg).unwrap();
+        assert_eq!(
+            crate::opencode_config::permission_mode_of(&rebuilt),
+            Some(crate::opencode_config::MODE_APPROVE),
+            "{rebuilt}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The other half of #118, also against the real runtime: when it refuses to
+    /// start for a reason this app must NOT paper over, the refusal has to reach
+    /// the UI in the runtime's own words — and be counted, so the reconnect loop
+    /// stops instead of spawning a doomed process per attempt.
+    ///
+    /// A schema-invalid config is the right input for that: this app can parse it
+    /// (so it is deliberately not quarantined — a value the user typed is theirs
+    /// to fix), while OpenCode rejects it and exits.
+    #[test]
+    fn a_runtime_that_refuses_to_start_reports_its_own_reason() {
+        if link_real_sidecar().is_none() {
+            eprintln!("skipped: no bundled opencode beside the test binary");
+            return;
+        }
+
+        let (env, dir) = temp_env("e2e-refuse");
+        let ws = dir.join("ws");
+        fs::create_dir_all(&ws).unwrap();
+        fs::create_dir_all(dir.join("runtime")).unwrap();
+        fs::write(dir.join("runtime/active-workspace.txt"), ws.to_string_lossy().as_bytes())
+            .unwrap();
+        let cfg = dir.join("runtime/xdg-config/opencode/opencode.json");
+        fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+        // Valid JSON, wrong type — `model` must be a string.
+        fs::write(&cfg, "{\"model\":123}").unwrap();
+
+        super::start_runtime(&env).expect("spawning succeeds; the process then exits");
+
+        // The exit watcher runs on its own thread once stderr reaches EOF.
+        let mut failure = None;
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            failure = super::runtime_failure(env.runtime());
+            if failure.is_some() {
+                break;
+            }
+        }
+        super::stop_runtime(env.runtime());
+
+        let (exits, message) = failure.expect("an exited sidecar is recorded");
+        assert!(exits >= 1, "exits={exits}");
+        // The runtime's own sentence, readable — not "exit code 1", and not
+        // wrapped in the colour codes it prints for its own terminal.
+        assert!(
+            message.contains("Configuration is invalid"),
+            "the reason must be the runtime's own words: {message:?}"
+        );
+        assert!(!message.contains('\u{1b}'), "escape codes reached the UI: {message:?}");
+        // This one is the user's to fix, so it is NOT quarantined and their value
+        // is left alone — the startup sequence still seeds this app's own keys
+        // around it, which is what makes a readable config different.
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(after["model"], 123, "the user's value must survive");
+        let quarantined = fs::read_dir(cfg.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().contains(".broken-"));
+        assert!(!quarantined, "a config this app can read must not be moved aside");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// A killed sidecar must be REAPED, not left as a zombie. Unix-only: this is
     /// where the leak exists, and `ps` is how it is visible.
@@ -2413,7 +2985,7 @@ pub fn remove_config_entry(
         .ok_or("no global OpenCode config found")?;
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let out = remove_key_from_config(&text, &section, &key)?;
-    std::fs::write(&path, out).map_err(|e| e.to_string())?;
+    write_atomic(&path, &out)?;
     tighten_private(&path);
 
     restart_sidecar_if_running(env)?;
@@ -2457,10 +3029,7 @@ pub fn set_default_model(env: &Env, model: String) -> Result<(), String> {
             path.display()
         )
     })?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    write_atomic(&path, &updated)?;
     tighten_private(&path);
     restart_sidecar_if_running(env)?;
     Ok(())
@@ -2483,10 +3052,7 @@ pub fn set_approval_mode(
     let path = effective_config_file(env)?;
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
     let updated = crate::opencode_config::set_permission_mode(&existing, &mode)?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    write_atomic(&path, &updated)?;
     tighten_private(&path);
 
     // Same restart flow as configure_opencode: reload rules on a stable port.
@@ -2592,10 +3158,7 @@ pub fn set_memory_enabled(
     else {
         return Ok(()); // already in the requested state — no restart
     };
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    write_atomic(&path, &updated)?;
     tighten_private(&path);
     restart_sidecar_if_running(env)?;
     Ok(())
@@ -2632,10 +3195,7 @@ fn write_agent_config(env: &Env, rewrite: impl FnOnce(&str) -> String) -> Result
     if updated == existing {
         return Ok(());
     }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    write_atomic(&path, &updated)?;
     tighten_private(&path);
     restart_sidecar_if_running(env)?;
     Ok(())
@@ -2743,7 +3303,7 @@ pub fn configure_opencode(
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, merged).map_err(|e| e.to_string())?;
+    write_atomic(&path, &merged)?;
     tighten_private(&path);
 
     // Restart so the running server reloads the new provider config.

@@ -80,6 +80,29 @@ pub fn runtime_started_at(app: AppHandle) -> Result<u64, String> {
     osd_core::runtime::runtime_started_at(env_of(&app).runtime())
 }
 
+/// A sidecar that exited, and its own last words. The frontend uses `exits` to
+/// tell a runtime that is slow to listen from one that will never listen, and
+/// `message` to say why instead of "could not open the event stream" (#118).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeFailure {
+    exits: u64,
+    message: String,
+}
+
+#[tauri::command]
+pub fn runtime_failure(app: AppHandle) -> Option<RuntimeFailure> {
+    osd_core::runtime::runtime_failure(env_of(&app).runtime())
+        .map(|(exits, message)| RuntimeFailure { exits, message })
+}
+
+/// One-shot: the config that was moved aside because neither this app nor the
+/// runtime could read it. Reading it clears it.
+#[tauri::command]
+pub fn take_config_quarantine_notice(app: AppHandle) -> Option<String> {
+    osd_core::runtime::take_config_quarantine_notice(&env_of(&app))
+}
+
 #[tauri::command]
 pub fn stop_runtime(app: AppHandle) {
     osd_core::runtime::stop_runtime(env_of(&app).runtime())

@@ -243,6 +243,7 @@
     "couldNotSetModel": "Impossible de définir le modèle",
     "defaultModelSet": "Modèle par défaut défini sur {{model}}",
     "defaultModelReset": "Le modèle par défaut {{old}} n'est plus disponible — remplacé par {{model}}",
+    "configRebuilt": "Le fichier de réglages du moteur d'agent était illisible : il a été déplacé vers {{path}} et reconstruit. Les fournisseurs et serveurs MCP devront peut-être être rajoutés.",
     "couldNotSaveKey": "Impossible d'enregistrer la clé",
     "providerConnected": "{{providerID}} connecté",
     "couldNotStartLogin": "Impossible de démarrer la connexion",

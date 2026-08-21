@@ -562,6 +562,13 @@ fn parse_config(existing: &str) -> Result<Value, String> {
     }
 }
 
+/// Whether this app can read the config at all. False means every writer below
+/// will refuse to touch it AND the runtime will refuse to start on it, which is
+/// the state `quarantine_unreadable_config` exists to get out of (#118).
+pub fn config_is_readable(existing: &str) -> bool {
+    parse_config(existing).is_ok()
+}
+
 /// `parse_config` for the callers that answer with `None`. The failure is
 /// logged rather than swallowed: leaving the config alone is the safe choice,
 /// but a config the app can no longer edit stops every later repair silently —

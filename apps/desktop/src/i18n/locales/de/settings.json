@@ -243,6 +243,7 @@
     "couldNotSetModel": "Das Modell konnte nicht festgelegt werden",
     "defaultModelSet": "Standardmodell auf {{model}} gesetzt",
     "defaultModelReset": "Standardmodell {{old}} ist nicht mehr verfügbar — auf {{model}} umgestellt",
+    "configRebuilt": "Die Einstellungsdatei der Agent-Laufzeit war nicht lesbar und wurde nach {{path}} verschoben und neu erstellt. Anbieter und MCP-Server müssen möglicherweise erneut hinzugefügt werden.",
     "couldNotSaveKey": "Der Schlüssel konnte nicht gespeichert werden",
     "providerConnected": "{{providerID}} verbunden",
     "couldNotStartLogin": "Die Anmeldung konnte nicht gestartet werden",

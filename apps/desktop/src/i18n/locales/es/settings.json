@@ -243,6 +243,7 @@
     "couldNotSetModel": "No se pudo configurar el modelo",
     "defaultModelSet": "Modelo predeterminado establecido en {{model}}",
     "defaultModelReset": "El modelo predeterminado {{old}} ya no está disponible — se cambió a {{model}}",
+    "configRebuilt": "No se pudo leer el archivo de ajustes del entorno del agente, así que se movió a {{path}} y se reconstruyó. Puede que tengas que volver a añadir proveedores y servidores MCP.",
     "couldNotSaveKey": "No se pudo guardar la clave",
     "providerConnected": "{{providerID}} conectado",
     "couldNotStartLogin": "No se pudo iniciar el inicio de sesión",

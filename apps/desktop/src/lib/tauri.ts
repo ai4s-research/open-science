@@ -46,6 +46,23 @@ export async function restartRuntime(): Promise<string | null> {
   return invoke<string>("restart_runtime");
 }
 
+/** A sidecar that exited, with its own last words. `exits` counts every one
+ *  since the app started: a runtime that is slow to listen has none, one that
+ *  refuses to start has a new one per attempt (#118). */
+export async function runtimeFailure(): Promise<{ exits: number; message: string } | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<{ exits: number; message: string } | null>("runtime_failure");
+}
+
+/** The config that was moved aside because neither side could read it, once.
+ *  Reading it clears it — the user is told when it happens, not every launch. */
+export async function takeConfigQuarantineNotice(): Promise<string | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string | null>("take_config_quarantine_notice");
+}
+
 /**
  * Per-run password the sidecar requires on every request (desktop only —
  * browser dev talks to a user-run, passwordless `opencode serve`). Held in

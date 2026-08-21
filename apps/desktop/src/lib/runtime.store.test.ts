@@ -77,6 +77,9 @@ const mocks = vi.hoisted(() => ({
   notifyPermissionRequest: vi.fn(async () => true),
   startRuntime: vi.fn(async () => "http://127.0.0.1:1"),
   restartRuntime: vi.fn(async () => "http://127.0.0.1:2"),
+  /** What Rust reports about sidecars that EXITED (#118): null = none have. */
+  runtimeFailure: vi.fn(async (): Promise<{ exits: number; message: string } | null> => null),
+  takeConfigQuarantineNotice: vi.fn(async (): Promise<string | null> => null),
   /** Skill install bridges (#61). */
   installSkillMarkdown: vi.fn(async (_text: string) => "pasted-skill"),
   workspaceSkillNames: vi.fn(async () => ["already-there"]),
@@ -92,6 +95,8 @@ vi.mock("./tauri", () => ({
   detectTools: async () => [],
   startRuntime: mocks.startRuntime,
   restartRuntime: mocks.restartRuntime,
+  runtimeFailure: mocks.runtimeFailure,
+  takeConfigQuarantineNotice: mocks.takeConfigQuarantineNotice,
   workspacePath: async () => "/ws/base",
   setWorkspace: mocks.setWorkspace,
   newDatedWorkspace: mocks.newDatedWorkspace,
@@ -284,6 +289,7 @@ vi.mock("@ai4s/sdk", () => {
 import type { ArtifactBlock } from "@ai4s/shared";
 import { DRAFT_KEY, adoptSourceFolder, rootSessionOf, useRuntimeStore } from "./runtime";
 import { useSshStore } from "./ssh";
+import { useToastStore } from "./toast";
 import { leaves, makeLeaf, useLayoutStore } from "./layout";
 
 beforeEach(async () => {
@@ -307,6 +313,13 @@ beforeEach(async () => {
   mocks.reviewSessionCounter = 0;
   mocks.notifyPermissionRequest.mockResolvedValue(true);
   mocks.createSessionSpy.mockClear();
+  mocks.startRuntime.mockClear();
+  mocks.startRuntime.mockImplementation(async () => "http://127.0.0.1:1");
+  mocks.runtimeFailure.mockClear();
+  mocks.runtimeFailure.mockResolvedValue(null);
+  mocks.takeConfigQuarantineNotice.mockClear();
+  mocks.takeConfigQuarantineNotice.mockResolvedValue(null);
+  useToastStore.setState({ toasts: [] });
   mocks.closedDirs.length = 0;
   useRuntimeStore.setState({
     currentId: null,
@@ -479,6 +492,100 @@ describe("runtime authentication", () => {
     expect(useRuntimeStore.getState().serverUrl).toBe("http://127.0.0.1:2");
     connect.mockRestore();
     useRuntimeStore.setState({ serverUrl: url, status: "ready", error: null });
+  });
+
+  it("stops spawning a runtime that keeps exiting, and reports what it said", async () => {
+    // A config the runtime refuses to start on kills every spawn in
+    // milliseconds. Retrying cannot fix that, so the loop used to open one
+    // doomed process per attempt (up to 120) and then blame the socket
+    // ("could not open the event stream") — while the reason sat in the child's
+    // own stderr (#118). Six attempts are asked for; three deaths must end it.
+    let exits = 0;
+    mocks.startRuntime.mockImplementation(async () => {
+      exits++; // this spawn died too
+      return "http://127.0.0.1:1";
+    });
+    mocks.runtimeFailure.mockImplementation(async () =>
+      exits === 0
+        ? null
+        : { exits, message: "Error: Config file at C:\\x\\opencode.json is not valid JSON(C)" },
+    );
+    const connect = vi
+      .spyOn(useRuntimeStore.getState(), "connect")
+      .mockImplementation(async () => {
+        useRuntimeStore.setState({ status: "error", error: "Could not open OpenCode event stream" });
+      });
+
+    try {
+      const ok = await useRuntimeStore.getState().connectRetry(6);
+
+      expect(ok).toBe(false);
+      expect(mocks.startRuntime.mock.calls.length).toBe(3); // not one per attempt
+      expect(useRuntimeStore.getState().status).toBe("error");
+      // The runtime's own words, not ours.
+      expect(useRuntimeStore.getState().error).toMatch(/not valid JSON/);
+    } finally {
+      connect.mockRestore();
+    }
+  });
+
+  it("keeps retrying a runtime that is merely slow to listen", async () => {
+    // The discriminator has to be EXITS, not failed connects: a first boot
+    // behind macOS TCC can take minutes with the process alive the whole time,
+    // and giving up on it would be a regression.
+    mocks.startRuntime.mockClear();
+    mocks.runtimeFailure.mockResolvedValue(null);
+    const connect = vi
+      .spyOn(useRuntimeStore.getState(), "connect")
+      .mockImplementation(async () => {
+        useRuntimeStore.setState({ status: "error", error: "stream closed" });
+      });
+
+    try {
+      const ok = await useRuntimeStore.getState().connectRetry(4);
+
+      expect(ok).toBe(false);
+      expect(mocks.startRuntime).toHaveBeenCalledTimes(4); // every attempt, none skipped
+    } finally {
+      connect.mockRestore();
+    }
+  });
+
+  it("ignores exits that happened before this attempt began", async () => {
+    // A sidecar that crashed an hour ago must not make the next reconnect give
+    // up immediately — only deaths inside this attempt count.
+    mocks.startRuntime.mockClear();
+    mocks.runtimeFailure.mockResolvedValue({ exits: 7, message: "an old crash" });
+    const connect = vi
+      .spyOn(useRuntimeStore.getState(), "connect")
+      .mockImplementation(async () => {
+        useRuntimeStore.setState({ status: "error", error: "stream closed" });
+      });
+
+    try {
+      await useRuntimeStore.getState().connectRetry(3);
+
+      expect(mocks.startRuntime).toHaveBeenCalledTimes(3);
+      expect(useRuntimeStore.getState().error).toBe("stream closed");
+    } finally {
+      connect.mockRestore();
+    }
+  });
+
+  it("tells the user once when an unreadable config was rebuilt", async () => {
+    mocks.takeConfigQuarantineNotice.mockResolvedValueOnce(
+      "C:\\x\\opencode.json.broken-1755000000000",
+    );
+
+    await useRuntimeStore.getState().reportQuarantinedConfig();
+    await useRuntimeStore.getState().reportQuarantinedConfig();
+
+    const messages = useToastStore.getState().toasts.map((t) => t.message);
+    // Once — the second call has nothing left to take.
+    expect(messages).toHaveLength(1);
+    // The path is the whole point: it is where the user's providers still are.
+    expect(messages[0]).toContain("broken-1755000000000");
+    expect(messages[0]).not.toContain("settings:toast"); // a real string, not a key
   });
 
   it("a reconnect that lands fast never repaints the status", async () => {

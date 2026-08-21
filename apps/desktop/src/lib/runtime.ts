@@ -48,6 +48,8 @@ import {
   setWorkspace,
   startRuntime,
   restartRuntime,
+  runtimeFailure,
+  takeConfigQuarantineNotice,
   runtimeStartedAt,
   workspacePath,
   workspaceSkillNames,
@@ -283,6 +285,10 @@ interface RuntimeState {
   connect: () => Promise<void>;
   /** Resolves true once connected, false when the retry window is exhausted. */
   connectRetry: (tries?: number) => Promise<boolean>;
+  /** Tell the user, once, that an unreadable OpenCode config was moved aside
+   *  and rebuilt — otherwise settings they had (providers, MCP servers) are
+   *  simply gone with no explanation (#118). */
+  reportQuarantinedConfig: () => Promise<void>;
   bootstrap: () => Promise<void>;
   disconnect: () => void;
   refreshSessions: () => Promise<void>;
@@ -520,6 +526,14 @@ const STATUS_BLIP_GRACE_MS = 2000;
  *  of those. Beyond that the runtime is not coming back on its own — it is
  *  alive but no longer serving, which nothing else in the app can detect. */
 const RECONNECT_FORCE_RESTART_AFTER = 8;
+
+/** Sidecar exits, within one reconnect attempt, that mean the next spawn is
+ *  doomed too. Three: one death can be a crash worth respawning past (that is
+ *  what the loop is for), three in a row is the process refusing to run — a
+ *  config it will not start on, a missing binary, a denied permission. Without
+ *  this the loop spawns ~120 processes that each exit in milliseconds and then
+ *  reports nothing but a failed socket (#118). */
+const RECONNECT_GIVE_UP_AFTER_EXITS = 3;
 let statusBlipTimer: ReturnType<typeof setTimeout> | null = null;
 function clearStatusBlip() {
   if (statusBlipTimer !== null) clearTimeout(statusBlipTimer);
@@ -2909,13 +2923,30 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       set({ status: "connecting" });
     }
     let lastError: string | null = null;
+    // Sidecar exits already counted before this loop began. Everything below
+    // compares against it, so a crash from an hour ago cannot make this attempt
+    // give up early.
+    const exitsBefore = (await runtimeFailure())?.exits ?? 0;
     for (let i = 0; i < tries; i++) {
       await get().connect();
       if (get().status === "ready") {
         set({ modelSwitchError: null });
+        void get().reportQuarantinedConfig();
         return true;
       }
       lastError = get().error ?? lastError;
+      // A runtime that EXITS is not a runtime that is slow to listen, and only
+      // the Rust side can tell them apart. Three deaths in one attempt means
+      // the next hundred spawns die too — a config the runtime refuses to
+      // start on does exactly that (#118) — so stop, and say what it said
+      // instead of "could not open the event stream".
+      const failure = await runtimeFailure();
+      if (failure && failure.exits - exitsBefore >= RECONNECT_GIVE_UP_AFTER_EXITS) {
+        set({ status: "error", error: failure.message });
+        void logDebug(`connect: giving up after ${failure.exits - exitsBefore} runtime exits`);
+        void get().reportQuarantinedConfig();
+        return false;
+      }
       // The sidecar can die under us (it has crashed on its own — an Effect
       // ServeError, exit 1). Retrying the socket alone then never recovers,
       // because there is nothing listening and nothing puts it back: this
@@ -2950,6 +2981,13 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     }
     set({ status: "error", error: lastError });
     return false;
+  },
+
+  reportQuarantinedConfig: async () => {
+    const aside = await takeConfigQuarantineNotice().catch(() => null);
+    if (!aside) return;
+    void logDebug(`config: unreadable config was moved to ${aside} and rebuilt`);
+    toast.error(i18n.t("settings:toast.configRebuilt", { path: aside }));
   },
 
   bootstrap: () => {
