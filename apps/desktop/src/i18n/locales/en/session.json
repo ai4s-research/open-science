@@ -401,7 +401,8 @@
     "count_other": "{{count}} tasks",
     "empty": "No subagents in this conversation yet.",
     "noDetail": "No steps were recorded for this subagent.",
-    "loadingDetail": "Loading…"
+    "loadingDetail": "Loading…",
+    "openRow": "Open this subagent in the panel"
   },
   "splitDestination": {
     "title": "The new pane's session will be created in",

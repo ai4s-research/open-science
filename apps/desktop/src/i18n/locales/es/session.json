@@ -401,7 +401,8 @@
     "count_other": "{{count}} tareas",
     "empty": "Todavía no hay subagentes en esta conversación.",
     "noDetail": "No se registraron pasos para este subagente.",
-    "loadingDetail": "Cargando…"
+    "loadingDetail": "Cargando…",
+    "openRow": "Abrir este subagente en el panel"
   },
   "splitDestination": {
     "title": "La sesión del nuevo panel se creará en",

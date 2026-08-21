@@ -401,7 +401,8 @@
     "count_other": "{{count}} tâches",
     "empty": "Aucun sous-agent dans cette conversation pour l’instant.",
     "noDetail": "Aucune étape n'a été enregistrée pour ce sous-agent.",
-    "loadingDetail": "Chargement…"
+    "loadingDetail": "Chargement…",
+    "openRow": "Ouvrir ce sous-agent dans le panneau"
   },
   "splitDestination": {
     "title": "La session du nouveau volet sera créée dans",

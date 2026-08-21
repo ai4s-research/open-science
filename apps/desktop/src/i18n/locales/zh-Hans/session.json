@@ -392,7 +392,8 @@
     "count_other": "{{count}} 个任务",
     "empty": "这个会话还没有子智能体。",
     "noDetail": "这个子智能体没有记录到步骤。",
-    "loadingDetail": "加载中…"
+    "loadingDetail": "加载中…",
+    "openRow": "在面板中打开这个子智能体"
   },
   "splitDestination": {
     "title": "新窗格的会话将建在",

@@ -257,6 +257,13 @@ export function SessionView({
     return [...local, ...commands.filter((c) => !localNames.has(c.name))];
   }, [commands, t]);
 
+  // Which subagent the transcript last asked the panel to show. The counter
+  // makes a repeat ask distinct from the previous one (see SubagentPane).
+  const [subagentFocus, setSubagentFocus] = useState<{
+    childSessionId: string;
+    nonce: number;
+  } | null>(null);
+
   const handlers: BlockHandlers = useMemo(
     () => ({
       onArtifactOpen: (a) => {
@@ -272,8 +279,22 @@ export function SessionView({
       onRevertMessage: async (id, text) => {
         if (await revertMessage(id, sid ?? undefined)) setComposerDraft(text);
       },
+      onOpenSubagent: (childSessionId) => {
+        pinEphemeral();
+        setShowAgents(true, sid ?? undefined);
+        setSubagentFocus((prev) => ({ childSessionId, nonce: (prev?.nonce ?? 0) + 1 }));
+      },
     }),
-    [openArtifact, sendPrompt, editMessage, revertMessage, setComposerDraft, sid, pinEphemeral],
+    [
+      openArtifact,
+      sendPrompt,
+      editMessage,
+      revertMessage,
+      setComposerDraft,
+      sid,
+      pinEphemeral,
+      setShowAgents,
+    ],
   );
   const onEvaluate = (expr: string) =>
     void sendPrompt(`Evaluate in the notebook kernel:\n\`\`\`python\n${expr}\n\`\`\``, sid ?? undefined);
@@ -287,6 +308,11 @@ export function SessionView({
   // Scan backwards in place: copying + reversing the whole block list ran on
   // every render of a live pane, allocating a fresh array per streamed token.
   const currentTool = working ? findLastRunningTool(thread?.blocks) : undefined;
+  // The turn's own clock, anchored when this pane first sees the turn running.
+  // A reload mid-turn loses that boundary; counting from here is the honest
+  // answer, and matches what the row is for — "it is still going", not billing.
+  const [turnStart, setTurnStart] = useState<number | null>(null);
+  if (working !== (turnStart !== null)) setTurnStart(working ? Date.now() : null);
   const lastBlock = thread?.blocks[thread.blocks.length - 1];
   const liveReasoningIndex =
     running && thread && lastBlock?.kind === "reasoning" ? thread.blocks.length - 1 : undefined;
@@ -464,6 +490,7 @@ export function SessionView({
       sessionId={eid!}
       onClose={() => setShowAgents(false, sid ?? undefined)}
       controls={<MaximizePaneButton />}
+      focus={subagentFocus ?? undefined}
     />
   ) : showFiles ? (
     <SessionFilesPane
@@ -792,8 +819,15 @@ export function SessionView({
             {!webReadOnly && <SelectionActions sessionId={eid} />}
             {working && (
               <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-                <Loader2 size={14} className="shrink-0 animate-spin" />
-                <span className="shrink-0">
+                {/* The agent is producing: the label itself carries the motion
+                    (a light travelling through its letters) and the turn's
+                    clock. The two exceptional states — waiting on the user,
+                    retrying a failed call — keep the spinner, because nothing
+                    is streaming for a shimmer to stand for. */}
+                {(activeRequest || retryNotice) && (
+                  <Loader2 size={14} className="shrink-0 animate-spin" />
+                )}
+                <span className={cn("shrink-0", !activeRequest && !retryNotice && "shimmer-text")}>
                   {activeRequest
                     ? t("live.status.paused")
                     : retryNotice
@@ -810,6 +844,9 @@ export function SessionView({
                         ? t("live.status.startingSession")
                         : t("live.status.working")}
                 </span>
+                {!activeRequest && !retryNotice && turnStart !== null && (
+                  <Elapsed start={turnStart} />
+                )}
                 {!activeRequest && !retryNotice && step >= 2 && (
                   <span className="shrink-0 text-xs text-muted/70">
                     {t("live.status.step", { count: step })}
@@ -837,13 +874,15 @@ export function SessionView({
                 )}
                 {!activeRequest && !retryNotice && currentTool && (
                   <>
+                    {/* The step's own clock stays on its row in the thread —
+                        a second clock here would time a subject the turn
+                        clock beside it does not. */}
                     <span
                       className="truncate font-mono text-xs"
                       title={currentTool.command ?? currentTool.title}
                     >
                       {currentTool.title}
                     </span>
-                    {currentTool.startedAt !== undefined && <Elapsed start={currentTool.startedAt} />}
                   </>
                 )}
               </div>

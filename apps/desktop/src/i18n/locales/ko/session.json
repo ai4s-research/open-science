@@ -392,7 +392,8 @@
     "count_other": "작업 {{count}}개",
     "empty": "이 대화에는 아직 서브에이전트가 없습니다.",
     "noDetail": "이 서브에이전트의 단계가 기록되지 않았습니다.",
-    "loadingDetail": "불러오는 중…"
+    "loadingDetail": "불러오는 중…",
+    "openRow": "이 서브에이전트를 패널에서 열기"
   },
   "splitDestination": {
     "title": "새 창의 세션이 생성될 위치",

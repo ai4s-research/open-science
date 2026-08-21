@@ -272,6 +272,79 @@ body {
   animation: effort-flash 0.6s ease-in-out 2;
 }
 
+/* "Still emitting" sweep for a row whose text is streaming in (the reasoning
+   row). A faint band of light travels across the row — motion that reads as
+   progress without adding a second spinner to a turn that already has one (see
+   RunningDot). Animating a transform keeps it off the layout path. */
+.live-sweep {
+  position: relative;
+  overflow: hidden;
+}
+.live-sweep::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--text) 7%, transparent),
+    transparent
+  );
+  animation: live-sweep 2.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes live-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  90%,
+  100% {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-sweep::after {
+    display: none;
+  }
+}
+
+/* The turn's "still producing" mark: a light travels left-to-right THROUGH the
+   letters of the status label, so the row needs no spinner beside it. The
+   gradient is three times the label's width and clipped to the glyphs; sliding
+   its position is what moves the light. */
+.shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--link) 0%,
+    var(--link) 40%,
+    color-mix(in srgb, var(--link) 35%, #ffffff) 50%,
+    var(--link) 60%,
+    var(--link) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-text 1.8s linear infinite;
+}
+@keyframes shimmer-text {
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    background-image: none;
+    animation: none;
+    color: var(--link);
+    -webkit-text-fill-color: var(--link);
+  }
+}
+
 /* highlight.js token colors on the per-theme --hl-* variables (CodeViewer).
    Grouping mirrors highlight.js's github/github-dark themes so every language
    grammar maps the same way; a bundled stylesheet would hardcode one theme. */

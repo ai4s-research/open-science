@@ -22,6 +22,9 @@ export interface BlockHandlers {
   /** Revert to a past user message (drop it + everything after) and prefill the
    *  composer with its text. Present only in the live session. */
   onRevertMessage?: (messageID: string, text: string) => void | Promise<void>;
+  /** Open the subagents panel on the subagent a task row spawned. Present only
+   *  in the live session — a nested transcript has no panel of its own. */
+  onOpenSubagent?: (childSessionId: string) => void;
 }
 
 export function renderBlock(
@@ -114,6 +117,7 @@ export const BlockList = memo(function BlockList({
             blocks={item.blocks}
             start={item.start}
             liveReasoningIndex={liveReasoningIndex}
+            onOpenSubagent={handlers?.onOpenSubagent}
           />
         ) : (
           renderBlock(

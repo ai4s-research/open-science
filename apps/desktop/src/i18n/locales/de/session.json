@@ -401,7 +401,8 @@
     "count_other": "{{count}} Aufgaben",
     "empty": "In dieser Unterhaltung gibt es noch keine Subagenten.",
     "noDetail": "Für diesen Subagenten wurden keine Schritte aufgezeichnet.",
-    "loadingDetail": "Wird geladen…"
+    "loadingDetail": "Wird geladen…",
+    "openRow": "Diesen Subagenten im Panel öffnen"
   },
   "splitDestination": {
     "title": "Sitzung des neuen Bereichs wird angelegt in",

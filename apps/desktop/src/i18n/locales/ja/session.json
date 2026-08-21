@@ -392,7 +392,8 @@
     "count_other": "{{count}} 件のタスク",
     "empty": "この会話にはまだサブエージェントがいません。",
     "noDetail": "このサブエージェントの手順は記録されていません。",
-    "loadingDetail": "読み込み中…"
+    "loadingDetail": "読み込み中…",
+    "openRow": "このサブエージェントをパネルで開く"
   },
   "splitDestination": {
     "title": "新しいペインのセッションの作成先",

@@ -134,6 +134,55 @@ describe("SubagentPane", () => {
     expect(screen.queryByRole("button", { name: /Never ran/ })).not.toBeInTheDocument();
   });
 
+  // Clicking a running task row in the transcript opens this panel; landing on
+  // a list of collapsed rows would make the reader hunt for the one they asked
+  // for, so the asked-for subagent arrives already open.
+  it("opens the subagent the transcript asked for, and re-opens it after a collapse", async () => {
+    seed({
+      parent: [
+        {
+          kind: "tool-call",
+          tool: "task",
+          title: "Review the statistics",
+          status: "running",
+          childSessionId: "child-1",
+          startedAt: 1000,
+        },
+        {
+          kind: "tool-call",
+          tool: "task",
+          title: "Search the literature",
+          status: "running",
+          childSessionId: "child-2",
+          startedAt: 1000,
+        },
+      ],
+      "child-1": [{ kind: "agent", markdown: "Three outliers in run 4." }],
+      "child-2": [{ kind: "agent", markdown: "Nine papers since 2024." }],
+    });
+    const focus = { childSessionId: "child-2", nonce: 1 };
+    const { rerender } = render(
+      <SubagentPane sessionId="parent" onClose={vi.fn()} focus={focus} />,
+    );
+
+    // Only the asked-for one; the other subagent stays collapsed and unfetched.
+    expect(screen.getByText("Nine papers since 2024.")).toBeInTheDocument();
+    expect(screen.queryByText("Three outliers in run 4.")).not.toBeInTheDocument();
+
+    // Collapsed by hand, then asked for again: the second ask must land, which
+    // is what the counter on the focus is for.
+    await userEvent.click(screen.getByRole("button", { name: /Search the literature/ }));
+    expect(screen.queryByText("Nine papers since 2024.")).not.toBeInTheDocument();
+    rerender(
+      <SubagentPane
+        sessionId="parent"
+        onClose={vi.fn()}
+        focus={{ childSessionId: "child-2", nonce: 2 }}
+      />,
+    );
+    expect(screen.getByText("Nine papers since 2024.")).toBeInTheDocument();
+  });
+
   it("says so plainly when the conversation has spawned none", () => {
     seed({ parent: [{ kind: "agent", markdown: "hello" }] });
     render(<SubagentPane sessionId="parent" onClose={vi.fn()} />);
