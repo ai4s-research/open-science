@@ -45,7 +45,11 @@ osd — Open Science Desktop without a window
   osd approval set full|approve     `full` never asks — for unattended machines
 
   osd auth set <provider> --key K [--model provider/model] [--base-url URL]
+                          [--models id,id] [--npm PKG]
                                     provider credentials, LOCAL to this machine
+                                    (--models is REQUIRED for your own endpoint:
+                                    an id the runtime has no catalog entry for
+                                    only loads when it lists its models)
   osd auth ls
 
 Server options

@@ -127,6 +127,8 @@
   "providers": {
     "title": "Providers",
     "hint": "Authentication, custom endpoints, and imported OpenCode logins",
+    "webHint": "Connected providers — read-only from the browser",
+    "webNote": "API keys and custom endpoints are set on the machine running the workbench — in the desktop app, or with `osd auth set` when it runs headless. Credentials never cross the gateway.",
     "connectPrompt": "Connect the runtime to manage providers.",
     "manage": "Manage",
     "collapse": "Collapse",

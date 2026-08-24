@@ -724,6 +724,26 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
     await client.clearDefaultCustomModelContextLimits();
     expect(patches).toHaveLength(1); // nothing left matching the default → no second PATCH
   });
+
+  // #119: from the gateway-served web client this PATCH is refused by gateway
+  // policy, which reports its reason as `{error}`. Swallowing that field left
+  // the user with "Failed to add the provider (403)" — indistinguishable from
+  // their own API key being rejected, which is what they concluded.
+  it("surfaces the gateway's refusal reason, not a bare status", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify({ error: "provider/model config is managed on the desktop" }), {
+        status: 403,
+      });
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+    await expect(
+      client.addCustomProvider("custom", {
+        name: "Custom",
+        npm: "@ai-sdk/openai-compatible",
+        baseURL: "https://example.test/v1",
+        models: ["sol"],
+      }),
+    ).rejects.toThrow("provider/model config is managed on the desktop");
+  });
 });
 
 describe("per-prompt model pinning (#8: old sessions follow the current default)", () => {

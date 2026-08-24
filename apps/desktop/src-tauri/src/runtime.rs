@@ -220,7 +220,10 @@ pub fn configure_opencode(
     model: String,
     base_url: Option<String>,
 ) -> Result<String, String> {
-    osd_core::runtime::configure_opencode(&env_of(&app), provider, api_key, model, base_url)
+    // Known catalog providers only (the setup flow's key entry); custom
+    // endpoints go through the runtime's config API from the UI, which writes
+    // npm/models itself.
+    osd_core::runtime::configure_opencode(&env_of(&app), provider, api_key, model, base_url, None, &[])
 }
 
 #[tauri::command]

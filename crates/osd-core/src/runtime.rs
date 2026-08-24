@@ -3296,10 +3296,22 @@ pub fn configure_opencode(
     api_key: String,
     model: String,
     base_url: Option<String>,
+    npm: Option<String>,
+    models: &[String],
 ) -> Result<String, String> {
     let path = opencode_config_file(env)?;
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let merged = merge_config(&existing, &provider, &api_key, &model, base_url.as_deref())?;
+    let merged = merge_config(
+        &existing,
+        &crate::opencode_config::ProviderCredentials {
+            provider: &provider,
+            api_key: &api_key,
+            model: &model,
+            base_url: base_url.as_deref(),
+            npm: npm.as_deref(),
+            models,
+        },
+    )?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }

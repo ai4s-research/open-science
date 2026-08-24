@@ -127,6 +127,8 @@
   "providers": {
     "title": "供应商",
     "hint": "登录认证、自定义端点和导入的 OpenCode 登录信息",
+    "webHint": "已连接的供应商 — 浏览器端只读",
+    "webNote": "API 密钥和自定义端点在运行 workbench 的那台机器上设置：桌面应用里，或者无窗口运行时用 `osd auth set`。凭据不会经过网关。",
     "connectPrompt": "连接运行时以管理提供商。",
     "manage": "管理",
     "collapse": "收起",

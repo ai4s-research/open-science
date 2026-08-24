@@ -17,6 +17,10 @@ use serde_json::{json, Value};
 pub const MODE_APPROVE: &str = "approve";
 pub const MODE_FULL: &str = "full";
 
+/// The SDK a custom endpoint speaks unless told otherwise — the same default
+/// the desktop's custom-endpoint form offers.
+pub const OPENAI_COMPATIBLE_NPM: &str = "@ai-sdk/openai-compatible";
+
 const LEGACY_BROWSER_MCP_ID: &str = "browser-control";
 const BROWSER_MCP_ID: &str = "open-science-browser";
 const BROWSER_NAMESPACE: &str = "open-science-desktop";
@@ -360,15 +364,39 @@ pub fn set_default_model(existing: &str, model: &str) -> Option<String> {
     })
 }
 
+/// One provider's credentials, as `osd auth set` and the desktop both write them.
+///
+/// `models` is load-bearing for an id OpenCode has no catalog entry for — i.e.
+/// any custom endpoint. Measured against the pinned opencode 1.18.18: an entry
+/// carrying only `options` (baseURL + apiKey) is silently DROPPED from
+/// `/config/providers`, while the same entry with a `models` map loads. A known
+/// catalog id (`anthropic`, `openai`, …) needs neither and takes its models from
+/// models.dev, so leaving both empty keeps that path exactly as it was.
+pub struct ProviderCredentials<'a> {
+    pub provider: &'a str,
+    pub api_key: &'a str,
+    /// Default model for the config root, as `provider/model`. Empty = leave.
+    pub model: &'a str,
+    pub base_url: Option<&'a str>,
+    /// AI SDK package driving a custom endpoint (`@ai-sdk/openai-compatible`,
+    /// `@ai-sdk/anthropic`). Only written alongside `models`.
+    pub npm: Option<&'a str>,
+    /// Model ids the endpoint serves. No context limit is written: an unknown
+    /// window must stay 0 so OpenCode skips overflow accounting (#52).
+    pub models: &'a [String],
+}
+
 /// Merge provider credentials/model into existing OpenCode config JSON.
 /// Empty fields are left untouched; existing unrelated keys are preserved.
-pub fn merge_config(
-    existing: &str,
-    provider: &str,
-    api_key: &str,
-    model: &str,
-    base_url: Option<&str>,
-) -> Result<String, String> {
+pub fn merge_config(existing: &str, creds: &ProviderCredentials) -> Result<String, String> {
+    let ProviderCredentials {
+        provider,
+        api_key,
+        model,
+        base_url,
+        npm,
+        models,
+    } = *creds;
     let mut root: Value = if existing.trim().is_empty() {
         json!({})
     } else {
@@ -408,6 +436,35 @@ pub fn merge_config(
         if let Some(b) = base_url {
             if !b.is_empty() {
                 oobj.insert("baseURL".to_string(), json!(b));
+            }
+        }
+        // A custom endpoint: name it, say which SDK drives it, and list the
+        // models it serves — the three keys that make OpenCode load a provider
+        // it has no catalog entry for. Existing models are merged, not replaced,
+        // so adding one model does not retire the rest.
+        if !models.is_empty() {
+            let eobj = entry.as_object_mut().unwrap();
+            eobj.entry("name").or_insert_with(|| json!(provider));
+            // Only an explicit choice replaces the SDK. Defaulting on every call
+            // would silently rewrite an Anthropic-compatible endpoint to the
+            // OpenAI one the next time a model was added to it.
+            match npm {
+                Some(pkg) => {
+                    eobj.insert("npm".to_string(), json!(pkg));
+                }
+                None => {
+                    eobj.entry("npm")
+                        .or_insert_with(|| json!(OPENAI_COMPATIBLE_NPM));
+                }
+            }
+            let known = eobj.entry("models").or_insert_with(|| json!({}));
+            if !known.is_object() {
+                *known = json!({});
+            }
+            let mobj = known.as_object_mut().unwrap();
+            for m in models {
+                mobj.entry(m.as_str())
+                    .or_insert_with(|| json!({ "name": m }));
             }
         }
     }
@@ -1069,18 +1126,34 @@ mod tests {
         assert!(v.get("agent").is_none());
     }
 
+    /// A known catalog provider: key (and maybe a base URL), nothing else.
+    fn creds<'a>(provider: &'a str, api_key: &'a str, model: &'a str) -> ProviderCredentials<'a> {
+        ProviderCredentials {
+            provider,
+            api_key,
+            model,
+            base_url: None,
+            npm: None,
+            models: &[],
+        }
+    }
+
     #[test]
     fn writes_provider_key_model_into_empty_config() {
-        let out = merge_config("", "anthropic", "sk-test", "anthropic/claude-sonnet-4-5", None).unwrap();
+        let out = merge_config("", &creds("anthropic", "sk-test", "anthropic/claude-sonnet-4-5")).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["model"], "anthropic/claude-sonnet-4-5");
         assert_eq!(v["provider"]["anthropic"]["options"]["apiKey"], "sk-test");
+        // A catalog id takes its models from models.dev — writing an empty
+        // `models` map here would hide every one of them.
+        assert!(v["provider"]["anthropic"].get("models").is_none());
+        assert!(v["provider"]["anthropic"].get("npm").is_none());
     }
 
     #[test]
     fn preserves_existing_unrelated_config() {
         let existing = r#"{"theme":"dark","provider":{"openai":{"options":{"apiKey":"old"}}}}"#;
-        let out = merge_config(existing, "anthropic", "sk-new", "", None).unwrap();
+        let out = merge_config(existing, &creds("anthropic", "sk-new", "")).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["theme"], "dark");
         assert_eq!(v["provider"]["openai"]["options"]["apiKey"], "old");
@@ -1089,9 +1162,68 @@ mod tests {
 
     #[test]
     fn sets_base_url_when_provided() {
-        let out = merge_config("", "openai", "k", "openai/gpt-4o", Some("https://x/v1")).unwrap();
+        let out = merge_config(
+            "",
+            &ProviderCredentials {
+                base_url: Some("https://x/v1"),
+                ..creds("openai", "k", "openai/gpt-4o")
+            },
+        )
+        .unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["provider"]["openai"]["options"]["baseURL"], "https://x/v1");
+    }
+
+    // #119: a custom endpoint is only loadable when the entry lists its models
+    // (verified against opencode 1.18.18 — an options-only entry is dropped from
+    // /config/providers). This is the shape `osd auth set --models` writes, and
+    // it has to match what the desktop's custom-endpoint form writes.
+    #[test]
+    fn a_custom_endpoint_gets_the_keys_that_make_it_load() {
+        let models = ["deepseek-v4-flash".to_string(), "sol".to_string()];
+        let out = merge_config(
+            "",
+            &ProviderCredentials {
+                base_url: Some("http://aisg.example/v1"),
+                models: &models,
+                ..creds("kny", "sk-test", "")
+            },
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let p = &v["provider"]["kny"];
+        assert_eq!(p["name"], "kny");
+        assert_eq!(p["npm"], "@ai-sdk/openai-compatible");
+        assert_eq!(p["options"]["baseURL"], "http://aisg.example/v1");
+        assert_eq!(p["models"]["deepseek-v4-flash"]["name"], "deepseek-v4-flash");
+        assert_eq!(p["models"]["sol"]["name"], "sol");
+        // No context limit: a guessed window aborts turns on models with a
+        // larger real one (#52).
+        assert!(p["models"]["sol"].get("limit").is_none());
+    }
+
+    #[test]
+    fn adding_a_model_keeps_the_ones_already_configured() {
+        let existing = r#"{"provider":{"kny":{"name":"My gateway","npm":"@ai-sdk/anthropic",
+            "models":{"old":{"name":"old","limit":{"context":131072,"output":0}}}}}}"#;
+        let models = ["new".to_string()];
+        let out = merge_config(
+            existing,
+            &ProviderCredentials {
+                models: &models,
+                ..creds("kny", "sk-test", "")
+            },
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let p = &v["provider"]["kny"];
+        // A hand-set display name and a probed limit both survive — and so does
+        // the SDK: defaulting npm here would flip this endpoint to the OpenAI
+        // one just because a model was added.
+        assert_eq!(p["name"], "My gateway");
+        assert_eq!(p["npm"], "@ai-sdk/anthropic");
+        assert_eq!(p["models"]["old"]["limit"]["context"], 131072);
+        assert_eq!(p["models"]["new"]["name"], "new");
     }
 
     #[test]

@@ -127,6 +127,8 @@
   "providers": {
     "title": "Anbieter",
     "hint": "Authentifizierung, benutzerdefinierte Endpunkte und importierte OpenCode-Anmeldungen",
+    "webHint": "Verbundene Anbieter — im Browser nur lesbar",
+    "webNote": "API-Schlüssel und eigene Endpunkte werden auf der Maschine gesetzt, die die Workbench betreibt — in der Desktop-App oder mit `osd auth set`, wenn sie ohne Fenster läuft. Zugangsdaten passieren niemals das Gateway.",
     "connectPrompt": "Verbinde die Laufzeit, um Anbieter zu verwalten.",
     "manage": "Verwalten",
     "collapse": "Einklappen",

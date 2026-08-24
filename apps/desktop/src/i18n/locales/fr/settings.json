@@ -127,6 +127,8 @@
   "providers": {
     "title": "Fournisseurs",
     "hint": "Authentification, points de terminaison personnalisés et connexions OpenCode importées",
+    "webHint": "Fournisseurs connectés — lecture seule depuis le navigateur",
+    "webNote": "Les clés d'API et les points de terminaison personnalisés se définissent sur la machine qui fait tourner le workbench : dans l'app de bureau, ou avec `osd auth set` si elle tourne sans fenêtre. Les identifiants ne transitent jamais par la passerelle.",
     "connectPrompt": "Connectez le runtime pour gérer les fournisseurs.",
     "manage": "Gérer",
     "collapse": "Réduire",

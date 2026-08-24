@@ -20,6 +20,15 @@ pub fn run(args: &Args) -> Result<(), String> {
     }
 }
 
+/// Model ids from a comma-separated `--models`, blanks dropped.
+fn model_ids(raw: Option<String>) -> Vec<String> {
+    raw.unwrap_or_default()
+        .split(',')
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .collect()
+}
+
 fn set(args: &Args) -> Result<(), String> {
     let provider = args.at(0, "provider")?;
     // Reading the key from the environment keeps it out of the shell history,
@@ -37,8 +46,29 @@ fn set(args: &Args) -> Result<(), String> {
     }
     let env = crate::env(args)?;
     let model = args.value("model").unwrap_or_default();
-    runtime::configure_opencode(&env, provider.clone(), key, model, args.value("base-url"))?;
+    let base_url = args.value("base-url");
+    let models = model_ids(args.value("models"));
+    runtime::configure_opencode(
+        &env,
+        provider.clone(),
+        key,
+        model,
+        base_url.clone(),
+        args.value("npm"),
+        &models,
+    )?;
     println!("Saved the {provider} key for this machine.");
+    // A base URL with no model list is the one combination that writes an entry
+    // OpenCode may drop on the floor: an id it has no catalog entry for needs
+    // `models` to load at all, and saying nothing here is how a headless box
+    // ends up with a provider that was "saved" and never appears (#119).
+    if base_url.is_some() && models.is_empty() {
+        println!(
+            "If `{provider}` is your own endpoint rather than a known provider, add \
+             --models <id,id> — without it the runtime has no models to offer and \
+             ignores the entry."
+        );
+    }
     // The agent runtime reads its config at startup, and this process is not
     // the one running it. Saying so beats the user concluding the key was
     // ignored when the next turn still fails.

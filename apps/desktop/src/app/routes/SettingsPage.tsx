@@ -59,6 +59,7 @@ import {
   type ProbedModel,
 } from "@/lib/tauri";
 import { useSetupStore } from "@/lib/setup";
+import { isGatewayWeb } from "@/lib/webMode";
 import { customProviderId } from "@/lib/customProviderId";
 import { listProvidersWithAvailability } from "@/lib/zenModels";
 import { RemoteComputeCard } from "@/components/settings/RemoteComputeCard";
@@ -989,6 +990,9 @@ export function SettingsPage() {
         {section === "models" && (
         <ProviderManagerCard
           providers={providers}
+          // The web client can only read this surface, so say so up front
+          // instead of describing writes it cannot make (#119).
+          hint={isGatewayWeb ? t("providers.webHint") : undefined}
           expanded={providerManagerOpen}
           onExpandedChange={setProviderManagerOpen}
         >
@@ -1019,7 +1023,7 @@ export function SettingsPage() {
                       <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted ring-1 ring-border">
                         {t("providers.builtInFree")}
                       </span>
-                    ) : (
+                    ) : isGatewayWeb ? null : (
                       <button
                         className="text-xs text-muted transition-colors hover:text-error"
                         onClick={() => void disconnectProvider(p.id)}
@@ -1032,261 +1036,280 @@ export function SettingsPage() {
                   </div>
                 ))}
 
-                {/* Connect a provider */}
-                <div className="border-t border-faint p-3">
-                  <div className="relative">
-                    <Search
-                      size={13}
-                      className="pointer-events-none absolute left-3 top-1/2 -mt-[6.5px] text-muted"
-                    />
-                    <input
-                      list="provider-catalog"
-                      value={connectQuery}
-                      onChange={(e) => {
-                        setConnectQuery(e.target.value);
-                        cancelOAuth();
-                        setPromptInputs({});
-                      }}
-                      placeholder={t("providers.searchPlaceholder", { count: catalog.length })}
-                      className={inputCls("w-full pl-8")}
-                    />
-                    <datalist id="provider-catalog">
-                      {catalog.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </datalist>
-                  </div>
-
-                  {selected && (
-                    <div className="mt-2 space-y-2">
-                      {oauthMethods.map(({ method: m, index: i }) =>
-                        m.type === "oauth" ? (
-                          <div key={i} className="space-y-1.5">
-                            {(m.prompts ?? []).map((pr) =>
-                              pr.type === "select" ? (
-                                <select
-                                  key={pr.key}
-                                  value={promptInputs[pr.key] ?? ""}
-                                  onChange={(e) =>
-                                    setPromptInputs((s) => ({ ...s, [pr.key]: e.target.value }))
-                                  }
-                                  className={selectCls("w-full")}
-                                >
-                                  <option value="">{pr.message}</option>
-                                  {(pr.options ?? []).map((o) => (
-                                    <option key={o.value} value={o.value}>
-                                      {o.label}
-                                      {o.hint ? ` — ${o.hint}` : ""}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  key={pr.key}
-                                  value={promptInputs[pr.key] ?? ""}
-                                  onChange={(e) =>
-                                    setPromptInputs((s) => ({ ...s, [pr.key]: e.target.value }))
-                                  }
-                                  placeholder={pr.message}
-                                  className={inputCls("w-full")}
-                                />
-                              ),
-                            )}
-                            <button
-                              className={btnGhost("gap-1.5")}
-                              onClick={() => void startOAuth(selected.id, i, promptInputs)}
-                              disabled={busy}
-                            >
-                              <ExternalLink size={12} /> {m.label}
-                            </button>
-                          </div>
-                        ) : null,
-                      )}
-
-                      {selected.id === "amazon-bedrock" && (
-                        <input
-                          value={bedrockRegion}
-                          onChange={(e) => setBedrockRegion(e.target.value)}
-                          aria-label={t("providers.bedrockRegionLabel")}
-                          placeholder={t("providers.bedrockRegionPlaceholder")}
-                          className={inputCls("w-full font-mono")}
-                          disabled={bedrockRegionLoading}
-                        />
-                      )}
-
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="password"
-                          value={keyInput}
-                          onChange={(e) => setKeyInput(e.target.value)}
-                          placeholder={`${selected.name} ${t("providers.apiKeyLabel")}${selected.env[0] ? ` (${selected.env[0]})` : ""}`}
-                          className={inputCls("flex-1 font-mono")}
-                        />
-                        <button
-                          className={btnAccent()}
-                          onClick={() => void saveKey(selected.id)}
-                          disabled={
-                            busy ||
-                            bedrockRegionLoading ||
-                            !keyInput.trim() ||
-                            !validBedrockRegion
-                          }
-                        >
-                          <Check size={13} /> {t("common:actions.save")}
-                        </button>
-                      </div>
+                {isGatewayWeb ? (
+                  /* Every write here is refused by the gateway by design —
+                     API keys and provider config never cross the wire — so the
+                     web client shows what is connected and says where to change
+                     it, instead of forms that 403 on submit (#119). */
+                  <p
+                    className={cn(
+                      "p-3 text-[13px] leading-relaxed text-muted",
+                      // Only a separator from the rows above — as the card's
+                      // first child it would double the container's own border.
+                      providers.length > 0 && "border-t border-faint",
+                    )}
+                  >
+                    {t("providers.webNote")}
+                  </p>
+                ) : (
+                  <>
+                  {/* Connect a provider */}
+                  <div className="border-t border-faint p-3">
+                    <div className="relative">
+                      <Search
+                        size={13}
+                        className="pointer-events-none absolute left-3 top-1/2 -mt-[6.5px] text-muted"
+                      />
+                      <input
+                        list="provider-catalog"
+                        value={connectQuery}
+                        onChange={(e) => {
+                          setConnectQuery(e.target.value);
+                          cancelOAuth();
+                          setPromptInputs({});
+                        }}
+                        placeholder={t("providers.searchPlaceholder", { count: catalog.length })}
+                        className={inputCls("w-full pl-8")}
+                      />
+                      <datalist id="provider-catalog">
+                        {catalog.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </datalist>
                     </div>
-                  )}
 
-                  {oauth && (
-                    <div className="mt-2 space-y-2 rounded-input bg-surface-2 p-3">
-                      <p className="text-xs leading-relaxed text-muted">{oauth.instructions}</p>
-                      {oauth.method === "code" ? (
-                        <>
+                    {selected && (
+                      <div className="mt-2 space-y-2">
+                        {oauthMethods.map(({ method: m, index: i }) =>
+                          m.type === "oauth" ? (
+                            <div key={i} className="space-y-1.5">
+                              {(m.prompts ?? []).map((pr) =>
+                                pr.type === "select" ? (
+                                  <select
+                                    key={pr.key}
+                                    value={promptInputs[pr.key] ?? ""}
+                                    onChange={(e) =>
+                                      setPromptInputs((s) => ({ ...s, [pr.key]: e.target.value }))
+                                    }
+                                    className={selectCls("w-full")}
+                                  >
+                                    <option value="">{pr.message}</option>
+                                    {(pr.options ?? []).map((o) => (
+                                      <option key={o.value} value={o.value}>
+                                        {o.label}
+                                        {o.hint ? ` — ${o.hint}` : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    key={pr.key}
+                                    value={promptInputs[pr.key] ?? ""}
+                                    onChange={(e) =>
+                                      setPromptInputs((s) => ({ ...s, [pr.key]: e.target.value }))
+                                    }
+                                    placeholder={pr.message}
+                                    className={inputCls("w-full")}
+                                  />
+                                ),
+                              )}
+                              <button
+                                className={btnGhost("gap-1.5")}
+                                onClick={() => void startOAuth(selected.id, i, promptInputs)}
+                                disabled={busy}
+                              >
+                                <ExternalLink size={12} /> {m.label}
+                              </button>
+                            </div>
+                          ) : null,
+                        )}
+
+                        {selected.id === "amazon-bedrock" && (
                           <input
-                            value={codeInput}
-                            onChange={(e) => setCodeInput(e.target.value)}
-                            placeholder={t("providers.pasteCode")}
+                            value={bedrockRegion}
+                            onChange={(e) => setBedrockRegion(e.target.value)}
+                            aria-label={t("providers.bedrockRegionLabel")}
+                            placeholder={t("providers.bedrockRegionPlaceholder")}
                             className={inputCls("w-full font-mono")}
+                            disabled={bedrockRegionLoading}
+                          />
+                        )}
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="password"
+                            value={keyInput}
+                            onChange={(e) => setKeyInput(e.target.value)}
+                            placeholder={`${selected.name} ${t("providers.apiKeyLabel")}${selected.env[0] ? ` (${selected.env[0]})` : ""}`}
+                            className={inputCls("flex-1 font-mono")}
                           />
                           <button
                             className={btnAccent()}
-                            onClick={() => void completeOAuth()}
-                            disabled={busy || !codeInput.trim()}
+                            onClick={() => void saveKey(selected.id)}
+                            disabled={
+                              busy ||
+                              bedrockRegionLoading ||
+                              !keyInput.trim() ||
+                              !validBedrockRegion
+                            }
                           >
-                            {busy ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Check size={13} />
-                            )}
-                            {t("providers.completeLogin")}
-                          </button>
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-2 text-xs text-muted">
-                          <Loader2 size={12} className="shrink-0 animate-spin" />
-                          {t("providers.waitingForBrowser")}
-                          <button
-                            className="text-muted underline transition-colors hover:text-text"
-                            onClick={cancelOAuth}
-                          >
-                            {t("common:actions.cancel")}
+                            <Check size={13} /> {t("common:actions.save")}
                           </button>
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                      </div>
+                    )}
 
-                {/* Custom endpoint */}
-                <div className="border-t border-faint">
-                  <button
-                    className="flex h-10 w-full items-center gap-2 px-3 text-left text-[13px] text-muted transition-colors hover:text-text"
-                    onClick={() => setShowCustom((s) => !s)}
-                    aria-expanded={showCustom}
-                  >
-                    <ChevronRight
-                      size={13}
-                      className={cn("transition-transform", showCustom && "rotate-90")}
-                    />
-                    {t("providers.customEndpoint")}
-                    <span className="text-xs text-muted/70">
-                      {t("providers.customEndpointHint")}
-                    </span>
-                  </button>
-                  {showCustom && (
-                    <div className="space-y-2 px-3 pb-3">
-                      <div className="flex gap-2">
-                        <input
-                          value={cName}
-                          onChange={(e) => setCName(e.target.value)}
-                          placeholder={t("providers.customNamePlaceholder")}
-                          className={inputCls("flex-1")}
-                        />
-                        <select
-                          value={cNpm}
-                          onChange={(e) => setCNpm(e.target.value)}
-                          className={selectCls("w-[190px]")}
-                        >
-                          <option value="@ai-sdk/openai-compatible">{t("providers.openaiCompatible")}</option>
-                          <option value="@ai-sdk/anthropic">{t("providers.anthropicCompatible")}</option>
-                        </select>
-                      </div>
-                      <input
-                        value={cUrl}
-                        onChange={(e) => setCUrl(e.target.value)}
-                        placeholder={t("providers.customUrlPlaceholder")}
-                        className={inputCls("w-full font-mono")}
-                      />
-                      <div className="flex gap-2">
-                        <input
-                          type="password"
-                          value={cKey}
-                          onChange={(e) => setCKey(e.target.value)}
-                          placeholder={t("providers.customKeyPlaceholder")}
-                          className={inputCls("flex-1 font-mono")}
-                        />
-                        <input
-                          value={cModels}
-                          onChange={(e) => setCModels(e.target.value)}
-                          placeholder={t("providers.customModelsPlaceholder")}
-                          className={inputCls("flex-1 font-mono")}
-                        />
-                      </div>
-                      <div className="flex gap-2">
-                        <input
-                          inputMode="numeric"
-                          value={cCtx}
-                          onChange={(e) => setCCtx(e.target.value.replace(/[^0-9]/g, ""))}
-                          placeholder={t("providers.customContextPlaceholder")}
-                          className={inputCls("flex-1 font-mono")}
-                        />
-                        {isTauri && (
-                          <button
-                            className={btnGhost()}
-                            onClick={() => void fetchCustomModels()}
-                            disabled={cDetecting || !cUrl.trim()}
-                          >
-                            {cDetecting ? t("providers.fetchingModels") : t("providers.fetchModels")}
-                          </button>
+                    {oauth && (
+                      <div className="mt-2 space-y-2 rounded-input bg-surface-2 p-3">
+                        <p className="text-xs leading-relaxed text-muted">{oauth.instructions}</p>
+                        {oauth.method === "code" ? (
+                          <>
+                            <input
+                              value={codeInput}
+                              onChange={(e) => setCodeInput(e.target.value)}
+                              placeholder={t("providers.pasteCode")}
+                              className={inputCls("w-full font-mono")}
+                            />
+                            <button
+                              className={btnAccent()}
+                              onClick={() => void completeOAuth()}
+                              disabled={busy || !codeInput.trim()}
+                            >
+                              {busy ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Check size={13} />
+                              )}
+                              {t("providers.completeLogin")}
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-2 text-xs text-muted">
+                            <Loader2 size={12} className="shrink-0 animate-spin" />
+                            {t("providers.waitingForBrowser")}
+                            <button
+                              className="text-muted underline transition-colors hover:text-text"
+                              onClick={cancelOAuth}
+                            >
+                              {t("common:actions.cancel")}
+                            </button>
+                          </div>
                         )}
                       </div>
-                      {cDetected !== null && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {cDetected.length === 0 && (
-                            <span className="text-xs text-muted">{t("providers.noModelsFound")}</span>
-                          )}
-                          {cDetected.map((m) => {
-                            const selected = modelList(cModels).includes(m.id);
-                            return (
-                              <button
-                                key={m.id}
-                                onClick={() => toggleDetectedModel(m.id)}
-                                aria-pressed={selected}
-                                className={cn(
-                                  "rounded-full border px-2.5 py-1 font-mono text-xs transition-colors",
-                                  selected
-                                    ? "border-accent bg-accent/10 text-text"
-                                    : "border-faint text-muted hover:text-text",
-                                )}
-                              >
-                                {m.id}
-                                {m.context ? (
-                                  <span className="text-muted"> · {`${Math.round(m.context / 1000)}k`}</span>
-                                ) : null}
-                              </button>
-                            );
-                          })}
+                    )}
+                  </div>
+
+                  {/* Custom endpoint */}
+                  <div className="border-t border-faint">
+                    <button
+                      className="flex h-10 w-full items-center gap-2 px-3 text-left text-[13px] text-muted transition-colors hover:text-text"
+                      onClick={() => setShowCustom((s) => !s)}
+                      aria-expanded={showCustom}
+                    >
+                      <ChevronRight
+                        size={13}
+                        className={cn("transition-transform", showCustom && "rotate-90")}
+                      />
+                      {t("providers.customEndpoint")}
+                      <span className="text-xs text-muted/70">
+                        {t("providers.customEndpointHint")}
+                      </span>
+                    </button>
+                    {showCustom && (
+                      <div className="space-y-2 px-3 pb-3">
+                        <div className="flex gap-2">
+                          <input
+                            value={cName}
+                            onChange={(e) => setCName(e.target.value)}
+                            placeholder={t("providers.customNamePlaceholder")}
+                            className={inputCls("flex-1")}
+                          />
+                          <select
+                            value={cNpm}
+                            onChange={(e) => setCNpm(e.target.value)}
+                            className={selectCls("w-[190px]")}
+                          >
+                            <option value="@ai-sdk/openai-compatible">{t("providers.openaiCompatible")}</option>
+                            <option value="@ai-sdk/anthropic">{t("providers.anthropicCompatible")}</option>
+                          </select>
                         </div>
-                      )}
-                      <button className={btnAccent()} onClick={() => void saveCustom()} disabled={busy}>
-                        {t("providers.addEndpoint")}
-                      </button>
-                    </div>
-                  )}
-                </div>
+                        <input
+                          value={cUrl}
+                          onChange={(e) => setCUrl(e.target.value)}
+                          placeholder={t("providers.customUrlPlaceholder")}
+                          className={inputCls("w-full font-mono")}
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={cKey}
+                            onChange={(e) => setCKey(e.target.value)}
+                            placeholder={t("providers.customKeyPlaceholder")}
+                            className={inputCls("flex-1 font-mono")}
+                          />
+                          <input
+                            value={cModels}
+                            onChange={(e) => setCModels(e.target.value)}
+                            placeholder={t("providers.customModelsPlaceholder")}
+                            className={inputCls("flex-1 font-mono")}
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            inputMode="numeric"
+                            value={cCtx}
+                            onChange={(e) => setCCtx(e.target.value.replace(/[^0-9]/g, ""))}
+                            placeholder={t("providers.customContextPlaceholder")}
+                            className={inputCls("flex-1 font-mono")}
+                          />
+                          {isTauri && (
+                            <button
+                              className={btnGhost()}
+                              onClick={() => void fetchCustomModels()}
+                              disabled={cDetecting || !cUrl.trim()}
+                            >
+                              {cDetecting ? t("providers.fetchingModels") : t("providers.fetchModels")}
+                            </button>
+                          )}
+                        </div>
+                        {cDetected !== null && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {cDetected.length === 0 && (
+                              <span className="text-xs text-muted">{t("providers.noModelsFound")}</span>
+                            )}
+                            {cDetected.map((m) => {
+                              const selected = modelList(cModels).includes(m.id);
+                              return (
+                                <button
+                                  key={m.id}
+                                  onClick={() => toggleDetectedModel(m.id)}
+                                  aria-pressed={selected}
+                                  className={cn(
+                                    "rounded-full border px-2.5 py-1 font-mono text-xs transition-colors",
+                                    selected
+                                      ? "border-accent bg-accent/10 text-text"
+                                      : "border-faint text-muted hover:text-text",
+                                  )}
+                                >
+                                  {m.id}
+                                  {m.context ? (
+                                    <span className="text-muted"> · {`${Math.round(m.context / 1000)}k`}</span>
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <button className={btnAccent()} onClick={() => void saveCustom()} disabled={busy}>
+                          {t("providers.addEndpoint")}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  </>
+                )}
               </div>
 
               {isTauri && (

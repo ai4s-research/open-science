@@ -127,6 +127,8 @@
   "providers": {
     "title": "Proveedores",
     "hint": "Autenticación, endpoints personalizados e inicios de sesión de OpenCode importados",
+    "webHint": "Proveedores conectados: solo lectura desde el navegador",
+    "webNote": "Las claves de API y los endpoints personalizados se configuran en la máquina que ejecuta el workbench: en la app de escritorio, o con `osd auth set` si funciona sin ventana. Las credenciales nunca pasan por el gateway.",
     "connectPrompt": "Conecta el runtime para gestionar proveedores.",
     "manage": "Administrar",
     "collapse": "Contraer",

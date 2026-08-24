@@ -1084,13 +1084,20 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     }
   }
 
-  /** Build an Error carrying the server's diagnostic message, when it has one
-   *  (OpenCode errors look like `{ name, data: { message } }`). */
+  /** Build an Error carrying the server's diagnostic message, when it has one.
+   *  Two shapes reach here: OpenCode's own (`{ name, data: { message } }`) and
+   *  the gateway's (`{ error }`) — when the web client's call is refused by
+   *  gateway policy rather than by OpenCode, the reason is in `error`, and
+   *  dropping it turns an explained refusal into a bare status code (#119). */
   private async apiError(res: Response, what: string): Promise<Error> {
     let detail = "";
     try {
-      const body = (await res.json()) as { data?: { message?: string }; message?: string };
-      detail = body.data?.message ?? body.message ?? "";
+      const body = (await res.json()) as {
+        data?: { message?: string };
+        message?: string;
+        error?: string;
+      };
+      detail = body.data?.message ?? body.message ?? body.error ?? "";
     } catch {
       /* not JSON — keep the status alone */
     }
