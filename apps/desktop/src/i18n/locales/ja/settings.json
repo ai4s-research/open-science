@@ -10,7 +10,8 @@
     "privacy": "プライバシー",
     "browser": "ブラウザ",
     "remote": "リモートアクセス",
-    "memory": "メモリ"
+    "memory": "メモリ",
+    "desktopOnly": "このセクションはデスクトップアプリで利用できます。"
   },
   "appearance": {
     "title": "外観",

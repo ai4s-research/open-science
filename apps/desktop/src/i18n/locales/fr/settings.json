@@ -10,7 +10,8 @@
     "privacy": "Confidentialité",
     "browser": "Navigateur",
     "remote": "Accès distant",
-    "memory": "Mémoire"
+    "memory": "Mémoire",
+    "desktopOnly": "Cette section est disponible dans l'application de bureau."
   },
   "appearance": {
     "title": "Apparence",

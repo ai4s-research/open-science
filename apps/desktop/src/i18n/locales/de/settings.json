@@ -10,7 +10,8 @@
     "privacy": "Datenschutz",
     "browser": "Browser",
     "remote": "Fernzugriff",
-    "memory": "Gedächtnis"
+    "memory": "Gedächtnis",
+    "desktopOnly": "Dieser Bereich ist in der Desktop-App verfügbar."
   },
   "appearance": {
     "title": "Erscheinungsbild",

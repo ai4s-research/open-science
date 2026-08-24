@@ -37,6 +37,14 @@ export function visibleSections(isWeb: boolean) {
   return isWeb ? SETTINGS_SECTIONS.filter((s) => !("desktopOnly" in s && s.desktopOnly)) : SETTINGS_SECTIONS;
 }
 
+/** True for a section the web client hides. Hiding it from the NAVIGATION is not
+ *  enough: `/settings/<key>` still resolves, so a typed or shared link would
+ *  render a surface whose writes the gateway refuses outright (#119). The page
+ *  has to check this too. */
+export function isDesktopOnlySection(key: SettingsSection): boolean {
+  return SETTINGS_SECTIONS.some((s) => s.key === key && "desktopOnly" in s && s.desktopOnly);
+}
+
 export function resolveSection(raw: string | undefined): SettingsSection {
   return (SETTINGS_SECTIONS.find((s) => s.key === raw)?.key ?? "general") as SettingsSection;
 }

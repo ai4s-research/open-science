@@ -74,7 +74,7 @@ import { ProviderManagerCard } from "@/components/settings/ProviderManagerCard";
 import { AgentModelsCard } from "@/components/settings/AgentModelsCard";
 import { MemoryCard } from "@/components/settings/MemoryCard";
 import { Row, Section, Switch } from "@/components/settings/Section";
-import { resolveSection } from "@/components/settings/sections";
+import { isDesktopOnlySection, resolveSection } from "@/components/settings/sections";
 import { chipCls, inputCls, selectCls } from "@/components/settings/inputCls";
 import { SCIENCE_CONNECTORS } from "@/lib/scienceConnectors";
 import {
@@ -809,6 +809,21 @@ export function SettingsPage() {
         .map((method, index) => ({ method, index }))
         .filter(({ method }) => method.type === "oauth")
     : [];
+
+  // The web client's navigation hides these, but the route still resolves — a
+  // typed or shared `/settings/connectors` would otherwise render a card whose
+  // every write the gateway refuses, the same dead end as #119. Placed after
+  // every hook so the hook order never changes with the section.
+  if (isGatewayWeb && isDesktopOnlySection(section)) {
+    return (
+      <div className="h-full select-none overflow-y-auto">
+        <div className="mx-auto max-w-2xl px-4 pb-16 pt-4 sm:px-8">
+          <h1 className="font-serif text-2xl text-text">{t(`nav.${section}`)}</h1>
+          <p className="mt-4 text-[13px] leading-relaxed text-muted">{t("nav.desktopOnly")}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     // `select-none`: Settings is chrome, not a document. Right-clicking or

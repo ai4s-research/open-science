@@ -10,7 +10,8 @@
     "privacy": "Privacidad",
     "browser": "Navegador",
     "remote": "Acceso remoto",
-    "memory": "Memoria"
+    "memory": "Memoria",
+    "desktopOnly": "Esta sección está disponible en la app de escritorio."
   },
   "appearance": {
     "title": "Apariencia",

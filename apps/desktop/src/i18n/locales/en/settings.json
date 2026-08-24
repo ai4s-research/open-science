@@ -10,7 +10,8 @@
     "privacy": "Privacy",
     "browser": "Browser",
     "remote": "Remote Access",
-    "memory": "Memory"
+    "memory": "Memory",
+    "desktopOnly": "This section is available in the desktop app."
   },
   "appearance": {
     "title": "Appearance",

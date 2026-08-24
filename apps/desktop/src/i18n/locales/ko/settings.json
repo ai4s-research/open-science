@@ -10,7 +10,8 @@
     "privacy": "개인정보",
     "browser": "브라우저",
     "remote": "원격 접속",
-    "memory": "메모리"
+    "memory": "메모리",
+    "desktopOnly": "이 섹션은 데스크톱 앱에서 사용할 수 있습니다."
   },
   "appearance": {
     "title": "화면 모드",

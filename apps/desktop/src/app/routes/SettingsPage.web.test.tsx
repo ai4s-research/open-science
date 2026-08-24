@@ -38,6 +38,18 @@ function webClient() {
 
 let view: ReturnType<typeof render> | undefined;
 
+async function renderAt(path: string) {
+  await act(async () => {
+    view = render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/settings/:section" element={<SettingsPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  });
+}
+
 describe("Providers in the gateway web client", () => {
   const initialRuntime = useRuntimeStore.getState();
 
@@ -45,15 +57,7 @@ describe("Providers in the gateway web client", () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(webClient());
     useRuntimeStore.setState({ status: "ready", defaultModel: "openai/gpt-5.2", switching: false });
     await i18n.changeLanguage("en");
-    await act(async () => {
-      view = render(
-        <MemoryRouter initialEntries={["/settings/models"]}>
-          <Routes>
-            <Route path="/settings/:section" element={<SettingsPage />} />
-          </Routes>
-        </MemoryRouter>,
-      );
-    });
+    await renderAt("/settings/models");
     await userEvent.click(screen.getByRole("button", { name: "Manage" }));
   });
 
@@ -83,5 +87,44 @@ describe("Providers in the gateway web client", () => {
     expect(screen.queryByPlaceholderText(/Connect a provider/)).not.toBeInTheDocument();
     // Removing one (DELETE /auth, config write → 403).
     expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+  });
+});
+
+// Hiding a section from the sidebar does not close its route: `/settings/
+// connectors` typed by hand rendered the MCP card, whose "Add" is the same
+// refused config write. Every desktopOnly section is now answered by one line.
+describe("a desktop-only settings route reached by URL in the web client", () => {
+  const initialRuntime = useRuntimeStore.getState();
+
+  beforeEach(async () => {
+    vi.spyOn(runtime, "getClient").mockReturnValue(webClient());
+    useRuntimeStore.setState({ status: "ready", defaultModel: "openai/gpt-5.2", switching: false });
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    view?.unmount();
+    view = undefined;
+    vi.restoreAllMocks();
+    useRuntimeStore.setState(initialRuntime, true);
+  });
+
+  it("names the section and says where it lives, offering no MCP write", async () => {
+    await renderAt("/settings/connectors");
+
+    expect(screen.getByRole("heading", { level: 1, name: "Connectors" })).toBeInTheDocument();
+    expect(screen.getByText("This section is available in the desktop app.")).toBeInTheDocument();
+    expect(screen.queryByText("MCP servers")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Name — e.g. jupyter/)).not.toBeInTheDocument();
+  });
+
+  it("still serves the sections the web client does support", async () => {
+    // Only the hidden ones are answered this way — Models must be untouched.
+    await renderAt("/settings/models");
+
+    expect(screen.getByRole("heading", { level: 1, name: "Models" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("This section is available in the desktop app."),
+    ).not.toBeInTheDocument();
   });
 });
