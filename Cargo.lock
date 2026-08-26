@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "ai4s-workbench"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "getrandom 0.4.3",
  "objc2-app-kit",
@@ -2803,7 +2803,7 @@ dependencies = [
 
 [[package]]
 name = "osd-cli"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "libc",
  "osd-core",
@@ -2813,7 +2813,7 @@ dependencies = [
 
 [[package]]
 name = "osd-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "getrandom 0.4.3",
  "notify",
