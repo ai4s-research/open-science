@@ -85,6 +85,26 @@ const HEADER_LABEL_MIN_PX = 620;
  *  session already seen this run now paints its final header immediately. */
 const RUNS_KNOWN = new Map<string, boolean>();
 
+/** How long the runtime may take to come up before the wait is explained. A
+ *  normal launch connects in well under a second, so nothing is said; a fresh
+ *  install can sit here for minutes behind the macOS "access Documents" prompt,
+ *  and an empty pane with a small badge tells that user nothing. */
+const SLOW_START_MS = 6000;
+
+/** Has the runtime been connecting long enough to say something about it? */
+function useSlowStart(connecting: boolean): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!connecting) {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), SLOW_START_MS);
+    return () => clearTimeout(timer);
+  }, [connecting]);
+  return slow;
+}
+
 export function SessionView({
   sessionId,
   leafId,
@@ -209,6 +229,7 @@ export function SessionView({
   const connected = status === "ready" || switching;
   const connecting = status === "connecting" && !switching;
   const displayStatus = switching ? "ready" : status;
+  const slowStart = useSlowStart(connecting);
 
   // A newly-created session (draft's first send) binds onto this leaf; the
   // wrapper then follows it into the URL and opens its folder.
@@ -775,6 +796,26 @@ export function SessionView({
                 </div>
               </div>
             )}
+            {slowStart && focused && (
+              // Only for a start that is genuinely taking a while (see
+              // useSlowStart) — a normal launch connects before this appears,
+              // and nothing should be said about a wait the user never had.
+              <div
+                role="status"
+                className="rounded-card border border-border bg-surface p-5 shadow-card"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium text-text">
+                  <Loader2 size={13} className="animate-spin text-muted" />
+                  {t("live.starting.title")}
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  {/* The browser client waits on a gateway running on someone
+                      else's machine — the local first-launch permission prompt
+                      is not what is holding it up. */}
+                  {t(isGatewayWeb ? "live.starting.bodyWeb" : "live.starting.body")}
+                </p>
+              </div>
+            )}
             {error && focused && (
               <div className="rounded-input border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
                 {error}
@@ -970,11 +1011,13 @@ export function SessionView({
                   ? t("live.placeholder.readOnly")
                   : working
                     ? t("live.placeholder.waiting")
-                    : !connected
-                      ? t("live.placeholder.disconnected")
-                      : planAvailable && agentMode === "plan"
-                        ? t("composer.placeholder.plan")
-                        : t("composer.placeholder.default")
+                    : connecting
+                      ? t("live.placeholder.starting")
+                      : !connected
+                        ? t("live.placeholder.disconnected")
+                        : planAvailable && agentMode === "plan"
+                          ? t("composer.placeholder.plan")
+                          : t("composer.placeholder.default")
               }
               // Both switches belong to the OpenCode runtime: the approval mode is
               // its config (an ACP agent asks for permission on its own terms),

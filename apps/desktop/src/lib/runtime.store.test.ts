@@ -776,6 +776,25 @@ describe("per-session workspace folders", () => {
     expect(seen).not.toContain("offline");
   });
 
+  it("never passes through 'error' while retrying (the launch flicker)", async () => {
+    // Every launch dials the sidecar before it listens, so the first two or
+    // three attempts fail — and each published failure flipped the status
+    // badge, the offline help card and the error banner on and off 250ms
+    // apart. A retry window has to read as one uninterrupted "connecting".
+    mocks.failConnects = 3;
+    const seen: string[] = [];
+    const errors: string[] = [];
+    const unsub = useRuntimeStore.subscribe((s, prev) => {
+      if (s.status !== prev.status) seen.push(s.status);
+      if (s.error !== prev.error && s.error) errors.push(s.error);
+    });
+    await useRuntimeStore.getState().connectRetry(5);
+    unsub();
+    expect(useRuntimeStore.getState().status).toBe("ready");
+    expect(seen).not.toContain("error");
+    expect(errors).toEqual([]);
+  });
+
   it("surfaces the last error only when the retry window is exhausted", async () => {
     mocks.failConnects = 99;
     await useRuntimeStore.getState().connectRetry(1);

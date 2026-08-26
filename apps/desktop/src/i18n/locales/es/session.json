@@ -161,6 +161,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "Esperando la respuesta de la app anfitriona. Deja esta página abierta: se conectará por su cuenta en cuanto el anfitrión esté accesible.",
+      "title": "Iniciando el entorno de ejecución local…",
+      "body": "El entorno de ejecución del agente incluido está arrancando. En el primer inicio, macOS puede pedir permiso para acceder a tus carpetas: concédelo y esto terminará por sí solo."
+    },
     "runtime": {
       "title": "Entorno de ejecución de OpenCode",
       "bodyPrefix": "La app de escritorio ejecuta automáticamente una instancia de OpenCode incluida. En el navegador, inicia una con",
@@ -209,6 +214,7 @@
       "cancelTitle": "Detener esta revisión"
     },
     "placeholder": {
+      "starting": "Iniciando el entorno de ejecución…",
       "disconnected": "Conéctate para chatear",
       "waiting": "Esperando la respuesta…",
       "readOnly": "Acceso de solo lectura — solo visualización"

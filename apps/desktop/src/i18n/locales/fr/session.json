@@ -161,6 +161,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "En attente de la réponse de l'application hôte. Laissez cette page ouverte — la connexion se fera d'elle-même dès que l'hôte sera joignable.",
+      "title": "Démarrage du runtime local…",
+      "body": "Le runtime d'agent intégré démarre. Au premier lancement, macOS peut demander l'autorisation d'accéder à vos dossiers — accordez-la et l'opération se termine d'elle-même."
+    },
     "runtime": {
       "title": "Runtime OpenCode",
       "bodyPrefix": "L'application de bureau exécute automatiquement un OpenCode intégré. Dans le navigateur, démarrez-en un avec",
@@ -209,6 +214,7 @@
       "cancelTitle": "Arrêter cette révision"
     },
     "placeholder": {
+      "starting": "Démarrage du runtime…",
       "disconnected": "Connectez-vous pour discuter",
       "waiting": "En attente de la réponse…",
       "readOnly": "Accès en lecture seule — consultation uniquement"

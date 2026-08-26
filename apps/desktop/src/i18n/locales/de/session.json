@@ -161,6 +161,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "Warte auf eine Antwort der Host-App. Lassen Sie diese Seite offen — sie verbindet sich von selbst, sobald der Host erreichbar ist.",
+      "title": "Lokale Runtime wird gestartet…",
+      "body": "Die gebündelte Agent-Runtime startet. Beim ersten Start fragt macOS möglicherweise nach Zugriff auf Ihre Ordner — erlauben Sie ihn, dann schließt der Vorgang von selbst ab."
+    },
     "runtime": {
       "title": "OpenCode-Runtime",
       "bodyPrefix": "Die Desktop-App führt automatisch eine gebündelte OpenCode-Instanz aus. Starten Sie im Browser eine mit",
@@ -209,6 +214,7 @@
       "cancelTitle": "Diese Prüfung stoppen"
     },
     "placeholder": {
+      "starting": "Runtime wird gestartet…",
       "disconnected": "Zum Chatten verbinden",
       "waiting": "Warte auf die Antwort…",
       "readOnly": "Nur-Lese-Zugriff — nur Ansicht"

@@ -161,6 +161,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "Waiting for the host app to answer. Keep this page open — it connects on its own as soon as the host is reachable.",
+      "title": "Starting the local runtime…",
+      "body": "The bundled agent runtime is coming up. On a first launch macOS may ask for permission to access your folders — allow it and this finishes on its own."
+    },
     "runtime": {
       "title": "OpenCode runtime",
       "bodyPrefix": "The desktop app runs a bundled OpenCode automatically. In the browser, start one with",
@@ -209,6 +214,7 @@
       "cancelTitle": "Stop this review"
     },
     "placeholder": {
+      "starting": "Starting the runtime…",
       "disconnected": "Connect to chat",
       "waiting": "Waiting for the reply…",
       "readOnly": "Read-only access — viewing only"

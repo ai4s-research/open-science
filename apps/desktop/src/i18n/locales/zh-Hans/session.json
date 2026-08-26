@@ -161,6 +161,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "正在等待主机应用响应。请保持此页面打开——主机可访问后会自动连接。",
+      "title": "正在启动本地运行时…",
+      "body": "内置的智能体运行时正在启动。首次启动时 macOS 可能会请求访问文件夹的权限——允许后即可自动完成。"
+    },
     "runtime": {
       "title": "OpenCode 运行时",
       "bodyPrefix": "桌面应用会自动运行一个内置的 OpenCode。在浏览器中，请使用以下命令启动一个",
@@ -209,6 +214,7 @@
       "cancelTitle": "停止此次审阅"
     },
     "placeholder": {
+      "starting": "正在启动运行时…",
       "disconnected": "连接以开始聊天",
       "waiting": "等待回复…",
       "readOnly": "只读访问——仅可查看"
