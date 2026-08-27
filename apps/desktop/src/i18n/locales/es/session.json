@@ -367,6 +367,26 @@
       "revert": "Revertir aquí"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "Un mensaje guardado de esta conversación no tiene texto donde el formato del modelo lo exige, normalmente una respuesta cortada nada más empezar.",
+      "tool-result-missing": "A un paso {{tool}} guardado le falta el resultado que informó.",
+      "tool-error-missing": "Un paso {{tool}} guardado falló sin registrar por qué.",
+      "tool-call-id-missing": "Un paso de herramienta guardado perdió el id que lo empareja con su resultado.",
+      "unknown": "Esta conversación ya no se puede enviar al modelo y no hemos podido identificar qué mensaje guardado lo provoca."
+    },
+    "someTool": "herramienta",
+    "offer_one": "Volver justo antes descarta {{count}} mensaje y resuelve el problema.",
+    "offer_other": "Volver justo antes descarta {{count}} mensajes y resuelve el problema.",
+    "noTarget": "No hay ningún punto anterior al que volver, así que esta conversación no se puede reparar: empieza una nueva. No se borra nada; puedes seguir leyéndola y exportándola.",
+    "action": "Reparar conversación",
+    "confirm": {
+      "title": "¿Volver a antes del mensaje dañado?",
+      "body_one": "Esto descarta {{count}} mensaje y deshace los cambios de archivos de ese turno. Tu texto vuelve al campo de entrada. No se puede deshacer.",
+      "body_other": "Esto descarta {{count}} mensajes y deshace los cambios de archivos de esos turnos. Tu texto vuelve al campo de entrada. No se puede deshacer.",
+      "action": "Volver"
+    }
+  },
   "compaction": {
     "label": "Contexto compactado",
     "autoBody": "El entorno resumió los turnos anteriores para no salirse de la ventana de contexto del modelo, y la conversación siguió aquí.",

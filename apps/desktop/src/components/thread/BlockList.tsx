@@ -1,6 +1,13 @@
 import { memo } from "react";
 import type { ArtifactBlock, FigureAnnotation, ThreadBlock } from "@ai4s/shared";
-import { AgentMessage, DataTable, RunningJobsOverlay, StatusLine, UserMessage } from "./atoms";
+import {
+  AgentMessage,
+  DataTable,
+  HistoryRepair,
+  RunningJobsOverlay,
+  StatusLine,
+  UserMessage,
+} from "./atoms";
 import { ToolCallRow } from "./ToolCallRow";
 import { ToolGroup, groupToolBlocks } from "./ToolGroup";
 import { ReviewerCard } from "./ReviewerCard";
@@ -79,6 +86,11 @@ export function renderBlock(
       return <RunningJobsOverlay key={i} block={block} />;
     case "compaction":
       return <CompactionRow key={i} block={block} />;
+    case "history-repair":
+      // Reuses the Revert handler: the repair IS a revert, to a message the app
+      // picked instead of one the user clicked. Absent outside the live session,
+      // which correctly leaves the diagnosis readable but not actionable.
+      return <HistoryRepair key={i} block={block} onRevert={handlers?.onRevertMessage} />;
     case "status-line":
       return <StatusLine key={i} block={block} />;
   }

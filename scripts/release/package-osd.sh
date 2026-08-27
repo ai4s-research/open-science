@@ -68,6 +68,7 @@ copy_resource() {
 
 copy_resource runtime/goal-plugin goal-plugin
 copy_resource runtime/browser-plugin browser-plugin
+copy_resource runtime/history-plugin history-plugin
 copy_resource runtime/tools tools
 copy_resource runtime/skills/external/ai4s-skills skills
 copy_resource runtime/skills/external/anthropic-skills skills-office

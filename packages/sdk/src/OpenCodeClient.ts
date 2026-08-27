@@ -593,7 +593,19 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
           type: "text",
           text,
           synthetic: true,
-          metadata: { source: "ai4s.background-review" },
+          // MUST be a two-level record, namespaced like every other thing we
+          // store (META_NS). A PART's metadata is not private to us the way a
+          // session's is: the runtime forwards an assistant text part's
+          // metadata to the model as `providerMetadata`, whose schema is
+          // `Record<string, Record<string, JSONValue>>`. This field used to be
+          // the flat `{ source: "ai4s.background-review" }`, and a string where
+          // a record belongs made the AI SDK reject the ENTIRE conversation
+          // with "Invalid prompt: The messages do not match the ModelMessage[]
+          // schema" — on the next turn and every turn after it, because the
+          // part is on disk. That was #114: a background review silently ended
+          // the conversation it was reviewing. Reproduced against the pinned
+          // runtime, both ways round.
+          metadata: { [META_NS]: { source: "background-review" } },
         }),
       },
     );

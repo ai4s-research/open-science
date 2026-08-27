@@ -367,6 +367,26 @@
       "revert": "Revert here"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "One saved message in this conversation has no text where the model's format requires it — usually a reply cut short the instant it began.",
+      "tool-result-missing": "A saved {{tool}} step is missing the result it reported.",
+      "tool-error-missing": "A saved {{tool}} step failed without recording why.",
+      "tool-call-id-missing": "A saved tool step lost the id that pairs it with its result.",
+      "unknown": "This conversation can no longer be sent to the model, and we could not identify which saved message is responsible."
+    },
+    "someTool": "tool",
+    "offer_one": "Rolling back to just before it discards {{count}} message and clears the problem.",
+    "offer_other": "Rolling back to just before it discards {{count}} messages and clears the problem.",
+    "noTarget": "There is no earlier point to roll back to, so this conversation cannot be repaired — start a new one. Nothing is deleted; you can still read and export this one.",
+    "action": "Repair conversation",
+    "confirm": {
+      "title": "Roll back to before the damaged message?",
+      "body_one": "This discards {{count}} message and rolls back the file changes that turn made. Your prompt returns to the composer. This can't be undone.",
+      "body_other": "This discards {{count}} messages and rolls back the file changes those turns made. Your prompt returns to the composer. This can't be undone.",
+      "action": "Roll back"
+    }
+  },
   "compaction": {
     "label": "Context compacted",
     "autoBody": "The runtime summarized the earlier turns to stay inside this model's context window, and the conversation continued here.",

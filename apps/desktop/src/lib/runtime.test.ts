@@ -392,6 +392,37 @@ describe("historyToThread", () => {
     expect(t.blocks[2]).toMatchObject({ kind: "tool-call", status: "success" });
   });
 
+  it("reoffers the repair on reload, naming the part that makes the session unsendable", () => {
+    // The damage is on disk, so reopening the session hits the same wall. Without
+    // this the way out would exist only in the tab that was open when it first
+    // failed — and the reporter of #114 had already closed that tab.
+    const t = historyToThread([
+      { role: "user", id: "m1", parts: [{ type: "text", text: "plot it" }] },
+      {
+        role: "assistant",
+        id: "m2",
+        error: "Invalid prompt: The messages do not match the ModelMessage[] schema.",
+        parts: [{ type: "tool", tool: "bash", callID: "c1", state: { status: "completed" } }],
+      },
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toContain("history-repair");
+    expect(t.blocks[t.blocks.length - 1]).toMatchObject({
+      kind: "history-repair",
+      reason: "tool-result-missing",
+      tool: "bash",
+      target: { messageID: "m1", text: "plot it" },
+      drops: 2,
+    });
+  });
+
+  it("offers no repair for an ordinary failed turn — only this one is unretryable", () => {
+    const t = historyToThread([
+      { role: "user", id: "m1", parts: [{ type: "text", text: "plot it" }] },
+      { role: "assistant", id: "m2", error: "Overloaded", parts: [{ type: "text", text: "" }] },
+    ]);
+    expect(t.blocks.map((b) => b.kind)).not.toContain("history-repair");
+  });
+
   it("recovers a reloaded turn's tokens and timings, so reopening keeps the meta line", () => {
     const usage = { input: 3_000, output: 900, reasoning: 0, cacheRead: 118_000, cacheWrite: 2_100, cost: 0.42 };
     const t = historyToThread([
@@ -756,9 +787,21 @@ describe("runtime error explanations", () => {
       "Invalid prompt: The messages do not match the ModelMessage[] schema.",
     );
     expect(out).toContain("ModelMessage[] schema"); // the SDK's own words survive
-    expect(out).toMatch(/tool call left without/i);
     expect(out).toMatch(/every retry resends/i);
-    expect(out).toMatch(/new session/i);
+    expect(out).toMatch(/retrying cannot work/i);
+  });
+
+  it("does not blame a cause it cannot know for a malformed history", () => {
+    // This line used to assert the damage was "a tool call left without its
+    // result". That was wrong — the runtime backfills an interrupted tool call
+    // with a synthetic result, and sessions carrying one keep working for
+    // hundreds of messages — and we published it on #114. The thread names the
+    // real part from the stored history instead; the error text guesses at
+    // nothing, or it sends people to delete history that was fine.
+    const out = explainRuntimeError(
+      "Invalid prompt: The messages do not match the ModelMessage[] schema.",
+    );
+    expect(out).not.toMatch(/tool call left without/i);
   });
 
   it("names the provider behind a spent free allowance, from the runtime's own action", () => {

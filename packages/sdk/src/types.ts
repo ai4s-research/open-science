@@ -317,19 +317,39 @@ export interface HistoryPart {
   /** True on runtime-generated text (e.g. the "tool was executed by the user"
    *  marker a "!" shell run leaves in history) — not something the user typed. */
   synthetic?: boolean;
+  /** OpenCode marks a part the model must not see again. The converter drops
+   *  these before building the request, so they cannot malform it. */
+  ignored?: boolean;
   tool?: string;
+  /** The provider's id for this tool call — what pairs the call with its
+   *  result. Every tool part carries one; a part without it cannot be turned
+   *  into a valid message. */
+  callID?: string;
   state?: {
     status?: string;
     title?: string;
     input?: Record<string, unknown>;
     output?: string;
-    /** Epoch ms the tool started/finished — persisted with the part. */
-    time?: { start?: number; end?: number };
+    /** Why the tool failed, on `status: "error"`. Carried into the request as
+     *  the tool result, so it is as load-bearing as `output` is. */
+    error?: string;
+    /** Epoch ms the tool started/finished — persisted with the part.
+     *  `compacted` is set once compaction has cleared this result's text; from
+     *  then on the request carries a placeholder and `output` no longer
+     *  matters. */
+    time?: { start?: number; end?: number; compacted?: number };
     /** Tool-specific extras (bash stdout tail, edit diff, task session link).
      *  `sessionId` is the subagent session a `task` tool spawned — the live
      *  event stream reads the same field, and without it here a RELOADED
-     *  conversation loses every link to its subagents' own transcripts. */
-    metadata?: { output?: string; diff?: string; sessionId?: string };
+     *  conversation loses every link to its subagents' own transcripts.
+     *  `interrupted` marks a tool the user stopped: its `output` (not
+     *  `state.error`) is what the model is shown. */
+    metadata?: {
+      output?: string;
+      diff?: string;
+      sessionId?: string;
+      interrupted?: boolean;
+    };
   };
 }
 

@@ -82,6 +82,7 @@ import {
   shouldAutoReview,
 } from "./autoReview";
 import { isGoalInjectedPrompt } from "./goalPrompts";
+import { findHistoryDefects, repairTarget } from "./malformedHistory";
 import { notifyPermissionRequest } from "./systemNotification";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { listProvidersWithAvailability, ZEN_PROVIDER_ID } from "./zenModels";
@@ -906,6 +907,11 @@ export function redactForLog(message: string): string {
   return redacted.length > LOG_ERROR_MAX ? `${redacted.slice(0, LOG_ERROR_MAX)}…` : redacted;
 }
 
+/** The AI SDK's wording for a conversation it refused to send. One definition,
+ *  because two places act on it: the error text explains it, and the thread
+ *  follows it with a diagnosis of the stored history (#114). */
+const MALFORMED_HISTORY = /do(es)? not match the ModelMessage\[\] schema/i;
+
 /** How to name the provider an account-state failure belongs to. Zen is the
  *  built-in one and its id says nothing to the person who never chose it. */
 function providerLabel(provider: string | undefined): string {
@@ -952,16 +958,21 @@ export function explainRuntimeError(message: string, action?: RetryAction): stri
       `start a new session, or switch to another model or provider.`
     );
   }
-  // The AI SDK rejects the whole request when the conversation it was handed is
-  // not a well-formed message list — in practice a tool call left without its
-  // result, or messages out of chronological order, which compaction on a long
-  // session can leave behind (#114). Like the content-filter case above, the
-  // bad history is resent every turn, so retrying reproduces it exactly.
-  if (/do(es)? not match the ModelMessage\[\] schema/i.test(message)) {
+  // The AI SDK rejects the whole conversation before any request goes out when
+  // one stored part is missing a field the message format requires (#114). The
+  // damage is on disk, so every retry resends it and fails identically.
+  //
+  // This deliberately no longer guesses a cause. It used to say "usually a tool
+  // call left without its result", which we published and which is wrong: the
+  // runtime backfills an interrupted tool call with a synthetic result, and
+  // sessions carrying one keep working for hundreds of messages. The repair
+  // block appended alongside this line names the actual part, read from the
+  // stored history — a guess in the error text only sent people to delete
+  // history that was fine.
+  if (MALFORMED_HISTORY.test(message)) {
     return (
-      `${message} The stored history of this session is malformed — usually a tool call left without ` +
-      `its result — and every retry resends it, so this session will keep failing. Edit or delete the ` +
-      `last few messages to cut the damaged part out, or start a new session.`
+      `${message} One stored message in this session no longer has the shape the model requires, and ` +
+      `every retry resends it — so retrying cannot work.`
     );
   }
   // The same two causes with no action to go by — a reloaded history, or an
@@ -1717,6 +1728,54 @@ async function revertToMessage(
     return { threads: { ...s.threads, [sid]: { ...cur, blocks: cur.blocks.slice(0, idx) } } };
   });
   return true;
+}
+
+/** The repair offer for a history the model refused (#114): the earliest part
+ *  that would fail validation, and the message to roll back to. A scan that
+ *  recognizes nothing still produces a block — saying "we could not identify
+ *  which message" is the honest answer, and silence would read as the app
+ *  having nothing to say. */
+function historyRepairBlock(messages: HistoryMessage[]): ThreadBlock {
+  const [defect] = findHistoryDefects(messages);
+  const target = defect ? repairTarget(messages, defect) : undefined;
+  return {
+    kind: "history-repair",
+    ...(defect ? { reason: defect.reason } : {}),
+    ...(defect?.tool ? { tool: defect.tool } : {}),
+    ...(target
+      ? { target: { messageID: target.messageID, text: target.text }, drops: target.drops }
+      : {}),
+  };
+}
+
+/** A live turn was rejected because the stored history is no longer a valid
+ *  message list. Read that history back and append the repair offer under the
+ *  error line already on screen — the diagnosis needs a round trip, and the
+ *  failure must be reported the instant it happens rather than when a fetch
+ *  finishes. (A reopened session takes the `historyToThread` path instead,
+ *  which already holds the messages.) */
+async function diagnoseMalformedHistory(set: StoreSet, sid: string): Promise<void> {
+  const c = client;
+  if (!c) return;
+  let messages: HistoryMessage[];
+  try {
+    messages = await c.getMessages(sid);
+  } catch {
+    // The runtime is unreachable; the error line already said what failed, and
+    // a second failure notice here would only add noise.
+    return;
+  }
+  const block = historyRepairBlock(messages);
+  set((s) => {
+    const cur = s.threads[sid];
+    if (!cur) return {};
+    // The turn may have been repaired, reverted or superseded while the history
+    // was in flight; only offer a repair on a thread that still ends in the
+    // failure this was called for.
+    const last = cur.blocks[cur.blocks.length - 1];
+    if (last?.kind !== "status-line" || last.tone !== "error") return {};
+    return { threads: { ...s.threads, [sid]: { ...cur, blocks: [...cur.blocks, block] } } };
+  });
 }
 
 /** The live OpenCode client (Settings talks to the runtime's config API directly). */
@@ -2476,6 +2535,11 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
               },
             };
           });
+          // This one failure the user cannot act on without help: the bad
+          // message is indistinguishable by eye, and every retry resends it.
+          if (MALFORMED_HISTORY.test(event.message)) {
+            void diagnoseMalformedHistory(set, sid);
+          }
         } else {
           set({ error: message });
         }
@@ -4354,6 +4418,12 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
         // Same explanation the live line got: a restart is exactly when the user
         // no longer has the context to work out what to do about it.
         blocks.push({ kind: "status-line", text: explainRuntimeError(m.error), tone: "error" });
+        // …and the same repair offer. The damage is on disk, so reopening the
+        // session shows the failure again; without this the way out would exist
+        // only in the tab that happened to be open when it first happened. The
+        // scan runs off `messages`, already in hand — no fetch, unlike the live
+        // path (#114).
+        if (MALFORMED_HISTORY.test(m.error)) blocks.push(historyRepairBlock(messages));
       }
       shellTurn = false;
     }

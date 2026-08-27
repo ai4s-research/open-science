@@ -111,6 +111,34 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     expect(models.find((m) => m.id === "gpt-4")?.variants).toEqual([]);
   });
 
+  it("namespaces a background-review part's metadata, because the model is shown it", async () => {
+    // #114, reproduced against the pinned runtime: an assistant text part's
+    // metadata is forwarded to the model as `providerMetadata`, whose schema is
+    // Record<string, Record<string, JSONValue>>. The flat
+    // `{ source: "ai4s.background-review" }` this used to send put a string
+    // where a record belongs, and the AI SDK then rejected the WHOLE
+    // conversation — on that turn and every turn after, since the part is
+    // persisted. A background review permanently ended the conversation it had
+    // just reviewed. Every value here must be an object, one level down.
+    let sent: Record<string, unknown> = {};
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sent = JSON.parse(String(init?.body));
+      return new Response("{}", { status: 200 });
+    };
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.appendTextPart("ses_1", "msg_1", "```review\n{}\n```", "prt_1");
+
+    const metadata = sent.metadata as Record<string, unknown>;
+    expect(Object.keys(metadata).length).toBeGreaterThan(0);
+    for (const value of Object.values(metadata)) {
+      expect(typeof value).toBe("object");
+      expect(value).not.toBeNull();
+      expect(Array.isArray(value)).toBe(false);
+    }
+    expect(metadata).toEqual({ ai4s: { source: "background-review" } });
+  });
+
   it("surfaces each model's context window, and 0 when OpenCode has none", async () => {
     // Load-bearing, not decorative: OpenCode short-circuits auto-compaction on
     // `limit.context === 0`, so a model whose window it does not know never gets

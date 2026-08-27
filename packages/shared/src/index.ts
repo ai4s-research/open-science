@@ -39,6 +39,7 @@ export type ThreadBlock =
   | ArtifactBlock
   | RunningJobsBlock
   | CompactionBlock
+  | HistoryRepairBlock
   | StatusLineBlock;
 
 /** The runtime summarized the older turns to stay inside the model's context
@@ -259,6 +260,27 @@ export interface RunningJobsBlock {
   kind: "running-jobs";
   title: string; // e.g. "REMOTE · 8"
   jobs: RunningJob[];
+}
+
+/** The turn was rejected before it was sent because the session's stored
+ *  history no longer forms a valid message list, so retrying resends the same
+ *  damage and fails identically (#114). Unlike every other error line this one
+ *  carries the way out, because the user cannot find the bad message by eye.
+ *  `reason` is absent when the history scan recognized nothing — then the block
+ *  says so instead of pointing at an innocent message. */
+export interface HistoryRepairBlock {
+  kind: "history-repair";
+  /** Which required field is missing, as `malformedHistory` classified it. */
+  reason?: "text-missing" | "tool-result-missing" | "tool-error-missing" | "tool-call-id-missing";
+  /** Tool name, when the damaged part is a tool call. */
+  tool?: string;
+  /** The user message to roll back to, and the text handed back to the composer
+   *  so the pending turn survives the repair. Absent when nothing can be rolled
+   *  back to — the session has to be left behind. */
+  target?: { messageID: string; text: string };
+  /** How many stored messages the rollback discards, so the cost is stated
+   *  before it is paid rather than after. */
+  drops?: number;
 }
 
 export interface StatusLineBlock {

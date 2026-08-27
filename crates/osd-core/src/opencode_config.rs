@@ -509,6 +509,13 @@ pub fn ensure_browser_guard_plugin(existing: &str, plugin_path: &str) -> Option<
     ensure_named_plugin(existing, plugin_path, "browser-guard.ts")
 }
 
+/// The guard that restores the fields a stored message must carry before the
+/// runtime converts it for the model, so one damaged part cannot brick a
+/// session for good (#114).
+pub fn ensure_history_guard_plugin(existing: &str, plugin_path: &str) -> Option<String> {
+    ensure_named_plugin(existing, plugin_path, "history-guard.ts")
+}
+
 /// Project memory: OpenCode resolves a relative `instructions` entry against
 /// the session's working directory, so this one entry gives every project its
 /// own memory file without any per-project config.
@@ -1394,6 +1401,37 @@ mod tests {
             json!(["/app/goal-plugin.server.js", "/new/browser-guard.ts"])
         );
         assert!(ensure_browser_guard_plugin(&out, "/new/browser-guard.ts").is_none());
+    }
+
+    #[test]
+    fn ensure_history_guard_plugin_joins_the_others_without_disturbing_them() {
+        // All three of our plugins coexist; registering one must not retire
+        // another, and re-registering the same path must not grow the list.
+        let existing = r#"{"plugin":["/app/goal-plugin.server.js","/app/browser-guard.ts"]}"#;
+        let out = ensure_history_guard_plugin(existing, "/app/history-guard.ts").unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v["plugin"],
+            json!([
+                "/app/goal-plugin.server.js",
+                "/app/browser-guard.ts",
+                "/app/history-guard.ts"
+            ])
+        );
+        assert!(ensure_history_guard_plugin(&out, "/app/history-guard.ts").is_none());
+    }
+
+    #[test]
+    fn ensure_history_guard_plugin_replaces_only_its_own_stale_path() {
+        // An upgrade moves the deployed path; the old entry must go, or the
+        // runtime tries to load a plugin that is no longer there.
+        let existing = r#"{"plugin":["/old/history-guard.ts","/app/browser-guard.ts"]}"#;
+        let out = ensure_history_guard_plugin(existing, "/new/history-guard.ts").unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v["plugin"],
+            json!(["/app/browser-guard.ts", "/new/history-guard.ts"])
+        );
     }
 
     #[test]

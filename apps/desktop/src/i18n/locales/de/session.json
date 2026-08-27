@@ -367,6 +367,26 @@
       "revert": "Hierher zurücksetzen"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "Eine gespeicherte Nachricht in dieser Unterhaltung hat keinen Text, wo das Format des Modells ihn verlangt — meist eine Antwort, die gleich zu Beginn abbrach.",
+      "tool-result-missing": "Einem gespeicherten {{tool}}-Schritt fehlt das Ergebnis, das er gemeldet hat.",
+      "tool-error-missing": "Ein gespeicherter {{tool}}-Schritt ist fehlgeschlagen, ohne den Grund festzuhalten.",
+      "tool-call-id-missing": "Einem gespeicherten Werkzeugschritt fehlt die ID, die ihn seinem Ergebnis zuordnet.",
+      "unknown": "Diese Unterhaltung lässt sich nicht mehr an das Modell senden, und wir konnten nicht feststellen, welche gespeicherte Nachricht dafür verantwortlich ist."
+    },
+    "someTool": "Werkzeug",
+    "offer_one": "Ein Rücksprung davor verwirft {{count}} Nachricht und behebt das Problem.",
+    "offer_other": "Ein Rücksprung davor verwirft {{count}} Nachrichten und behebt das Problem.",
+    "noTarget": "Es gibt keinen früheren Punkt zum Zurückspringen, daher lässt sich diese Unterhaltung nicht reparieren — bitte eine neue beginnen. Es wird nichts gelöscht; Lesen und Exportieren bleibt möglich.",
+    "action": "Unterhaltung reparieren",
+    "confirm": {
+      "title": "Vor die beschädigte Nachricht zurückspringen?",
+      "body_one": "Das verwirft {{count}} Nachricht und macht die Dateiänderungen dieses Zuges rückgängig. Deine Eingabe kehrt in das Eingabefeld zurück. Das lässt sich nicht widerrufen.",
+      "body_other": "Das verwirft {{count}} Nachrichten und macht die Dateiänderungen dieser Züge rückgängig. Deine Eingabe kehrt in das Eingabefeld zurück. Das lässt sich nicht widerrufen.",
+      "action": "Zurückspringen"
+    }
+  },
   "compaction": {
     "label": "Kontext verdichtet",
     "autoBody": "Die Laufzeit hat die früheren Züge zusammengefasst, um im Kontextfenster dieses Modells zu bleiben; die Unterhaltung ging hier weiter.",

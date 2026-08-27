@@ -367,6 +367,26 @@
       "revert": "Revenir ici"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "Un message enregistré de cette conversation n'a pas de texte là où le format du modèle en exige un — le plus souvent une réponse interrompue dès son début.",
+      "tool-result-missing": "Il manque à une étape {{tool}} enregistrée le résultat qu'elle a rapporté.",
+      "tool-error-missing": "Une étape {{tool}} enregistrée a échoué sans consigner pourquoi.",
+      "tool-call-id-missing": "Une étape d'outil enregistrée a perdu l'identifiant qui l'associe à son résultat.",
+      "unknown": "Cette conversation ne peut plus être envoyée au modèle, et nous n'avons pas pu identifier quel message enregistré en est la cause."
+    },
+    "someTool": "outil",
+    "offer_one": "Revenir juste avant écarte {{count}} message et résout le problème.",
+    "offer_other": "Revenir juste avant écarte {{count}} messages et résout le problème.",
+    "noTarget": "Il n'existe aucun point antérieur où revenir : cette conversation ne peut pas être réparée, commencez-en une nouvelle. Rien n'est supprimé ; vous pouvez toujours la lire et l'exporter.",
+    "action": "Réparer la conversation",
+    "confirm": {
+      "title": "Revenir avant le message endommagé ?",
+      "body_one": "Cela écarte {{count}} message et annule les modifications de fichiers de ce tour. Votre saisie revient dans le champ de saisie. Cette action est irréversible.",
+      "body_other": "Cela écarte {{count}} messages et annule les modifications de fichiers de ces tours. Votre saisie revient dans le champ de saisie. Cette action est irréversible.",
+      "action": "Revenir"
+    }
+  },
   "compaction": {
     "label": "Contexte compacté",
     "autoBody": "L’exécution a résumé les tours précédents pour rester dans la fenêtre de contexte du modèle, et la conversation a continué ici.",

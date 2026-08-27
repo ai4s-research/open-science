@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Check, Copy, Loader2, Paperclip, Pencil, RotateCcw } from "lucide-react";
+import { Check, Copy, Loader2, Paperclip, Pencil, RotateCcw, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/lib/toast";
@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type {
   ArtifactBlock,
   DataTableBlock,
+  HistoryRepairBlock,
   MessageUsage,
   RunningJobsBlock,
   StatusLineBlock,
@@ -368,6 +369,69 @@ export const StatusLine = memo(function StatusLine({ block }: { block: StatusLin
         />
         <span>{block.text}</span>
       </div>
+    </div>
+  );
+});
+
+// A session whose stored history the model can no longer be sent (#114). The
+// error line above already said retrying cannot work; this says what is broken
+// and offers the only thing that clears it. It sits under the error rather than
+// replacing it, because the two answer different questions ("why did this fail"
+// / "what do I do now"), and it is a quiet bordered card, not another red line —
+// the failure has been reported once already, and a second alarm reads as two
+// problems. The rollback discards messages and rolls back files, so it confirms
+// through the same dialog as Revert, naming the count first.
+export const HistoryRepair = memo(function HistoryRepair({
+  block,
+  onRevert,
+}: {
+  block: HistoryRepairBlock;
+  onRevert?: (messageID: string, text: string) => void | Promise<void>;
+}) {
+  const { t } = useTranslation(["session", "common"]);
+  const [confirming, setConfirming] = useState(false);
+  const target = block.target;
+  const canRepair = !!onRevert && !!target;
+
+  return (
+    <div className="rounded-card border border-border bg-surface-2/50 p-3 text-sm">
+      <div className="flex items-start gap-2">
+        <Wrench size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-text">
+            {block.reason
+              ? t(`historyRepair.reason.${block.reason}`, {
+                  tool: block.tool || t("historyRepair.someTool"),
+                })
+              : t("historyRepair.reason.unknown")}
+          </p>
+          <p className="mt-1 text-muted">
+            {canRepair
+              ? t("historyRepair.offer", { count: block.drops ?? 0 })
+              : t("historyRepair.noTarget")}
+          </p>
+          {canRepair && (
+            <button
+              className="mt-2.5 rounded-input border border-border px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-2"
+              onClick={() => setConfirming(true)}
+            >
+              {t("historyRepair.action")}
+            </button>
+          )}
+        </div>
+      </div>
+      {confirming && target && (
+        <ConfirmDialog
+          title={t("historyRepair.confirm.title")}
+          body={t("historyRepair.confirm.body", { count: block.drops ?? 0 })}
+          confirmLabel={t("historyRepair.confirm.action")}
+          onConfirm={() => {
+            setConfirming(false);
+            void onRevert?.(target.messageID, target.text);
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 });

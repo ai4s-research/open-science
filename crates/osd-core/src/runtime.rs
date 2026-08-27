@@ -640,6 +640,23 @@ fn deploy_browser_guard_plugin(env: &Env) -> Option<PathBuf> {
     Some(dst)
 }
 
+/// Deploy the dependency-free guard that restores the fields a stored message
+/// must carry, in the one window between OpenCode assembling the history and
+/// converting it for the model (#114).
+fn deploy_history_guard_plugin(env: &Env) -> Option<PathBuf> {
+    let src = env
+        .resource("history-plugin/history-guard.ts")
+        .filter(|p| p.is_file())?;
+    let config_dir = xdg_config_home(env).ok()?.join("opencode");
+    let dst = config_dir.join("history-guard.ts");
+    std::fs::create_dir_all(&config_dir).ok()?;
+    if let Err(e) = std::fs::copy(&src, &dst) {
+        eprintln!("failed to deploy history guard plugin: {e}");
+        return None;
+    }
+    Some(dst)
+}
+
 /// Ship app-owned custom tools into OpenCode's global tools directory. These
 /// tools expose safe, declarative host capabilities (for example, asking the
 /// UI to present an existing workspace artifact); they never hand the model a
@@ -1461,6 +1478,17 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
         let path_str = plugin_path.to_string_lossy().replace('\\', "/");
         if let Some(updated) =
             crate::opencode_config::ensure_browser_guard_plugin(&existing, &path_str)
+        {
+            write_atomic(&cfg_file, &updated)?;
+        }
+    }
+    // One malformed stored part otherwise ends a session permanently, and the
+    // defect that writes it is upstream and still unidentified.
+    if let Some(plugin_path) = deploy_history_guard_plugin(env) {
+        let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+        let path_str = plugin_path.to_string_lossy().replace('\\', "/");
+        if let Some(updated) =
+            crate::opencode_config::ensure_history_guard_plugin(&existing, &path_str)
         {
             write_atomic(&cfg_file, &updated)?;
         }

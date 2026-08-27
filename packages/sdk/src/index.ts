@@ -21,6 +21,7 @@ export {
   type AgentInfo,
   type CommandInfo,
   type HistoryMessage,
+  type HistoryPart,
   type ProviderInfo,
   type ProviderModelInfo,
   type ProviderAuthMethod,
