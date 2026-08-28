@@ -107,6 +107,8 @@ jobs:
             runtime/skills/external/anthropic-skills \
             runtime/skills/external/agent-browser/open-science-browser/SKILL.md \
             runtime/goal-plugin/goal-plugin.server.js \
+            runtime/browser-plugin/browser-guard.ts \
+            runtime/history-plugin/history-guard.ts \
             "apps/desktop/src-tauri/binaries/opencode-${{ matrix.target }}$ext" \
             "apps/desktop/src-tauri/binaries/uv-${{ matrix.target }}$ext" \
             "apps/desktop/src-tauri/binaries/agent-browser-${{ matrix.target }}$ext"; do
