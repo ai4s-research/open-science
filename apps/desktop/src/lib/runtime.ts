@@ -1774,7 +1774,10 @@ async function diagnoseMalformedHistory(set: StoreSet, sid: string): Promise<voi
     // failure this was called for.
     const last = cur.blocks[cur.blocks.length - 1];
     if (last?.kind !== "status-line" || last.tone !== "error") return {};
-    return { threads: { ...s.threads, [sid]: { ...cur, blocks: [...cur.blocks, block] } } };
+    // Retrying fails identically, so a second failure must not stack a second
+    // card: drop any earlier offer and keep this one, beside the newest error.
+    const blocks = cur.blocks.filter((b) => b.kind !== "history-repair");
+    return { threads: { ...s.threads, [sid]: { ...cur, blocks: [...blocks, block] } } };
   });
 }
 
@@ -4284,7 +4287,15 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
   // tool part on the next assistant message. Render it like the live path:
   // the "! cmd" echo and the output inline — never the synthetic marker text.
   let shellTurn = false;
-  for (const m of messages) {
+  // Once the history is malformed EVERY later turn fails the same way, so a
+  // session reopens with a run of identical errors — the reporter of #114 had
+  // three. One repair offer, on the last of them: the fix is the same for all,
+  // and a stack of identical cards reads as a stack of separate problems.
+  const lastMalformed = messages.reduce(
+    (at, m, index) => (m.error && MALFORMED_HISTORY.test(m.error) ? index : at),
+    -1,
+  );
+  for (const [messageIndex, m] of messages.entries()) {
     // Compaction is checked before the role split, because OpenCode stores the
     // marker on a message with role "user" (SessionCompaction.create opens one
     // solely to hang the part off). Reading it only on assistant messages made
@@ -4423,7 +4434,7 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
         // only in the tab that happened to be open when it first happened. The
         // scan runs off `messages`, already in hand — no fetch, unlike the live
         // path (#114).
-        if (MALFORMED_HISTORY.test(m.error)) blocks.push(historyRepairBlock(messages));
+        if (messageIndex === lastMalformed) blocks.push(historyRepairBlock(messages));
       }
       shellTurn = false;
     }

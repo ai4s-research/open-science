@@ -45,10 +45,17 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
-/** `providerMetadata` must be a two-level record; the converter forwards a
- *  text/reasoning part's metadata untouched, so anything shallower is rejected
- *  by the schema. Only a malformed one is dropped — a signed Anthropic
- *  reasoning block keeps its signature, which the turn depends on. */
+/** `providerMetadata` must be a two-level record: every top-level value is
+ *  itself an object. The converter forwards a text/reasoning part's metadata to
+ *  the model untouched, so anything shallower is rejected by the schema — which
+ *  is exactly what #114 was, from our own `{ source: "…" }`. Only a malformed
+ *  one is dropped; a signed Anthropic reasoning block keeps its signature,
+ *  which the turn depends on.
+ *
+ *  Tool parts are deliberately NOT covered: their metadata reaches the model
+ *  through `providerMeta`, which already strips the one key the runtime is
+ *  known to put there (`providerExecuted`), and nothing in this app writes tool
+ *  metadata at all. */
 function metadataIsWellFormed(metadata: unknown): boolean {
   if (metadata === undefined || metadata === null) return true;
   if (typeof metadata !== "object" || Array.isArray(metadata)) return false;

@@ -55,13 +55,33 @@ describe("history guard", () => {
     const signed = { anthropic: { signature: "sig" } };
     const msgs = [
       message([
-        { type: "text", text: "a", metadata: { compaction_continue: true } },
+        { type: "text", text: "a", metadata: { source: "ai4s.background-review" } },
         { type: "reasoning", text: "b", metadata: signed },
       ]),
     ];
     await transform(msgs);
     expect(msgs[0].parts[0]).not.toHaveProperty("metadata");
     expect((msgs[0].parts[1] as { metadata: unknown }).metadata).toEqual(signed);
+  });
+
+  it("leaves a tool part's metadata alone — the runtime already strips its one bad key", async () => {
+    // Not an oversight: `providerMeta` removes `providerExecuted` before a tool
+    // part's metadata reaches the model, and nothing in this app writes tool
+    // metadata. Covering it here would guard an empty set.
+    const part = {
+      type: "tool",
+      callID: "c1",
+      state: { status: "completed", output: "ok" },
+      metadata: { openai: { id: "1" }, providerExecuted: true },
+    };
+    await transform([message([part])]);
+    expect(part.metadata).toEqual({ openai: { id: "1" }, providerExecuted: true });
+  });
+
+  it("drops metadata that is not an object at all", async () => {
+    const part = { type: "text", text: "x", metadata: "nonsense" };
+    await transform([message([part])]);
+    expect(part).not.toHaveProperty("metadata");
   });
 
   describe("leaves alone what the runtime already repairs", () => {

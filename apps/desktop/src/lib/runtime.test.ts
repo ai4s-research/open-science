@@ -415,6 +415,26 @@ describe("historyToThread", () => {
     });
   });
 
+  it("offers the repair once, however many times the session retried into the wall", () => {
+    // Once the history is malformed every later turn fails identically, so a
+    // reopened session shows a run of the same error — the reporter of #114 had
+    // three. The fix is the same for all of them; three identical cards would
+    // read as three separate problems.
+    const failed = "Invalid prompt: The messages do not match the ModelMessage[] schema.";
+    const t = historyToThread([
+      { role: "user", id: "u1", parts: [{ type: "text", text: "go" }] },
+      { role: "assistant", id: "a1", parts: [{ type: "text" }] },
+      { role: "user", id: "u2", parts: [{ type: "text", text: "again" }] },
+      { role: "assistant", id: "a2", error: failed, parts: [{ type: "text", text: "" }] },
+      { role: "user", id: "u3", parts: [{ type: "text", text: "hello?" }] },
+      { role: "assistant", id: "a3", error: failed, parts: [{ type: "text", text: "" }] },
+    ]);
+    const kinds = t.blocks.map((b) => b.kind);
+    expect(kinds.filter((k) => k === "history-repair")).toHaveLength(1);
+    // …and it sits under the LAST failure, where the user is looking.
+    expect(kinds[kinds.length - 1]).toBe("history-repair");
+  });
+
   it("offers no repair for an ordinary failed turn — only this one is unretryable", () => {
     const t = historyToThread([
       { role: "user", id: "m1", parts: [{ type: "text", text: "plot it" }] },
