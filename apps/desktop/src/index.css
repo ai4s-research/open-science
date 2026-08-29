@@ -313,29 +313,46 @@ body {
 /* The turn's "still producing" mark: a light travels left-to-right THROUGH the
    letters of the status label, so the row needs no spinner beside it. The
    gradient is three times the label's width and clipped to the glyphs; sliding
-   its position is what moves the light. */
+   its position is what moves the light.
+
+   The label is painted a plain colour FIRST, and only goes transparent inside
+   @supports. Making the glyphs transparent and letting a decorative gradient
+   supply the colour means that if the gradient does not paint — an engine
+   without color-mix() drops the whole declaration as invalid, and the ones
+   without background-clip:text never fill the glyphs — the text is still
+   there, still selectable, and completely invisible. That is #122: "正在处理"
+   could be highlighted with the mouse but not seen. Legibility must not depend
+   on an ornament. */
 .shimmer-text {
-  background-image: linear-gradient(
-    90deg,
-    var(--link) 0%,
-    var(--link) 40%,
-    color-mix(in srgb, var(--link) 35%, #ffffff) 50%,
-    var(--link) 60%,
-    var(--link) 100%
-  );
-  background-size: 250% 100%;
-  background-position: 100% 0;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: shimmer-text 1.8s linear infinite;
+  color: var(--link);
+  -webkit-text-fill-color: var(--link);
+}
+@supports ((background-clip: text) or (-webkit-background-clip: text)) and
+  (color: color-mix(in srgb, red 50%, white)) {
+  .shimmer-text {
+    background-image: linear-gradient(
+      90deg,
+      var(--link) 0%,
+      var(--link) 40%,
+      color-mix(in srgb, var(--link) 35%, #ffffff) 50%,
+      var(--link) 60%,
+      var(--link) 100%
+    );
+    background-size: 250% 100%;
+    background-position: 100% 0;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer-text 1.8s linear infinite;
+  }
 }
 @keyframes shimmer-text {
   to {
     background-position: 0 0;
   }
 }
+/* After the @supports block, so it wins on equal specificity. */
 @media (prefers-reduced-motion: reduce) {
   .shimmer-text {
     background-image: none;
@@ -476,7 +493,16 @@ textarea,
     opacity: 0;
     visibility: hidden;
   }
-  [data-hovered] [data-hover-row],
+  [data-hovered] [data-hover-row] {
+    opacity: 1;
+    visibility: visible;
+  }
+  /* Deliberately its own rule, not a second selector on the one above. A
+     selector list is dropped ENTIRELY when any part of it fails to parse, so an
+     engine without :has() would lose the hover reveal too — and the row's
+     controls (Copy, Edit, Revert) would then be unreachable by any means, not
+     merely un-focusable. Keeping it separate costs a rule and cannot take the
+     hover path down with it (#122). */
   [data-hover-row]:has(:focus-visible) {
     opacity: 1;
     visibility: visible;
