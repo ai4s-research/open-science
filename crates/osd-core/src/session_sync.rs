@@ -175,7 +175,15 @@ pub fn export_session(
 
 /// Import one mirrored session. Safe to call on a file already imported: the
 /// runtime keeps the session id and unions by message id.
-pub fn import_file(env: &Env, file: &Path) -> Result<(), String> {
+///
+/// Takes the mirror directory and a session id rather than a path, so the file
+/// name is built here from an id that has been validated. Nothing outside the
+/// chosen folder is reachable through this, whatever the caller passes.
+pub fn import_session(env: &Env, dir: &Path, session_id: &str) -> Result<(), String> {
+    if !valid_session_id(session_id) {
+        return Err(format!("not a session id: {session_id}"));
+    }
+    let file = &dir.join(format!("{session_id}.json"));
     if !file.is_file() {
         return Err(format!("no such file: {}", file.display()));
     }
@@ -266,6 +274,19 @@ mod tests {
             "ses_abc;rm -rf /",           // shell metacharacters
         ] {
             assert!(!valid_session_id(bad), "should be refused: {bad}");
+        }
+    }
+
+    #[test]
+    fn import_refuses_anything_that_is_not_a_session_id() {
+        // The id becomes a file name inside the chosen folder, so a traversal
+        // here would reach outside it. Refused before the path is built.
+        let dir = std::env::temp_dir();
+        let env = crate::env::Env::headless(None, "test".into());
+        if let Ok(env) = env {
+            for bad in ["../../etc/passwd", "ses_a/../../x", "not-an-id"] {
+                assert!(import_session(&env, &dir, bad).is_err(), "should refuse {bad}");
+            }
         }
     }
 

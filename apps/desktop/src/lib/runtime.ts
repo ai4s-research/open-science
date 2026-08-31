@@ -1649,6 +1649,11 @@ function drainReviewQueue(set: StoreSet, get: StoreGet): void {
  * has to be released if the interrupted turn WAS the review.
  */
 function onTurnIdle(set: StoreSet, get: StoreGet, sid: string, reviewable: boolean): void {
+  // Before any of the early returns below. A turn settling is exactly when the
+  // mirror is worth refreshing, and both of those returns are ordinary paths —
+  // with auto-review on, the normal turn takes one of them, so scheduling at
+  // the end of this function meant sync never ran for those users at all.
+  scheduleConversationSync(get);
   if (finishAutoReview(set, get, sid, reviewable)) return;
   // This turn's own changes are settled either way, so clear them. A review the
   // session was already OWED is different: the files that earned it are on disk
@@ -1690,7 +1695,6 @@ function onTurnIdle(set: StoreSet, get: StoreGet, sid: string, reviewable: boole
     } else void startAutoReview(set, get, sid, scope);
     return;
   }
-  scheduleConversationSync(get);
 }
 
 /** Mirror conversations out once a turn has settled (#124). Debounced and

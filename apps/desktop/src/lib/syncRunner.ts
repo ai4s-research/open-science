@@ -118,7 +118,7 @@ export async function runSync(sessions: SyncSession[]): Promise<SyncResult | nul
 
   for (const file of filesToImport(files, state)) {
     try {
-      await invoke<void>("sync_import_file", { path: file.path });
+      await invoke<void>("sync_import_session", { dir, sessionId: file.session_id });
       state = noteSynced(state, file);
       result.imported += 1;
     } catch (err) {
@@ -126,7 +126,7 @@ export async function runSync(sessions: SyncSession[]): Promise<SyncResult | nul
     }
   }
 
-  let wrote = false;
+  const wroteIds = new Set<string>();
   for (const id of sessionsToExport(sessions, state)) {
     try {
       // The previous fingerprint is what lets an unchanged conversation skip
@@ -140,7 +140,7 @@ export async function runSync(sessions: SyncSession[]): Promise<SyncResult | nul
       });
       state = noteExported(state, id, sessions.find((s) => s.id === id)?.updated, outcome.hash);
       if (outcome.written) {
-        wrote = true;
+        wroteIds.add(id);
         result.exported += 1;
       }
     } catch (err) {
@@ -152,11 +152,17 @@ export async function runSync(sessions: SyncSession[]): Promise<SyncResult | nul
   // Without this the next pass sees timestamps it has never imported and pulls
   // our own exports straight back in — harmless, because import is idempotent,
   // but it is a process spawn per session per pass.
-  if (wrote) {
+  //
+  // ONLY the ones written in this pass. Marking every session this machine has
+  // ever exported would mark a file whose import failed moments ago — the error
+  // is reported, the file is recorded as reconciled, and that update is then
+  // never retried. It would also swallow anything the other machine wrote
+  // between the two listings.
+  if (wroteIds.size > 0) {
     try {
       files = await invoke<SyncMirrorFile[]>("sync_list_mirror", { dir });
       for (const file of files) {
-        if (state.exported[file.session_id] !== undefined) state = noteSynced(state, file);
+        if (wroteIds.has(file.session_id)) state = noteSynced(state, file);
       }
     } catch (err) {
       result.errors.push(message(err));

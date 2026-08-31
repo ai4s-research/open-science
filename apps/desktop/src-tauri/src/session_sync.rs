@@ -33,8 +33,8 @@ pub fn sync_export_session(
 /// Import one mirrored session. Idempotent, and unions by message id, so a file
 /// seen twice or a session that both machines added to is safe.
 #[tauri::command(async)]
-pub fn sync_import_file(app: AppHandle, path: String) -> Result<(), String> {
-    session_sync::import_file(&env_of(&app), &PathBuf::from(path))
+pub fn sync_import_session(app: AppHandle, dir: String, session_id: String) -> Result<(), String> {
+    session_sync::import_session(&env_of(&app), &PathBuf::from(dir), &session_id)
 }
 
 /// What the mirror directory holds. Empty (not an error) when the folder does
