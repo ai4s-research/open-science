@@ -228,6 +228,7 @@
   "sync": {
     "title": "对话同步",
     "hint": "让你的对话出现在自己的多台机器上。指向一个云盘会同步的文件夹，每个对话会以单独文件镜像到那里。未选择文件夹前不启用。",
+    "hintOn": "已开启。每个对话会以单独文件镜像到下面的文件夹；指向同一文件夹的其他机器会自动取回。密钥永不同步。",
     "folderTitle": "同步文件夹",
     "folderNone": "未设置 —— 对话只留在这台机器上。",
     "choose": "选择文件夹",
@@ -240,7 +241,9 @@
     "done": "已同步。收到 {{imported}} 个，发出 {{exported}} 个。",
     "folderSet": "同步文件夹已设置。",
     "stopped": "已关闭对话同步。",
-    "unusable": "该文件夹不可用"
+    "unusable": "该文件夹不可用",
+    "last": "上次同步 {{when}} —— 收到 {{imported}} 个，发出 {{exported}} 个。",
+    "lastFailed": "上次同步失败：{{error}}"
   },
   "python": {
     "title": "本地 Python 内核",

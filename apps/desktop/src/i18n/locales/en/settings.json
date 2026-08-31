@@ -229,6 +229,7 @@
   "sync": {
     "title": "Conversation sync",
     "hint": "Keep your conversations on more than one of your own machines. Point this at a folder your cloud drive syncs; each conversation is mirrored there as its own file. Off until you choose a folder.",
+    "hintOn": "On. Each conversation is mirrored to the folder below as its own file; other machines pointed at the same folder pick them up. Secrets are never synced.",
     "folderTitle": "Sync folder",
     "folderNone": "Not set — conversations stay on this machine.",
     "choose": "Choose folder",
@@ -241,7 +242,9 @@
     "done": "Synced. {{imported}} in, {{exported}} out.",
     "folderSet": "Sync folder set.",
     "stopped": "Conversation sync turned off.",
-    "unusable": "That folder cannot be used"
+    "unusable": "That folder cannot be used",
+    "last": "Last sync {{when}} — {{imported}} in, {{exported}} out.",
+    "lastFailed": "Last sync failed: {{error}}"
   },
   "python": {
     "title": "Local Python kernel",

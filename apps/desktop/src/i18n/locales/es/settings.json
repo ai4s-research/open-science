@@ -229,6 +229,7 @@
   "sync": {
     "title": "Sincronización de conversaciones",
     "hint": "Ten tus conversaciones en varias de tus propias máquinas. Apunta esto a una carpeta que sincronice tu servicio en la nube; cada conversación se refleja allí como un archivo propio. Desactivado hasta que elijas una carpeta.",
+    "hintOn": "Activado. Cada conversación se refleja en la carpeta de abajo como un archivo propio; otras máquinas que apunten a la misma carpeta las recogen. Los secretos nunca se sincronizan.",
     "folderTitle": "Carpeta de sincronización",
     "folderNone": "Sin definir: las conversaciones se quedan en esta máquina.",
     "choose": "Elegir carpeta",
@@ -241,7 +242,9 @@
     "done": "Sincronizado. {{imported}} recibidas, {{exported}} enviadas.",
     "folderSet": "Carpeta de sincronización definida.",
     "stopped": "Sincronización desactivada.",
-    "unusable": "Esa carpeta no se puede usar"
+    "unusable": "Esa carpeta no se puede usar",
+    "last": "Última sincronización {{when}}: {{imported}} recibidas, {{exported}} enviadas.",
+    "lastFailed": "La última sincronización falló: {{error}}"
   },
   "python": {
     "title": "Kernel local de Python",

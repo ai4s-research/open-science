@@ -229,6 +229,7 @@
   "sync": {
     "title": "Unterhaltungen synchronisieren",
     "hint": "Halte deine Unterhaltungen auf mehreren eigenen Rechnern. Zeige hier auf einen Ordner, den dein Cloud-Dienst synchronisiert; jede Unterhaltung wird dort als eigene Datei gespiegelt. Aus, bis du einen Ordner wählst.",
+    "hintOn": "An. Jede Unterhaltung wird als eigene Datei in den Ordner unten gespiegelt; andere Rechner, die auf denselben Ordner zeigen, holen sie sich. Geheimnisse werden nie synchronisiert.",
     "folderTitle": "Synchronisationsordner",
     "folderNone": "Nicht gesetzt — Unterhaltungen bleiben auf diesem Rechner.",
     "choose": "Ordner wählen",
@@ -241,7 +242,9 @@
     "done": "Synchronisiert. {{imported}} empfangen, {{exported}} gesendet.",
     "folderSet": "Synchronisationsordner gesetzt.",
     "stopped": "Synchronisation ausgeschaltet.",
-    "unusable": "Dieser Ordner ist nicht verwendbar"
+    "unusable": "Dieser Ordner ist nicht verwendbar",
+    "last": "Letzte Synchronisation {{when}} — {{imported}} empfangen, {{exported}} gesendet.",
+    "lastFailed": "Letzte Synchronisation fehlgeschlagen: {{error}}"
   },
   "python": {
     "title": "Lokaler Python-Kernel",

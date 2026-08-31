@@ -229,6 +229,7 @@
   "sync": {
     "title": "Synchronisation des conversations",
     "hint": "Gardez vos conversations sur plusieurs de vos machines. Indiquez ici un dossier synchronisé par votre service cloud ; chaque conversation y est reflétée dans son propre fichier. Inactif tant qu'aucun dossier n'est choisi.",
+    "hintOn": "Activé. Chaque conversation est reflétée dans le dossier ci-dessous dans son propre fichier ; les autres machines pointant vers ce dossier les récupèrent. Les secrets ne sont jamais synchronisés.",
     "folderTitle": "Dossier de synchronisation",
     "folderNone": "Non défini — les conversations restent sur cette machine.",
     "choose": "Choisir un dossier",
@@ -241,7 +242,9 @@
     "done": "Synchronisé. {{imported}} reçues, {{exported}} envoyées.",
     "folderSet": "Dossier de synchronisation défini.",
     "stopped": "Synchronisation désactivée.",
-    "unusable": "Ce dossier est inutilisable"
+    "unusable": "Ce dossier est inutilisable",
+    "last": "Dernière synchronisation {{when}} — {{imported}} reçues, {{exported}} envoyées.",
+    "lastFailed": "Échec de la dernière synchronisation : {{error}}"
   },
   "python": {
     "title": "Noyau Python local",

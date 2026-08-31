@@ -4,7 +4,8 @@ import { FolderOpen, RefreshCw } from "lucide-react";
 import { Row, Section } from "./Section";
 import { pickFolder } from "@/lib/tauri";
 import { toast } from "@/lib/toast";
-import { checkSyncDir, runSync, setSyncDir, syncDir } from "@/lib/syncRunner";
+import { checkSyncDir, lastSync, runSync, setSyncDir, syncDir, type LastSync } from "@/lib/syncRunner";
+import { cn } from "@/lib/cn";
 import { useRuntimeStore } from "@/lib/runtime";
 
 /**
@@ -19,9 +20,13 @@ export function ConversationSyncCard() {
   const { t } = useTranslation(["settings", "common"]);
   const [dir, setDir] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [last, setLast] = useState<LastSync | null>(null);
   const sessions = useRuntimeStore((s) => s.sessions);
 
-  useEffect(() => setDir(syncDir()), []);
+  useEffect(() => {
+    setDir(syncDir());
+    setLast(lastSync());
+  }, []);
 
   const choose = useCallback(async () => {
     const picked = await pickFolder();
@@ -53,16 +58,29 @@ export function ConversationSyncCard() {
       if (result.errors.length > 0) toast.error(result.errors[0]);
       else toast.success(t("sync.done", { imported: result.imported, exported: result.exported }));
     } finally {
+      setLast(lastSync());
       setBusy(false);
     }
   }, [sessions, t]);
 
   return (
-    <Section title={t("sync.title")} hint={t("sync.hint")} flush>
+    // The hint follows the state: "off until you choose a folder" is a lie once
+    // one is chosen, and that sentence is the only thing saying whether the
+    // feature is running at all.
+    <Section title={t("sync.title")} hint={dir ? t("sync.hintOn") : t("sync.hint")} flush>
       <div className="divide-y divide-faint">
         <Row
           title={t("sync.folderTitle")}
-          hint={dir ?? t("sync.folderNone")}
+          hint={
+            dir ? (
+              // A cloud path is long and has no spaces to wrap at, so without
+              // this it runs straight through the card's right edge on a narrow
+              // window — which is exactly where these paths live.
+              <span className="block break-all font-mono text-[11px]">{dir}</span>
+            ) : (
+              t("sync.folderNone")
+            )
+          }
           control={
             <div className="flex shrink-0 items-center gap-2">
               <button
@@ -86,7 +104,22 @@ export function ConversationSyncCard() {
         {dir && (
           <Row
             title={t("sync.nowTitle")}
-            hint={t("sync.nowHint")}
+            hint={
+              <>
+                {t("sync.nowHint")}
+                {last && (
+                  <span className={cn("mt-0.5 block", last.error && "text-error")}>
+                    {last.error
+                      ? t("sync.lastFailed", { error: last.error })
+                      : t("sync.last", {
+                          when: new Date(last.at).toLocaleString(),
+                          imported: last.imported,
+                          exported: last.exported,
+                        })}
+                  </span>
+                )}
+              </>
+            }
             control={
               <button
                 disabled={busy}

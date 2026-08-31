@@ -23,6 +23,7 @@ import {
 
 export const SYNC_DIR_KEY = "ai4s.sync.dir.v1";
 const SYNC_STATE_KEY = "ai4s.sync.state.v1";
+const SYNC_LAST_KEY = "ai4s.sync.last.v1";
 
 /** The chosen mirror folder, or null when sync is off (the default). */
 export function syncDir(): string | null {
@@ -87,6 +88,42 @@ export interface SyncResult {
   errors: string[];
 }
 
+/** The outcome of the most recent pass, for the Settings card. Background
+ *  passes are silent by design, so without this a user who turned sync on has
+ *  no way to tell whether it is working — and a folder that has gone away would
+ *  fail every pass unnoticed. */
+export interface LastSync {
+  at: number;
+  imported: number;
+  exported: number;
+  error?: string;
+}
+
+export function lastSync(): LastSync | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SYNC_LAST_KEY);
+    return raw ? (JSON.parse(raw) as LastSync) : null;
+  } catch {
+    return null;
+  }
+}
+
+function noteLastSync(result: SyncResult): void {
+  if (typeof window === "undefined") return;
+  try {
+    const entry: LastSync = {
+      at: Date.now(),
+      imported: result.imported,
+      exported: result.exported,
+      ...(result.errors.length > 0 ? { error: result.errors[0] } : {}),
+    };
+    window.localStorage.setItem(SYNC_LAST_KEY, JSON.stringify(entry));
+  } catch {
+    // Losing the readout costs the user a status line, not their data.
+  }
+}
+
 /** Is the chosen folder usable? Answered once when the setting is saved. */
 export async function checkSyncDir(dir: string): Promise<void> {
   await invoke<void>("sync_check_dir", { dir });
@@ -112,7 +149,9 @@ export async function runSync(sessions: SyncSession[]): Promise<SyncResult | nul
   try {
     files = await invoke<SyncMirrorFile[]>("sync_list_mirror", { dir });
   } catch (err) {
-    return { ...result, errors: [message(err)] };
+    const failed = { ...result, errors: [message(err)] };
+    noteLastSync(failed);
+    return failed;
   }
   result.arrived = incomingSessionCount(files, sessions);
 
@@ -170,6 +209,7 @@ export async function runSync(sessions: SyncSession[]): Promise<SyncResult | nul
   }
 
   saveState(pruneSyncState(state, sessions, files));
+  noteLastSync(result);
   return result;
 }
 
