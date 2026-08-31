@@ -57,19 +57,29 @@ fn valid_session_id(id: &str) -> bool {
         && id.len() > 4
 }
 
-/// The bundled runtime CLI, pointed at the same store the sidecar uses. Every
-/// XDG var must match `runtime::start` — a CLI with different dirs would read
-/// an empty store and report success.
+/// The store the CLI must be pointed at: exactly the dirs `runtime::start`
+/// hands the sidecar. A CLI given different ones would read an EMPTY store and
+/// exit successfully, so sync would mirror nothing and report that it worked.
+/// Separated from the command so it can be asserted without a bundled binary.
+fn cli_dirs(env: &Env) -> Result<[(&'static str, PathBuf); 4], String> {
+    let root = runtime_root(env)?;
+    Ok([
+        ("XDG_CONFIG_HOME", xdg_config_home(env)?),
+        ("XDG_DATA_HOME", xdg_data_home(env)?),
+        ("XDG_CACHE_HOME", root.join("xdg-cache")),
+        ("XDG_STATE_HOME", root.join("xdg-state")),
+    ])
+}
+
+/// The bundled runtime CLI, pointed at the same store the sidecar uses.
 fn runtime_cli(env: &Env) -> Result<Command, String> {
     let bin = sidecar_bin("opencode")
         .ok_or_else(|| "bundled OpenCode binary not found next to the executable".to_string())?;
-    let root = runtime_root(env)?;
     let mut cmd = quiet_command(bin);
-    cmd.env("XDG_CONFIG_HOME", xdg_config_home(env)?)
-        .env("XDG_DATA_HOME", xdg_data_home(env)?)
-        .env("XDG_CACHE_HOME", root.join("xdg-cache"))
-        .env("XDG_STATE_HOME", root.join("xdg-state"))
-        .env("HOME", std::env::var("HOME").unwrap_or_default())
+    for (key, dir) in cli_dirs(env)? {
+        cmd.env(key, dir);
+    }
+    cmd.env("HOME", std::env::var("HOME").unwrap_or_default())
         .env("PATH", enriched_path());
     Ok(cmd)
 }
@@ -275,6 +285,32 @@ mod tests {
         ] {
             assert!(!valid_session_id(bad), "should be refused: {bad}");
         }
+    }
+
+    #[test]
+    fn the_cli_reads_the_same_store_as_the_sidecar() {
+        // These four are written out by hand here and in `runtime::start`. If
+        // they ever disagree, export finds an empty store and exits zero — sync
+        // would mirror nothing and report success, the worst way for this to
+        // fail. Asserted without the bundled binary on purpose: gating on
+        // `runtime_cli` would make this pass vacuously wherever the sidecar has
+        // not been fetched, which is most CI jobs.
+        let Ok(env) = crate::env::Env::headless(None, "test".into()) else {
+            return;
+        };
+        let root = runtime_root(&env).unwrap();
+        let dirs = cli_dirs(&env).unwrap();
+        assert_eq!(
+            dirs,
+            [
+                ("XDG_CONFIG_HOME", root.join("xdg-config")),
+                ("XDG_DATA_HOME", root.join("xdg-data")),
+                ("XDG_CACHE_HOME", root.join("xdg-cache")),
+                ("XDG_STATE_HOME", root.join("xdg-state")),
+            ]
+        );
+        // And the store really is under the app's data dir, not somewhere else.
+        assert!(root.starts_with(env.data_dir()));
     }
 
     #[test]
