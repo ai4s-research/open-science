@@ -65,6 +65,7 @@ import { listProvidersWithAvailability } from "@/lib/zenModels";
 import { RemoteComputeCard } from "@/components/settings/RemoteComputeCard";
 import { RemoteAccessCard } from "@/components/settings/RemoteAccessCard";
 import { TerminalCliCard } from "@/components/settings/TerminalCliCard";
+import { ConversationSyncCard } from "@/components/settings/ConversationSyncCard";
 import { AcpAgentsCard } from "@/components/settings/AcpAgentsCard";
 import { ModalCard } from "@/components/settings/ModalCard";
 import { DataFlowCard } from "@/components/settings/DataFlowCard";
@@ -1729,6 +1730,12 @@ export function SettingsPage() {
           </div>
         </Section>
         )}
+
+        {/* ---- Conversation sync across the user's own machines (#124) ---- */}
+        {/* Desktop only: it needs a folder on this machine and a local runtime
+            to import into, so the gateway web client hides it rather than
+            offering a control that cannot work. */}
+        {section === "general" && isTauri && runtimeKind !== "acp" && <ConversationSyncCard />}
 
         {/* ---- Which agent this app drives: OpenCode, or an ACP agent (#14) ---- */}
         {section === "runtime" && <AcpAgentsCard />}

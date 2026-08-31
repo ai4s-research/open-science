@@ -83,6 +83,7 @@ import {
 } from "./autoReview";
 import { isGoalInjectedPrompt } from "./goalPrompts";
 import { findHistoryDefects, repairTarget } from "./malformedHistory";
+import { runSync, syncDir } from "./syncRunner";
 import { notifyPermissionRequest } from "./systemNotification";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { listProvidersWithAvailability, ZEN_PROVIDER_ID } from "./zenModels";
@@ -1689,6 +1690,23 @@ function onTurnIdle(set: StoreSet, get: StoreGet, sid: string, reviewable: boole
     } else void startAutoReview(set, get, sid, scope);
     return;
   }
+  scheduleConversationSync(get);
+}
+
+/** Mirror conversations out once a turn has settled (#124). Debounced and
+ *  fire-and-forget: sync is a background convenience, so it must never delay a
+ *  turn, and a failure belongs in the Settings card rather than over the
+ *  conversation the user is reading. A no-op until a folder is chosen. */
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleConversationSync(get: StoreGet): void {
+  if (!syncDir()) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  // A burst of turns (subagents settling one after another) is one pass, not
+  // one per session: each pass spawns a process per changed conversation.
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    void runSync(get().sessions.map((s) => ({ id: s.id, updated: s.updated }))).catch(() => {});
+  }, 4_000);
 }
 
 /** Shared core of the two destructive "go back to a past message" actions

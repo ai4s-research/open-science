@@ -226,6 +226,23 @@
     "autoTitle": "Nach jedem Zug prüfen, der Dateien ändert",
     "autoHint": "Führt pro Änderung einen zusätzlichen Modellzug im Hintergrund aus. Die Unterhaltung bleibt nutzbar; rein lesende Züge werden übersprungen."
   },
+  "sync": {
+    "title": "Unterhaltungen synchronisieren",
+    "hint": "Halte deine Unterhaltungen auf mehreren eigenen Rechnern. Zeige hier auf einen Ordner, den dein Cloud-Dienst synchronisiert; jede Unterhaltung wird dort als eigene Datei gespiegelt. Aus, bis du einen Ordner wählst.",
+    "folderTitle": "Synchronisationsordner",
+    "folderNone": "Nicht gesetzt — Unterhaltungen bleiben auf diesem Rechner.",
+    "choose": "Ordner wählen",
+    "change": "Ändern",
+    "stop": "Ausschalten",
+    "nowTitle": "Jetzt synchronisieren",
+    "nowHint": "Läuft nach jedem Zug von selbst; dies ist für den Fall, dass es sofort sein soll.",
+    "now": "Jetzt synchronisieren",
+    "running": "Synchronisiere…",
+    "done": "Synchronisiert. {{imported}} empfangen, {{exported}} gesendet.",
+    "folderSet": "Synchronisationsordner gesetzt.",
+    "stopped": "Synchronisation ausgeschaltet.",
+    "unusable": "Dieser Ordner ist nicht verwendbar"
+  },
   "python": {
     "title": "Lokaler Python-Kernel",
     "hint": "Führt Notebook-Zellen in der App aus. Nutzt Ihre Jupyter-Umgebung, falls eingerichtet (gleiches Python wie der Agent), sonst automatische Erkennung — oder unten einen expliziten Interpreter festlegen",

@@ -226,6 +226,23 @@
     "autoTitle": "Revisar tras cada turno que cambie archivos",
     "autoHint": "Ejecuta un turno de modelo adicional en segundo plano por cambio. La conversación sigue disponible; se omiten los turnos de solo lectura."
   },
+  "sync": {
+    "title": "Sincronización de conversaciones",
+    "hint": "Ten tus conversaciones en varias de tus propias máquinas. Apunta esto a una carpeta que sincronice tu servicio en la nube; cada conversación se refleja allí como un archivo propio. Desactivado hasta que elijas una carpeta.",
+    "folderTitle": "Carpeta de sincronización",
+    "folderNone": "Sin definir: las conversaciones se quedan en esta máquina.",
+    "choose": "Elegir carpeta",
+    "change": "Cambiar",
+    "stop": "Desactivar",
+    "nowTitle": "Sincronizar ahora",
+    "nowHint": "Se ejecuta solo tras cada turno; esto es para cuando lo quieras de inmediato.",
+    "now": "Sincronizar",
+    "running": "Sincronizando…",
+    "done": "Sincronizado. {{imported}} recibidas, {{exported}} enviadas.",
+    "folderSet": "Carpeta de sincronización definida.",
+    "stopped": "Sincronización desactivada.",
+    "unusable": "Esa carpeta no se puede usar"
+  },
   "python": {
     "title": "Kernel local de Python",
     "hint": "Ejecuta las celdas del cuaderno en la app. Usa tu entorno de Jupyter cuando está configurado (el mismo Python que el agente); si no, se detecta automáticamente, o puedes indicar un intérprete explícito abajo",

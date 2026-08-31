@@ -68,7 +68,10 @@ pub fn sidecar_url(state: &RuntimeState) -> Option<String> {
     state.lifecycle.lock().unwrap().url.clone()
 }
 
-fn xdg_config_home(env: &Env) -> Result<PathBuf, String> {
+/// Public because the runtime CLI has to be invoked with the SAME dirs as the
+/// sidecar — `session_sync` shells out to `opencode export`/`import`, and a CLI
+/// pointed at different XDG dirs would silently read and write another store.
+pub fn xdg_config_home(env: &Env) -> Result<PathBuf, String> {
     Ok(runtime_root(env)?.join("xdg-config"))
 }
 

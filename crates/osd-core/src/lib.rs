@@ -24,5 +24,6 @@ pub mod provenance;
 pub mod runs;
 pub mod runs_index;
 pub mod runtime;
+pub mod session_sync;
 
 pub use env::Env;

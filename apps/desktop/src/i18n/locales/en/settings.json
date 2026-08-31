@@ -226,6 +226,23 @@
     "autoTitle": "Review after every turn that changes files",
     "autoHint": "Runs one extra model turn in the background per change. The conversation stays usable; read-only turns are skipped."
   },
+  "sync": {
+    "title": "Conversation sync",
+    "hint": "Keep your conversations on more than one of your own machines. Point this at a folder your cloud drive syncs; each conversation is mirrored there as its own file. Off until you choose a folder.",
+    "folderTitle": "Sync folder",
+    "folderNone": "Not set — conversations stay on this machine.",
+    "choose": "Choose folder",
+    "change": "Change",
+    "stop": "Turn off",
+    "nowTitle": "Sync now",
+    "nowHint": "Runs on its own after each turn; this is for when you want it immediately.",
+    "now": "Sync now",
+    "running": "Syncing…",
+    "done": "Synced. {{imported}} in, {{exported}} out.",
+    "folderSet": "Sync folder set.",
+    "stopped": "Conversation sync turned off.",
+    "unusable": "That folder cannot be used"
+  },
   "python": {
     "title": "Local Python kernel",
     "hint": "Runs notebook cells in the app. Uses your Jupyter environment when set up (same Python as the agent), else auto-detects — or set an explicit interpreter below",

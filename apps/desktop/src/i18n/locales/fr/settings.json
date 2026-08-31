@@ -226,6 +226,23 @@
     "autoTitle": "Relire après chaque tour qui modifie des fichiers",
     "autoHint": "Exécute un tour de modèle supplémentaire en arrière-plan par modification. La conversation reste disponible ; les tours en lecture seule sont ignorés."
   },
+  "sync": {
+    "title": "Synchronisation des conversations",
+    "hint": "Gardez vos conversations sur plusieurs de vos machines. Indiquez ici un dossier synchronisé par votre service cloud ; chaque conversation y est reflétée dans son propre fichier. Inactif tant qu'aucun dossier n'est choisi.",
+    "folderTitle": "Dossier de synchronisation",
+    "folderNone": "Non défini — les conversations restent sur cette machine.",
+    "choose": "Choisir un dossier",
+    "change": "Modifier",
+    "stop": "Désactiver",
+    "nowTitle": "Synchroniser maintenant",
+    "nowHint": "S'exécute seul après chaque tour ; ceci sert quand vous le voulez tout de suite.",
+    "now": "Synchroniser",
+    "running": "Synchronisation…",
+    "done": "Synchronisé. {{imported}} reçues, {{exported}} envoyées.",
+    "folderSet": "Dossier de synchronisation défini.",
+    "stopped": "Synchronisation désactivée.",
+    "unusable": "Ce dossier est inutilisable"
+  },
   "python": {
     "title": "Noyau Python local",
     "hint": "Exécute les cellules de notebook dans l'application. Utilise votre environnement Jupyter s'il est configuré (même Python que l'agent), sinon détection automatique — ou définissez un interpréteur explicite ci-dessous",
