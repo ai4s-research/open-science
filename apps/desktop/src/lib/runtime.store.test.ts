@@ -3,8 +3,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  newDatedWorkspace: vi.fn(async (name: string) => `/ws/${name}`),
-  setWorkspace: vi.fn(async (path: string) => path),
+  /** The host's active workspace folder, as `active-workspace.txt` holds it.
+   *  `setWorkspace`/`newDatedWorkspace` move it and `workspacePath` reads it
+   *  back, because that is the contract the Rust side keeps: creating a dated
+   *  folder MAKES it active, and the connect that follows scopes the runtime to
+   *  whatever this then answers. A stub that always answered the same folder
+   *  could not tell a reconnect that landed in the right one from a reconnect
+   *  that did not — which is exactly the state that files a conversation apart
+   *  from the files it creates. */
+  activeWorkspace: "/ws/base",
+  newDatedWorkspace: vi.fn(async (name: string) => (mocks.activeWorkspace = `/ws/${name}`)),
+  setWorkspace: vi.fn(async (path: string) => (mocks.activeWorkspace = path)),
+  /** Stamps a session's id into the ACTIVE folder — so it must not run when the
+   *  app failed to move into the session's own folder. */
+  markSession: vi.fn(async () => {}),
   commitWorkspaceSnapshot: vi.fn(async () => false),
   kernelReset: vi.fn(async () => {}),
   /** Number of connect() attempts that fail before one succeeds. */
@@ -97,10 +109,10 @@ vi.mock("./tauri", () => ({
   restartRuntime: mocks.restartRuntime,
   runtimeFailure: mocks.runtimeFailure,
   takeConfigQuarantineNotice: mocks.takeConfigQuarantineNotice,
-  workspacePath: async () => "/ws/base",
+  workspacePath: async () => mocks.activeWorkspace,
   setWorkspace: mocks.setWorkspace,
   newDatedWorkspace: mocks.newDatedWorkspace,
-  markSession: async () => {},
+  markSession: mocks.markSession,
   commitWorkspaceSnapshot: mocks.commitWorkspaceSnapshot,
   getApprovalMode: async () => mocks.approvalMode,
   setApprovalMode: mocks.setApprovalMode,
@@ -294,6 +306,7 @@ import { leaves, makeLeaf, useLayoutStore } from "./layout";
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  mocks.activeWorkspace = "/ws/base";
   mocks.failConnects = 0;
   mocks.failCreates = 0;
   mocks.failShell = false;
@@ -921,6 +934,48 @@ describe("per-session workspace folders", () => {
       kind: "status-line",
       tone: "error",
     });
+  });
+
+  it("refuses to create a session in a folder the runtime did not actually move to", async () => {
+    // The dated folder is created but does NOT become active — so the reconnect
+    // scopes the runtime to the old folder and `createSession` would file the
+    // conversation there while its notebooks and figures are written in the new
+    // one. A session on the reporter's machine is in exactly that state: its
+    // notebook is on disk, and the conversation that made it answers "file not
+    // found", because the two folders disagree and nothing said so.
+    mocks.newDatedWorkspace.mockImplementationOnce(async (name: string) => `/ws/${name}`);
+
+    const id = await useRuntimeStore.getState().sendPrompt("hi");
+
+    expect(id).toBe(null);
+    expect(mocks.createSessionSpy).not.toHaveBeenCalled();
+    const s = useRuntimeStore.getState();
+    expect(s.sending).toBe(false);
+    expect(s.threads[DRAFT_KEY].blocks.slice(-1)[0]).toMatchObject({
+      kind: "status-line",
+      tone: "error",
+    });
+  });
+
+  it("says so when it cannot follow a session into its own folder, and stamps nothing", async () => {
+    // The failure used to be swallowed: the app stayed on the previous folder,
+    // reconnected the stream to it, stamped THIS session's id into it, and then
+    // resolved every file the conversation names there — so the session's own
+    // notebook came back "file not found" while the UI showed it as open.
+    useRuntimeStore.setState({
+      workspace: "/ws/base",
+      sessions: [{ id: "ses_elsewhere", title: "t", updated: 1, directory: "/ws/gone" }],
+    });
+    mocks.setWorkspace.mockRejectedValueOnce(new Error("No such file or directory"));
+
+    await useRuntimeStore.getState().openSession("ses_elsewhere");
+
+    const error = useRuntimeStore.getState().error ?? "";
+    expect(error).toContain("/ws/gone");
+    expect(error).toContain("No such file or directory");
+    expect(mocks.markSession).not.toHaveBeenCalled();
+    // The folder never moved, so the app must still be on the one it was on.
+    expect(useRuntimeStore.getState().workspace).toBe("/ws/base");
   });
 
   it("marks a deliberate switch as `switching` for its whole duration", async () => {

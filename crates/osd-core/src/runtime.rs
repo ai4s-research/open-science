@@ -136,6 +136,14 @@ fn persisted_path(raw: &str) -> String {
 /// The active workspace folder OpenCode / the kernel / previews / provenance all
 /// operate in. Defaults to the base folder (`~/Documents/OpenScience`) until the
 /// user opens or creates another one; the choice persists across restarts.
+///
+/// The active folder is returned as it is. It is NOT given the base layout:
+/// `projects/` and `sessions/` are the base folder's two collections, and the
+/// active folder is any folder the user opened — a session folder, a project, a
+/// git checkout of their own. Creating those two directories inside every one of
+/// them wrote empty folders into the user's own repositories and made the app
+/// look like it had lost their sessions, since the pair it planted was always
+/// empty while the real collections were somewhere else entirely.
 pub fn workspace_dir(env: &Env) -> Result<PathBuf, String> {
     if let Ok(f) = active_workspace_file(env) {
         if let Ok(s) = std::fs::read_to_string(&f) {
@@ -143,7 +151,7 @@ pub fn workspace_dir(env: &Env) -> Result<PathBuf, String> {
             // unwrap it on read so those users are repaired without a re-pick.
             let dir = PathBuf::from(persisted_path(s.trim()));
             if dir.is_dir() {
-                return ensure_base_layout(dir);
+                return Ok(dir);
             }
         }
     }
@@ -154,11 +162,24 @@ pub fn workspace_dir(env: &Env) -> Result<PathBuf, String> {
 /// A folder the user picked in Settings wins; the default is `~/Documents/OpenScience`
 /// (no space — the agent runs shell commands against this path, and unquoted
 /// spaces break them), falling back to `$HOME/Documents`.
+///
+/// Both branches see to the layout, so the two collections exist wherever the
+/// base is. The picked branch used not to, and got away with it only because
+/// `workspace_dir` ensured the layout on the ACTIVE folder — which repaired the
+/// base by coincidence whenever the two happened to be the same folder, and
+/// littered every other folder the user opened when they were not. This is the
+/// one place that pair of directories belongs.
+///
+/// On a base that already exists the repair is best-effort: this is a lookup on
+/// a hot path (every gateway file request resolves through it), and a folder
+/// that is present but momentarily unwritable — a read-only volume, a cloud
+/// drive mid-sync — must still resolve rather than turn a read into an error.
 pub fn base_workspace_dir(env: &Env) -> Result<PathBuf, String> {
     if let Ok(f) = base_workspace_file(env) {
         if let Ok(s) = std::fs::read_to_string(&f) {
             let dir = PathBuf::from(persisted_path(s.trim()));
             if dir.is_dir() {
+                let _ = ensure_base_layout(dir.clone());
                 return Ok(dir);
             }
         }
@@ -2030,8 +2051,9 @@ mod tests {
     use super::{
         auth_has_provider, dependency_pins, deploy_goal_plugin_dependencies, parse_scutil_proxy,
         package_dependency_version, OPENCODE_PLUGIN_PACKAGE,
-        ensure_base_layout, prune_stale_skills, random_hex, remove_key_from_config,
-        resolve_proxy_env, skill_name_from_markdown, sync_skill_pack, validate_proxy_url,
+        base_workspace_dir, ensure_base_layout, prune_stale_skills, random_hex, remove_key_from_config,
+        resolve_proxy_env, set_workspace_base, skill_name_from_markdown, sync_skill_pack,
+        validate_proxy_url, workspace_dir,
         workspace_skill_dirs,
     };
     use std::fs;
@@ -2512,6 +2534,51 @@ mod tests {
         assert!(root.join("sessions").is_dir());
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    /// The base layout belongs to the BASE folder only. `workspace_dir` returns
+    /// whatever folder the user opened — a session folder, a project, a git
+    /// checkout of their own — and planting the two collections in each of them
+    /// wrote empty `projects/` and `sessions/` directories into the user's own
+    /// repositories. Worse than untidy: the pair it planted was always empty, so
+    /// the file browser showed "this folder is empty" for collections that were
+    /// in fact full, somewhere else.
+    #[test]
+    fn opening_a_folder_does_not_plant_collections_in_it() {
+        let (env, dir) = temp_env("active-ws");
+        let opened = dir.join("some-git-checkout");
+        let base = dir.join("base");
+        for d in [&opened, &base] {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::create_dir_all(dir.join("runtime")).unwrap();
+        // The base is pointed somewhere temporary first: without that record this
+        // would fall through to the real `~/Documents/OpenScience`.
+        set_workspace_base(&env, base.to_string_lossy().to_string()).unwrap();
+        fs::write(
+            dir.join("runtime/active-workspace.txt"),
+            opened.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+
+        assert_eq!(workspace_dir(&env).unwrap(), opened);
+        assert!(!opened.join("projects").exists(), "the user's folder was written into");
+        assert!(!opened.join("sessions").exists(), "the user's folder was written into");
+
+        // The base folder does have them — that is where the collections live,
+        // and it repairs them itself if one goes missing.
+        assert!(base.join("projects").is_dir());
+        fs::remove_dir(base.join("projects")).unwrap();
+        // `set_workspace_base` stores the CANONICAL path, which on macOS is the
+        // /private form of a temp dir — so compare what both sides resolve to.
+        assert_eq!(
+            base_workspace_dir(&env).unwrap().canonicalize().unwrap(),
+            base.canonicalize().unwrap()
+        );
+        assert!(base.join("projects").is_dir());
+        assert!(base.join("sessions").is_dir());
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

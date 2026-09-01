@@ -183,6 +183,57 @@ pub fn export_session(
     })
 }
 
+/// The folder a mirrored session should be filed in on THIS machine.
+///
+/// `opencode import` files the session in the importing process's working
+/// directory — it does NOT keep the folder the export recorded. Measured
+/// against the pinned 1.18.18: an export whose `info.directory` named one
+/// folder, imported from another, came back recorded in the second. So the
+/// working directory is not an incidental detail of how the command is spawned;
+/// it IS the destination, and inheriting whatever the app was launched with
+/// would file every synced conversation wherever the launcher happened to be —
+/// `/` for a Finder-launched .app. A conversation filed apart from the files it
+/// names is the state that makes it report "file not found" for its own
+/// notebook, in a folder that still holds it.
+///
+/// Chosen, then, rather than inherited: the folder the conversation recorded
+/// when this machine has it — the cloud-synced workspace of #123, where both
+/// machines see the same path, which is the case this feature exists for — and
+/// otherwise the base folder, which always exists and is where session folders
+/// live.
+///
+/// The recorded folder is a path out of a file in a cloud-synced directory, so
+/// it is held to the same rule every other caller-supplied session directory in
+/// this codebase is (`gateway::session_dir`, `fs_base`): inside the base
+/// workspace, or a registered project's own folder. Anything else falls back
+/// rather than being honoured — a mirror file must not be able to name the
+/// folder an imported conversation, and the agent that later runs in it, works
+/// in.
+fn import_dir(env: &Env, file: &Path) -> Result<PathBuf, String> {
+    let base = crate::runtime::base_workspace_dir(env)?;
+    let recorded = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|v| v["info"]["directory"].as_str().map(PathBuf::from))
+        .and_then(|d| d.canonicalize().ok())
+        .filter(|d| {
+            d.is_dir()
+                && (base.canonicalize().map(|b| d.starts_with(b)).unwrap_or(false)
+                    || crate::project::is_registered_project_path(env, d))
+        });
+    Ok(recorded.unwrap_or(base))
+}
+
+/// The import, built but not run — separated from `import_session` for the same
+/// reason `cli_dirs` is separated from `runtime_cli`: the working directory IS
+/// the destination folder (see `import_dir`), and a destination that can only be
+/// observed by running a bundled binary is a destination nothing asserts.
+fn import_command(env: &Env, file: &Path) -> Result<Command, String> {
+    let mut cmd = runtime_cli(env)?;
+    cmd.current_dir(import_dir(env, file)?).arg("import").arg(file);
+    Ok(cmd)
+}
+
 /// Import one mirrored session. Safe to call on a file already imported: the
 /// runtime keeps the session id and unions by message id.
 ///
@@ -197,9 +248,7 @@ pub fn import_session(env: &Env, dir: &Path, session_id: &str) -> Result<(), Str
     if !file.is_file() {
         return Err(format!("no such file: {}", file.display()));
     }
-    let out = runtime_cli(env)?
-        .arg("import")
-        .arg(file)
+    let out = import_command(env, file)?
         .output()
         .map_err(|e| format!("run opencode import: {e}"))?;
     if !out.status.success() {
@@ -285,6 +334,77 @@ mod tests {
         ] {
             assert!(!valid_session_id(bad), "should be refused: {bad}");
         }
+    }
+
+    /// `import` files a session in the process's working directory, not in the
+    /// folder the export recorded — measured against 1.18.18. So the directory
+    /// is the destination, and it must be chosen here rather than inherited from
+    /// whatever launched the app (`/`, for a Finder-launched .app), which would
+    /// file every synced conversation apart from the files it names.
+    #[test]
+    fn an_import_is_filed_in_a_folder_this_machine_actually_has() {
+        let root = std::env::temp_dir().join(format!("os-import-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let base = root.join("base");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::create_dir_all(root.join("runtime")).unwrap(); // where the record is written
+        let env = crate::env::Env::new(root.clone(), root.join("res"), None, "0.0.0".into());
+        crate::runtime::set_workspace_base(&env, base.to_string_lossy().to_string()).unwrap();
+
+        let mirror = root.join("mirror");
+        std::fs::create_dir_all(&mirror).unwrap();
+        let write = |name: &str, dir: &str| {
+            let f = mirror.join(name);
+            std::fs::write(&f, format!(r#"{{"info":{{"directory":"{dir}"}},"messages":[]}}"#)).unwrap();
+            f
+        };
+
+        let base_canon = base.canonicalize().unwrap();
+
+        // The folder the other machine recorded exists here too — the shared
+        // cloud workspace this feature is for. Import belongs in it.
+        let shared = base.join("sessions").join("2026-08-28-2327");
+        std::fs::create_dir_all(&shared).unwrap();
+        let here = write("here.json", &shared.to_string_lossy());
+        assert_eq!(
+            import_dir(&env, &here).unwrap(),
+            shared.canonicalize().unwrap()
+        );
+
+        // It does not exist here (a different machine's layout): fall back to
+        // the base folder, never to whatever the app was launched with.
+        let gone = write("gone.json", "/nowhere/this/machine/has");
+        assert_eq!(import_dir(&env, &gone).unwrap().canonicalize().unwrap(), base_canon);
+
+        // It exists but is OUTSIDE the workspace. A mirror file arrives over a
+        // cloud drive, and the folder it names becomes the folder the imported
+        // conversation — and the agent that later runs in it — works in. Same
+        // rule as every other caller-supplied session directory here.
+        let outside = root.join("outside-the-workspace");
+        std::fs::create_dir_all(&outside).unwrap();
+        let escape = write("escape.json", &outside.to_string_lossy());
+        assert_eq!(import_dir(&env, &escape).unwrap().canonicalize().unwrap(), base_canon);
+
+        // A mirror file that is not readable as an export still imports, into
+        // the base folder, rather than failing or inheriting a directory.
+        let junk = mirror.join("junk.json");
+        std::fs::write(&junk, "not json").unwrap();
+        assert_eq!(
+            import_dir(&env, &junk).unwrap().canonicalize().unwrap(),
+            base.canonicalize().unwrap()
+        );
+
+        // And the command actually carries it. Asserting `import_dir` alone
+        // would still pass with the call site unwired, which is the whole
+        // defect: the destination was correct in principle and inherited in
+        // practice. Needs the bundled binary only because `runtime_cli` locates
+        // it — skip rather than assert nothing when it is absent.
+        if sidecar_bin("opencode").is_some() {
+            let cmd = import_command(&env, &here).unwrap();
+            assert_eq!(cmd.get_current_dir(), Some(shared.canonicalize().unwrap().as_path()));
+        }
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

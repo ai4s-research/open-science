@@ -1215,15 +1215,19 @@ async function performTurn(
       const chosen = isTauri ? get().draftWorkspaces[draftSrc] : undefined;
       if (isTauri) {
         set({ switching: true });
+        // The folder this session is MEANT to be created in. Both calls below
+        // return the canonical path they settled on, which is what the check
+        // after the reconnect compares against.
+        let intended = chosen ?? null;
         try {
           if (!chosen) {
-            await newDatedWorkspace(datedWorkspaceName());
+            intended = await newDatedWorkspace(datedWorkspaceName());
             await kernelReset().catch(() => {});
           } else if (chosen !== get().workspace) {
             // The active folder wandered off — opening any session follows it
             // into that session's folder. Go back to the one this draft was
             // aimed at, or the session lands wherever the user last looked (#69).
-            await setWorkspace(chosen);
+            intended = await setWorkspace(chosen);
             await kernelReset().catch(() => {});
           }
           // Always rebuild the scoped client: /new and /clear keep the folder,
@@ -1235,6 +1239,22 @@ async function performTurn(
         }
         if (get().status !== "ready" || !client) {
           throw new Error("Runtime did not reconnect before creating the session.");
+        }
+        // `createSession` files the conversation in whatever folder the RUNTIME
+        // is scoped to, and that was decided by the reconnect above — not by the
+        // folder this draft asked for. When the two disagree the session is
+        // recorded in one folder while its notebooks, figures and data are
+        // written in another, and nothing downstream can tell: the conversation
+        // reports "file not found" for files it produced itself, in a folder
+        // that still holds them. A session found in exactly that state is what
+        // this check exists for — the disagreement was silent, and the only
+        // moment it can still be caught is before the session exists. Refuse
+        // rather than create a conversation that is already wrong.
+        if (intended && !samePath(intended, get().workspace)) {
+          throw new Error(
+            `The runtime is working in ${get().workspace ?? "no folder"}, not ${intended}, ` +
+              `so this conversation would be filed apart from the files it creates. Try again.`,
+          );
         }
       }
       id = await withRetry(() => client!.createSession());
@@ -3423,7 +3443,30 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         // the previous folder delivers NOTHING for this session — the turn runs
         // and the page shows nothing happening.
         if (isGatewayWeb) set({ webWorkspace: dir, workspace: dir });
-        else await setWorkspace(dir).catch(() => {});
+        else {
+          // A failure here used to be swallowed, and everything below then ran
+          // against the folder we had FAILED to leave: the reconnect scoped the
+          // stream to it, the kernel stayed in it, `markSession` stamped this
+          // session's id into it, and every file this conversation names
+          // resolved there — so its own notebooks and figures came back "file
+          // not found" while the app looked like it had followed the session.
+          // The folder is the premise of everything after it; if we could not
+          // move, say so and do none of it.
+          try {
+            await setWorkspace(dir);
+          } catch (err) {
+            // Only the still-current open may speak, like every step below it:
+            // the user may have opened another session while this one was in
+            // flight, and a folder THAT session does not care about must not
+            // put an error over it.
+            if (seq !== openSessionSeq) return;
+            const detail = err instanceof Error ? err.message : String(err);
+            set({
+              error: `Could not open ${dir}, the folder this conversation works in (${detail}). Its files will not open until that folder is reachable.`,
+            });
+            return;
+          }
+        }
         // A newer openSession has superseded this one — stop before starting a
         // second, dueling connectRetry. Two reconnect loops tear down each
         // other's in-flight EventSource, leaking half-open sockets until the
