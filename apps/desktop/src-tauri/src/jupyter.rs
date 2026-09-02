@@ -14,7 +14,10 @@ use crate::runtime::{free_port, workspace_dir};
 // core scientific stack: this env is now the DEFAULT interpreter for the app's
 // own notebook Run button (kernel::python_bin), so `import numpy/pandas` must
 // work out of the box — an empty jupyter-only env would make the unified kernel
-// useless for real work.
+// useless for real work. scipy/statsmodels/pyDOE3 extend that stack to
+// design-of-experiments analysis — response-surface fits, ANOVA, Tukey/Dunnett
+// post-hoc tests, main-effects plots, and Box-Behnken/CCD designs — the same
+// stack the domain-check bioprocess rules assume is available.
 const PIP_SPEC: &[&str] = &[
     "jupyterlab==4.4.1",
     "jupyter-collaboration==4.0.2",
@@ -23,6 +26,9 @@ const PIP_SPEC: &[&str] = &[
     "numpy",
     "pandas",
     "matplotlib",
+    "scipy",
+    "statsmodels",
+    "pyDOE3",
 ];
 
 #[derive(Default)]
