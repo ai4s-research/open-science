@@ -453,7 +453,7 @@ If you use Open Science Desktop in your research, please cite it:
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.5.1},
+  version = {0.5.2},
   doi     = {10.5281/zenodo.22136307},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
