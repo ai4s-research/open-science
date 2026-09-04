@@ -22,6 +22,10 @@ export function RemoteAccessCard() {
   const [status, setStatus] = useState<GatewayStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [reveal, setReveal] = useState(false);
+  /** The port field, empty until the user types one. Up here with the other
+   *  hooks, not beside the port Row: everything below the `isTauri` early
+   *  return runs conditionally, and a hook there breaks the hook order. */
+  const [portInput, setPortInput] = useState<string>("");
   /** Where the bundled ACP agent lives, so the editor snippet is a real path
    *  the user can paste (#14, server direction). */
   const [acpScript, setAcpScript] = useState<string | null>(null);
@@ -71,7 +75,6 @@ export function RemoteAccessCard() {
   const mode: GatewayMode = status?.mode ?? "full";
 
   const configuredPort = status?.configuredPort ?? null;
-  const [portInput, setPortInput] = useState<string>("");
 
   const setEnabled = (v: boolean) => apply(() => setGatewayConfig(v, lan, mode, configuredPort));
   const setMode = (m: GatewayMode) => apply(() => setGatewayConfig(true, lan, m, configuredPort));

@@ -41,6 +41,13 @@ pub struct Persisted {
     /// cleared on stop. `osd` reads it to find a gateway already running on this
     /// machine — the desktop app's own — instead of asking the user for a URL.
     pub port: Option<u16>,
+    /// The port the user pinned the gateway to in Settings, kept until they
+    /// clear it (#80). Deliberately NOT `port`: that field is an address record
+    /// this process rewrites on every bind and erases on exit, while a
+    /// preference has to survive both — and reading a stale record back as a
+    /// preference would silently turn "4098 when it is free" into "4098 or
+    /// refuse to start".
+    pub preferred_port: Option<u16>,
 }
 
 impl Default for Persisted {
@@ -51,6 +58,7 @@ impl Default for Persisted {
             mode: "full".into(),
             token: String::new(),
             port: None,
+            preferred_port: None,
         }
     }
 }
@@ -71,6 +79,7 @@ pub fn read_persisted(env: &Env) -> Persisted {
                         "mode" => p.mode = normalize_mode(v),
                         "token" => p.token = v.to_string(),
                         "port" => p.port = v.parse().ok(),
+                        "preferredPort" => p.preferred_port = v.parse().ok(),
                         _ => {}
                     }
                 }
@@ -86,12 +95,13 @@ fn write_persisted(env: &Env, p: &Persisted) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let body = format!(
-        "enabled {}\nlan {}\nmode {}\ntoken {}\nport {}\n",
+        "enabled {}\nlan {}\nmode {}\ntoken {}\nport {}\npreferredPort {}\n",
         if p.enabled { 1 } else { 0 },
         if p.lan { 1 } else { 0 },
         p.mode,
         p.token,
-        p.port.map(|v| v.to_string()).unwrap_or_default()
+        p.port.map(|v| v.to_string()).unwrap_or_default(),
+        p.preferred_port.map(|v| v.to_string()).unwrap_or_default()
     );
     std::fs::write(&f, body).map_err(|e| e.to_string())?;
     tighten_private(&f); // token is a secret — owner-only, never in git
@@ -365,7 +375,12 @@ pub fn stop(env: &Env, state: &GatewayState) {
 pub fn autostart(env: &Env, state: &GatewayState) {
     let p = read_persisted(env);
     if p.enabled && !p.token.is_empty() {
-        let _ = start(env, state, &p);
+        // Honour the pin here too, so a restart comes back on the port the
+        // user's firewall rule names. If that port is taken we stay down and
+        // Settings shows the gateway as not running — binding somewhere else
+        // unasked would be the worse answer, since every client pointed at the
+        // pinned port would reach nothing while the app looked healthy.
+        let _ = start_at(env, state, &p, p.preferred_port);
     }
 }
 
@@ -1332,6 +1347,8 @@ pub struct GatewayStatus {
     pub mode: String,
     pub running: bool,
     pub port: Option<u16>,
+    /// The port the user pinned in Settings, or None for "wherever it lands".
+    pub configured_port: Option<u16>,
     pub loopback_url: Option<String>,
     pub lan_url: Option<String>,
     pub token: String,
@@ -1363,6 +1380,7 @@ pub fn status_of(env: &Env, state: &GatewayState) -> GatewayStatus {
         mode: p.mode,
         running,
         port,
+        configured_port: p.preferred_port,
         loopback_url,
         lan_url,
         token: p.token,
@@ -1382,17 +1400,23 @@ pub fn acp_server_script(env: &Env) -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+/// `port` is the address the user pinned the gateway to, `None` for "wherever
+/// it lands" — every caller passes the current value, so an ordinary mode or
+/// LAN toggle carries the pin through rather than clearing it. Port 0 is not a
+/// pin (it means "any" to the OS) and is stored as None.
 pub fn set_gateway_config(
     env: &Env,
     state: &GatewayState,
     enabled: bool,
     lan: bool,
     mode: String,
+    port: Option<u16>,
 ) -> Result<GatewayStatus, String> {
     let mut p = read_persisted(env);
     p.enabled = enabled;
     p.lan = lan;
     p.mode = normalize_mode(&mode);
+    p.preferred_port = port.filter(|&n| n > 0);
     if p.enabled && p.token.is_empty() {
         p.token = random_hex(24);
     }
@@ -1402,11 +1426,15 @@ pub fn set_gateway_config(
         return Ok(status_of(env, state));
     }
     // If already running on the same binding, update token/mode IN PLACE so the
-    // port never changes; only first-enable or a loopback↔LAN switch rebinds.
+    // port never changes; only first-enable, a loopback↔LAN switch, or a pin to
+    // a port we are not on rebinds. The pin is compared only when there is one:
+    // an unpinned gateway that fell back to an ephemeral port would otherwise
+    // rebind — and change its URL — on every mode change, because it is not on
+    // PREFERRED_PORT and never will be.
     let updated_in_place = {
         let guard = state.running.lock().unwrap();
         match guard.as_ref() {
-            Some(r) if r.lan == p.lan => {
+            Some(r) if r.lan == p.lan && p.preferred_port.is_none_or(|want| r.port == want) => {
                 *r.shared.token.lock().unwrap() = p.token.clone();
                 r.shared.read_only.store(p.mode == "read-only", Ordering::Relaxed);
                 true
@@ -1415,7 +1443,11 @@ pub fn set_gateway_config(
         }
     };
     if !updated_in_place {
-        start(env, state, &p)?;
+        // A pin must bind exactly or say so: it exists because a firewall rule,
+        // a reverse proxy, or a bookmark names that port, and quietly listening
+        // somewhere else would break all three while Settings still showed the
+        // port the user asked for.
+        start_at(env, state, &p, p.preferred_port)?;
     }
     Ok(status_of(env, state))
 }
@@ -1524,6 +1556,66 @@ mod tests {
         assert!(!record_belongs_to_a_live_other(&empty_env, 4098));
         std::fs::remove_dir_all(&dir).unwrap();
         std::fs::remove_dir_all(&empty_dir).unwrap();
+    }
+
+    /// A free port, learned by binding and releasing one. Never a fixed number:
+    /// two tests in this binary run in parallel, and both reaching for the same
+    /// hard-coded port would make one of them fail on every run.
+    fn a_free_port() -> u16 {
+        std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn a_pinned_port_outlives_the_address_record_it_sits_beside() {
+        // The two are different facts about the same gateway: where it IS (a
+        // record this process rewrites on bind and erases on exit) and where the
+        // user asked it to be (#80, kept until they clear it). Sharing one field
+        // would let an ordinary stop erase the setting.
+        let (env, dir) = env_with_recorded_port("pinned", None);
+        let pin = a_free_port();
+        let mut p = read_persisted(&env);
+        p.preferred_port = Some(pin);
+        write_persisted(&env, &p).unwrap();
+
+        let state = GatewayState::default();
+        let p = Persisted { token: "t".into(), ..read_persisted(&env) };
+        let bound = start_at(&env, &state, &p, p.preferred_port).expect("the pinned port is free");
+        assert_eq!(bound, pin, "a pin is where the listener goes");
+        assert_eq!(read_persisted(&env).port, Some(pin), "and the CLI can still find it");
+
+        stop(&env, &state);
+        let after = read_persisted(&env);
+        assert_eq!(after.port, None, "the address record dies with the listener");
+        assert_eq!(after.preferred_port, Some(pin), "the user's setting does not");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_address_record_is_never_read_back_as_a_pin() {
+        // The regression this field split exists to prevent: an unpinned gateway
+        // records 4098 on every start, and reading THAT back as a preference
+        // turns "4098 when it is free" into "4098 or refuse to start" the moment
+        // anything else takes the port.
+        let (env, dir) = env_with_recorded_port("recorded", Some(4098));
+        assert_eq!(read_persisted(&env).preferred_port, None, "a record is not a request");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_pinned_port_that_is_taken_is_an_error_not_a_quiet_fallback() {
+        // Falling back would leave Settings reporting the port the user asked
+        // for while the firewall rule, the reverse proxy and the bookmark that
+        // named it all reach nothing.
+        let occupied = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let taken = occupied.local_addr().unwrap().port();
+        let (env, dir) = env_with_recorded_port("taken", None);
+        let state = GatewayState::default();
+        let p = Persisted { token: "t".into(), ..read_persisted(&env) };
+
+        let err = start_at(&env, &state, &p, Some(taken)).expect_err("the port is in use");
+        assert!(err.contains(&taken.to_string()), "the error has to name the port: {err}");
+        drop(occupied);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

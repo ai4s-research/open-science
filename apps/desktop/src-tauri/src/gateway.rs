@@ -61,8 +61,9 @@ pub fn set_gateway_config(
     enabled: bool,
     lan: bool,
     mode: String,
+    port: Option<u16>,
 ) -> Result<GatewayStatus, String> {
-    osd_core::gateway::set_gateway_config(&env_of(&app), state.inner(), enabled, lan, mode)
+    osd_core::gateway::set_gateway_config(&env_of(&app), state.inner(), enabled, lan, mode, port)
 }
 
 #[tauri::command(async)]
