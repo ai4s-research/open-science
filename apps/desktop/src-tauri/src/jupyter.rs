@@ -18,6 +18,12 @@ use crate::runtime::{free_port, workspace_dir};
 // design-of-experiments analysis — response-surface fits, ANOVA, Tukey/Dunnett
 // post-hoc tests, main-effects plots, and Box-Behnken/CCD designs — the same
 // stack the domain-check bioprocess rules assume is available.
+//
+// The ~50 MB they add is not paid at install or at launch: nothing here ships
+// in the bundle, and this list is only ever installed by setup_jupyter, which
+// the user starts from Settings and which already warns that the first run
+// downloads a few hundred MB. A user who never enables Jupyter never fetches
+// any of it.
 const PIP_SPEC: &[&str] = &[
     "jupyterlab==4.4.1",
     "jupyter-collaboration==4.0.2",
