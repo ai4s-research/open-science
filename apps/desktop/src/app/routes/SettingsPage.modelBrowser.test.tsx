@@ -190,40 +190,6 @@ describe("Settings model browser integration", () => {
     ).toBeLessThan(vi.mocked(client.setProviderApiKey).mock.invocationCallOrder[0]);
   });
 
-  it("fills the custom endpoint form from a MiniMax regional preset", async () => {
-    const client = catalogClient(vi.fn().mockResolvedValue([]));
-    vi.spyOn(runtime, "getClient").mockReturnValue(client);
-    await renderSettings();
-
-    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
-    await userEvent.click(screen.getByRole("button", { name: /Custom endpoint/ }));
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "Curated provider preset" }),
-      "minimax-cn-anthropic",
-    );
-
-    expect(screen.getByPlaceholderText(/Name — e\.g\./)).toHaveValue("MiniMax");
-    expect(screen.getByPlaceholderText(/Base URL/)).toHaveValue(
-      "https://api.minimaxi.com/anthropic",
-    );
-    expect(screen.getByPlaceholderText(/Model ids/)).toHaveValue("MiniMax-M3, MiniMax-M2.7");
-
-    await userEvent.click(screen.getByRole("button", { name: "Add endpoint" }));
-    await waitFor(() => expect(client.addCustomProvider).toHaveBeenCalledTimes(1));
-    const [id, options] = vi.mocked(client.addCustomProvider).mock.calls[0];
-    expect(id).toBe("minimax");
-    expect(options).toMatchObject({
-      name: "MiniMax",
-      npm: "@ai-sdk/anthropic",
-      baseURL: "https://api.minimaxi.com/anthropic",
-      contexts: { "MiniMax-M3": 1_000_000, "MiniMax-M2.7": 204_800 },
-    });
-    expect(options.models.map((model) => (typeof model === "string" ? model : model.id))).toEqual([
-      "MiniMax-M3",
-      "MiniMax-M2.7",
-    ]);
-  });
-
   it("accepts a non-Latin custom provider display name", async () => {
     const client = catalogClient();
     vi.spyOn(runtime, "getClient").mockReturnValue(client);

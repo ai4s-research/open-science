@@ -1,10 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CUSTOM_PROVIDER_PRESETS,
-  OpenCodeClient,
-  type OpenCodeEvent,
-} from "@ai4s/sdk";
+import { OpenCodeClient, type OpenCodeEvent } from "@ai4s/sdk";
 import { startMockOpenCode, type MockOpenCode } from "@ai4s/sdk/mock-server";
 
 let server: MockOpenCode;
@@ -716,45 +712,73 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
     });
   });
 
-  it.each([
-    ["minimax-global-openai", "@ai-sdk/openai-compatible", "https://api.minimax.io/v1"],
-    ["minimax-global-anthropic", "@ai-sdk/anthropic", "https://api.minimax.io/anthropic"],
-    ["minimax-cn-openai", "@ai-sdk/openai-compatible", "https://api.minimaxi.com/v1"],
-    ["minimax-cn-anthropic", "@ai-sdk/anthropic", "https://api.minimaxi.com/anthropic"],
-  ])("serializes the %s preset without misleading flat-rate cost metadata", async (presetId, npm, baseURL) => {
+  it("carries a described model's own metadata into the runtime's record", async () => {
+    // A caller that knows more than an id (a probe that reported the window, a
+    // user who filled the form) must be able to say so: the alternative is the
+    // runtime guessing, which is what #52 was about. Ids alone still work.
     const { fetchImpl, patches } = mockGlobalConfig();
-    const preset = CUSTOM_PROVIDER_PRESETS.find((candidate) => candidate.id === presetId)!;
     const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
 
-    await client.addCustomProvider(preset.providerId, {
-      name: preset.name,
-      npm: preset.npm,
-      baseURL: preset.baseURL,
-      models: preset.models,
+    await client.addCustomProvider("selfhosted", {
+      name: "Self-hosted",
+      npm: "@ai-sdk/openai-compatible",
+      baseURL: "https://llm.example.internal/v1",
+      models: [
+        {
+          id: "big",
+          context: 200_000,
+          reasoning: true,
+          modalities: { input: ["text", "image"] },
+          variants: { fast: { thinking: { type: "disabled" } } },
+        },
+        "small",
+      ],
     });
 
-    const provider = patches[patches.length - 1].provider.minimax;
-    expect(provider).toMatchObject({ npm, options: { baseURL } });
-    const models = provider.models!;
-    expect(models["MiniMax-M3"]).toMatchObject({
-      name: "MiniMax-M3",
-      limit: { context: 1_000_000, output: 0 },
-      modalities: { input: ["text", "image", "video"] },
+    const models = patches[patches.length - 1].provider.selfhosted.models!;
+    expect(models.big).toMatchObject({
+      name: "big",
+      limit: { context: 200_000, output: 0 },
       reasoning: true,
-      variants: {
-        adaptive: { thinking: { type: "adaptive" } },
-        disabled: { thinking: { type: "disabled" } },
+      modalities: { input: ["text", "image"] },
+      variants: { fast: { thinking: { type: "disabled" } } },
+    });
+    // Nothing is invented for a model given as a bare id.
+    expect(models.small).toEqual({ name: "small" });
+    // And no cost is written for either: a rate nobody supplied would be a
+    // guess, and a wrong one shows up as wrong money in the usage readout.
+    expect(models.big).not.toHaveProperty("cost");
+    expect(models.small).not.toHaveProperty("cost");
+  });
+
+  it("keeps what is already configured for a model it is re-saving", async () => {
+    // Re-adding an endpoint used to rebuild each model from scratch, dropping
+    // everything the record held beyond its limit — a hand-set cost or set of
+    // modalities disappeared the next time the form was submitted.
+    const { fetchImpl, patches } = mockGlobalConfig({
+      selfhosted: {
+        models: {
+          big: {
+            name: "big",
+            limit: { context: 200_000, output: 0 },
+            cost: { input: 1, output: 2 },
+          },
+        },
       },
     });
-    expect(models["MiniMax-M2.7"]).toMatchObject({
-      name: "MiniMax-M2.7",
-      limit: { context: 204_800, output: 0 },
-      modalities: { input: ["text"] },
-      reasoning: true,
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.addCustomProvider("selfhosted", {
+      name: "Self-hosted",
+      npm: "@ai-sdk/openai-compatible",
+      baseURL: "https://llm.example.internal/v1",
+      models: ["big"],
     });
-    expect(models["MiniMax-M3"]).not.toHaveProperty("cost");
-    expect(models["MiniMax-M2.7"]).not.toHaveProperty("cost");
-    expect(models["MiniMax-M2.7"]).not.toHaveProperty("variants");
+
+    expect(patches[patches.length - 1].provider.selfhosted.models!.big).toMatchObject({
+      limit: { context: 200_000, output: 0 },
+      cost: { input: 1, output: 2 },
+    });
   });
 
   it("keeps a hand-set limit when no window is provided", async () => {

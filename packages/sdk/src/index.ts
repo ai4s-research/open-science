@@ -1,12 +1,5 @@
 export { OpenCodeClient, ApiError, isApiStatus } from "./OpenCodeClient";
-export { CUSTOM_PROVIDER_PRESETS } from "./customProviderPresets";
-export type {
-  CustomProviderCompatibility,
-  CustomProviderModality,
-  CustomProviderModel,
-  CustomProviderPreset,
-  CustomProviderPresetLabelKey,
-} from "./customProviderPresets";
+export type { CustomProviderModality, CustomProviderModel } from "./OpenCodeClient";
 export type { AgentRuntime } from "./runtime";
 export { BaseAgentRuntime } from "./base-runtime";
 export {

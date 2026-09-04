@@ -26,7 +26,31 @@ import type { MessageUsage } from "@ai4s/shared";
 import { DEFAULT_OPENCODE_URL } from "./types";
 import type { AgentRuntime } from "./runtime";
 import { BaseAgentRuntime } from "./base-runtime";
-import type { CustomProviderModel } from "./customProviderPresets";
+
+export type CustomProviderModality = "text" | "audio" | "image" | "video" | "pdf";
+
+/** A model on a custom endpoint. A caller that knows nothing but the id passes
+ *  the id; one that knows the window, the pricing or the modalities passes them
+ *  too, and they reach the runtime's own model record rather than being guessed
+ *  at. Nothing here is required, because nothing about a self-hosted endpoint
+ *  can be assumed. */
+export interface CustomProviderModel {
+  id: string;
+  name?: string;
+  context?: number;
+  cost?: {
+    input: number;
+    output: number;
+    cache_read?: number;
+    cache_write?: number;
+  };
+  modalities?: {
+    input?: CustomProviderModality[];
+    output?: CustomProviderModality[];
+  };
+  reasoning?: boolean;
+  variants?: Record<string, Record<string, unknown>>;
+}
 
 /**
  * An error from an OpenCode API call, carrying the HTTP status so a caller can
