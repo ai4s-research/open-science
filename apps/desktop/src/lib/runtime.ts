@@ -848,6 +848,14 @@ const interruptedSessions = new Set<string>();
  *  Cleared when the next turn starts, like interruptedSessions. */
 const erroredSessions = new Set<string>();
 
+/** Sessions whose CURRENT turn has already produced its completion
+ *  notification. One settle process calls onTurnIdle more than once — a
+ *  session error is followed by its own session.idle, and a user abort streams
+ *  several trailing idles — so without this guard a settled turn would notify
+ *  once per trailing event. Cleared when the next turn starts, like its two
+ *  outcome markers above. */
+const notifiedSettledSessions = new Set<string>();
+
 // ---- Auto-review (#72) ----
 // Per-token review state stays outside Zustand so a background reviewer never
 // repaints the foreground pane. The store only receives queued/running
@@ -1340,6 +1348,7 @@ async function performTurn(
     const sid = id;
     interruptedSessions.delete(sid); // a fresh turn folds its events normally
     erroredSessions.delete(sid); // …and its outcome label starts clean
+    notifiedSettledSessions.delete(sid); // …and its notification may fire again
     void logDebug(`turn → ${sid}`);
     // A fresh turn restarts step counting (the SDK resets its own counter on idle).
     if (get().stepCounts[sid])
@@ -1695,6 +1704,12 @@ function drainReviewQueue(set: StoreSet, get: StoreGet): void {
  *  outcomes via the markers the event handler keeps: interruptedSessions
  *  (user Stop) and erroredSessions (a real provider/runtime error).
  *
+ *  At most ONE notification per settled turn: a session error is followed by
+ *  its own session.idle, and a user abort streams several trailing idles, so
+ *  onTurnIdle — and this — runs once per trailing event. The
+ *  notifiedSettledSessions guard is checked and armed here, so whichever
+ *  trailing event lands first wins and the rest stay silent.
+ *
  *  Deliberately silent for: background reviews (a second hidden turn the user
  *  did not send — notifying on those would be noise), and subagent turns
  *  (their settlement is part of the parent turn the user is watching). */
@@ -1702,24 +1717,14 @@ function notifyTurnSettled(get: StoreGet, sid: string): void {
   if (!get().turnNotify) return;
   if (get().backgroundReviews[sid] === "running" || get().backgroundReviews[sid] === "queued") return;
   if (get().sessionParents[sid]) return;
-  if (interruptedSessions.has(sid)) {
-    void notifyTurnComplete({
-      title: i18n.t("pages:notify.interruptedTitle"),
-      body: sessionTitleFor(get, sid),
-    });
-    return;
-  }
-  if (erroredSessions.has(sid)) {
-    void notifyTurnComplete({
-      title: i18n.t("pages:notify.failedTitle"),
-      body: sessionTitleFor(get, sid),
-    });
-    return;
-  }
-  void notifyTurnComplete({
-    title: i18n.t("pages:notify.completeTitle"),
-    body: sessionTitleFor(get, sid),
-  });
+  if (notifiedSettledSessions.has(sid)) return;
+  const title = interruptedSessions.has(sid)
+    ? i18n.t("pages:notify.interruptedTitle")
+    : erroredSessions.has(sid)
+      ? i18n.t("pages:notify.failedTitle")
+      : i18n.t("pages:notify.completeTitle");
+  remember(notifiedSettledSessions, sid);
+  void notifyTurnComplete({ title, body: sessionTitleFor(get, sid) });
 }
 
 /** The session's own title for a notification body, falling back to its id. */

@@ -2903,6 +2903,53 @@ describe("turn-completion notification", () => {
     mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
     expect(mocks.notifyTurnComplete).not.toHaveBeenCalled();
   });
+
+  it("notifies exactly once when an abort streams several trailing idles", async () => {
+    // A real user abort answers with its own SSE burst: an "aborted" error and
+    // MORE than one session.idle. Each trailing idle drives onTurnIdle, so the
+    // notification used to fire once per idle — several "Turn interrupted"
+    // notices for one stop.
+    withNotifyOn();
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.abortTrailing = [
+      { type: "error", sessionId: "ses_new", message: "The message was aborted" },
+      { type: "session.idle", sessionId: "ses_new" },
+      { type: "session.idle", sessionId: "ses_new" },
+    ];
+    await useRuntimeStore.getState().interrupt("ses_new");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledTimes(1);
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Turn interrupted", body: "My session" }),
+    );
+  });
+
+  it("notifies exactly once when a session error is followed by its idle", async () => {
+    // A failed turn streams an error (which ends it and drives onTurnIdle)
+    // and THEN its session.idle — two onTurnIdle calls for one failure. Only
+    // the first may notify: one "Turn failed", not two.
+    withNotifyOn();
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({ type: "error", sessionId: "ses_new", message: "model unavailable" });
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledTimes(1);
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Turn failed", body: "My session" }),
+    );
+  });
+
+  it("notifies again for the NEXT turn of the same session", async () => {
+    // The once-per-settle guard must clear when the next turn starts, or a
+    // session would go permanently silent after its first notification.
+    withNotifyOn();
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    await useRuntimeStore.getState().sendPrompt("again");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledTimes(2);
+  });
 });
 
 // #96: an agent carrying its own configured model must actually get to use it.
