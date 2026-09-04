@@ -8,7 +8,18 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { Check, ChevronDown, ChevronRight, Cpu, Loader2, Search, Star, X, Zap } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Cpu,
+  Loader2,
+  Search,
+  Star,
+  TriangleAlert,
+  X,
+  Zap,
+} from "lucide-react";
 import { agentForTurn, useRuntimeStore } from "@/lib/runtime";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { cn } from "@/lib/cn";
@@ -227,7 +238,9 @@ export function ModelPicker({
   const agentVariants = useRuntimeStore((s) => s.agentVariants);
   // The agent this pane's next turn runs on ("build", or "plan" in plan mode).
   const turnAgent = useRuntimeStore((s) => (sessionId ? agentForTurn(s, sessionId) : null));
-  const switching = useRuntimeStore((s) => s.switching);
+  // Only a MODEL switch spins this chip. `switching` also covers workspace
+  // moves, so reading it made the chip spin on every Screen switch.
+  const switching = useRuntimeStore((s) => s.modelSwitching);
 
   // When bound to a session (a split pane), the picker sets THAT pane's model /
   // effort — no global sidecar config PATCH, so other panes are untouched.
@@ -272,7 +285,20 @@ export function ModelPicker({
     return map;
   }, [providers]);
 
+  // 0 means OpenCode does not know the window — see ProviderModelInfo. It is
+  // not cosmetic: a zero window disables auto-compaction entirely.
+  const contextByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of providers)
+      for (const m of p.models) map.set(`${p.id}/${m.id}`, m.contextLimit ?? 0);
+    return map;
+  }, [providers]);
+
   const current = options.find((o) => o.key === model);
+  // Still configured, but the provider stopped serving it — the list below no
+  // longer offers it, so say why rather than let the next turn fail.
+  const currentRetired = current?.available === false;
+  const contextUnknown = !!model && (contextByKey.get(model) ?? 0) === 0;
   const currentVariants = (model && variantsByKey.get(model)) || [];
   // The effort actually in force: the user's pick, but only when the current
   // model exposes it (else the model falls back to its own default — mirrors the
@@ -519,6 +545,50 @@ export function ModelPicker({
             </div>
           )}
         </div>
+      )}
+
+      {/* The chosen model has been retired by its provider: every turn fails
+          with the provider's own error, and it is absent from the list above,
+          which alone would just look like it vanished. */}
+      {currentRetired && (
+        <div className="shrink-0 border-t border-faint px-3 py-2">
+          <span className="flex items-start gap-1.5">
+            <TriangleAlert size={12} className="mt-0.5 shrink-0 text-warn" />
+            <span className="text-xs">
+              <span className="block font-medium text-text">
+                {t("composer.model.retiredTitle")}
+              </span>
+              <span className="mt-0.5 block text-muted">
+                {t("composer.model.retiredBody", { model: current?.modelName ?? model })}
+              </span>
+            </span>
+          </span>
+        </div>
+      )}
+
+      {/* A model whose context window OpenCode does not know never gets
+          auto-compacted, which is silent until a long session stalls. Say it
+          here, where the model was chosen, and make the fix one click away. */}
+      {contextUnknown && (
+        <button
+          className="shrink-0 border-t border-faint px-3 py-2 text-left hover:bg-hover"
+          onClick={() => {
+            setOpen(false);
+            navigate("/settings/models");
+          }}
+        >
+          <span className="flex items-start gap-1.5">
+            <TriangleAlert size={12} className="mt-0.5 shrink-0 text-warn" />
+            <span className="text-xs">
+              <span className="block font-medium text-text">
+                {t("composer.model.unknownContextTitle")}
+              </span>
+              <span className="mt-0.5 block text-muted">
+                {t("composer.model.unknownContextBody")}
+              </span>
+            </span>
+          </span>
+        </button>
       )}
 
       {/* Manage providers */}

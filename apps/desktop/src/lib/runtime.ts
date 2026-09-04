@@ -12,6 +12,7 @@ import {
   type PermissionReply,
   type ProviderInfo,
   type QuestionAskedEvent,
+  type RetryAction,
   type SessionMeta,
   type SkillInfo,
   type ToolCallStatus,
@@ -46,6 +47,10 @@ import {
   setProxySetting as persistProxySetting,
   setWorkspace,
   startRuntime,
+  restartRuntime,
+  runtimeFailure,
+  takeConfigQuarantineNotice,
+  runtimeStartedAt,
   workspacePath,
   workspaceSkillNames,
   type ApprovalMode,
@@ -76,8 +81,12 @@ import {
   isMutatingTool,
   shouldAutoReview,
 } from "./autoReview";
+import { isGoalInjectedPrompt } from "./goalPrompts";
+import { findHistoryDefects, repairTarget } from "./malformedHistory";
+import { runSync, syncDir } from "./syncRunner";
 import { notifyPermissionRequest } from "./systemNotification";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
+import { listProvidersWithAvailability, ZEN_PROVIDER_ID } from "./zenModels";
 import { toast } from "@/lib/toast";
 import i18n from "@/i18n";
 
@@ -278,6 +287,10 @@ interface RuntimeState {
   connect: () => Promise<void>;
   /** Resolves true once connected, false when the retry window is exhausted. */
   connectRetry: (tries?: number) => Promise<boolean>;
+  /** Tell the user, once, that an unreadable OpenCode config was moved aside
+   *  and rebuilt — otherwise settings they had (providers, MCP servers) are
+   *  simply gone with no explanation (#118). */
+  reportQuarantinedConfig: () => Promise<void>;
   bootstrap: () => Promise<void>;
   disconnect: () => void;
   refreshSessions: () => Promise<void>;
@@ -302,6 +315,12 @@ interface RuntimeState {
   startDraftInWorkspace: (path: string, key?: string) => Promise<void>;
   /** Active workspace folder (absolute path); null in the browser. */
   workspace: string | null;
+  /** Web client only: the folder this BROWSER chose to work in (a project the
+   *  user opened here). The host's own active folder is never moved from a
+   *  remote client — doing so would drag the person sitting at the desktop into
+   *  another workspace mid-sentence — so the choice lives here and scopes this
+   *  client's stream, its file views and the sessions it creates (#81). */
+  webWorkspace: string | null;
   /** Web client only: the gateway token is read-only (GET-only) — every write
    *  (new session, prompt, approval) would 403, so the UI hides/disables them. */
   webReadOnly: boolean;
@@ -315,11 +334,22 @@ interface RuntimeState {
    *  neither survived a glance at another session (the send landed in that
    *  session's folder) nor stayed out of the way of an unrelated new screen. */
   draftWorkspaces: Record<string, string>;
+  /** Point a draft slot at `path` — or, with null, back at a fresh dated folder.
+   *  Pure state: unlike `switchWorkspace` it does NOT move the active folder,
+   *  because a new pane must not drag the pane the user is still reading into a
+   *  different workspace. The send path does the moving, once, if the draft is
+   *  still aimed when its first message goes out. */
+  aimDraft: (key: string, path: string | null) => void;
   /** A deliberate workspace move is in flight (event-stream reconnect into the
    *  new folder). The UI must not present it as a disconnection — no status
    *  flip, no Connect button, no help card. Real failures surface after the
    *  retry window is exhausted, once this clears. */
   switching: boolean;
+  /** A MODEL switch is in flight. Deliberately separate from `switching`, which
+   *  covers any workspace move: the model chip spun on every Screen switch,
+   *  because moving folders sets that flag too and the chip read it as "your
+   *  model is changing". */
+  modelSwitching: boolean;
   /** A sendPrompt is in flight for SOME session (click → POST accepted). Kept as
    *  the OR of `sendingSessions` for single-pane call sites; per-pane composers
    *  read `sendingSessions[sessionId]` instead. */
@@ -339,11 +369,16 @@ interface RuntimeState {
    *  output shows inline in the thread — the output IS the result the user
    *  asked for. Agent bash steps stay quiet single-line log entries. */
   shellTurns: Record<string, true>;
-  /** Sessions whose model call failed and is being retried server-side —
-   *  OpenCode backs off with no attempt cap, so this is what keeps a broken
-   *  provider from looking like a silent "Working…" forever. Cleared by the
-   *  session's next sign of life (stream events, idle, error). */
-  retryNotices: Record<string, { attempt: number; message: string }>;
+  /** Sessions whose model call failed and is being retried server-side — this
+   *  is what keeps a broken provider from looking like a silent "Working…".
+   *  Cleared by the session's next sign of life (stream events, idle, error).
+   *  `action` is present when the runtime recognised an account-state cause
+   *  (a spent free allowance, a plan limit): the attempts will run out without
+   *  it changing, so the UI must not call that "retrying" and leave it there. */
+  retryNotices: Record<string, { attempt: number; message: string; action?: RetryAction }>;
+  /** Epoch ms the current sidecar started; 0 until known. Anything stored
+   *  before it cannot be in flight now. */
+  runtimeStartedAt: number;
   /** Switch to an existing folder, or (with `dated`) create a new dated one.
    *  `key` is the draft slot the switch was made for — the folder becomes that
    *  draft's destination. Defaults to the global slot. */
@@ -447,6 +482,14 @@ const SWITCH_HEAL_GRACE_MS = 15_000;
 /** React StrictMode mounts effects twice in development. Share the same boot
  *  promise so duplicate AppShell effects cannot start dueling connect loops. */
 let bootstrapInFlight: Promise<void> | null = null;
+/** The catalog load currently in flight. connect() fires loadCatalog without
+ *  awaiting it, so history could render before the command list arrived — and
+ *  history needs it: OpenCode stores a slash command's EXPANDED template as the
+ *  user message, and collapsing it back to "/name args" needs the templates.
+ *  Without them a reopened session showed the raw expansion (the goal plugin's
+ *  whole instruction block instead of the one line the user typed). Awaiting
+ *  the in-flight load costs no extra request — it is already running. */
+let catalogInFlight: Promise<void> | null = null;
 /** Registered once: the remote-access gateway tells us when a LAN/CLI client
  *  created or deleted a session so the sidebar re-lists (no OpenCode event for
  *  session create/delete). See docs/rfc/remote-access-gateway.md. */
@@ -478,10 +521,41 @@ function looksLikeSkillFile(text: string): boolean {
  *  repaints every status consumer, so a ready→connecting flip is held this
  *  long and only shown if the stream does not come back. */
 const STATUS_BLIP_GRACE_MS = 2000;
+
+/** Failed reconnect attempts to tolerate before forcing a brand-new sidecar.
+ *  Plain retries already cover first boot, a slow start, and a process that
+ *  died and was respawned; eight attempts span roughly four seconds, past all
+ *  of those. Beyond that the runtime is not coming back on its own — it is
+ *  alive but no longer serving, which nothing else in the app can detect. */
+const RECONNECT_FORCE_RESTART_AFTER = 8;
+
+/** Sidecar exits, within one reconnect attempt, that mean the next spawn is
+ *  doomed too. Three: one death can be a crash worth respawning past (that is
+ *  what the loop is for), three in a row is the process refusing to run — a
+ *  config it will not start on, a missing binary, a denied permission. Without
+ *  this the loop spawns ~120 processes that each exit in milliseconds and then
+ *  reports nothing but a failed socket (#118). */
+const RECONNECT_GIVE_UP_AFTER_EXITS = 3;
 let statusBlipTimer: ReturnType<typeof setTimeout> | null = null;
 function clearStatusBlip() {
   if (statusBlipTimer !== null) clearTimeout(statusBlipTimer);
   statusBlipTimer = null;
+}
+/** connectRetry loops in flight. A failed ATTEMPT inside one is not news — it
+ *  is one step of a loop that is still trying — and painting it flips the whole
+ *  page (status badge, offline help card, error banner) once per attempt, 250ms
+ *  apart. Every launch does that: the sidecar is spawned and dialled before it
+ *  listens, so the first two or three attempts always fail (and on a fresh
+ *  install, blocked on the macOS TCC prompt, the loop can run for minutes).
+ *  While this is non-zero the UI is held at "connecting" and only the loop's
+ *  verdict is published. */
+let connectRetryDepth = 0;
+/** What the last connect() attempt failed with, masked or not — connectRetry
+ *  reports it if the whole window is exhausted. */
+let lastConnectError: string | null = null;
+/** The status the UI is allowed to see right now. */
+function visibleStatus(status: RuntimeStatus): RuntimeStatus {
+  return connectRetryDepth > 0 && status !== "ready" ? "connecting" : status;
 }
 /**
  * Drop the current connection. `keep` is the one runtime a reconnect intends to
@@ -520,13 +594,44 @@ let streamPassword: string | undefined;
  *  and every background stream share one folding path. */
 let sharedEventHandler: ((event: OpenCodeEvent) => void) | null = null;
 function removeStreamClient(dir: string) {
+  cancelStreamRetirement(dir);
   const c = streamClients.get(dir);
   if (c) {
     c.close();
     streamClients.delete(dir);
   }
 }
+/**
+ * Folders whose stream is no longer tiled but is kept alive a little longer.
+ *
+ * Screen switching used to close every background stream and open the incoming
+ * screen's from scratch, so flipping between two screens paid a full SSE
+ * handshake each way — against a per-directory OpenCode instance that is
+ * initialized lazily, i.e. a cold start on the switch's critical path (#92).
+ * Retiring on a delay makes a switch back free, and costs one idle EventSource
+ * per recently-seen folder for the length of the grace period.
+ */
+const streamRetirements = new Map<string, ReturnType<typeof setTimeout>>();
+const STREAM_RETIREMENT_MS = 60_000;
+function cancelStreamRetirement(dir: string) {
+  const timer = streamRetirements.get(dir);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    streamRetirements.delete(dir);
+  }
+}
+function retireStreamClient(dir: string) {
+  if (streamRetirements.has(dir) || !streamClients.has(dir)) return;
+  streamRetirements.set(
+    dir,
+    setTimeout(() => {
+      streamRetirements.delete(dir);
+      removeStreamClient(dir);
+    }, STREAM_RETIREMENT_MS),
+  );
+}
 function teardownStreamClients() {
+  for (const dir of [...streamRetirements.keys()]) cancelStreamRetirement(dir);
   for (const c of streamClients.values()) c.close();
   streamClients.clear();
 }
@@ -548,8 +653,8 @@ function clientForSession(get: StoreGet, sid: string): AgentRuntime | null {
 }
 const emptyThread = (): Thread => ({ blocks: [], index: {}, loaded: false });
 
-/** Forget a draft's chosen folder — its session was created, or the user asked
- *  for a plain New. Absent means "give the next session a fresh dated folder". */
+/** Retire a draft slot's folder — its session was created, or the user asked for
+ *  a plain New. Absent means "give the next session a fresh dated folder". */
 function forgetDraftFolder(s: RuntimeState, key: string) {
   if (!(key in s.draftWorkspaces)) return {};
   const draftWorkspaces = { ...s.draftWorkspaces };
@@ -632,6 +737,49 @@ export const DRAFT_KEY = "draft";
  *  panes each hold an independent draft (thread/composer/model/agent) and each
  *  create their own session on first send — instead of sharing DRAFT_KEY. */
 export const draftKeyFor = (leafId: string): string => `draft:${leafId}`;
+
+/**
+ * Folder a pane split off `source` should start in: the folder that pane's own
+ * next message would land in. A bound pane contributes its session's folder; an
+ * unbound one contributes whatever it is itself aimed at, which is null when it
+ * would create a dated folder — so "new folder" propagates as faithfully as a
+ * real path does. Null means the new pane makes its own dated folder, which is
+ * also what an empty Screen (no source pane at all) gets.
+ *
+ * Deliberately NOT the active workspace: that follows whichever session was
+ * last opened, so it can name a folder the source pane has nothing to do with
+ * (#69). Only the pane being split from may decide this.
+ */
+export function inheritedDraftFolder(
+  source: { leafId: string; sessionId: string | null } | null,
+  state: Pick<RuntimeState, "sessions" | "draftWorkspaces">,
+): string | null {
+  if (!source) return null;
+  if (source.sessionId) {
+    return state.sessions.find((s) => s.id === source.sessionId)?.directory ?? null;
+  }
+  return state.draftWorkspaces[draftKeyFor(source.leafId)] ?? null;
+}
+
+/**
+ * Hand a freshly split pane the folder of the pane it came from, and remember
+ * that origin so the empty pane can offer the other answer (a new dated folder)
+ * as one click — see DraftDestination.
+ *
+ * Every way of making a split pane must go through here. It used to live in the
+ * Cmd+D handler alone, so the header's split buttons produced a pane with no
+ * origin: no chooser, and a first message that silently made a dated folder
+ * away from the project the user was working in.
+ */
+export function adoptSourceFolder(
+  newLeafId: string | null,
+  source: { leafId: string; sessionId: string | null } | null,
+): void {
+  if (!newLeafId) return;
+  const runtime = useRuntimeStore.getState();
+  const folder = inheritedDraftFolder(source, runtime);
+  if (folder) runtime.aimDraft(draftKeyFor(newLeafId), folder);
+}
 
 /** The composer's agent switch: "build" edits and runs; "plan" is OpenCode's
  *  read-only planning agent (edits denied except its plan .md file). */
@@ -760,12 +908,40 @@ export function redactForLog(message: string): string {
   return redacted.length > LOG_ERROR_MAX ? `${redacted.slice(0, LOG_ERROR_MAX)}…` : redacted;
 }
 
+/** The AI SDK's wording for a conversation it refused to send. One definition,
+ *  because two places act on it: the error text explains it, and the thread
+ *  follows it with a diagnosis of the stored history (#114). */
+const MALFORMED_HISTORY = /do(es)? not match the ModelMessage\[\] schema/i;
+
+/** How to name the provider an account-state failure belongs to. Zen is the
+ *  built-in one and its id says nothing to the person who never chose it. */
+function providerLabel(provider: string | undefined): string {
+  if (!provider) return "the provider";
+  return provider === ZEN_PROVIDER_ID ? "OpenCode Zen, the runtime's built-in provider" : provider;
+}
+
 /**
  * A runtime error with the one thing the user cannot work out alone appended.
  * Only for failures whose text is accurate but leaves no way forward — the
  * provider's own wording is always kept, never replaced.
+ *
+ * `action` is what the runtime said about the last failed attempt, when it said
+ * anything (see RetryAction). It is the only trustworthy source for WHICH
+ * provider ran out: the final error text names none, so matching text alone can
+ * only speak for messages that are provably one provider's (#117).
  */
-export function explainRuntimeError(message: string): string {
+export function explainRuntimeError(message: string, action?: RetryAction): string {
+  // Known cause, straight from the runtime — no guessing from wording.
+  if (action?.reason === "free_tier_limit") {
+    return (
+      `${message} — the free allowance of ${providerLabel(action.provider)} is spent for this ` +
+      `account; this is not a quota in this app. Pick a model from a provider you have your own ` +
+      `key for in Settings → Models, or add credits.`
+    );
+  }
+  if (action?.reason === "account_rate_limit") {
+    return `${message} — until it resets, pick a model from another provider in Settings → Models.`;
+  }
   // A dangling default model (its provider removed or renamed) fails every send
   // the same way — point at where the fix lives.
   if (/model not found/i.test(message)) {
@@ -781,6 +957,44 @@ export function explainRuntimeError(message: string): string {
       `${message} The provider's content filter rejected this conversation, not just your last message — ` +
       `every retry resends the same history, so it will keep failing. Edit or delete the recent messages, ` +
       `start a new session, or switch to another model or provider.`
+    );
+  }
+  // The AI SDK rejects the whole conversation before any request goes out when
+  // one stored part is missing a field the message format requires (#114). The
+  // damage is on disk, so every retry resends it and fails identically.
+  //
+  // This deliberately no longer guesses a cause. It used to say "usually a tool
+  // call left without its result", which we published and which is wrong: the
+  // runtime backfills an interrupted tool call with a synthetic result, and
+  // sessions carrying one keep working for hundreds of messages. The repair
+  // block appended alongside this line names the actual part, read from the
+  // stored history — a guess in the error text only sent people to delete
+  // history that was fine.
+  if (MALFORMED_HISTORY.test(message)) {
+    return (
+      `${message} One stored message in this session no longer has the shape the model requires, and ` +
+      `every retry resends it — so retrying cannot work.`
+    );
+  }
+  // The same two causes with no action to go by — a reloaded history, or an
+  // error that arrived without one. Zen's free-tier message is a constant of the
+  // runtime's own (`GO_UPSELL_MESSAGE`), so the whole sentence is proof of which
+  // provider it is about; "free usage exceeded" alone would not be, and naming
+  // Zen on some other provider's wording would be a confident lie. The reporter
+  // of #117 filed this as the app's own quota being used up.
+  if (/free usage exceeded, subscribe to go/i.test(message)) {
+    return explainRuntimeError(message, { reason: "free_tier_limit", provider: ZEN_PROVIDER_ID });
+  }
+  if (/usage limit reached/i.test(message)) {
+    return explainRuntimeError(message, { reason: "account_rate_limit" });
+  }
+  // The request never reached the provider: a DNS failure, a dropped TLS
+  // connection, a VPN or proxy closing the socket. Distinct from a provider
+  // error, and the user is the only one who can act on it.
+  if (/^cannot connect to api\b/i.test(message.trim())) {
+    return (
+      `${message} The request did not reach the provider — check your network, VPN or proxy. ` +
+      `The runtime already retried a few times before reporting this.`
     );
   }
   return message;
@@ -799,9 +1013,21 @@ export function turnIsOver(messages: HistoryMessage[]): boolean {
  *  than `!turnIsOver` — that also reads a trailing USER message as running, a
  *  shape a crashed or never-answered turn leaves behind for good, which would
  *  strand a permanent "Working…" on any session that reloads it (#59). */
-export function turnStillStreaming(messages: HistoryMessage[]): boolean {
+export function turnStillStreaming(
+  messages: HistoryMessage[],
+  runtimeStartedAt?: number,
+): boolean {
   const last = messages[messages.length - 1];
-  return !!last && last.role === "assistant" && !last.completed && !last.error;
+  if (!last || last.role !== "assistant" || last.completed || last.error) return false;
+  // A turn streaming RIGHT NOW and one that was streaming when its runtime died
+  // persist identically: assistant role, no `completed`, no `error`. Nothing in
+  // the stored shape can separate them, so quitting the app mid-turn left that
+  // session reading as "Working…" on every future load, forever — no error to
+  // retry, no process to finish it. Liveness has to come from something that
+  // dies with the process: a message created BEFORE the current runtime started
+  // cannot be one the current runtime is producing.
+  if (runtimeStartedAt && last.created && last.created < runtimeStartedAt) return false;
+  return true;
 }
 
 /** Streamed events that prove a session's turn is still in flight. Any of them
@@ -956,6 +1182,10 @@ async function performTurn(
   // onto the real id mid-turn — track the current key so the lock moves with it
   // (and the finally clears the right one).
   let lockKey = echoKey;
+  // Goal mode's resume nudge is a turn the app sends on the session's behalf —
+  // echoing it would put words in the user's mouth, and reloaded history hides
+  // it too (historyToThread), so the live thread must agree.
+  const showEcho = !isGoalInjectedPrompt(echo);
   set((s) => {
     const cur = s.threads[echoKey] ?? emptyThread();
     return {
@@ -963,7 +1193,11 @@ async function performTurn(
       sendingSessions: { ...s.sendingSessions, [echoKey]: true },
       threads: {
         ...s.threads,
-        [echoKey]: { ...cur, loaded: true, blocks: [...cur.blocks, { kind: "user", text: echo }] },
+        [echoKey]: {
+          ...cur,
+          loaded: true,
+          blocks: showEcho ? [...cur.blocks, { kind: "user", text: echo }] : cur.blocks,
+        },
       },
     };
   });
@@ -981,15 +1215,19 @@ async function performTurn(
       const chosen = isTauri ? get().draftWorkspaces[draftSrc] : undefined;
       if (isTauri) {
         set({ switching: true });
+        // The folder this session is MEANT to be created in. Both calls below
+        // return the canonical path they settled on, which is what the check
+        // after the reconnect compares against.
+        let intended = chosen ?? null;
         try {
           if (!chosen) {
-            await newDatedWorkspace(datedWorkspaceName());
+            intended = await newDatedWorkspace(datedWorkspaceName());
             await kernelReset().catch(() => {});
           } else if (chosen !== get().workspace) {
             // The active folder wandered off — opening any session follows it
             // into that session's folder. Go back to the one this draft was
             // aimed at, or the session lands wherever the user last looked (#69).
-            await setWorkspace(chosen);
+            intended = await setWorkspace(chosen);
             await kernelReset().catch(() => {});
           }
           // Always rebuild the scoped client: /new and /clear keep the folder,
@@ -1001,6 +1239,22 @@ async function performTurn(
         }
         if (get().status !== "ready" || !client) {
           throw new Error("Runtime did not reconnect before creating the session.");
+        }
+        // `createSession` files the conversation in whatever folder the RUNTIME
+        // is scoped to, and that was decided by the reconnect above — not by the
+        // folder this draft asked for. When the two disagree the session is
+        // recorded in one folder while its notebooks, figures and data are
+        // written in another, and nothing downstream can tell: the conversation
+        // reports "file not found" for files it produced itself, in a folder
+        // that still holds them. A session found in exactly that state is what
+        // this check exists for — the disagreement was silent, and the only
+        // moment it can still be caught is before the session exists. Refuse
+        // rather than create a conversation that is already wrong.
+        if (intended && !samePath(intended, get().workspace)) {
+          throw new Error(
+            `The runtime is working in ${get().workspace ?? "no folder"}, not ${intended}, ` +
+              `so this conversation would be filed apart from the files it creates. Try again.`,
+          );
         }
       }
       id = await withRetry(() => client!.createSession());
@@ -1415,6 +1669,11 @@ function drainReviewQueue(set: StoreSet, get: StoreGet): void {
  * has to be released if the interrupted turn WAS the review.
  */
 function onTurnIdle(set: StoreSet, get: StoreGet, sid: string, reviewable: boolean): void {
+  // Before any of the early returns below. A turn settling is exactly when the
+  // mirror is worth refreshing, and both of those returns are ordinary paths —
+  // with auto-review on, the normal turn takes one of them, so scheduling at
+  // the end of this function meant sync never ran for those users at all.
+  scheduleConversationSync(get);
   if (finishAutoReview(set, get, sid, reviewable)) return;
   // This turn's own changes are settled either way, so clear them. A review the
   // session was already OWED is different: the files that earned it are on disk
@@ -1458,6 +1717,22 @@ function onTurnIdle(set: StoreSet, get: StoreGet, sid: string, reviewable: boole
   }
 }
 
+/** Mirror conversations out once a turn has settled (#124). Debounced and
+ *  fire-and-forget: sync is a background convenience, so it must never delay a
+ *  turn, and a failure belongs in the Settings card rather than over the
+ *  conversation the user is reading. A no-op until a folder is chosen. */
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleConversationSync(get: StoreGet): void {
+  if (!syncDir()) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  // A burst of turns (subagents settling one after another) is one pass, not
+  // one per session: each pass spawns a process per changed conversation.
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    void runSync(get().sessions.map((s) => ({ id: s.id, updated: s.updated }))).catch(() => {});
+  }, 4_000);
+}
+
 /** Shared core of the two destructive "go back to a past message" actions
  *  (edit-and-resend, and plain revert): stop any running turn, revert the
  *  session to `messageID` — OpenCode drops it and every later message and rolls
@@ -1495,6 +1770,57 @@ async function revertToMessage(
     return { threads: { ...s.threads, [sid]: { ...cur, blocks: cur.blocks.slice(0, idx) } } };
   });
   return true;
+}
+
+/** The repair offer for a history the model refused (#114): the earliest part
+ *  that would fail validation, and the message to roll back to. A scan that
+ *  recognizes nothing still produces a block — saying "we could not identify
+ *  which message" is the honest answer, and silence would read as the app
+ *  having nothing to say. */
+function historyRepairBlock(messages: HistoryMessage[]): ThreadBlock {
+  const [defect] = findHistoryDefects(messages);
+  const target = defect ? repairTarget(messages, defect) : undefined;
+  return {
+    kind: "history-repair",
+    ...(defect ? { reason: defect.reason } : {}),
+    ...(defect?.tool ? { tool: defect.tool } : {}),
+    ...(target
+      ? { target: { messageID: target.messageID, text: target.text }, drops: target.drops }
+      : {}),
+  };
+}
+
+/** A live turn was rejected because the stored history is no longer a valid
+ *  message list. Read that history back and append the repair offer under the
+ *  error line already on screen — the diagnosis needs a round trip, and the
+ *  failure must be reported the instant it happens rather than when a fetch
+ *  finishes. (A reopened session takes the `historyToThread` path instead,
+ *  which already holds the messages.) */
+async function diagnoseMalformedHistory(set: StoreSet, sid: string): Promise<void> {
+  const c = client;
+  if (!c) return;
+  let messages: HistoryMessage[];
+  try {
+    messages = await c.getMessages(sid);
+  } catch {
+    // The runtime is unreachable; the error line already said what failed, and
+    // a second failure notice here would only add noise.
+    return;
+  }
+  const block = historyRepairBlock(messages);
+  set((s) => {
+    const cur = s.threads[sid];
+    if (!cur) return {};
+    // The turn may have been repaired, reverted or superseded while the history
+    // was in flight; only offer a repair on a thread that still ends in the
+    // failure this was called for.
+    const last = cur.blocks[cur.blocks.length - 1];
+    if (last?.kind !== "status-line" || last.tone !== "error") return {};
+    // Retrying fails identically, so a second failure must not stack a second
+    // card: drop any earlier offer and keep this one, beside the newest error.
+    const blocks = cur.blocks.filter((b) => b.kind !== "history-repair");
+    return { threads: { ...s.threads, [sid]: { ...cur, blocks: [...blocks, block] } } };
+  });
 }
 
 /** The live OpenCode client (Settings talks to the runtime's config API directly). */
@@ -1557,8 +1883,36 @@ function modelForSession(state: RuntimeState, key: string): { model: string | nu
   return { model, variant };
 }
 
+/** Context window of the model a session's next turn will actually use, or 0
+ *  when nothing knows it.
+ *
+ *  Deliberately NOT `modelForSession` — that returns `model: null` when a
+ *  configured agent owns the model, which is the right thing to SEND and the
+ *  wrong thing to look a context window up by. Here the question is only which
+ *  model string is in force, so the agent's own setting is resolved instead of
+ *  collapsed to null. 0 means unknown (see `ProviderModelInfo.contextLimit`);
+ *  callers show tokens without a percentage rather than inventing a limit. */
+export function contextLimitFor(state: RuntimeState, key: string): number {
+  const agent = agentForTurn(state, key);
+  const model =
+    state.sessionModels[key] ?? (agent ? state.agentModels[agent] : undefined) ?? state.defaultModel;
+  if (!model) return 0;
+  const i = model.indexOf("/");
+  if (i <= 0) return 0;
+  const [providerId, modelId] = [model.slice(0, i), model.slice(i + 1)];
+  const found = state.providers
+    .find((p) => p.id === providerId)
+    ?.models.find((m) => m.id === modelId);
+  return found?.contextLimit ?? 0;
+}
+
 export const useRuntimeStore = create<RuntimeState>((set, get) => ({
-  status: "offline",
+  // The shell dials the runtime the moment it mounts, so on a real launch
+  // "connecting" is already true at the first frame — starting at "offline"
+  // flashed the "no runtime, run opencode serve" card for as long as the
+  // sidecar took to spawn, every time the app was opened. Plain browser dev
+  // (no Tauri, no gateway) has nothing to dial and keeps that card.
+  status: isTauri || isGatewayWeb ? "connecting" : "offline",
   serverUrl: initialUrl(),
   // Reconciled with the saved selection on every connect; OpenCode until then,
   // which is what a first paint before any connection is actually driving.
@@ -1636,6 +1990,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     });
   },
   modelSwitchError: null,
+  modelSwitching: false,
   approvalMode: "approve",
   tools: [],
   hiddenExamples: initialHidden(),
@@ -1675,6 +2030,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     set((s) => ({ sessionAgents: { ...s.sessionAgents, [sessionId ?? s.currentId ?? DRAFT_KEY]: mode } })),
   projects: [],
   workspace: null,
+  webWorkspace: null,
   webReadOnly: false,
   draftWorkspaces: {},
   switching: false,
@@ -1684,6 +2040,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   stepCounts: {},
   shellTurns: {},
   retryNotices: {},
+  runtimeStartedAt: 0,
 
   // These write the CURRENT session's pane (DRAFT_KEY on a draft), keeping the
   // artifact inspector, the Files browser, and the Runs pane mutually exclusive
@@ -1809,6 +2166,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
   loadCatalog: async () => {
     if (!client) return;
+    const run = (async () => {
     void get().refreshAgentModels();
     try {
       const [firstSkills, agents, defaultModel, commands, providers] = await Promise.all([
@@ -1818,7 +2176,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         client.listCommands().catch(() => []),
         // listProviders is OpenCodeClient-only (not on the AgentRuntime port);
         // opencodeClient is the same instance as `client`, set together.
-        opencodeClient ? opencodeClient.listProviders().catch(() => []) : Promise.resolve([]),
+        opencodeClient
+          ? listProvidersWithAvailability(opencodeClient).catch(() => [])
+          : Promise.resolve([]),
       ]);
       // A model switch in flight owns `defaultModel`: this read may predate
       // the switch's config write, and applying it would visibly revert the
@@ -1865,6 +2225,13 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     } catch {
       /* ignore transient failures */
     }
+    })();
+    catalogInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (catalogInFlight === run) catalogInFlight = null;
+    }
   },
 
   detectTools: async () => {
@@ -1908,6 +2275,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     // won't revert it against a still-warming provider list (#37).
     lastSwitchModel = model;
     lastSwitchAt = Date.now();
+    set({ modelSwitching: true });
     // Applying the model PATCHes OpenCode's global config, which closes the
     // event stream server-side. EventSource's own reconnect does not reliably
     // recover from that — it strands the app in "connecting"/disconnected until
@@ -1944,11 +2312,19 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       set({ modelSwitchError: err instanceof Error ? err.message : String(err) });
       throw err;
     } finally {
-      set({ switching: false });
+      set({ switching: false, modelSwitching: false });
     }
   },
 
   connect: async () => {
+    // This attempt failed. Inside a retry loop that is a step, not an outcome:
+    // the message is kept for connectRetry to report if the window runs out,
+    // and the UI stays on "connecting" instead of blinking the offline card.
+    const failed = (msg: string) => {
+      lastConnectError = msg;
+      if (connectRetryDepth > 0) set({ status: "connecting" });
+      else set({ error: msg, status: "error" });
+    };
     // The runtime SELECTOR, decided before anything is torn down: a live ACP
     // agent for the SAME configured entry is reused across this reconnect
     // (see `acpRuntime`) — the workspace moves, the agent process does not.
@@ -1980,7 +2356,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         });
         if (r.ok) {
           const who = (await r.json()) as { directory?: string; mode?: string };
-          directory = who.directory ?? null;
+          // The folder this browser opened, if any; otherwise the host's.
+          directory = get().webWorkspace ?? who.directory ?? null;
           // A read-only token 403s every write — surface that in the UI
           // instead of letting "New session" / the composer fail opaquely.
           readOnly = who.mode === "read-only";
@@ -2008,7 +2385,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // ACP takes the workspace folder per session (`session/new`'s cwd) — so
       // without one there is nothing to create a session in.
       if (!directory) {
-        set({ error: "No workspace folder to run the ACP agent in.", status: "error" });
+        failed("No workspace folder to run the ACP agent in.");
         return;
       }
       let acp: AcpRuntime;
@@ -2034,7 +2411,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         void logDebug(`acp start FAILED (${acpAgent.command}): ${msg}`);
-        set({ error: msg, status: "error", runtimeKind: "acp", acpAgentName: acpAgent.name });
+        set({ runtimeKind: "acp", acpAgentName: acpAgent.name });
+        failed(msg);
         return;
       }
       // The app's own connectors are per-session in ACP, so the agent has to
@@ -2067,7 +2445,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       if (directory) removeStreamClient(directory);
     }
     clientStatusUnsub = c.onStatus((status) => {
-      void logDebug(`status → ${status}`);
+      const shown = visibleStatus(status);
+      // Log what the runtime said AND what the UI was given, so a report of
+      // "it flickered" can be read straight off the log.
+      void logDebug(`status → ${status}${shown === status ? "" : ` (held as ${shown})`}`);
       if (status === "connecting" && get().status === "ready") {
         // Hold the flip for STATUS_BLIP_GRACE_MS: if the SDK's own reconnect
         // lands first ("ready" clears the timer), the UI never sees the blip.
@@ -2079,7 +2460,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         return;
       }
       clearStatusBlip();
-      set({ status });
+      set({ status: shown });
     });
     if (!sharedEventHandler)
       sharedEventHandler = (event) => {
@@ -2164,7 +2545,16 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           return;
         }
         if (sid && interruptedSessions.has(sid)) return;
-        const message = explainRuntimeError(event.message);
+        // The retry notice this session is carrying (about to be cleared below)
+        // is the only place the CAUSE was ever named: the final error text says
+        // what failed, the action said why the account could not make the call.
+        // Any streamed output between the last attempt and the failure would
+        // have cleared the notice first; the two causes that set an action are
+        // both refused before a token is produced, so that window stays shut.
+        const message = explainRuntimeError(
+          event.message,
+          sid ? get().retryNotices[sid]?.action : undefined,
+        );
         if (sid) {
           // This path ends the turn instead of session.idle (and returns before
           // the fold), so it owes the same auto-review bookkeeping: a turn that
@@ -2190,6 +2580,11 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
               },
             };
           });
+          // This one failure the user cannot act on without help: the bad
+          // message is indistinguishable by eye, and every retry resends it.
+          if (MALFORMED_HISTORY.test(event.message)) {
+            void diagnoseMalformedHistory(set, sid);
+          }
         } else {
           set({ error: message });
         }
@@ -2260,7 +2655,11 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           set((s) => ({
             retryNotices: {
               ...s.retryNotices,
-              [event.sessionId]: { attempt: event.attempt, message: event.message },
+              [event.sessionId]: {
+                attempt: event.attempt,
+                message: event.message,
+                ...(event.action ? { action: event.action } : {}),
+              },
             },
           }));
           return;
@@ -2606,6 +3005,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // Take the status from the runtime rather than waiting for a transition:
       // a REUSED ACP agent is already "ready", so its idempotent connect emits
       // nothing and the store would sit on the "connecting" this attempt set.
+      lastConnectError = null;
       set({ error: null, status: c.getStatus() });
       await get().refreshSessions();
       void get().refreshProjects();
@@ -2636,7 +3036,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       void logDebug(`connect FAILED: ${msg}`);
-      set({ error: msg, status: "error" });
+      failed(msg);
     }
   },
 
@@ -2644,28 +3044,109 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   // macOS TCC ("access Documents") blocks the sidecar until the user answers,
   // so the window must cover minutes, not seconds — giving up early strands
   // the user on an error screen that a single manual Connect would fix.
-  // Failed attempts are masked (status AND error): workspace switches
-  // reconnect the event stream on purpose, and flashing "could not open the
-  // event stream" at the user mid-switch reads as breakage. The last error is
-  // surfaced only if the whole retry window is exhausted.
+  // Failed attempts are masked (status AND error) for the WHOLE window, not
+  // just between attempts: a workspace switch reconnects the event stream on
+  // purpose, and flashing "could not open the event stream" at the user
+  // mid-switch reads as breakage — while on every launch the first attempts
+  // fail against a sidecar that is spawned but not yet listening, which used to
+  // strobe the page connecting→error→connecting four times a second. The last
+  // error is surfaced only if the whole retry window is exhausted.
   connectRetry: async (tries = 120) => {
-    set({ status: "connecting" });
-    let lastError: string | null = null;
-    for (let i = 0; i < tries; i++) {
-      await get().connect();
-      if (get().status === "ready") {
-        set({ modelSwitchError: null });
-        return true;
-      }
-      lastError = get().error ?? lastError;
-      set({ status: "connecting", error: null });
-      // Quick retries first — the server is usually up within a second (a
-      // reconnect finds it already listening); back off to 1 s for the long
-      // tail (first boot blocked on macOS TCC can take minutes).
-      await sleep(i < 8 ? 250 : 1000);
+    // Same hold the SDK's own reconnect gets: a deliberate reconnect that
+    // succeeds immediately must not repaint every status consumer on the way
+    // through. Switching Screens goes openSession → setWorkspace →
+    // connectRetry, and this line used to flip the indicator to "connecting"
+    // and back within a frame or two — a visible stutter on a path where
+    // nothing was actually wrong. If the reconnect lands inside the grace,
+    // "ready" clears the timer and the flip is never shown.
+    if (get().status === "ready") {
+      if (statusBlipTimer === null)
+        statusBlipTimer = setTimeout(() => {
+          statusBlipTimer = null;
+          set({ status: "connecting" });
+        }, STATUS_BLIP_GRACE_MS);
+    } else {
+      set({ status: "connecting" });
     }
-    set({ status: "error", error: lastError });
-    return false;
+    // A retry window starting means "trying again", so an error left over from
+    // the last one stops being the truth — on screen or as this loop's verdict.
+    if (get().error) set({ error: null });
+    lastConnectError = null;
+    let lastError: string | null = null;
+    // Sidecar exits already counted before this loop began. Everything below
+    // compares against it, so a crash from an hour ago cannot make this attempt
+    // give up early.
+    const exitsBefore = (await runtimeFailure())?.exits ?? 0;
+    // Hold every attempt's failure back for as long as the loop runs. Only the
+    // verdicts below — published with a direct set() — reach the UI.
+    connectRetryDepth++;
+    try {
+      for (let i = 0; i < tries; i++) {
+        await get().connect();
+        if (get().status === "ready") {
+          set({ modelSwitchError: null });
+          void get().reportQuarantinedConfig();
+          return true;
+        }
+        // Masked failures report through `lastConnectError`; anything that puts
+        // an error in the store directly still counts (the store's `error` was
+        // cleared above, so it can only be this loop's).
+        lastError = lastConnectError ?? get().error ?? lastError;
+        // A runtime that EXITS is not a runtime that is slow to listen, and only
+        // the Rust side can tell them apart. Three deaths in one attempt means
+        // the next hundred spawns die too — a config the runtime refuses to
+        // start on does exactly that (#118) — so stop, and say what it said
+        // instead of "could not open the event stream".
+        const failure = await runtimeFailure();
+        if (failure && failure.exits - exitsBefore >= RECONNECT_GIVE_UP_AFTER_EXITS) {
+          set({ status: "error", error: failure.message });
+          void logDebug(`connect: giving up after ${failure.exits - exitsBefore} runtime exits`);
+          void get().reportQuarantinedConfig();
+          return false;
+        }
+        // The sidecar can die under us (it has crashed on its own — an Effect
+        // ServeError, exit 1). Retrying the socket alone then never recovers,
+        // because there is nothing listening and nothing puts it back: this
+        // loop used to hammer a dead port every second until the user restarted
+        // the whole app. startRuntime is the repair — it returns the existing
+        // URL when the runtime is alive, and respawns it when it is not, so the
+        // call is cheap on the common path and the fix on the broken one.
+        if (isTauri && !isGatewayWeb) {
+          try {
+            // A wedged runtime — alive, so nothing terminates and nothing clears
+            // the lifecycle, but no longer serving — is invisible to startRuntime,
+            // which hands back the same dead URL forever. Give plain retrying a
+            // fair chance first (a restart during normal boot would be pure
+            // thrash), then force a fresh process exactly once.
+            const url =
+              i === RECONNECT_FORCE_RESTART_AFTER
+                ? await restartRuntime()
+                : await startRuntime();
+            if (url && url !== get().serverUrl) set({ serverUrl: url });
+            if (i === RECONNECT_FORCE_RESTART_AFTER) {
+              set({ runtimeStartedAt: await runtimeStartedAt() });
+            }
+          } catch (err) {
+            lastError = err instanceof Error ? err.message : String(err);
+          }
+        }
+        // Quick retries first — the server is usually up within a second (a
+        // reconnect finds it already listening); back off to 1 s for the long
+        // tail (first boot blocked on macOS TCC can take minutes).
+        await sleep(i < 8 ? 250 : 1000);
+      }
+      set({ status: "error", error: lastError });
+      return false;
+    } finally {
+      connectRetryDepth--;
+    }
+  },
+
+  reportQuarantinedConfig: async () => {
+    const aside = await takeConfigQuarantineNotice().catch(() => null);
+    if (!aside) return;
+    void logDebug(`config: unreadable config was moved to ${aside} and rebuilt`);
+    toast.error(i18n.t("settings:toast.configRebuilt", { path: aside }));
   },
 
   bootstrap: () => {
@@ -2685,10 +3166,16 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         const url = await startRuntime();
         void logDebug(`bootstrap: runtime at ${url}`);
         if (url) set({ serverUrl: url });
+        // Needed before any session is loaded: it is what separates a live turn
+        // from one a dead runtime left half-written.
+        set({ runtimeStartedAt: await runtimeStartedAt() });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         void logDebug(`bootstrap FAILED: ${msg}`);
-        set({ error: msg });
+        // The status has to move off the launch "connecting": nothing is being
+        // dialled any more, and leaving it there would keep telling the user
+        // the runtime is on its way while the reason it is not sits underneath.
+        set({ error: msg, status: "error" });
         return;
       }
       await get().connectRetry();
@@ -2755,6 +3242,15 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
   // "New" opens a blank draft — no session is created until the first message (#3).
   // A fresh draft also drops any pinned folder: back to the dated-folder default.
+  aimDraft: (key, path) =>
+    set((s) => {
+      if (path) return { draftWorkspaces: { ...s.draftWorkspaces, [key]: path } };
+      if (!(key in s.draftWorkspaces)) return {};
+      const draftWorkspaces = { ...s.draftWorkspaces };
+      delete draftWorkspaces[key];
+      return { draftWorkspaces };
+    }),
+
   startDraft: () => set((s) => ({ ...blankDraft(s), ...forgetDraftFolder(s, DRAFT_KEY) })),
 
   // Re-blank the draft VIEW without touching where the next session will live.
@@ -2884,13 +3380,26 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // Both commands answer with the canonical path the runtime resolved —
       // which is exactly what the session's own `directory` will report, so aim
       // the draft at that, not at the raw string the caller passed.
-      const landed =
-        "dated" in target ? await newDatedWorkspace(target.dated) : await setWorkspace(target.path);
+      // In the browser there is no `set_workspace` to call and there must not
+      // be: the host keeps its own active folder. Opening a project here just
+      // re-scopes THIS client — the session it creates carries the folder, so
+      // the work still lands in the project (#81). A dated folder has no
+      // gateway equivalent, so the web client stays on the host's folder and
+      // the session lands there.
+      const landed = isGatewayWeb
+        ? "dated" in target
+          ? get().workspace
+          : target.path
+        : "dated" in target
+          ? await newDatedWorkspace(target.dated)
+          : await setWorkspace(target.path);
       // Reset the local kernel so it respawns in the new folder, then reconnect
       // the event stream scoped to it (connect() re-reads the active folder —
       // the sidecar itself keeps running). The switch aims the draft at that
       // folder, so the next new session lands exactly there.
-      await kernelReset().catch(() => {});
+      // The local kernel is a desktop feature; there is none to re-root here.
+      if (!isGatewayWeb) await kernelReset().catch(() => {});
+      if (isGatewayWeb && landed) set({ webWorkspace: landed, workspace: landed });
       set((s) => {
         // Back to a draft in the new folder — the draft pane must not carry
         // files from the previous folder. Session panes keep their memory.
@@ -2898,7 +3407,13 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         delete panes[DRAFT_KEY];
         const sessionAgents = { ...s.sessionAgents };
         delete sessionAgents[DRAFT_KEY];
-        const draftWorkspaces = { ...s.draftWorkspaces, [target.key ?? DRAFT_KEY]: landed };
+        const key = target.key ?? DRAFT_KEY;
+        const draftWorkspaces = { ...s.draftWorkspaces };
+        // No folder resolved (a web client asked for a dated one, which only
+        // the host can make): leave the draft unaimed so the session is created
+        // wherever the server is, rather than aimed at nothing.
+        if (landed) draftWorkspaces[key] = landed;
+        else delete draftWorkspaces[key];
         return { currentId: null, panes, draftWorkspaces, sessionAgents };
       });
       await get().connectRetry();
@@ -2922,7 +3437,36 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     if (dir && dir !== get().workspace) {
       set({ switching: true });
       try {
-        await setWorkspace(dir).catch(() => {});
+        // The browser follows the session by re-scoping ITSELF (the host's own
+        // active folder is not ours to move). This is not cosmetic: OpenCode
+        // serves each folder from its own instance, so a stream still scoped to
+        // the previous folder delivers NOTHING for this session — the turn runs
+        // and the page shows nothing happening.
+        if (isGatewayWeb) set({ webWorkspace: dir, workspace: dir });
+        else {
+          // A failure here used to be swallowed, and everything below then ran
+          // against the folder we had FAILED to leave: the reconnect scoped the
+          // stream to it, the kernel stayed in it, `markSession` stamped this
+          // session's id into it, and every file this conversation names
+          // resolved there — so its own notebooks and figures came back "file
+          // not found" while the app looked like it had followed the session.
+          // The folder is the premise of everything after it; if we could not
+          // move, say so and do none of it.
+          try {
+            await setWorkspace(dir);
+          } catch (err) {
+            // Only the still-current open may speak, like every step below it:
+            // the user may have opened another session while this one was in
+            // flight, and a folder THAT session does not care about must not
+            // put an error over it.
+            if (seq !== openSessionSeq) return;
+            const detail = err instanceof Error ? err.message : String(err);
+            set({
+              error: `Could not open ${dir}, the folder this conversation works in (${detail}). Its files will not open until that folder is reachable.`,
+            });
+            return;
+          }
+        }
         // A newer openSession has superseded this one — stop before starting a
         // second, dueling connectRetry. Two reconnect loops tear down each
         // other's in-flight EventSource, leaking half-open sockets until the
@@ -2968,6 +3512,12 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     if (get().threads[id]?.loaded) return;
     try {
       const messages = await client.getMessages(id);
+      // The command templates are what turn a stored expansion back into the
+      // "/name args" the user typed. connect() starts the catalog without
+      // awaiting it, so on a cold open this can still be in flight — join it
+      // rather than render the raw expansion. No extra request: it is the same
+      // load already running.
+      if (catalogInFlight && get().commands.length === 0) await catalogInFlight;
       if (seq !== openSessionSeq || get().currentId !== id) return;
       // A replayed ACP session reports its selectors during the load — show the
       // model it is actually on, not the one the last session used.
@@ -2985,7 +3535,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         // a session still mid-answer would otherwise reopen with no "Working…"
         // and no way to stop it — a silent long tool call streams no event to
         // re-lock it either (#59).
-        ...(turnStillStreaming(messages)
+        ...(turnStillStreaming(messages, get().runtimeStartedAt)
           ? { runningSessions: { ...s.runningSessions, [id]: true as const } }
           : {}),
       }));
@@ -3013,13 +3563,16 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // getMessages is session-scoped (server routes by the session's folder),
       // so any connected client works — no folder switch, unlike openSession.
       const messages = await c.getMessages(id);
+      // Same reason as openSession: without the command templates a stored
+      // slash-command expansion renders raw.
+      if (catalogInFlight && get().commands.length === 0) await catalogInFlight;
       if (get().threads[id]?.loaded) return; // a live fold beat us to it
       set((s) => ({
         threads: { ...s.threads, [id]: { ...historyToThread(messages, s.commands), loaded: true } },
         sessionAgents: { ...s.sessionAgents, [id]: lastAgentMode(messages) },
         // Same server-truth seeding as openSession — a background pane must not
         // adopt a still-running session as idle (#59).
-        ...(turnStillStreaming(messages)
+        ...(turnStillStreaming(messages, get().runtimeStartedAt)
           ? { runningSessions: { ...s.runningSessions, [id]: true as const } }
           : {}),
       }));
@@ -3410,9 +3963,18 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     const foreground = get().workspace;
     const wanted = new Set(directories.filter((d): d is string => !!d && d !== foreground));
     for (const dir of [...streamClients.keys()]) {
-      if (!wanted.has(dir)) removeStreamClient(dir);
+      // The FOREGROUND folder's stream still closes at once — the foreground
+      // client covers it, and two live streams would fold every event twice.
+      // Anything else only leaves the tiled set, which a screen switch does to
+      // a whole screen's worth of folders at a time; give those a grace period.
+      if (!wanted.has(dir)) {
+        if (dir === foreground) removeStreamClient(dir);
+        else retireStreamClient(dir);
+      }
     }
     for (const dir of wanted) {
+      // Back before its retirement fired: keep the stream, cancel the timer.
+      cancelStreamRetirement(dir);
       if (streamClients.has(dir)) continue;
       const c = new OpenCodeClient({
         baseUrl: streamBaseUrl,
@@ -3540,9 +4102,20 @@ export function foldEvent(
       // A ```review fence in the agent's text becomes a structured reviewer card.
       const { clean, review } = splitReview(event.text);
       const key = `text:${event.partId}`;
-      if (key in index) blocks[index[key]] = { kind: "agent", markdown: clean };
-      else if (clean) {
-        blocks.push({ kind: "agent", markdown: clean });
+      const id = event.messageID ? { messageID: event.messageID } : {};
+      if (key in index) {
+        // Keep whatever `message.usage` already stamped on this block — the
+        // turn's tokens arrive on their own event, interleaved with the text.
+        const prev = blocks[index[key]];
+        const kept = prev.kind === "agent" ? prev : undefined;
+        blocks[index[key]] = {
+          ...kept,
+          kind: "agent",
+          markdown: clean,
+          ...id,
+        };
+      } else if (clean) {
+        blocks.push({ kind: "agent", markdown: clean, ...id });
         index[key] = blocks.length - 1;
       }
       if (review) {
@@ -3658,9 +4231,36 @@ export function foldEvent(
       });
       return { blocks, index };
     }
+    case "message.usage": {
+      // Stamp the turn's tokens onto every text block that message produced —
+      // one turn can emit several (a tool call splits the answer in two), and
+      // each of them belongs to the same accounting. Republished throughout
+      // the turn, so this overwrites rather than accumulates.
+      let touched = false;
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const b = blocks[i];
+        if (b.kind !== "agent" || b.messageID !== event.messageID) continue;
+        blocks[i] = {
+          ...b,
+          usage: event.usage,
+          ...(event.created ? { created: event.created } : {}),
+          ...(event.completed ? { completed: event.completed } : {}),
+        };
+        touched = true;
+      }
+      // Usage can land before the text it belongs to (a turn that called tools
+      // first reports tokens with no answer yet). Nothing to stamp; the next
+      // republish after the text arrives carries the same numbers.
+      return touched ? { blocks, index } : state;
+    }
     case "session.idle": {
       const last = blocks[blocks.length - 1];
-      if (last?.kind === "status-line" && last.tone === "done") {
+      // A turn that already ended in a red line must not then be told it is
+      // "done": the server emits session.idle after a failed turn too, so the
+      // error and a cheerful "done" appeared one under the other and a request
+      // that never ran read as a completed one (#114). Covers "Interrupted"
+      // from the Stop path for the same reason.
+      if (last?.kind === "status-line" && (last.tone === "done" || last.tone === "error")) {
         return { blocks, index };
       }
       blocks.push({ kind: "status-line", text: "done", tone: "done" });
@@ -3752,7 +4352,33 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
   // tool part on the next assistant message. Render it like the live path:
   // the "! cmd" echo and the output inline — never the synthetic marker text.
   let shellTurn = false;
-  for (const m of messages) {
+  // Once the history is malformed EVERY later turn fails the same way, so a
+  // session reopens with a run of identical errors — the reporter of #114 had
+  // three. One repair offer, on the last of them: the fix is the same for all,
+  // and a stack of identical cards reads as a stack of separate problems.
+  const lastMalformed = messages.reduce(
+    (at, m, index) => (m.error && MALFORMED_HISTORY.test(m.error) ? index : at),
+    -1,
+  );
+  for (const [messageIndex, m] of messages.entries()) {
+    // Compaction is checked before the role split, because OpenCode stores the
+    // marker on a message with role "user" (SessionCompaction.create opens one
+    // solely to hang the part off). Reading it only on assistant messages made
+    // every reopened conversation lose the seam — turns disappear from the
+    // model's view with nothing on screen to say why.
+    const compaction = m.parts.find((p) => p.type === "compaction");
+    if (compaction) {
+      const c = compaction as unknown as { auto?: boolean; overflow?: boolean };
+      blocks.push({
+        kind: "compaction",
+        auto: c.auto !== false,
+        ...(c.overflow ? { overflow: true } : {}),
+        // The part carries no clock of its own, so its message dates it.
+        ...(m.created ? { at: m.created } : {}),
+      });
+      // That message exists only to carry the marker — it has no text to show.
+      continue;
+    }
     if (m.role === "user") {
       shellTurn = m.parts.some((p) => p.type === "text" && p.synthetic);
       if (shellTurn) continue;
@@ -3763,8 +4389,10 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
         .trim();
       // The app's own auto-review turn (#72): the user never wrote it, so it is
       // not shown as their message — on reload as well as live. The reviewer's
-      // answer and its findings card stay.
-      if (text === AUTO_REVIEW_PROMPT) continue;
+      // answer and its findings card stay. Goal mode's auto-continue turns are
+      // hidden the same way: the plugin writes them straight into the session,
+      // and the pill (not a wall of policy text) is where a goal reports itself.
+      if (text === AUTO_REVIEW_PROMPT || isGoalInjectedPrompt(text)) continue;
       const command = asTypedCommand(text);
       // Tag with the message id so the row can be edited (revert + resend).
       // A "/command" echo keeps the id too — editing re-runs the command.
@@ -3772,24 +4400,22 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
       if (command) blocks.push({ kind: "user", text: command, ...id });
       else if (text) blocks.push({ kind: "user", text, ...id });
     } else {
+      // Same accounting the live stream stamps on, recovered from the stored
+      // message so a reopened conversation shows the identical meta line.
+      const meta = {
+        ...(m.id ? { messageID: m.id } : {}),
+        ...(m.created ? { created: m.created } : {}),
+        ...(m.completed ? { completed: m.completed } : {}),
+        ...(m.usage ? { usage: m.usage } : {}),
+      };
       for (const p of m.parts) {
         if (p.type === "text" && p.text?.trim()) {
           const { clean, review } = splitReview(p.text);
-          if (clean) blocks.push({ kind: "agent", markdown: clean });
+          if (clean) blocks.push({ kind: "agent", markdown: clean, ...meta });
           if (review) blocks.push(review);
         }
         else if (p.type === "reasoning" && p.text?.trim()) {
           blocks.push({ kind: "reasoning", text: p.text });
-        }
-        else if (p.type === "compaction") {
-          // Reloading a compacted conversation must show the same marker the
-          // live stream did — otherwise history looks like turns went missing.
-          const c = p as unknown as { auto?: boolean; overflow?: boolean };
-          blocks.push({
-            kind: "compaction",
-            auto: c.auto !== false,
-            ...(c.overflow ? { overflow: true } : {}),
-          });
         }
         else if (p.type === "tool") {
           // Interactive tools are surfaced by InteractionPrompt, not the thread;
@@ -3865,7 +4491,15 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
       // empty reply followed by "done" explains nothing. User-interrupted
       // turns are not errors; the trailing "Interrupted" line covers those.
       if (m.error && !/abort/i.test(m.error)) {
-        blocks.push({ kind: "status-line", text: m.error, tone: "error" });
+        // Same explanation the live line got: a restart is exactly when the user
+        // no longer has the context to work out what to do about it.
+        blocks.push({ kind: "status-line", text: explainRuntimeError(m.error), tone: "error" });
+        // …and the same repair offer. The damage is on disk, so reopening the
+        // session shows the failure again; without this the way out would exist
+        // only in the tab that happened to be open when it first happened. The
+        // scan runs off `messages`, already in hand — no fetch, unlike the live
+        // path (#114).
+        if (messageIndex === lastMalformed) blocks.push(historyRepairBlock(messages));
       }
       shellTurn = false;
     }

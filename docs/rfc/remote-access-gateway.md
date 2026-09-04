@@ -1,7 +1,12 @@
 # RFC: Remote Access Gateway — one authenticated API for CLI, LAN web, and beyond
 
-Status: **Proposed. Phase 1 (loopback gateway + Settings UI + local visibility)
-targeted for implementation now; later phases open.**
+Status: **Phases 1-3 shipped. Phase 4 open.** Phase 3 landed larger than
+described here: a thin client alone would have been a remote control for a
+running desktop, because the gateway lives inside the Tauri app and a Tauri app
+cannot start without a display. So the server core was extracted into its own
+crate (`crates/osd-core`, no Tauri) and `osd server` runs the whole workbench —
+including the real web client — where there is no screen at all. See the
+Phase 3 note below.
 Target: v0.4.0 "Reach & interop" (see `docs/PRD.md` §9). Builds on the
 `AgentRuntime` seam (#24) and `BaseAgentRuntime` (#36).
 
@@ -261,8 +266,17 @@ deferred until the mechanism is proven on loopback.
   lists workspace files — and that session shows up in the desktop sidebar.
 - **Phase 2 — LAN web + opt-in binding.** `0.0.0.0` binding behind an explicit
   confirm; the served responsive web client; QR to a phone.
-- **Phase 3 — CLI.** A thin client over the wire API (a `RemoteRuntime`-backed
-  binary), with `--allow`/`--deny`/`--mode` for pre-authorized runs.
+- **Phase 3 — CLI + headless server (shipped).** `crates/osd-cli` (`osd`) is
+  both halves: `osd server` serves the workbench with no window (the web client
+  is compiled into the binary), and the client subcommands drive any gateway —
+  including a running desktop's, found through the port it records beside its
+  token. Three contract gaps were closed to make scripting possible at all:
+  a directory on session creation (project-scoped runs, #81), a session status
+  endpoint (so `--wait` waits for a REPLY, not for "accepted"), and model/agent
+  on the prompt (so a run can state what it ran on). Pre-authorized runs
+  (`--allow`/`--deny`) are NOT done: approvals still surface as pending
+  requests, answered with `osd permission allow|deny`, which keeps the
+  AGENTS.md rule that nothing dangerous runs unasked.
 - **Phase 4 — Cloud tunnel & bots.** Optional one-click `cloudflared`; a Feishu
   (and Slack) bot that relays `sendPrompt` → streamed events, and fetches
   artifacts for "give me the result."

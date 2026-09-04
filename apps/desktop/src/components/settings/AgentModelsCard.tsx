@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import type { ProviderInfo } from "@ai4s/sdk";
 import { useRuntimeStore } from "@/lib/runtime";
 import { getAgentModels, getAgentVariants, setAgentModel, setAgentVariant } from "@/lib/tauri";
-import { flattenModelOptions } from "./modelCatalog";
+import { flattenModelOptions, selectableModelOptions } from "./modelCatalog";
 import { Section } from "./Section";
 
 /** Utility agents the runtime runs on its own behalf — titling a session,
@@ -52,6 +52,16 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
   }, []);
 
   const options = useMemo(() => flattenModelOptions(providers), [providers]);
+  const selectable = useMemo(() => selectableModelOptions(options), [options]);
+  // A row offers what can be picked — plus, when this agent is pinned to a model
+  // the provider has retired, that model itself. Dropping it would leave the
+  // select with no matching value, so the browser would show the first option
+  // ("follow the default") while the config still pins the dead model.
+  const optionsFor = (agent: string) => {
+    const pinned = overrides[agent];
+    const current = pinned ? options.find((o) => o.key === pinned) : undefined;
+    return current && !current.available ? [current, ...selectable] : selectable;
+  };
   // Effort levels each model exposes — the vocabulary differs per model, so a
   // row's choices follow whichever model that agent actually runs.
   const variantsByKey = useMemo(() => {
@@ -141,7 +151,7 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
 
   return (
     <Section title={t("agentModels.title")} hint={t("agentModels.hint")}>
-      {options.length === 0 ? (
+      {selectable.length === 0 ? (
         <p className="text-[13px] text-muted">{t("agentModels.noModels")}</p>
       ) : (
         <div className="divide-y divide-faint">
@@ -170,9 +180,9 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
                       ? t("agentModels.followDefaultNamed", { model: defaultModel })
                       : t("agentModels.followDefault")}
                   </option>
-                  {options.map((o) => (
+                  {optionsFor(name).map((o) => (
                     <option key={o.key} value={o.key}>
-                      {o.key}
+                      {o.available ? o.key : t("agentModels.retiredOption", { model: o.key })}
                     </option>
                   ))}
                 </select>

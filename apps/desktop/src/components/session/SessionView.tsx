@@ -16,7 +16,13 @@ import {
   X,
 } from "lucide-react";
 import type { RuntimeStatus } from "@ai4s/shared";
-import { draftKeyFor, rootSessionOf, useRuntimeStore } from "@/lib/runtime";
+import {
+  contextLimitFor,
+  draftKeyFor,
+  inheritedDraftFolder,
+  rootSessionOf,
+  useRuntimeStore,
+} from "@/lib/runtime";
 import { useLayoutStore } from "@/lib/layout";
 import { startPaneDrag } from "@/lib/dragPane";
 import { isGatewayWeb } from "@/lib/webMode";
@@ -27,14 +33,17 @@ import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { useCompactWidth } from "@/lib/useCompactWidth";
 import { fileInspectorFromBlock } from "@/lib/artifacts";
 import { useChatScroll } from "@/lib/scrollMemory";
+import { useWheelChain } from "@/lib/wheelChain";
 import { BlockList, type BlockHandlers } from "@/components/thread/BlockList";
 import { SubagentPane } from "@/components/thread/SubagentPane";
 import { SelectionActions } from "@/components/thread/SelectionActions";
 import { Elapsed } from "@/components/thread/ToolGroup";
 import { Composer } from "@/components/thread/Composer";
-import { GOAL_RESUME_NUDGE, GoalPill } from "@/components/thread/GoalPill";
+import { GoalPill } from "@/components/thread/GoalPill";
+import { GOAL_RESUME_NUDGE } from "@/lib/goalPrompts";
 import { baseName } from "@/components/thread/WorkspaceChip";
 import { WorkflowStarters } from "@/components/thread/WorkflowStarters";
+import { SplitMenu } from "@/components/session/SplitMenu";
 import { InteractionPrompt } from "@/components/thread/InteractionPrompt";
 import { InspectorShell } from "@/components/inspector/InspectorShell";
 import { MaximizePaneButton, RightPane } from "@/components/inspector/RightPane";
@@ -44,6 +53,10 @@ import { cn } from "@/lib/cn";
 
 type ThreadBlocks = NonNullable<ReturnType<typeof useRuntimeStore.getState>["threads"][string]>["blocks"];
 type ToolCallBlock = Extract<ThreadBlocks[number], { kind: "tool-call" }>;
+
+/** Retry causes that no number of attempts can clear — the account, not the
+ *  call, is what failed. Every other cause is reported as an ordinary retry. */
+const LIMIT_REASONS = new Set(["free_tier_limit", "account_rate_limit"]);
 
 /** The newest still-running tool step, or undefined. Allocation-free: a live
  *  pane re-derives this on every render, so it must not copy the block list. */
@@ -65,6 +78,33 @@ function findLastRunningTool(blocks?: ThreadBlocks): ToolCallBlock | undefined {
 /** Header width below which the tool buttons show icons without their labels. */
 const HEADER_LABEL_MIN_PX = 620;
 
+/** Sessions already known to have (or not have) runs. The Runs toggle used to
+ *  appear one async query after mount, and every header control that appears
+ *  late steals width from the session title next to it — so switching Screens
+ *  painted the full title and then re-truncated it a frame later. Re-mounting a
+ *  session already seen this run now paints its final header immediately. */
+const RUNS_KNOWN = new Map<string, boolean>();
+
+/** How long the runtime may take to come up before the wait is explained. A
+ *  normal launch connects in well under a second, so nothing is said; a fresh
+ *  install can sit here for minutes behind the macOS "access Documents" prompt,
+ *  and an empty pane with a small badge tells that user nothing. */
+const SLOW_START_MS = 6000;
+
+/** Has the runtime been connecting long enough to say something about it? */
+function useSlowStart(connecting: boolean): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!connecting) {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), SLOW_START_MS);
+    return () => clearTimeout(timer);
+  }, [connecting]);
+  return slow;
+}
+
 export function SessionView({
   sessionId,
   leafId,
@@ -82,6 +122,17 @@ export function SessionView({
   /** Close this pane (shown as an ✕ in the header). Omitted for the sole pane
    *  and on web/mobile. */
   onClose,
+  /** This pane's screen is on display. Inactive screens stay MOUNTED but
+   *  hidden, so the pane keeps its state and its stream — but anything that
+   *  claims an app-wide hand-off, polls, or opens something the user cannot see
+   *  must stand down until its screen is shown again. */
+  visible = true,
+  /** This pane has layout boxes: it is on display, or its screen is hidden in a
+   *  way that keeps them. Everything that MEASURES the DOM keys off this rather
+   *  than `visible` — a screen that never lost its layout must not re-measure on
+   *  the way back, because forcing that layout mid-commit is what makes a switch
+   *  feel heavy (measured: it doubled the React phase). */
+  laidOut = true,
 }: {
   sessionId: string | null;
   leafId: string;
@@ -90,6 +141,8 @@ export function SessionView({
   zoom?: number;
   solo?: boolean;
   onClose?: () => void;
+  visible?: boolean;
+  laidOut?: boolean;
 }) {
   const { t } = useTranslation(["session", "common"]);
   // `sid` is what this pane WRITES to (null = draft → create on first send).
@@ -99,8 +152,11 @@ export function SessionView({
   // `key` addresses the per-session maps (threads/panes/agents): a real session
   // by id, else this pane's own `draft:<leafId>` slot.
   const sid = sessionId;
-  const currentId = useRuntimeStore((s) => s.currentId);
-  const eid = sid ?? (focused ? currentId : null);
+  // Only a focused DRAFT pane follows `currentId`. Selecting it unconditionally
+  // subscribed every pane of every mounted Screen to a value that changes on
+  // each switch — so switching re-rendered the whole app for nothing.
+  const currentId = useRuntimeStore((s) => (sid === null && focused ? s.currentId : null));
+  const eid = sid ?? currentId;
   // This pane's OWN draft slot, so several unbound panes each keep an
   // independent draft and each create their own session on first send (#2).
   const draftKey = draftKeyFor(leafId);
@@ -121,16 +177,21 @@ export function SessionView({
   const backgroundReview = useRuntimeStore((s) =>
     eid ? s.backgroundReviews[eid] : undefined,
   );
+  // A scalar again (see above): the providers array is replaced wholesale on
+  // every catalog refresh, so selecting the resolved number keeps this pane out
+  // of those repaints.
+  const contextLimit = useRuntimeStore((s) => contextLimitFor(s, key));
   const step = useRuntimeStore((s) => (eid ? (s.stepCounts[eid] ?? 0) : 0));
   const retryNotice = useRuntimeStore((s) => (eid ? s.retryNotices[eid] : undefined));
   const serverUrl = useRuntimeStore((s) => s.serverUrl);
   const sessions = useRuntimeStore((s) => s.sessions);
+  const draftWorkspaces = useRuntimeStore((s) => s.draftWorkspaces);
   const error = useRuntimeStore((s) => s.error);
   const questions = useRuntimeStore((s) => s.questions);
   const permissions = useRuntimeStore((s) => s.permissions);
   const sessionParents = useRuntimeStore((s) => s.sessionParents);
   const workspace = useRuntimeStore((s) => s.workspace);
-  const panes = useRuntimeStore((s) => s.panes);
+  const pane = useRuntimeStore((s) => s.panes[key]);
   const commands = useRuntimeStore((s) => s.commands);
   const connect = useRuntimeStore((s) => s.connect);
   const sendPrompt = useRuntimeStore((s) => s.sendPrompt);
@@ -155,6 +216,7 @@ export function SessionView({
   const sessionAgents = useRuntimeStore((s) => s.sessionAgents);
   const setAgentMode = useRuntimeStore((s) => s.setAgentMode);
   const bindSession = useLayoutStore((s) => s.bindSession);
+  const aimDraft = useRuntimeStore((s) => s.aimDraft);
   const dockSession = useLayoutStore((s) => s.dockSession);
   const setLeafZoom = useLayoutStore((s) => s.setLeafZoom);
   // Any real interaction with a tentative (preview) screen pins it (#3).
@@ -167,6 +229,7 @@ export function SessionView({
   const connected = status === "ready" || switching;
   const connecting = status === "connecting" && !switching;
   const displayStatus = switching ? "ready" : status;
+  const slowStart = useSlowStart(connecting);
 
   // A newly-created session (draft's first send) binds onto this leaf; the
   // wrapper then follows it into the URL and opens its folder.
@@ -176,8 +239,15 @@ export function SessionView({
   // Split THIS pane: dock a fresh DRAFT pane on the given edge. No session or
   // folder is created until that pane's first send (#2), and it carries its own
   // independent draft (thread/composer/model).
-  const onSplit = (edge: "right" | "bottom") => {
-    dockSession(leafId, edge, null);
+  // Where a pane split off this one would continue. Null when there is nothing
+  // to continue — a pane with no session and no folder of its own — and then
+  // the split button has nothing to ask about. Deliberately not the active
+  // workspace: that follows whichever session was opened last (#69).
+  const splitFolder = inheritedDraftFolder({ leafId, sessionId: sid }, { sessions, draftWorkspaces });
+  /** Split, with the destination the user just chose (null = its own dated folder). */
+  const onSplit = (edge: "right" | "bottom", folder: string | null) => {
+    const created = dockSession(leafId, edge, null);
+    if (created && folder) aimDraft(draftKeyFor(created), folder);
   };
   const onSend = async (text: string, attachments?: string[]) => {
     pinEphemeral();
@@ -208,6 +278,13 @@ export function SessionView({
     return [...local, ...commands.filter((c) => !localNames.has(c.name))];
   }, [commands, t]);
 
+  // Which subagent the transcript last asked the panel to show. The counter
+  // makes a repeat ask distinct from the previous one (see SubagentPane).
+  const [subagentFocus, setSubagentFocus] = useState<{
+    childSessionId: string;
+    nonce: number;
+  } | null>(null);
+
   const handlers: BlockHandlers = useMemo(
     () => ({
       onArtifactOpen: (a) => {
@@ -223,8 +300,22 @@ export function SessionView({
       onRevertMessage: async (id, text) => {
         if (await revertMessage(id, sid ?? undefined)) setComposerDraft(text);
       },
+      onOpenSubagent: (childSessionId) => {
+        pinEphemeral();
+        setShowAgents(true, sid ?? undefined);
+        setSubagentFocus((prev) => ({ childSessionId, nonce: (prev?.nonce ?? 0) + 1 }));
+      },
     }),
-    [openArtifact, sendPrompt, editMessage, revertMessage, setComposerDraft, sid, pinEphemeral],
+    [
+      openArtifact,
+      sendPrompt,
+      editMessage,
+      revertMessage,
+      setComposerDraft,
+      sid,
+      pinEphemeral,
+      setShowAgents,
+    ],
   );
   const onEvaluate = (expr: string) =>
     void sendPrompt(`Evaluate in the notebook kernel:\n\`\`\`python\n${expr}\n\`\`\``, sid ?? undefined);
@@ -238,6 +329,11 @@ export function SessionView({
   // Scan backwards in place: copying + reversing the whole block list ran on
   // every render of a live pane, allocating a fresh array per streamed token.
   const currentTool = working ? findLastRunningTool(thread?.blocks) : undefined;
+  // The turn's own clock, anchored when this pane first sees the turn running.
+  // A reload mid-turn loses that boundary; counting from here is the honest
+  // answer, and matches what the row is for — "it is still going", not billing.
+  const [turnStart, setTurnStart] = useState<number | null>(null);
+  if (working !== (turnStart !== null)) setTurnStart(working ? Date.now() : null);
   const lastBlock = thread?.blocks[thread.blocks.length - 1];
   const liveReasoningIndex =
     running && thread && lastBlock?.kind === "reasoning" ? thread.blocks.length - 1 : undefined;
@@ -275,7 +371,6 @@ export function SessionView({
     return [...byPath.values()];
   }, [thread?.blocks]);
 
-  const pane = panes[key];
   // An ACP agent is driving instead of the bundled OpenCode runtime (#14).
   const acp = useRuntimeStore((s) => s.runtimeKind) === "acp";
   const acpConfigOptions = useRuntimeStore((s) => s.acpConfigOptions);
@@ -291,7 +386,7 @@ export function SessionView({
   // Header tool labels ("Files", "Runs", "Subagents") need real room. `solo`
   // only says this is the single pane, which a narrow window makes irrelevant.
   const headerRef = useRef<HTMLDivElement>(null);
-  const headerCompact = useCompactWidth(headerRef, HEADER_LABEL_MIN_PX);
+  const headerCompact = useCompactWidth(headerRef, HEADER_LABEL_MIN_PX, laidOut);
   const showToolLabels = solo && !headerCompact;
   const openNotebook = (notebook: (typeof uniqueNotebooks)[number]) => {
     pinEphemeral();
@@ -306,27 +401,52 @@ export function SessionView({
 
   // Offer the subagent panel only once this conversation has actually spawned
   // one — a plain chat should not carry a control for something it never does.
-  const hasSubagents = (thread?.blocks ?? []).some(
-    (b) => b.kind === "tool-call" && (b.tool === "task" || !!b.childSessionId),
+  const hasSubagents = useMemo(
+    () =>
+      (thread?.blocks ?? []).some(
+        (b) => b.kind === "tool-call" && (b.tool === "task" || !!b.childSessionId),
+      ),
+    [thread?.blocks],
   );
 
-  const [hasRuns, setHasRuns] = useState(false);
+  const [hasRuns, setHasRuns] = useState(() => (eid ? (RUNS_KNOWN.get(eid) ?? false) : false));
+  // A pane can be pointed at another session without unmounting — adopt that
+  // session's known answer in this render, not a frame later.
+  const runsFor = useRef(eid);
+  if (runsFor.current !== eid) {
+    runsFor.current = eid;
+    setHasRuns(eid ? (RUNS_KNOWN.get(eid) ?? false) : false);
+  }
   useEffect(() => {
-    if (!eid) return setHasRuns(false);
+    // Re-checked when the screen is shown again, not only on mount: a hidden
+    // pane's session can produce its first run while nobody is looking, and
+    // panes no longer re-mount on a Screen switch to pick that up.
+    if (!eid || !visible) return;
     let cancelled = false;
-    void queryRuns({ sessionId: eid, limit: 1 }).then((p) => !cancelled && setHasRuns(p.total > 0));
+    void queryRuns({ sessionId: eid, limit: 1 }).then((p) => {
+      RUNS_KNOWN.set(eid, p.total > 0);
+      if (!cancelled) setHasRuns(p.total > 0);
+    });
     return () => {
       cancelled = true;
     };
-  }, [eid]);
+  }, [eid, visible]);
 
   const chatRef = useRef<HTMLDivElement>(null);
+
   const {
     contentRef: chatContentRef,
     onScroll: onChatScroll,
     atLatest,
     jumpToLatest,
-  } = useChatScroll(chatRef, `chat:${key}`, !historyLoading && !inspectorFillsPane);
+    // A screen hidden WITHOUT layout reads every offset as 0, so recording one
+    // would overwrite where the reader actually was; standing down also means
+    // the position is restored on the way back. A screen that keeps its layout
+    // keeps its scroll too, and must not be disturbed.
+  } = useChatScroll(chatRef, `chat:${key}`, laidOut && !historyLoading && !inspectorFillsPane);
+  // Take back the vertical trackpad gestures WebKit latches onto a wide table
+  // or code block inside the conversation.
+  useWheelChain(chatRef);
 
   // Measure the floating composer so the conversation can pad its bottom by
   // exactly that height (in real px, outside the chat zoom) — the last message
@@ -336,7 +456,10 @@ export function SessionView({
   useEffect(() => {
     const el = composerRef.current;
     if (!el) return;
-    const measure = () => setComposerH(el.offsetHeight);
+    // Zero means "not laid out" (a hidden screen), never a real height — taking
+    // it would strip the conversation's bottom padding and re-add it a frame
+    // after the screen is shown again.
+    const measure = () => setComposerH((h) => el.offsetHeight || h);
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);
@@ -346,6 +469,10 @@ export function SessionView({
 
   const autoOpened = useRef(new Set<string>());
   useEffect(() => {
+    // Not while hidden: an unbound pane's artifact falls back to the CURRENT
+    // session, so a background Screen would open a notebook in the pane the
+    // user is actually looking at. Deferred to the moment its Screen is shown.
+    if (!visible) return;
     const agentNb = uniqueNotebooks.find(
       (b) => b.tool.toLowerCase().includes("jupyter") && !autoOpened.current.has(b.path),
     );
@@ -354,7 +481,7 @@ export function SessionView({
       openArtifact(agentNb, sid ?? undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uniqueNotebooks.length]);
+  }, [uniqueNotebooks.length, visible]);
 
   // Per field, for the same reason as the runtime selectors above: a bare
   // `useUiStore()` subscribes this pane to the whole UI store, so anything that
@@ -384,6 +511,7 @@ export function SessionView({
       sessionId={eid!}
       onClose={() => setShowAgents(false, sid ?? undefined)}
       controls={<MaximizePaneButton />}
+      focus={subagentFocus ?? undefined}
     />
   ) : showFiles ? (
     <SessionFilesPane
@@ -440,8 +568,17 @@ export function SessionView({
               {title ?? ""}
             </h1>
           )}
-          {eid && (
-            <GoalPill sessionId={eid} onResumed={() => void sendPrompt(GOAL_RESUME_NUDGE, sid ?? undefined)} />
+          {/* Only while on display: the pill polls the plugin's state file every
+              few seconds, and its popover lives in a body portal — a hidden
+              screen would keep polling and could leave that popover floating
+              over the screen the user switched to. Re-mounting is free: the
+              pill paints its last known goal from cache. */}
+          {eid && visible && (
+            <GoalPill
+              sessionId={eid}
+              compact={headerCompact}
+              onResumed={() => void sendPrompt(GOAL_RESUME_NUDGE, sid ?? undefined)}
+            />
           )}
           <div data-tauri-drag-region={asTitlebar || undefined} className="flex-1" />
           {eid && (
@@ -507,22 +644,22 @@ export function SessionView({
           {canSplit && (
             <>
               <ZoomMenu zoom={zoom} onPick={(z) => setLeafZoom(leafId, z)} />
-              <button
-                onClick={() => void onSplit("right")}
-                className="rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-text"
-                title={t("group.splitRight")}
-                aria-label={t("group.splitRight")}
-              >
-                <PanelRight size={13} strokeWidth={1.5} />
-              </button>
-              <button
-                onClick={() => void onSplit("bottom")}
-                className="rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-text"
-                title={t("group.splitDown")}
-                aria-label={t("group.splitDown")}
-              >
-                <PanelBottom size={13} strokeWidth={1.5} />
-              </button>
+              {/* Each split button asks where the new pane's work goes before
+                  creating it — see SplitMenu. */}
+              <SplitMenu
+                sourceFolder={splitFolder}
+                // eslint-disable-next-line i18next/no-literal-string -- DockEdge enum, not UI copy
+                onSplit={(folder) => onSplit("right", folder)}
+                icon={<PanelRight size={13} strokeWidth={1.5} />}
+                label={t("group.splitRight")}
+              />
+              <SplitMenu
+                sourceFolder={splitFolder}
+                // eslint-disable-next-line i18next/no-literal-string -- DockEdge enum, not UI copy
+                onSplit={(folder) => onSplit("bottom", folder)}
+                icon={<PanelBottom size={13} strokeWidth={1.5} />}
+                label={t("group.splitDown")}
+              />
               {onClose && (
                 <button
                   onClick={onClose}
@@ -629,7 +766,12 @@ export function SessionView({
           // Bottom padding (real px, outside the zoom) = the measured floating
           // composer height, so the last message always clears it at any zoom.
           style={{ paddingBottom: composerH + 12 }}
-          className="flex-1 overflow-y-auto"
+          // `overflow-x-hidden` is deliberate: `overflow-y-auto` alone promotes
+          // the other axis to `auto`, so one over-wide message (an unbreakable
+          // path, a wide card) let the ENTIRE conversation be dragged sideways.
+          // Nothing here needs to scroll horizontally as a page — tables, code
+          // blocks and tool output each carry their own horizontal scroller.
+          className="flex-1 overflow-y-auto overflow-x-hidden"
         >
           {/* Zoom the CHAT content (not the scroll box or the composer). */}
           <div
@@ -654,6 +796,26 @@ export function SessionView({
                 </div>
               </div>
             )}
+            {slowStart && focused && (
+              // Only for a start that is genuinely taking a while (see
+              // useSlowStart) — a normal launch connects before this appears,
+              // and nothing should be said about a wait the user never had.
+              <div
+                role="status"
+                className="rounded-card border border-border bg-surface p-5 shadow-card"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium text-text">
+                  <Loader2 size={13} className="animate-spin text-muted" />
+                  {t("live.starting.title")}
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  {/* The browser client waits on a gateway running on someone
+                      else's machine — the local first-launch permission prompt
+                      is not what is holding it up. */}
+                  {t(isGatewayWeb ? "live.starting.bodyWeb" : "live.starting.body")}
+                </p>
+              </div>
+            )}
             {error && focused && (
               <div className="rounded-input border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
                 {error}
@@ -669,6 +831,7 @@ export function SessionView({
                 handlers={handlers}
                 liveReasoningIndex={liveReasoningIndex}
                 workspaceDirectory={sessionDir ?? undefined}
+                contextLimit={contextLimit}
               />
             )}
             {backgroundReview && eid && (
@@ -697,35 +860,70 @@ export function SessionView({
             {!webReadOnly && <SelectionActions sessionId={eid} />}
             {working && (
               <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-                <Loader2 size={14} className="shrink-0 animate-spin" />
-                <span className="shrink-0">
+                {/* The agent is producing: the label itself carries the motion
+                    (a light travelling through its letters) and the turn's
+                    clock. The two exceptional states — waiting on the user,
+                    retrying a failed call — keep the spinner, because nothing
+                    is streaming for a shimmer to stand for. */}
+                {(activeRequest || retryNotice) && (
+                  <Loader2 size={14} className="shrink-0 animate-spin" />
+                )}
+                <span className={cn("shrink-0", !activeRequest && !retryNotice && "shimmer-text")}>
                   {activeRequest
                     ? t("live.status.paused")
                     : retryNotice
-                      ? t("live.status.retrying", { attempt: Math.max(1, retryNotice.attempt) })
+                      ? // A spent allowance or a reached plan limit does not
+                        // resolve by waiting, so it must not be labelled as a
+                        // retry the user should sit through (#117). Only these
+                        // two: another cause the runtime may name later could
+                        // well be transient, and "waiting will not help" would
+                        // then be our own invention.
+                        LIMIT_REASONS.has(retryNotice.action?.reason ?? "")
+                        ? t("live.status.limitReached")
+                        : t("live.status.retrying", { attempt: Math.max(1, retryNotice.attempt) })
                       : sending && !eid
                         ? t("live.status.startingSession")
                         : t("live.status.working")}
                 </span>
+                {!activeRequest && !retryNotice && turnStart !== null && (
+                  <Elapsed start={turnStart} />
+                )}
                 {!activeRequest && !retryNotice && step >= 2 && (
                   <span className="shrink-0 text-xs text-muted/70">
                     {t("live.status.step", { count: step })}
                   </span>
                 )}
                 {!activeRequest && retryNotice && (
-                  <span className="truncate font-mono text-xs text-warn" title={retryNotice.message}>
+                  <span
+                    className="truncate font-mono text-xs text-warn"
+                    // The provider whose call failed, the runtime's own
+                    // actionable sentence and its link all belong to this
+                    // notice, and only the hover text has room for them. The
+                    // line itself stays the bare message: the provider id
+                    // ("opencode" for Zen) would read as the app on one line.
+                    title={[
+                      retryNotice.action?.provider,
+                      retryNotice.message,
+                      retryNotice.action?.message,
+                      retryNotice.action?.link,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  >
                     {retryNotice.message}
                   </span>
                 )}
                 {!activeRequest && !retryNotice && currentTool && (
                   <>
+                    {/* The step's own clock stays on its row in the thread —
+                        a second clock here would time a subject the turn
+                        clock beside it does not. */}
                     <span
                       className="truncate font-mono text-xs"
                       title={currentTool.command ?? currentTool.title}
                     >
                       {currentTool.title}
                     </span>
-                    {currentTool.startedAt !== undefined && <Elapsed start={currentTool.startedAt} />}
                   </>
                 )}
               </div>
@@ -813,11 +1011,13 @@ export function SessionView({
                   ? t("live.placeholder.readOnly")
                   : working
                     ? t("live.placeholder.waiting")
-                    : !connected
-                      ? t("live.placeholder.disconnected")
-                      : planAvailable && agentMode === "plan"
-                        ? t("composer.placeholder.plan")
-                        : t("composer.placeholder.default")
+                    : connecting
+                      ? t("live.placeholder.starting")
+                      : !connected
+                        ? t("live.placeholder.disconnected")
+                        : planAvailable && agentMode === "plan"
+                          ? t("composer.placeholder.plan")
+                          : t("composer.placeholder.default")
               }
               // Both switches belong to the OpenCode runtime: the approval mode is
               // its config (an ACP agent asks for permission on its own terms),
@@ -839,6 +1039,9 @@ export function SessionView({
                   : undefined
               }
               modelSessionId={key}
+              // Only the pane the user is looking at may take a prepared draft.
+              acceptsHandoff={focused}
+              visible={laidOut}
               draftKey={draftKey}
               showWorkspaceChip={eid === null}
               sessionDir={sessionDir ?? undefined}

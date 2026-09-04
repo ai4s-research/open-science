@@ -31,17 +31,67 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
     // message.part.delta events, then the full part again at text-end.
     const D = (partID: string, delta: string) =>
       push({ type: "message.part.delta", properties: { sessionID, messageID: "m1", partID, field: "text", delta } });
-    P({ id: "p1", type: "text", text: "" });
+    // Real OpenCode republishes the whole assistant message as its token totals
+    // grow — the only place usage is reported at all.
+    const U = (tokens: Record<string, unknown>, completed?: number) =>
+      push({
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "m1",
+            sessionID,
+            role: "assistant",
+            time: { created: 1, ...(completed ? { completed } : {}) },
+            cost: 0.42,
+            tokens,
+          },
+        },
+      });
+    P({ id: "p1", type: "text", messageID: "m1", text: "" });
     D("p1", "Planning ");
+    U({ input: 3000, output: 12, reasoning: 0, cache: { read: 118000, write: 2100 } });
     D("p1", "the analysis. ");
-    P({ id: "p1", type: "text", text: "Planning the analysis. " });
+    P({ id: "p1", type: "text", messageID: "m1", text: "Planning the analysis. " });
     P({ id: "c1", type: "tool", callID: "c1", tool: "literature-search", state: { status: "running", title: "literature-search (OpenAlex)" } });
     P({ id: "c1", type: "tool", callID: "c1", tool: "literature-search", state: { status: "completed", title: "literature-search (OpenAlex, PubMed)" } });
-    P({ id: "p2", type: "text", text: "Wrote data/corpus.csv and drafted report.md." });
+    P({ id: "p2", type: "text", messageID: "m1", text: "Wrote data/corpus.csv and drafted report.md." });
+    U({ input: 3000, output: 900, reasoning: 0, cache: { read: 118000, write: 2100 } }, 2);
     push({ type: "session.idle", properties: { sessionID } });
     messages[sessionID] = [
       { info: { role: "user" }, parts: [{ type: "text", text: "run a literature review" }] },
-      { info: { role: "assistant", time: { created: 1, completed: 2 } }, parts: [{ type: "text", text: "Planning the analysis. Wrote data/corpus.csv." }] },
+      {
+        info: {
+          id: "m1",
+          role: "assistant",
+          time: { created: 1, completed: 2 },
+          cost: 0.42,
+          tokens: { input: 3000, output: 900, reasoning: 0, cache: { read: 118000, write: 2100 } },
+        },
+        parts: [{ type: "text", text: "Planning the analysis. Wrote data/corpus.csv." }],
+      },
+    ];
+  };
+
+  // A turn the runtime compacts. Mirrors SessionCompaction.create: OpenCode
+  // opens a message with role "user" and hangs the compaction part off THAT,
+  // which is why the echoed-user-text guard has to let this part through.
+  const streamCompactedTurn = (sessionID: string) => {
+    const push = (obj: unknown) => clients.forEach((c) => send(c, obj));
+    push({
+      type: "message.updated",
+      properties: { info: { id: "mc", sessionID, role: "user", time: { created: 1 } } },
+    });
+    push({
+      type: "message.part.updated",
+      properties: {
+        part: { id: "pc", sessionID, messageID: "mc", type: "compaction", auto: true, overflow: true },
+      },
+    });
+    push({ type: "message.part.updated", properties: { part: { id: "p9", sessionID, messageID: "m2", type: "text", text: "Carrying on." } } });
+    push({ type: "session.idle", properties: { sessionID } });
+    messages[sessionID] = [
+      { info: { id: "mc", role: "user", time: { created: 1 } }, parts: [{ type: "compaction", auto: true, overflow: true }] },
+      { info: { id: "m2", role: "assistant", time: { created: 2 } }, parts: [{ type: "text", text: "Carrying on." }] },
     ];
   };
 
@@ -61,6 +111,41 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
       { info: { role: "user" }, parts: [{ type: "text", text: "flaky" }] },
       { info: { role: "assistant", time: { created: 1, completed: 2 }, error }, parts: [] },
     ];
+  };
+
+  // A turn refused because the account cannot make the call at all: the retry
+  // status carries an `action` naming the cause, the provider and the way out.
+  // Copied from what the pinned runtime emits for OpenCode Zen's spent free
+  // allowance (its `FreeUsageLimitError` branch), which is the shape the app
+  // has to tell apart from an ordinary provider hiccup (#117).
+  const streamQuotaTurn = (sessionID: string) => {
+    const push = (obj: unknown) => clients.forEach((c) => send(c, obj));
+    const message = "Free usage exceeded, subscribe to Go";
+    push({
+      type: "session.status",
+      properties: {
+        sessionID,
+        status: {
+          type: "retry",
+          attempt: 1,
+          message,
+          next: 1234,
+          action: {
+            reason: "free_tier_limit",
+            provider: "opencode",
+            title: "Free limit reached",
+            message: "Subscribe to OpenCode Go for reliable access…",
+            label: "subscribe",
+            link: "https://opencode.ai/go",
+          },
+        },
+      },
+    });
+    push({
+      type: "session.error",
+      properties: { sessionID, error: { name: "APICallError", data: { message } } },
+    });
+    push({ type: "session.idle", properties: { sessionID } });
   };
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -241,7 +326,13 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
         }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end("{}");
-        const turn = body.includes("flaky") ? streamFlakyTurn : streamTurn;
+        const turn = body.includes("flaky")
+          ? streamFlakyTurn
+          : body.includes("out of quota")
+            ? streamQuotaTurn
+            : body.includes("compact")
+              ? streamCompactedTurn
+              : streamTurn;
         setTimeout(() => turn(decodeURIComponent(m[1])), 5);
       });
       return;

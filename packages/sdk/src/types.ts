@@ -1,9 +1,9 @@
-import type { RuntimeStatus, ToolCallStatus } from "@ai4s/shared";
+import type { MessageUsage, RuntimeStatus, ToolCallStatus } from "@ai4s/shared";
 
 export type { RuntimeStatus, ToolCallStatus };
 
 /** Pinned OpenCode release this client targets. */
-export const OPENCODE_VERSION = "1.18.12";
+export const OPENCODE_VERSION = "1.18.18";
 
 /** OpenCode server defaults (`opencode serve`). */
 export const DEFAULT_OPENCODE_URL = "http://127.0.0.1:4096";
@@ -17,6 +17,9 @@ export interface TextUpdatedEvent {
   sessionId: string;
   partId: string;
   text: string;
+  /** The assistant message this text belongs to. It is what lets a later
+   *  `message.usage` find the block to stamp its tokens onto. */
+  messageID?: string;
 }
 /** The model's reasoning ("thinking") for a step — streamed like text but kept
  *  separate so the UI can show it dimmed, apart from the final answer. Without
@@ -62,9 +65,6 @@ export interface SessionIdleEvent {
   type: "session.idle";
   sessionId: string;
 }
-/** The turn's model call failed and the server is retrying it — OpenCode backs
- *  off exponentially with NO attempt cap, so without surfacing these the UI
- *  shows a bare "Working…" forever while every attempt fails. */
 /** A user message landed carrying its agent — including the build message
  *  OpenCode injects itself when the plan_exit question is answered Yes. The
  *  app syncs its per-session agent-mode state from this (never from question
@@ -79,6 +79,32 @@ export interface MessageAgentEvent {
   agent?: string;
 }
 
+/** What the runtime says the user can DO about a failed attempt, when it knows.
+ *  OpenCode fills this in for the two account-state failures it can recognise
+ *  from the response body, and only those: `free_tier_limit` (Zen's free
+ *  allowance is spent) and `account_rate_limit` (a Go plan's limit, with a
+ *  reset time in `message`). Both are terminal for the retry loop's purposes —
+ *  the attempts run out without the condition changing — so an app that shows
+ *  only "retrying" is telling the user to wait for something that will not
+ *  happen. `provider` is the provider id whose call failed. */
+export interface RetryAction {
+  /** `free_tier_limit` or `account_rate_limit` on the pinned runtime; any other
+   *  value is a newer runtime's, and means no more than "the runtime knows". */
+  reason: string;
+  provider?: string;
+  title?: string;
+  /** The runtime's own actionable sentence (English; it is not localized). */
+  message?: string;
+  label?: string;
+  link?: string;
+}
+
+/** The turn's model call failed and the server is retrying it. These status
+ *  events are the only sign of life while every attempt fails, so without them
+ *  the UI shows a bare "Working…". Measured on the pinned runtime: exponential
+ *  backoff from 2s, capped at 30s without `retry-after` headers, and
+ *  `RETRY_MAX_RETRIES = 5` — after which the failure arrives as a session
+ *  error. */
 export interface SessionRetryEvent {
   type: "session.retry";
   sessionId: string;
@@ -87,6 +113,8 @@ export interface SessionRetryEvent {
   message: string;
   /** Epoch ms of the next scheduled attempt. */
   nextAt: number;
+  /** Present when the runtime recognised an account-state cause. */
+  action?: RetryAction;
 }
 
 // ---- Interactive requests (the agent asks; the user must answer) ----
@@ -151,10 +179,27 @@ export interface CompactedEvent {
   overflow?: boolean;
 }
 
+/** Running token totals for an assistant turn. OpenCode republishes the whole
+ *  message on every update, so this arrives repeatedly during a turn and one
+ *  last time with the final numbers — the app just overwrites.
+ *
+ *  Without it the app cannot answer "how full is the context" at all: the
+ *  numbers exist only here and in history, nowhere else in the protocol. */
+export interface MessageUsageEvent {
+  type: "message.usage";
+  sessionId: string;
+  messageID: string;
+  usage: MessageUsage;
+  /** Epoch ms from the message's own clock — `completed` unset while running. */
+  created?: number;
+  completed?: number;
+}
+
 export type OpenCodeEvent =
   | TextUpdatedEvent
   | ReasoningUpdatedEvent
   | CompactedEvent
+  | MessageUsageEvent
   | StepUpdatedEvent
   | ToolUpdatedEvent
   | SessionIdleEvent
@@ -247,6 +292,12 @@ export interface HistoryMessage {
   /** Epoch ms when the message finished — unset while it is still streaming.
    *  On the LAST message this is the server's truth for "is the turn over". */
   completed?: number;
+  /** Epoch ms when the message was created. Needed to tell a turn that is
+   *  streaming RIGHT NOW from one that was streaming when its runtime died:
+   *  both persist identically (assistant, no `completed`, no `error`), and
+   *  only the timestamp says whether any live process could still be producing
+   *  it. See `turnStillStreaming`. */
+  created?: number;
   /** The error that ended this assistant turn, when it failed. Without it a
    *  failed turn whose live session.error was missed (SSE reconnect, app
    *  restart) reloads as an empty reply with no explanation at all. */
@@ -255,6 +306,9 @@ export interface HistoryMessage {
    *  on user messages; the app derives a session's agent mode from the last
    *  user message when (re)opening it. */
   agent?: string;
+  /** Token accounting for an assistant message. Assistant-only, and absent on
+   *  runtimes that don't report it (ACP) or on mock/synthetic messages. */
+  usage?: MessageUsage;
   parts: HistoryPart[];
 }
 export interface HistoryPart {
@@ -263,19 +317,39 @@ export interface HistoryPart {
   /** True on runtime-generated text (e.g. the "tool was executed by the user"
    *  marker a "!" shell run leaves in history) — not something the user typed. */
   synthetic?: boolean;
+  /** OpenCode marks a part the model must not see again. The converter drops
+   *  these before building the request, so they cannot malform it. */
+  ignored?: boolean;
   tool?: string;
+  /** The provider's id for this tool call — what pairs the call with its
+   *  result. Every tool part carries one; a part without it cannot be turned
+   *  into a valid message. */
+  callID?: string;
   state?: {
     status?: string;
     title?: string;
     input?: Record<string, unknown>;
     output?: string;
-    /** Epoch ms the tool started/finished — persisted with the part. */
-    time?: { start?: number; end?: number };
+    /** Why the tool failed, on `status: "error"`. Carried into the request as
+     *  the tool result, so it is as load-bearing as `output` is. */
+    error?: string;
+    /** Epoch ms the tool started/finished — persisted with the part.
+     *  `compacted` is set once compaction has cleared this result's text; from
+     *  then on the request carries a placeholder and `output` no longer
+     *  matters. */
+    time?: { start?: number; end?: number; compacted?: number };
     /** Tool-specific extras (bash stdout tail, edit diff, task session link).
      *  `sessionId` is the subagent session a `task` tool spawned — the live
      *  event stream reads the same field, and without it here a RELOADED
-     *  conversation loses every link to its subagents' own transcripts. */
-    metadata?: { output?: string; diff?: string; sessionId?: string };
+     *  conversation loses every link to its subagents' own transcripts.
+     *  `interrupted` marks a tool the user stopped: its `output` (not
+     *  `state.error`) is what the model is shown. */
+    metadata?: {
+      output?: string;
+      diff?: string;
+      sessionId?: string;
+      interrupted?: boolean;
+    };
   };
 }
 
@@ -328,6 +402,20 @@ export interface ProviderModelInfo {
    *  native param (OpenAI reasoningEffort, Anthropic thinking, …). `listProviders`
    *  always sets it (possibly []); optional so terse fixtures can omit it. */
   variants?: string[];
+  /** Context window in tokens, or 0 when OpenCode does not know it — which it
+   *  does not for any model missing from models.dev whose limit nobody typed
+   *  in, i.e. most custom endpoints. Load-bearing, not decorative: OpenCode
+   *  skips auto-compaction outright on a zero window (`limit.context === 0`
+   *  short-circuits its threshold check), so the conversation grows unbounded
+   *  and long agentic turns eventually stall sending it. Surfaced so the UI can
+   *  say so instead of leaving the user with a spinner. */
+  contextLimit?: number;
+  /** False when the provider still advertises this model but no longer serves
+   *  it, so picking it can only fail. `listProviders` never sets this — the
+   *  runtime's catalog cannot tell — it is filled in by whoever can ask the
+   *  provider directly (the app does, for OpenCode Zen). Undefined means
+   *  nobody knows, which every consumer must read as available. */
+  available?: boolean;
 }
 
 /** A provider OpenCode can use right now (auth present or public). */

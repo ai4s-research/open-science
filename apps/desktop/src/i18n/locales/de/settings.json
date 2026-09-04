@@ -10,7 +10,8 @@
     "privacy": "Datenschutz",
     "browser": "Browser",
     "remote": "Fernzugriff",
-    "memory": "Gedächtnis"
+    "memory": "Gedächtnis",
+    "desktopOnly": "Dieser Bereich ist in der Desktop-App verfügbar."
   },
   "appearance": {
     "title": "Erscheinungsbild",
@@ -112,6 +113,7 @@
     "currentDefault": "Aktueller Standard",
     "switching": "Wird gewechselt…",
     "unavailableDefault": "Konfiguriertes Modell nicht verfügbar: {{model}}",
+    "retiredDefault": "Vom Anbieter eingestellt: {{model}} wird nicht mehr bereitgestellt, jeder Durchlauf schlägt fehl. Unten ein anderes Modell wählen.",
     "catalogUnavailable": "Der Modellkatalog ist derzeit nicht verfügbar.",
     "catalogLoading": "Modellkatalog wird geladen…",
     "noModels": "Keine Modelle verfügbar.",
@@ -126,6 +128,8 @@
   "providers": {
     "title": "Anbieter",
     "hint": "Authentifizierung, benutzerdefinierte Endpunkte und importierte OpenCode-Anmeldungen",
+    "webHint": "Verbundene Anbieter — im Browser nur lesbar",
+    "webNote": "API-Schlüssel und eigene Endpunkte werden auf der Maschine gesetzt, die die Workbench betreibt — in der Desktop-App oder mit `osd auth set`, wenn sie ohne Fenster läuft. Zugangsdaten passieren niemals das Gateway.",
     "connectPrompt": "Verbinde die Laufzeit, um Anbieter zu verwalten.",
     "manage": "Verwalten",
     "collapse": "Einklappen",
@@ -222,6 +226,26 @@
     "autoTitle": "Nach jedem Zug prüfen, der Dateien ändert",
     "autoHint": "Führt pro Änderung einen zusätzlichen Modellzug im Hintergrund aus. Die Unterhaltung bleibt nutzbar; rein lesende Züge werden übersprungen."
   },
+  "sync": {
+    "title": "Unterhaltungen synchronisieren",
+    "hint": "Halte deine Unterhaltungen auf mehreren eigenen Rechnern. Zeige hier auf einen Ordner, den dein Cloud-Dienst synchronisiert; jede Unterhaltung wird dort als eigene Datei gespiegelt. Aus, bis du einen Ordner wählst.",
+    "hintOn": "An. Jede Unterhaltung wird als eigene Datei in den Ordner unten gespiegelt; andere Rechner, die auf denselben Ordner zeigen, holen sie sich. Geheimnisse werden nie synchronisiert.",
+    "folderTitle": "Synchronisationsordner",
+    "folderNone": "Nicht gesetzt — Unterhaltungen bleiben auf diesem Rechner.",
+    "choose": "Ordner wählen",
+    "change": "Ändern",
+    "stop": "Ausschalten",
+    "nowTitle": "Jetzt synchronisieren",
+    "nowHint": "Läuft nach jedem Zug von selbst; dies ist für den Fall, dass es sofort sein soll.",
+    "now": "Jetzt synchronisieren",
+    "running": "Synchronisiere…",
+    "done": "Synchronisiert. {{imported}} empfangen, {{exported}} gesendet.",
+    "folderSet": "Synchronisationsordner gesetzt.",
+    "stopped": "Synchronisation ausgeschaltet.",
+    "unusable": "Dieser Ordner ist nicht verwendbar",
+    "last": "Letzte Synchronisation {{when}} — {{imported}} empfangen, {{exported}} gesendet.",
+    "lastFailed": "Letzte Synchronisation fehlgeschlagen: {{error}}"
+  },
   "python": {
     "title": "Lokaler Python-Kernel",
     "hint": "Führt Notebook-Zellen in der App aus. Nutzt Ihre Jupyter-Umgebung, falls eingerichtet (gleiches Python wie der Agent), sonst automatische Erkennung — oder unten einen expliziten Interpreter festlegen",
@@ -242,6 +266,7 @@
     "couldNotSetModel": "Das Modell konnte nicht festgelegt werden",
     "defaultModelSet": "Standardmodell auf {{model}} gesetzt",
     "defaultModelReset": "Standardmodell {{old}} ist nicht mehr verfügbar — auf {{model}} umgestellt",
+    "configRebuilt": "Die Einstellungsdatei der Agent-Laufzeit war nicht lesbar und wurde nach {{path}} verschoben und neu erstellt. Anbieter und MCP-Server müssen möglicherweise erneut hinzugefügt werden.",
     "couldNotSaveKey": "Der Schlüssel konnte nicht gespeichert werden",
     "providerConnected": "{{providerID}} verbunden",
     "couldNotStartLogin": "Die Anmeldung konnte nicht gestartet werden",
@@ -381,6 +406,20 @@
     "portApply": "Anwenden",
     "portReset": "Auf Standard zurücksetzen"
   },
+  "cli": {
+    "title": "Terminal-Befehl (osd)",
+    "hint": "Die Werkbank im Terminal — Sitzungen, Projekte, Dateien und ein Server ohne Oberfläche für Maschinen ohne Bildschirm. Kommt mit der App, ohne Einrichtung.",
+    "readyPath": "Bereit — führe `osd` in einem neuen Terminal aus.",
+    "readyProfile": "Bereit — in {{profile}} eingetragen. Führe `osd` in einem neuen Terminal aus.",
+    "readyEnvironment": "Bereit — zu deinem Benutzer-PATH hinzugefügt. Führe `osd` in einem neuen Terminal aus.",
+    "unreachable": "Installiert, aber über deinen PATH nicht erreichbar. Füge diese Zeile in dein Shell-Profil ein:",
+    "notInstalled": "Nicht installiert. Nimm den Knopf oder starte die App neu.",
+    "unavailable": "Dieser Build enthält den Befehl osd nicht.",
+    "occupied": "Unter diesem Namen liegt bereits eine Datei, die nicht von dieser App stammt — benenne sie zuerst um.",
+    "install": "Befehl installieren",
+    "repair": "Neu installieren",
+    "error": "Installation des osd-Befehls fehlgeschlagen"
+  },
   "memory": {
     "title": "Gedächtnis",
     "hint": "Dauerhafter Kontext, den der Agent vor jeder Unterhaltung liest — damit Sie ein Projekt nicht immer neu erklären.",
@@ -407,6 +446,7 @@
     "modelFor": "Modell für {{agent}}",
     "defaultEffort": "Standardaufwand",
     "effortFor": "Denkaufwand für {{agent}}",
+    "retiredOption": "{{model}} — nicht mehr verfügbar",
     "primaryHint": "build und plan führen die Nachrichten aus, die du sendest. Ein hier gesetztes Modell gilt, sofern du nicht innerhalb einer Unterhaltung eines wählst — das gewinnt nur dort."
   },
   "ssh": {

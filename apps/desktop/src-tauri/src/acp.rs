@@ -14,7 +14,7 @@
 // they closed.
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -142,7 +142,9 @@ pub fn acp_start(
         }
     }
     let cwd = crate::runtime::workspace_dir(&app)?;
-    let mut child = Command::new(&command)
+    // quiet_command: an ACP agent is a console-subsystem binary, and a console
+    // window opening beside the app for it is noise the user never asked for.
+    let mut child = crate::runtime::quiet_command(&command)
         .args(&args)
         .current_dir(&cwd)
         // GUI-launched apps get a minimal PATH; an ACP agent is usually a node

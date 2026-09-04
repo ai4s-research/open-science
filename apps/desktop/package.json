@@ -1,6 +1,6 @@
 {
   "name": "@ai4s/desktop",
-  "version": "0.3.3",
+  "version": "0.5.2",
   "private": true,
   "type": "module",
   "scripts": {

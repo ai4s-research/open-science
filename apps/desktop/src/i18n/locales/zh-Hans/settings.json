@@ -10,7 +10,8 @@
     "privacy": "隐私",
     "browser": "浏览器",
     "remote": "远程访问",
-    "memory": "记忆"
+    "memory": "记忆",
+    "desktopOnly": "该部分在桌面应用中可用。"
   },
   "appearance": {
     "title": "外观",
@@ -112,6 +113,7 @@
     "currentDefault": "当前默认",
     "switching": "切换中…",
     "unavailableDefault": "已配置的模型不可用：{{model}}",
+    "retiredDefault": "已被供应商下架：{{model}} 已不再提供，每个回合都会失败。请在下方另选一个模型。",
     "catalogUnavailable": "模型目录当前不可用。",
     "catalogLoading": "正在加载模型目录…",
     "noModels": "没有可用模型。",
@@ -126,6 +128,8 @@
   "providers": {
     "title": "供应商",
     "hint": "登录认证、自定义端点和导入的 OpenCode 登录信息",
+    "webHint": "已连接的供应商 — 浏览器端只读",
+    "webNote": "API 密钥和自定义端点在运行 workbench 的那台机器上设置：桌面应用里，或者无窗口运行时用 `osd auth set`。凭据不会经过网关。",
     "connectPrompt": "连接运行时以管理提供商。",
     "manage": "管理",
     "collapse": "收起",
@@ -221,6 +225,26 @@
     "autoTitle": "每次改动文件后自动审阅",
     "autoHint": "每次改动会在后台多调用一轮模型；当前对话仍可继续使用，只读回合会跳过。"
   },
+  "sync": {
+    "title": "对话同步",
+    "hint": "让你的对话出现在自己的多台机器上。指向一个云盘会同步的文件夹，每个对话会以单独文件镜像到那里。未选择文件夹前不启用。",
+    "hintOn": "已开启。每个对话会以单独文件镜像到下面的文件夹；指向同一文件夹的其他机器会自动取回。密钥永不同步。",
+    "folderTitle": "同步文件夹",
+    "folderNone": "未设置 —— 对话只留在这台机器上。",
+    "choose": "选择文件夹",
+    "change": "更改",
+    "stop": "关闭",
+    "nowTitle": "立即同步",
+    "nowHint": "每轮对话结束后会自动运行；这里用于需要立刻同步时。",
+    "now": "立即同步",
+    "running": "同步中…",
+    "done": "已同步。收到 {{imported}} 个，发出 {{exported}} 个。",
+    "folderSet": "同步文件夹已设置。",
+    "stopped": "已关闭对话同步。",
+    "unusable": "该文件夹不可用",
+    "last": "上次同步 {{when}} —— 收到 {{imported}} 个，发出 {{exported}} 个。",
+    "lastFailed": "上次同步失败：{{error}}"
+  },
   "python": {
     "title": "本地 Python 内核",
     "hint": "在应用内运行笔记本单元格。若已设置 Jupyter 环境则使用它（与代理共用同一 Python），否则自动检测——或在下方指定解释器",
@@ -241,6 +265,7 @@
     "couldNotSetModel": "无法设置模型",
     "defaultModelSet": "默认模型已设置为 {{model}}",
     "defaultModelReset": "默认模型 {{old}} 已不可用——已切换为 {{model}}",
+    "configRebuilt": "无法读取代理运行时的设置文件，已将其移至 {{path}} 并重建。服务商与 MCP 服务器可能需要重新添加。",
     "couldNotSaveKey": "无法保存密钥",
     "providerConnected": "{{providerID}} 已连接",
     "couldNotStartLogin": "无法开始登录",
@@ -379,6 +404,20 @@
     "portApply": "应用",
     "portReset": "恢复默认"
   },
+  "cli": {
+    "title": "终端命令（osd）",
+    "hint": "在终端里用这个工作台——会话、项目、文件，以及给没有显示器的机器用的无界面服务端。随应用一起装好，无需配置。",
+    "readyPath": "可用——打开一个新终端，运行 `osd`。",
+    "readyProfile": "可用——已写入 {{profile}}。打开一个新终端，运行 `osd`。",
+    "readyEnvironment": "可用——已加入你的用户 PATH。打开一个新终端，运行 `osd`。",
+    "unreachable": "已安装，但你的 PATH 到不了它。把这行加进 shell 配置：",
+    "notInstalled": "尚未安装。点按钮，或重启应用。",
+    "unavailable": "这个构建没有携带 osd 命令。",
+    "occupied": "该名字下已有一个不是本应用写入的文件——请先重命名。",
+    "install": "安装命令",
+    "repair": "重新安装",
+    "error": "安装 osd 命令失败"
+  },
   "memory": {
     "title": "记忆",
     "hint": "智能体在每次对话前都会读取的长期上下文，免去反复解释同一个项目。",
@@ -405,6 +444,7 @@
     "modelFor": "{{agent}} 使用的模型",
     "defaultEffort": "默认强度",
     "effortFor": "{{agent}} 的思考强度",
+    "retiredOption": "{{model}} — 已下架",
     "primaryHint": "build 与 plan 负责运行你发出的消息。这里设定的模型会生效，除非你在某个会话内单独选择了模型——那个选择只对该会话生效。"
   },
   "ssh": {

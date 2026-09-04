@@ -117,7 +117,11 @@
       "smarter": "Plus intelligent",
       "followingAgent": "Suit l'agent {{agent}}",
       "followAgent": "Suivre l'agent {{agent}}",
-      "useDefault": "Utiliser le modèle par défaut global"
+      "useDefault": "Utiliser le modèle par défaut global",
+      "unknownContextTitle": "Fenêtre de contexte inconnue",
+      "unknownContextBody": "La compaction automatique reste désactivée pour ce modèle : la conversation grossit sans limite et les tours longs finissent par se bloquer. Définissez la fenêtre dans Réglages → Modèles.",
+      "retiredTitle": "Modèle retiré par son fournisseur",
+      "retiredBody": "{{model}} est toujours configuré, mais le fournisseur ne le sert plus : chaque tour échoue. Choisissez un autre modèle ci-dessus."
     },
     "reference": {
       "filesAria": "Fichiers de l’espace de travail",
@@ -157,6 +161,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "En attente de la réponse de l'application hôte. Laissez cette page ouverte — la connexion se fera d'elle-même dès que l'hôte sera joignable.",
+      "title": "Démarrage du runtime local…",
+      "body": "Le runtime d'agent intégré démarre. Au premier lancement, macOS peut demander l'autorisation d'accéder à vos dossiers — accordez-la et l'opération se termine d'elle-même."
+    },
     "runtime": {
       "title": "Runtime OpenCode",
       "bodyPrefix": "L'application de bureau exécute automatiquement un OpenCode intégré. Dans le navigateur, démarrez-en un avec",
@@ -194,6 +203,7 @@
       "paused": "En pause — l'agent attend votre réponse ci-dessous",
       "startingSession": "Démarrage de la session dans son dossier…",
       "retrying": "Erreur du fournisseur — nouvelle tentative (essai {{attempt}})",
+      "limitReached": "Limite du fournisseur atteinte — attendre n'y changera rien",
       "working": "En cours…",
       "step": "étape {{count}}"
     },
@@ -204,6 +214,7 @@
       "cancelTitle": "Arrêter cette révision"
     },
     "placeholder": {
+      "starting": "Démarrage du runtime…",
       "disconnected": "Connectez-vous pour discuter",
       "waiting": "En attente de la réponse…",
       "readOnly": "Accès en lecture seule — consultation uniquement"
@@ -356,6 +367,26 @@
       "revert": "Revenir ici"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "Un message enregistré de cette conversation n'a pas de texte là où le format du modèle en exige un — le plus souvent une réponse interrompue dès son début.",
+      "tool-result-missing": "Il manque à une étape {{tool}} enregistrée le résultat qu'elle a rapporté.",
+      "tool-error-missing": "Une étape {{tool}} enregistrée a échoué sans consigner pourquoi.",
+      "tool-call-id-missing": "Une étape d'outil enregistrée a perdu l'identifiant qui l'associe à son résultat.",
+      "unknown": "Cette conversation ne peut plus être envoyée au modèle, et nous n'avons pas pu identifier quel message enregistré en est la cause."
+    },
+    "someTool": "outil",
+    "offer_one": "Revenir juste avant écarte {{count}} message et résout le problème.",
+    "offer_other": "Revenir juste avant écarte {{count}} messages et résout le problème.",
+    "noTarget": "Il n'existe aucun point antérieur où revenir : cette conversation ne peut pas être réparée, commencez-en une nouvelle. Rien n'est supprimé ; vous pouvez toujours la lire et l'exporter.",
+    "action": "Réparer la conversation",
+    "confirm": {
+      "title": "Revenir avant le message endommagé ?",
+      "body_one": "Cela écarte {{count}} message et annule les modifications de fichiers de ce tour. Votre saisie revient dans le champ de saisie. Cette action est irréversible.",
+      "body_other": "Cela écarte {{count}} messages et annule les modifications de fichiers de ces tours. Votre saisie revient dans le champ de saisie. Cette action est irréversible.",
+      "action": "Revenir"
+    }
+  },
   "compaction": {
     "label": "Contexte compacté",
     "autoBody": "L’exécution a résumé les tours précédents pour rester dans la fenêtre de contexte du modèle, et la conversation a continué ici.",
@@ -363,6 +394,21 @@
     "overflowBody": "Cela s’est produit parce que le contexte était déjà saturé.",
     "at": "Quand : {{time}}",
     "originalKept": "La conversation d’origine complète reste stockée en local."
+  },
+  "meta": {
+    "context": "{{used}} / {{limit}} ({{percent}} %)",
+    "contextUnknown": "{{used}} jetons",
+    "durationTitle": "Durée de cette réponse",
+    "costTitle": "Coût de ce tour",
+    "tooltip": {
+      "input": "Entrée : {{n}}",
+      "cacheRead": "Lecture du cache : {{n}}",
+      "cacheWrite": "Écriture du cache : {{n}}",
+      "output": "Sortie : {{n}}",
+      "reasoning": "Raisonnement : {{n}}",
+      "context": "Contexte utilisé : {{used}} sur {{limit}}",
+      "contextUnknown": "Contexte utilisé : {{used}} (fenêtre inconnue)"
+    }
   },
   "selection": {
     "aria": "Actions sur le texte sélectionné",
@@ -381,6 +427,13 @@
     "count_other": "{{count}} tâches",
     "empty": "Aucun sous-agent dans cette conversation pour l’instant.",
     "noDetail": "Aucune étape n'a été enregistrée pour ce sous-agent.",
-    "loadingDetail": "Chargement…"
+    "loadingDetail": "Chargement…",
+    "openRow": "Ouvrir ce sous-agent dans le panneau"
+  },
+  "splitDestination": {
+    "title": "La session du nouveau volet sera créée dans",
+    "continueIn": "Continuer dans {{name}}",
+    "newFolder": "Nouveau dossier",
+    "chooseOther": "Choisir un autre dossier…"
   }
 }

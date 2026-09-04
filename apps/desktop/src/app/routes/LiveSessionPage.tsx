@@ -1,14 +1,32 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useRuntimeStore } from "@/lib/runtime";
-import { findLeaf, leaves, useLayoutStore } from "@/lib/layout";
+import { findLeaf, leaves, recentScreens, useLayoutStore } from "@/lib/layout";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { isGatewayWeb } from "@/lib/webMode";
+import { cn } from "@/lib/cn";
 import { SessionView } from "@/components/session/SessionView";
 import { PaneTree } from "@/components/session/PaneTree";
 import { GroupTabs } from "@/components/session/GroupTabs";
 import { EmptyGroup } from "@/components/session/EmptyGroup";
 import { PresentedArtifactPane } from "@/components/session/PresentedArtifactPane";
+
+/** How many screens are kept alive at once (the active one plus the last nine
+ *  visited) — enough that a working set of screens is always instant to switch
+ *  between. An older screen is rebuilt on the click that returns to it, so the
+ *  memory a whole screen's DOM holds stays bounded however many the workbench
+ *  accumulates. Rebuilding loses nothing that matters: unsent text, scroll
+ *  positions, threads and running turns all live outside the components. */
+const MOUNTED_SCREENS = 10;
+
+/** How many of those keep their LAYOUT (see the render below). Measured on a
+ *  real workbench, this is the difference between a switch that costs ~3ms of
+ *  React and one that costs 30-250ms rebuilding layout, so it covers the
+ *  screens actually in rotation. It is still well under the mount cap because
+ *  layout is not free: a window resize re-lays out every warm screen, and a
+ *  background turn streaming into one costs layout it would not pay while
+ *  display:none. */
+const WARM_SCREENS = 5;
 
 /**
  * Live agent surface. Owns the split-layout ↔ runtime plumbing: it keeps the
@@ -25,6 +43,8 @@ export function LiveSessionPage() {
   const location = useLocation();
 
   const tree = useLayoutStore((s) => s.tree);
+  const groups = useLayoutStore((s) => s.groups);
+  const activeGroupId = useLayoutStore((s) => s.activeGroupId);
   const focusedLeafId = useLayoutStore((s) => s.focusedLeafId);
   const pruneSessions = useLayoutStore((s) => s.pruneSessions);
   const focusedLeaf = tree && focusedLeafId ? findLeaf(tree, focusedLeafId) : null;
@@ -163,6 +183,21 @@ export function LiveSessionPage() {
     pruneSessions(new Set(sessions.map((s) => s.id)));
   }, [sessions, pruneSessions]);
 
+  // Screens the user has been in lately, newest first — the ones kept mounted.
+  const [recent, setRecent] = useState<string[]>([activeGroupId]);
+  useEffect(() => {
+    setRecent((r) => recentScreens(r, activeGroupId, MOUNTED_SCREENS));
+  }, [activeGroupId]);
+  // The active screen is always in, even on the render before the effect above
+  // has seen it. A closed screen falls out on its own with `groups`.
+  const live = useMemo(
+    () => [activeGroupId, ...recent].filter((id, i, all) => all.indexOf(id) === i)
+      .filter((id) => groups.some((g) => g.id === id)),
+    [activeGroupId, recent, groups],
+  );
+  const mounted = useMemo(() => new Set(live), [live]);
+  /** Kept laid out and painted, so revealing one is a compositor change. */
+  const warm = useMemo(() => new Set(live.slice(0, WARM_SCREENS)), [live]);
   // Web / phone: no tiling — show the focused pane alone (its own titlebar), or
   // the onboarding if the group is somehow empty.
   if (webOrMobile) {
@@ -186,7 +221,57 @@ export function LiveSessionPage() {
   return (
     <div className="flex h-full min-w-0 flex-col">
       <GroupTabs />
-      <div className="min-h-0 flex-1">{tree ? <PaneTree /> : <EmptyGroup />}</div>
+      {/* Three tiers, by how recently the user was in a screen. Switching used
+          to swap the whole tree, so each pane was torn down and rebuilt — every
+          message re-parsed, every scroll position and unsent line restored from
+          scratch. Now:
+
+          WARM (the active screen and the last few before it) keep their layout,
+          hidden with `visibility` — so revealing one costs a paint, and nothing
+          inside it has to be measured again (see `laidOut`). `display:none`
+          instead throws away the layout boxes of a whole screen, and rebuilding
+          them lands in the frame that reveals it. Measured on a real workbench:
+          keeping the layout roughly halves the React phase of a switch, because
+          the pane's own measurements stop forcing layout mid-commit.
+
+          (An earlier attempt kept them PAINTED too — `opacity-0` on its own
+          compositing layer — hoping the flip would be compositor-only. The
+          probe said otherwise: paint stayed 40-60ms whether the screen was warm
+          or cold, so WebKit does not keep raster for a fully transparent layer.
+          Reverted rather than pay GPU memory for nothing.)
+
+          COLD (mounted, older) go `display:none` — no layout at all, so they
+          cost nothing while they sit there and while a background turn streams
+          into them. The first return to one pays that one-time layout.
+
+          Beyond MOUNTED_SCREENS the oldest is dropped entirely: a mounted
+          screen costs memory for as long as it lives, and a workbench can
+          accumulate screens without limit. Even that loses nothing that
+          matters — unsent text, scroll positions, threads and running turns all
+          live outside the components. */}
+      <div className="relative min-h-0 flex-1">
+        {groups.map((g) => {
+          const isActive = g.id === activeGroupId;
+          if (!mounted.has(g.id)) return null;
+          const isWarm = !isActive && warm.has(g.id);
+          return (
+            <div
+              key={g.id}
+              className={cn(
+                "absolute inset-0",
+                isWarm && "invisible",
+                !isActive && !isWarm && "hidden",
+              )}
+            >
+              {g.tree ? (
+                <PaneTree group={g} active={isActive} laidOut={isActive || isWarm} />
+              ) : isActive ? (
+                <EmptyGroup />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

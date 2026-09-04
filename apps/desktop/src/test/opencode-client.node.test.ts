@@ -111,6 +111,64 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     expect(models.find((m) => m.id === "gpt-4")?.variants).toEqual([]);
   });
 
+  it("namespaces a background-review part's metadata, because the model is shown it", async () => {
+    // #114, reproduced against the pinned runtime: an assistant text part's
+    // metadata is forwarded to the model as `providerMetadata`, whose schema is
+    // Record<string, Record<string, JSONValue>>. The flat
+    // `{ source: "ai4s.background-review" }` this used to send put a string
+    // where a record belongs, and the AI SDK then rejected the WHOLE
+    // conversation — on that turn and every turn after, since the part is
+    // persisted. A background review permanently ended the conversation it had
+    // just reviewed. Every value here must be an object, one level down.
+    let sent: Record<string, unknown> = {};
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sent = JSON.parse(String(init?.body));
+      return new Response("{}", { status: 200 });
+    };
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.appendTextPart("ses_1", "msg_1", "```review\n{}\n```", "prt_1");
+
+    const metadata = sent.metadata as Record<string, unknown>;
+    expect(Object.keys(metadata).length).toBeGreaterThan(0);
+    for (const value of Object.values(metadata)) {
+      expect(typeof value).toBe("object");
+      expect(value).not.toBeNull();
+      expect(Array.isArray(value)).toBe(false);
+    }
+    expect(metadata).toEqual({ ai4s: { source: "background-review" } });
+  });
+
+  it("surfaces each model's context window, and 0 when OpenCode has none", async () => {
+    // Load-bearing, not decorative: OpenCode short-circuits auto-compaction on
+    // `limit.context === 0`, so a model whose window it does not know never gets
+    // compacted and its conversation grows until long turns stall. Observed on a
+    // real install — the bundled catalog models report a window, custom-endpoint
+    // models report 0. Absent and 0 must normalise to the same thing so callers
+    // test one value.
+    const body = {
+      providers: [
+        {
+          id: "apevon",
+          name: "Apevon",
+          models: {
+            "gpt-5.6-sol": { name: "Sol", limit: { context: 0, output: 0 } },
+            "laguna-s": { name: "Laguna", limit: { context: 256000, output: 32000 } },
+            "no-limit-key": { name: "Bare" },
+          },
+        },
+      ],
+    };
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify(body), { status: 200 });
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    const models = (await client.listProviders())[0].models;
+    expect(models.find((m) => m.id === "laguna-s")?.contextLimit).toBe(256000);
+    expect(models.find((m) => m.id === "gpt-5.6-sol")?.contextLimit).toBe(0);
+    expect(models.find((m) => m.id === "no-limit-key")?.contextLimit).toBe(0);
+  });
+
   it("surfaces a model's whole effort vocabulary including `max` (#74)", async () => {
     // From 1.18 on, OpenCode builds a model's variants from the catalog's own
     // `reasoning_options`, so the top of the range is whatever the catalog says —
@@ -211,13 +269,15 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     await client.sendPrompt(sessionId, "flaky provider call");
     await waitFor(() => events.some((e) => e.type === "session.idle"));
 
-    // The server-side retry loop is unbounded — its status events are the only
-    // sign of life while every attempt fails, so they must reach the app.
-    expect(events.find((e) => e.type === "session.retry")).toMatchObject({
+    // The status events are the only sign of life while every attempt fails, so
+    // they must reach the app. An ordinary provider failure carries no `action`.
+    const retry = events.find((e) => e.type === "session.retry");
+    expect(retry).toMatchObject({
       sessionId,
       attempt: 2,
       message: "no channel available for this model",
     });
+    expect(retry && "action" in retry ? retry.action : undefined).toBeUndefined();
     expect(events.find((e) => e.type === "error")).toMatchObject({
       sessionId,
       message: "no channel available for this model",
@@ -228,6 +288,30 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     const last = messages[messages.length - 1];
     expect(last.role).toBe("assistant");
     expect(last.error).toBe("no channel available for this model");
+    client.close();
+  });
+
+  it("carries the account-state action a retry status names, not just its message", async () => {
+    // Without the action, "the free allowance is spent" and "the provider
+    // hiccuped" are the same event to the app, and it can only offer to wait
+    // out a condition that no number of attempts will change (#117).
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+    await client.sendPrompt(sessionId, "a turn that is out of quota");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    expect(events.find((e) => e.type === "session.retry")).toMatchObject({
+      sessionId,
+      message: "Free usage exceeded, subscribe to Go",
+      action: {
+        reason: "free_tier_limit",
+        provider: "opencode",
+        link: "https://opencode.ai/go",
+      },
+    });
     client.close();
   });
 
@@ -402,6 +486,102 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
   });
 });
 
+// The numbers exist only on the assistant message — nowhere else in the
+// protocol — so a client that narrows them away leaves the app unable to say
+// how full the context window is at all.
+describe("token usage", () => {
+  it("surfaces a turn's running totals as message.usage", async () => {
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+
+    await client.sendPrompt(sessionId, "run a literature review");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    const usage = events.filter(
+      (e): e is Extract<OpenCodeEvent, { type: "message.usage" }> => e.type === "message.usage",
+    );
+    // Republished as the turn runs, ending with the final numbers.
+    expect(usage.length).toBeGreaterThan(1);
+    expect(usage[usage.length - 1]).toMatchObject({
+      messageID: "m1",
+      completed: 2,
+      usage: { input: 3000, output: 900, reasoning: 0, cacheRead: 118000, cacheWrite: 2100, cost: 0.42 },
+    });
+    client.close();
+  });
+
+  it("ties streamed text to its message, including the parts that arrive as deltas", async () => {
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+
+    await client.sendPrompt(sessionId, "run a literature review");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    const text = events.filter(
+      (e): e is Extract<OpenCodeEvent, { type: "text.updated" }> => e.type === "text.updated",
+    );
+    // A delta-driven update that forgot the id would blank it out on the block.
+    expect(text.every((e) => e.messageID === "m1")).toBe(true);
+    client.close();
+  });
+
+  it("recovers the same usage from history", async () => {
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+    await client.sendPrompt(sessionId, "run a literature review");
+    // The turn stores its messages as it ends; reading before that gets the
+    // server's empty placeholder.
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    const msgs = await client.getMessages(sessionId);
+    const assistant = msgs.find((m) => m.role === "assistant");
+    expect(assistant?.usage).toEqual({
+      input: 3000,
+      output: 900,
+      reasoning: 0,
+      cacheRead: 118000,
+      cacheWrite: 2100,
+      cost: 0.42,
+    });
+    // A user message has no tokens at all — not a zeroed-out object.
+    expect(msgs.find((m) => m.role === "user")?.usage).toBeUndefined();
+    client.close();
+  });
+});
+
+// OpenCode's SessionCompaction.create writes a message with role "user" and
+// hangs the compaction part off it. The echoed-user-text guard therefore ate
+// every compaction marker before it could be emitted — #62 shipped a renderer
+// nothing ever fed.
+describe("compaction arrives on a user-role message", () => {
+  it("emits session.compacted anyway", async () => {
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+
+    await client.sendPrompt(sessionId, "compact the context");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    expect(events.filter((e) => e.type === "session.compacted")).toEqual([
+      { type: "session.compacted", sessionId: "ses_mock", auto: true, overflow: true },
+    ]);
+    // The marker message carries no text; nothing should be echoed for it.
+    expect(events.some((e) => e.type === "text.updated" && e.text === "")).toBe(false);
+    client.close();
+  });
+});
+
 describe("per-prompt agent pinning", () => {
   it("sends the host presentation contract and the optional agent field", async () => {
     const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
@@ -571,6 +751,26 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
 
     await client.clearDefaultCustomModelContextLimits();
     expect(patches).toHaveLength(1); // nothing left matching the default → no second PATCH
+  });
+
+  // #119: from the gateway-served web client this PATCH is refused by gateway
+  // policy, which reports its reason as `{error}`. Swallowing that field left
+  // the user with "Failed to add the provider (403)" — indistinguishable from
+  // their own API key being rejected, which is what they concluded.
+  it("surfaces the gateway's refusal reason, not a bare status", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify({ error: "provider/model config is managed on the desktop" }), {
+        status: 403,
+      });
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+    await expect(
+      client.addCustomProvider("custom", {
+        name: "Custom",
+        npm: "@ai-sdk/openai-compatible",
+        baseURL: "https://example.test/v1",
+        models: ["sol"],
+      }),
+    ).rejects.toThrow("provider/model config is managed on the desktop");
   });
 });
 

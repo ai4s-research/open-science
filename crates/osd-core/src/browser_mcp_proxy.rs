@@ -5,10 +5,11 @@
 //! schemas, blocks tools that can escape the current lease, and adds a private
 //! inventory view. The upstream MCP server still performs browser automation.
 
+use crate::runtime::quiet_command;
 use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 pub const PROXY_FLAG: &str = "--browser-mcp";
 const BROWSER_NAMESPACE: &str = "open-science-desktop";
@@ -28,6 +29,36 @@ const APP_OWNED_ARGUMENTS: &[&str] = &[
     "headed",
     "webgpu",
 ];
+
+/// The one tool that actually launches Chrome.
+const OPEN_TOOL: &str = "agent_browser_open";
+
+/// Prepended to `agent_browser_open`'s description, and deliberately one
+/// sentence: a tool description is resident context, paid for on every request
+/// of every conversation. It carries only the decision — reach for something
+/// cheaper first — because that decision is made before the skill is loaded.
+/// The reasoning and the full ladder live in the skill, which is read on demand.
+const OPEN_PREFACE: &str = "Escalation only: try the built-in fetch and search \
+tools, and CLI tools like `gh` or `curl`, before this — a browser is for pages \
+that genuinely need one (JavaScript rendering, a signed-in session, interaction, \
+a screenshot).";
+
+/// Returned when a browser call arrives with no conversation lease. That has
+/// exactly one cause — the guard plugin did not run — because the lease is not
+/// something a model can supply or omit: the proxy strips `session` from every
+/// advertised schema, and the plugin re-adds it after validation. So this text
+/// names the cause and where to look, rather than restating the symptom. It
+/// reached users as a bare "trusted conversation lease was not supplied", which
+/// told them nothing they could act on and cost issue #116 three rounds.
+const NO_LEASE_ERROR: &str = "Browser control is not active: the browser-guard \
+plugin did not attach this conversation's lease, so the call was refused. The \
+app deploys `browser-guard.ts` into its runtime profile and registers it in the \
+`plugin` list on every launch. Tell the user to restart the app, and if that \
+does not clear it, to check that the config file in the runtime profile \
+(`xdg-config/opencode/opencode.json` or `.jsonc`) still lists a path ending in \
+`browser-guard.ts`, and that `xdg-data/opencode/log/opencode.log` has no \
+`failed to load plugin` line. Do not retry the browser; use the built-in fetch \
+and search tools instead.";
 
 const BLOCKED_TOOLS: &[&str] = &[
     // These can enumerate/switch another conversation or attach to a browser
@@ -61,7 +92,12 @@ fn run_inner(mut args: Vec<OsString>) -> Result<(), String> {
         return Err("missing agent-browser executable".to_string());
     }
     let agent_browser = args.remove(0);
-    let mut child = Command::new(&agent_browser)
+    // quiet_command, not Command::new: this proxy is the GUI-subsystem app
+    // executable re-invoked with --browser-mcp, so it owns no console. Spawning
+    // the console-subsystem agent-browser from here made Windows allocate a
+    // fresh console for it — a black terminal window that stayed open for the
+    // life of the MCP server, one per session the agent runtime started (#114).
+    let mut child = quiet_command(&agent_browser)
         .args(&args)
         .env("AGENT_BROWSER_NAMESPACE", BROWSER_NAMESPACE)
         .stdin(Stdio::piped())
@@ -115,7 +151,7 @@ fn run_inner(mut args: Vec<OsString>) -> Result<(), String> {
                         &mut stdout,
                         &request_tool_result(
                             &request,
-                            json!({ "error": "trusted conversation lease was not supplied" }),
+                            json!({ "error": NO_LEASE_ERROR }),
                             true,
                         ),
                     )?;
@@ -313,8 +349,13 @@ fn protect_tool_list(response: &mut Value, include_inventory: bool) {
         }
         if let Some(description) = tool.get_mut("description") {
             let original = description.as_str().unwrap_or_default();
+            let preface = if name == OPEN_TOOL {
+                format!("{OPEN_PREFACE} ")
+            } else {
+                String::new()
+            };
             *description = json!(format!(
-                "{original} Uses only the browser lease owned by the current conversation."
+                "{preface}{original} Uses only the browser lease owned by the current conversation."
             ));
         }
     }
@@ -344,7 +385,7 @@ fn inventory_response(request: &Value, agent_browser: &OsString) -> Value {
         .and_then(Value::as_str);
     let result = lease
         .filter(|value| valid_lease(value))
-        .ok_or_else(|| "trusted conversation lease was not supplied".to_string())
+        .ok_or_else(|| NO_LEASE_ERROR.to_string())
         .and_then(|lease| browser_inventory(agent_browser, lease));
     match result {
         Ok(inventory) => tool_response(id, inventory, false),
@@ -549,7 +590,7 @@ fn close_browser_session(agent_browser: &OsString, lease: &str) -> Result<(), St
 }
 
 fn run_agent_json(agent_browser: &OsString, args: &[&str]) -> Result<Value, String> {
-    let output = Command::new(agent_browser)
+    let output = quiet_command(agent_browser)
         .args(args)
         .output()
         .map_err(|e| format!("could not run agent-browser inventory: {e}"))?;
@@ -568,6 +609,39 @@ fn run_agent_json(agent_browser: &OsString, args: &[&str]) -> Result<Value, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A missing lease means the guard plugin did not run — nothing a user or a
+    /// model chose. The refusal has to say that and say where to look, because
+    /// the bare "trusted conversation lease was not supplied" it used to return
+    /// sent a reporter through two clean reinstalls that could not have helped
+    /// (#116). No lease is inspected here, so no agent-browser call is made.
+    #[test]
+    fn refusing_a_leaseless_call_names_the_cause_and_where_to_look() {
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": INVENTORY_TOOL, "arguments": {} }
+        });
+        let response = inventory_response(&request, &OsString::from("agent-browser"));
+        assert_eq!(response.pointer("/result/isError"), Some(&json!(true)));
+        let text = response
+            .pointer("/result/content/0/text")
+            .and_then(Value::as_str)
+            .unwrap();
+        assert!(text.contains("browser-guard"), "names the plugin: {text}");
+        assert!(text.contains("plugin"), "names the config list: {text}");
+        assert!(text.contains("opencode.log"), "names the log: {text}");
+        // A lease the model invented must be refused the same way.
+        let forged = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": INVENTORY_TOOL, "arguments": { "session": "not-a-lease" } }
+        });
+        let response = inventory_response(&forged, &OsString::from("agent-browser"));
+        assert_eq!(response.pointer("/result/isError"), Some(&json!(true)));
+    }
 
     #[test]
     fn tool_schema_hides_ownership_escape_hatches() {
@@ -613,6 +687,28 @@ mod tests {
             .pointer("/inputSchema/properties/allowedDomains")
             .is_none());
         assert!(tools[1].pointer("/inputSchema/properties/all").is_none());
+    }
+
+    #[test]
+    fn only_the_launching_tool_is_marked_as_an_escalation() {
+        let mut response = json!({
+            "result": { "tools": [
+                { "name": "agent_browser_open", "description": "Open.", "inputSchema": {} },
+                { "name": "agent_browser_snapshot", "description": "Snapshot.", "inputSchema": {} }
+            ]}
+        });
+
+        protect_tool_list(&mut response, false);
+        let tools = response.pointer("/result/tools").unwrap();
+        let open = tools[0]["description"].as_str().unwrap();
+        let snapshot = tools[1]["description"].as_str().unwrap();
+        assert!(open.starts_with(OPEN_PREFACE));
+        assert!(open.contains("Open."));
+        // Resident context is charged per request, so the preface goes on the
+        // one tool that launches a browser and nowhere else — every other tool
+        // runs inside one, where that decision has already been made.
+        assert!(!snapshot.contains("Escalation only"));
+        assert!(snapshot.starts_with("Snapshot."));
     }
 
     #[test]

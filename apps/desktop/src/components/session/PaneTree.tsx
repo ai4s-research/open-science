@@ -1,23 +1,58 @@
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { MIN_SIZE, leaves, useLayoutStore, type DockEdge, type PaneNode, type PaneSplit } from "@/lib/layout";
+import {
+  MIN_SIZE,
+  leaves,
+  useLayoutStore,
+  type DockEdge,
+  type LayoutGroup,
+  type PaneLeaf,
+  type PaneNode,
+  type PaneSplit,
+} from "@/lib/layout";
 import { useDragDivider } from "@/lib/useDragDivider";
 import { useDragPane } from "@/lib/dragPane";
 import { cn } from "@/lib/cn";
+import { hasParkedDraft } from "@/lib/composerStash";
+import { draftKeyFor } from "@/lib/runtime";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { SessionView } from "./SessionView";
 import { PresentedArtifactPane } from "./PresentedArtifactPane";
 
 /**
- * Ghostty-style recursive tiling renderer. A split becomes a flex row/column of
- * N children with N−1 draggable dividers; leaves host a SessionView wrapped in a
- * click-to-focus ring. A zoomed leaf renders alone, full-area, without
- * discarding the tree.
+ * Ghostty-style recursive tiling renderer for ONE screen. A split becomes a
+ * flex row/column of N children with N−1 draggable dividers; leaves host a
+ * SessionView wrapped in a click-to-focus ring. A zoomed leaf renders alone,
+ * full-area, without discarding the tree.
+ *
+ * Takes its screen as a prop rather than reading the store's active-group
+ * mirror: every screen stays mounted (LiveSessionPage hides the inactive ones),
+ * so this renders one specific group, active or not. `memo` is what makes that
+ * affordable — a background screen's group object keeps its identity while the
+ * active one is edited, so nothing below re-renders until that screen itself
+ * changes.
+ *
+ * `active` says this screen is the one on display. Panes in a hidden screen
+ * must not behave as focused: a screen keeps its own focused leaf, and that
+ * pane would otherwise answer app-wide keys and read the globally-current
+ * session while invisible.
  */
-export function PaneTree() {
-  const tree = useLayoutStore((s) => s.tree);
-  const focusedLeafId = useLayoutStore((s) => s.focusedLeafId);
-  const zoomedLeafId = useLayoutStore((s) => s.zoomedLeafId);
+export const PaneTree = memo(function PaneTree({
+  group,
+  active,
+  laidOut,
+}: {
+  group: LayoutGroup;
+  active: boolean;
+  /** This screen has layout boxes — it is on display, or hidden in a way that
+   *  keeps them. Separate from `active` because they answer different
+   *  questions: `active` is "the user is looking at this" (side effects),
+   *  `laidOut` is "the DOM can be measured" (measurements and scroll). A screen
+   *  that keeps its layout must NOT re-measure when it reappears: forcing that
+   *  layout while the document is dirty is the thrash a switch cannot afford. */
+  laidOut: boolean;
+}) {
+  const { tree, focusedLeafId, zoomedLeafId } = group;
   // Rendered only for a non-empty group (LiveSessionPage shows onboarding
   // otherwise), but guard defensively so the types narrow.
   if (!tree) return null;
@@ -28,39 +63,57 @@ export function PaneTree() {
   if (zoomedLeafId) {
     const zoomed = allLeaves.find((l) => l.id === zoomedLeafId);
     if (zoomed) {
-      return <Leaf key={zoomed.id} leaf={zoomed} zoom={zoomed.zoom ?? 1} focused solo />;
+      return (
+        <Leaf
+          key={zoomed.id}
+          leaf={zoomed}
+          zoom={zoomed.zoom ?? 1}
+          focused
+          active={active}
+          laidOut={laidOut}
+          solo
+        />
+      );
     }
   }
 
-  return <Node node={tree} focusedLeafId={focusedLeafId ?? ""} solo={solo} />;
-}
+  return (
+    <Node node={tree} focusedLeafId={focusedLeafId ?? ""} active={active} laidOut={laidOut} solo={solo} />
+  );
+});
 
 function Node({
   node,
   focusedLeafId,
+  active,
+  laidOut,
   solo,
 }: {
   node: PaneNode;
   focusedLeafId: string;
+  active: boolean;
+  laidOut: boolean;
   solo: boolean;
 }) {
   if (node.kind === "leaf") {
     return (
       <Leaf
-        // Keyed by leaf so switching screens (which swaps the whole tree for
-        // one with different leaf ids) reconciles as a DIFFERENT pane. Without
-        // it React reuses this position's SessionView, and the incoming screen
-        // inherits the outgoing one's composer text (#91).
+        // Keyed by leaf so a tree edit that moves panes around reconciles them
+        // by identity. Screens no longer share this position — each renders its
+        // own PaneTree — which is what keeps an incoming screen from inheriting
+        // the outgoing one's composer text (#91).
         key={node.id}
         leaf={node}
         // Tiled panes are narrow → default to 75% unless the user set a zoom.
         zoom={node.zoom ?? (solo ? 1 : 0.75)}
         focused={node.id === focusedLeafId}
+        active={active}
+        laidOut={laidOut}
         solo={solo}
       />
     );
   }
-  return <Split node={node} focusedLeafId={focusedLeafId} />;
+  return <Split node={node} focusedLeafId={focusedLeafId} active={active} laidOut={laidOut} />;
 }
 
 /** Cumulative boundary after child `i` (fraction 0..1). */
@@ -82,9 +135,13 @@ function sizesFromBoundary(sizes: number[], i: number, boundary: number): number
 function Split({
   node,
   focusedLeafId,
+  active,
+  laidOut,
 }: {
   node: PaneSplit;
   focusedLeafId: string;
+  active: boolean;
+  laidOut: boolean;
 }) {
   const setSplitSizes = useLayoutStore((s) => s.setSplitSizes);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -117,7 +174,13 @@ function Split({
             ) : null
           }
         >
-          <Node node={child} focusedLeafId={focusedLeafId} solo={false} />
+          <Node
+            node={child}
+            focusedLeafId={focusedLeafId}
+            active={active}
+            laidOut={laidOut}
+            solo={false}
+          />
         </FragmentChild>
       ))}
     </div>
@@ -189,18 +252,38 @@ function Divider({
   );
 }
 
+/**
+ * Does closing this pane need a confirmation? Only when it holds something:
+ * a session (whatever is in it is not knowable from here) or an unsent line.
+ * A fresh split nobody used is an empty slot and closes on the click.
+ */
+function paneNeedsConfirm(leaf: PaneLeaf): boolean {
+  return !!leaf.sessionId || !!leaf.artifact || hasParkedDraft(draftKeyFor(leaf.id));
+}
+
 function Leaf({
   leaf,
   zoom,
   focused,
+  active,
+  laidOut,
   solo,
 }: {
   leaf: Extract<PaneNode, { kind: "leaf" }>;
   zoom: number;
   focused: boolean;
+  /** This pane's screen is the one on display. */
+  active: boolean;
+  /** …and it has layout boxes (see PaneTree). */
+  laidOut: boolean;
   solo: boolean;
 }) {
   const leafId = leaf.id;
+  // The ring is a per-screen mark (and invisible while the screen is hidden),
+  // but everything SessionView does with "focused" is app-wide — answering Esc,
+  // showing the global error, a draft pane adopting the current session — so a
+  // hidden screen's focused pane is not live.
+  const live = focused && active;
   const { t } = useTranslation("session");
   const [confirmClose, setConfirmClose] = useState(false);
   const focusLeaf = useLayoutStore((s) => s.focusLeaf);
@@ -234,11 +317,21 @@ function Leaf({
         <SessionView
           sessionId={leaf.sessionId}
           leafId={leafId}
-          focused={focused}
+          focused={live}
+          visible={active}
+          laidOut={laidOut}
           chromeAsTitlebar={false}
           zoom={zoom}
           solo={solo}
-          onClose={solo ? undefined : () => setConfirmClose(true)}
+          onClose={
+            solo
+              ? undefined
+              : // Same rule as closing a Screen: only ask when there is
+                // something to lose. An unbound pane nobody has typed into is
+                // just an empty slot — closing it on the click is the point of
+                // having opened it.
+                () => (paneNeedsConfirm(leaf) ? setConfirmClose(true) : closePane(leafId))
+          }
         />
       )}
       {confirmClose && (
@@ -253,7 +346,9 @@ function Leaf({
           onCancel={() => setConfirmClose(false)}
         />
       )}
-      <DropOverlay leafId={leafId} />
+      {/* Only the Screen on display is a drop target — and its overlay re-renders
+          on every pointer move of a drag, which a hidden Screen must not pay. */}
+      {active && <DropOverlay leafId={leafId} />}
     </div>
   );
 }

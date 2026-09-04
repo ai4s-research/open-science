@@ -63,6 +63,9 @@ interface Row {
   title: string;
   to: string;
   kind: "session" | "example";
+  /** The project this session belongs to, if any. Names the Screen a click
+   *  opens — "Screen 3" says nothing about what is in it. */
+  project?: string;
 }
 
 /** Dragging the divider below this pointer x collapses the sidebar; dragging
@@ -215,6 +218,20 @@ export function Sidebar({ project }: { project: Project }) {
     if (created) navigate("/live");
   };
 
+  // Entering a project — "new session in project X", or just having imported
+  // one — is new work, so it follows the same rule as "New": its own Screen,
+  // never the pane the user is reading. Open the Screen FIRST — the new pane's
+  // own draft slot is what the composer sends under, and that is the slot the
+  // project folder has to be aimed at (#69).
+  const openProjectScreen = async (p: ProjectInfo) => {
+    const leafId =
+      !isMobile && !isGatewayWeb
+        ? useLayoutStore.getState().openInNewGroup(null, p.name)
+        : null;
+    await startDraftInWorkspace(p.path, leafId ? draftKeyFor(leafId) : undefined);
+    navigate("/live");
+  };
+
   // Pick first, then make the copy-vs-in-place tradeoff explicit. In-place is
   // primary: users choose their project location, and the signed macOS app asks
   // for access there. Copy remains an explicit storage/isolation alternative.
@@ -230,7 +247,7 @@ export function Sidebar({ project }: { project: Project }) {
       setImportBusy(true);
       const adopted = await importProject(path, "in-place");
       setImportBusy(false);
-      if (adopted) navigate("/live");
+      if (adopted) await openProjectScreen(adopted);
       return;
     }
     setPendingImportPath(path);
@@ -242,21 +259,9 @@ export function Sidebar({ project }: { project: Project }) {
     const imported = await importProject(pendingImportPath, mode);
     setImportBusy(false);
     setPendingImportPath(null);
-    if (imported) navigate("/live");
+    if (imported) await openProjectScreen(imported);
   };
 
-  const newSessionIn = async (p: ProjectInfo) => {
-    // Same rule as "New": its own Screen, so starting work in a project does not
-    // replace the pane the user is reading. Open it FIRST — the new pane's own
-    // draft slot is what the composer sends under, and that is the slot the
-    // project folder has to be aimed at (#69).
-    const leafId =
-      !isMobile && !isGatewayWeb
-        ? useLayoutStore.getState().openInNewGroup(null, p.name)
-        : null;
-    await startDraftInWorkspace(p.path, leafId ? draftKeyFor(leafId) : undefined);
-    navigate("/live");
-  };
 
   const submitRename = async (p: ProjectInfo, name: string) => {
     setRenamingId(null);
@@ -289,8 +294,10 @@ export function Sidebar({ project }: { project: Project }) {
       kind: "session",
     };
     const owner = s.directory ? projectByPath.get(pathKey(s.directory)) : undefined;
-    if (owner) sessionsByProject.get(owner.id)!.push(row);
-    else looseRows.push(row);
+    if (owner) {
+      row.project = owner.name;
+      sessionsByProject.get(owner.id)!.push(row);
+    } else looseRows.push(row);
   }
   // Recency per project = its newest session's update time (else its creation).
   const updatedByProject = new Map<string, number>();
@@ -448,7 +455,7 @@ export function Sidebar({ project }: { project: Project }) {
               // eslint-disable-next-line i18next/no-literal-string -- SplitDir enum, not UI copy
               layout.split("row", row.id);
             } else {
-              layout.openSessionEphemeral(row.id);
+              layout.openSessionEphemeral(row.id, row.project);
             }
             // The layout change alone is invisible from Skills/Runs/Files/…:
             // those routes render instead of the panes, so the click looked
@@ -753,7 +760,7 @@ export function Sidebar({ project }: { project: Project }) {
                         <ContextMenuItem
                           icon={<Plus size={14} />}
                           disabled={webReadOnly}
-                          onSelect={() => void newSessionIn(p)}
+                          onSelect={() => void openProjectScreen(p)}
                         >
                           {t("projects.newSession")}
                         </ContextMenuItem>
@@ -844,7 +851,7 @@ export function Sidebar({ project }: { project: Project }) {
                       )}
                       {!webReadOnly && (
                         <button
-                          onClick={() => void newSessionIn(p)}
+                          onClick={() => void openProjectScreen(p)}
                           aria-label={t("projects.newSessionAria", {
                             name: p.name,
                           })}

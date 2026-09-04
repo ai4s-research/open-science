@@ -1,11 +1,11 @@
-// Unsent composer contents, parked by pane while that pane is not mounted.
+// Unsent composer contents, by pane.
 //
-// Only the active screen's panes are rendered (keeping every screen mounted is
-// what makes switching slow), so a pane's Composer is torn down and rebuilt as
-// the user moves between screens. Its input state is deliberately component-
-// local — a store written on every keystroke would repaint unrelated panes — so
-// it is parked here on unmount and reclaimed on mount. That keeps each pane's
-// draft its own (#91) without throwing away what the user typed.
+// A Composer's input state is deliberately component-local — a store written on
+// every keystroke would repaint unrelated panes — but two things outside it need
+// to know: a pane that unmounts (its Screen closed, or evicted) must not throw
+// away what the user typed, and closing a Screen must know whether there is
+// anything to lose before asking. So the Composer mirrors its draft here on
+// every edit, and a fresh mount reclaims it. Cheap: a Map write, no render.
 
 export interface ComposerDraft {
   text: string;
@@ -16,10 +16,15 @@ const EMPTY: ComposerDraft = { text: "", files: [] };
 
 const parked = new Map<string, ComposerDraft>();
 
-/** Park a pane's unsent draft. An empty draft is dropped rather than stored. */
+/** Record a pane's unsent draft. An empty draft is dropped rather than stored. */
 export function parkDraft(key: string, draft: ComposerDraft): void {
-  if (!draft.text && draft.files.length === 0) parked.delete(key);
+  if (!draft.text.trim() && draft.files.length === 0) parked.delete(key);
   else parked.set(key, draft);
+}
+
+/** Is there unsent input in this pane? Read-only — the draft stays put. */
+export function hasParkedDraft(key: string): boolean {
+  return parked.has(key);
 }
 
 /** Take a pane's parked draft, removing it — a draft belongs to one mount. */

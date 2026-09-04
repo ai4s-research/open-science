@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, Plus, X, PanelLeft } from "lucide-react";
-import { groupLabel, useLayoutStore } from "@/lib/layout";
+import { groupLabel, useLayoutStore, type LayoutGroup } from "@/lib/layout";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { cn } from "@/lib/cn";
@@ -14,6 +14,25 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
  * top-most element it owns the macOS overlay-titlebar clearance (traffic-light
  * inset + window-drag region), so no pane below needs to.
  */
+/**
+ * Does closing this Screen need a confirmation?
+ *
+ * Two Screens are worth nothing and close on the click: an empty one, and the
+ * tentative preview a sidebar click just opened and nobody has touched since
+ * (`ephemeralGroupId` — any real interaction pins it, #3). EVERYTHING else asks
+ * first, including a Screen restored by a relaunch: what a Screen holds is not
+ * knowable from the layout alone, and closing one the user had arranged and
+ * worked in is not a thing to do on a stray click.
+ *
+ * An earlier version of this asked only when it could SEE something to lose (an
+ * unsent line, more than one pane). That was wrong the moment the app was
+ * reopened: restored Screens carry real work and it looked like nothing.
+ */
+function closeNeedsConfirm(group: LayoutGroup, ephemeralGroupId: string | null): boolean {
+  if (!group.tree) return false;
+  return group.id !== ephemeralGroupId;
+}
+
 export function GroupTabs() {
   const { t } = useTranslation(["session", "nav"]);
   const groups = useLayoutStore((s) => s.groups);
@@ -32,6 +51,7 @@ export function GroupTabs() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
   const fallback = (n: number) => t("group.defaultName", { n });
+
 
   return (
     <>
@@ -122,7 +142,8 @@ export function GroupTabs() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setConfirmCloseId(g.id);
+                    if (closeNeedsConfirm(g, ephemeralGroupId)) setConfirmCloseId(g.id);
+                    else closeGroup(g.id);
                   }}
                   aria-label={t("group.close")}
                   className={cn(

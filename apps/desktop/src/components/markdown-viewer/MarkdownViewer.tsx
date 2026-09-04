@@ -1,10 +1,11 @@
 import { useMemo } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Options as ReactMarkdownOptions } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { cn } from "@/lib/cn";
+import { HSCROLL_ATTR } from "@/lib/wheelChain";
 import { openExternal } from "@/lib/tauri";
 
 /** Two contexts render markdown: chat bubbles (theme colors, compact) and the
@@ -16,11 +17,14 @@ const STYLES: Record<Variant, Record<string, string>> = {
   chat: {
     // Block gaps are ~a blank line apart, not a half one: long answers were
     // hard to scan because paragraphs ran together (#63).
-    root: "text-[15px] leading-relaxed text-text",
+    // `break-words`: a long URL or file path is one unbreakable word, and a
+    // paragraph cannot shrink below it — the message then stuck out past the
+    // pane and the whole conversation could be dragged sideways.
+    root: "text-[15px] leading-relaxed text-text break-words",
     p: "my-3.5 first:mt-0 last:mb-0",
     a: "text-link underline underline-offset-2",
     code: "rounded bg-surface-2 px-1 py-0.5 font-mono text-[13px] text-link",
-    pre: "my-4 overflow-x-auto rounded-input bg-surface-2 p-3 font-mono text-[13px] leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-text",
+    pre: "my-4 overflow-x-auto overflow-y-hidden rounded-input bg-surface-2 p-3 font-mono text-[13px] leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-text",
     ul: "my-3.5 ml-5 list-disc space-y-1.5",
     ol: "my-3.5 ml-5 list-decimal space-y-1.5",
     h1: "mb-3 mt-6 text-2xl font-semibold first:mt-0",
@@ -46,7 +50,7 @@ const STYLES: Record<Variant, Record<string, string>> = {
     p: "my-4 tracking-[0.006em] [text-wrap:pretty] first:mt-0 last:mb-0",
     a: "font-medium text-[#bf5a34] underline decoration-[#e2bdac] decoration-1 underline-offset-[3px] transition-colors hover:decoration-[#bf5a34]",
     code: "rounded-[4px] bg-[#f7f0ea] px-1.5 py-0.5 font-mono text-[13px] text-[#a94e2c] ring-1 ring-[#eee0d6]",
-    pre: "my-5 overflow-x-auto rounded-lg bg-[#faf6f2] p-4 font-mono text-[13px] leading-6 ring-1 ring-[#ece2d9] [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[#4b433a] [&_code]:ring-0",
+    pre: "my-5 overflow-x-auto overflow-y-hidden rounded-lg bg-[#faf6f2] p-4 font-mono text-[13px] leading-6 ring-1 ring-[#ece2d9] [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[#4b433a] [&_code]:ring-0",
     ul: "my-4 ml-[1.15em] list-disc space-y-2 marker:text-[#c98a6b]",
     ol: "my-4 ml-[1.15em] list-decimal space-y-2 marker:text-[13px] marker:font-medium marker:text-[#c98a6b]",
     // Serif display headings give the editorial/blog feel; the stack falls back
@@ -80,6 +84,23 @@ function normalizeMathDelimiters(markdown: string): string {
   );
 }
 
+// Math costs two extra passes over every node of every message — remark-math on
+// the mdast, rehype-katex on the hast — and almost no message contains any. The
+// parse is the main cost of mounting a conversation, and a screen switch mounts
+// every message of every pane at once (#92), so the plugins are attached only
+// when a dollar delimiter survived normalization. A `$` that turns out to be
+// prose (a price) merely puts us back on the old path for that one message.
+type Plugins = Pick<ReactMarkdownOptions, "remarkPlugins" | "rehypePlugins">;
+const MATH_PLUGINS: Plugins = {
+  remarkPlugins: [remarkGfm, remarkMath],
+  rehypePlugins: [[rehypeKatex, { throwOnError: false }]],
+};
+const PLAIN_PLUGINS: Plugins = { remarkPlugins: [remarkGfm], rehypePlugins: [] };
+
+function pluginsFor(markdown: string): Plugins {
+  return markdown.includes("$") ? MATH_PLUGINS : PLAIN_PLUGINS;
+}
+
 export function MarkdownViewer({
   children,
   className,
@@ -91,15 +112,16 @@ export function MarkdownViewer({
 }) {
   const s = STYLES[variant];
   const normalized = useMemo(() => normalizeMathDelimiters(children), [children]);
+  const plugins = useMemo(() => pluginsFor(normalized), [normalized]);
   return (
     <div className={cn(s.root, className)}>
+      {/* Math (KaTeX) — $…$/$$…$$ natively, \(…\)/\[…\] via the normalization
+          above. `throwOnError: false` keeps a malformed expression from
+          blanking the whole message — it shows the source in red instead. Both
+          math plugins are dropped for a message with no dollar delimiter at
+          all; see pluginsFor. */}
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        // Render math (KaTeX) — $…$/$$…$$ natively, \(…\)/\[…\] via the
-        // normalization above. `throwOnError: false` keeps a malformed
-        // expression from blanking the whole message — it shows the source
-        // in red instead.
-        rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+        {...plugins}
         components={{
           p: ({ children }) => <p className={s.p}>{children}</p>,
           a: ({ children, href }) => (
@@ -121,7 +143,13 @@ export function MarkdownViewer({
           ),
           code: ({ children }) => <code className={s.code}>{children}</code>,
           // Block code: the plain wrapper — its inner <code> is restyled via [&_code].
-          pre: ({ children }) => <pre className={s.pre}>{children}</pre>,
+          // Marked as a horizontal scroll box so a vertical swipe over it is
+          // handed back to the conversation (see lib/wheelChain).
+          pre: ({ children }) => (
+            <pre {...{ [HSCROLL_ATTR]: "" }} className={s.pre}>
+              {children}
+            </pre>
+          ),
           ul: ({ children }) => <ul className={s.ul}>{children}</ul>,
           ol: ({ children }) => <ol className={s.ol}>{children}</ol>,
           li: ({ children }) => <li>{children}</li>,
@@ -133,8 +161,14 @@ export function MarkdownViewer({
           h4: ({ children }) => <h4 className={s.h4}>{children}</h4>,
           blockquote: ({ children }) => <blockquote className={s.blockquote}>{children}</blockquote>,
           hr: () => <hr className={s.hr} />,
+          // `overflow-y-hidden` is load-bearing, not decoration: CSS turns the
+          // other axis of a scroll container from `visible` into `auto`, so a
+          // wide table also became a VERTICAL scroller — by exactly the height
+          // its horizontal scrollbar steals. The wheel then latched onto those
+          // few pixels and the conversation would not scroll while the pointer
+          // sat over a table.
           table: ({ children }) => (
-            <div className="my-4 overflow-x-auto">
+            <div {...{ [HSCROLL_ATTR]: "" }} className="my-4 overflow-x-auto overflow-y-hidden">
               <table className={s.table}>{children}</table>
             </div>
           ),

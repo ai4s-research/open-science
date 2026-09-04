@@ -4,7 +4,11 @@
 # Runs per-platform locally and in CI so the binary never lives in git.
 set -euo pipefail
 
-OPENCODE_VERSION="${OPENCODE_VERSION:-1.18.12}"
+# 1.18.15 fixed repeated compaction dropping orphaned tool results and message
+# chronology; 1.18.17 hardened compaction again. Below those, a long session
+# eventually built a message array the AI SDK rejected outright with
+# "The messages do not match the ModelMessage[] schema" (issue #114).
+OPENCODE_VERSION="${OPENCODE_VERSION:-1.18.18}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="$ROOT/apps/desktop/src-tauri/binaries"
 mkdir -p "$OUT_DIR"

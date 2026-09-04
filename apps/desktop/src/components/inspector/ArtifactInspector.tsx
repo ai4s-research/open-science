@@ -3,6 +3,7 @@ import { Check, ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ArtifactInspector as ArtifactInspectorT, ArtifactTab } from "@ai4s/shared";
 import { useScrollMemory } from "@/lib/scrollMemory";
+import { useWheelChain } from "@/lib/wheelChain";
 import { cn } from "@/lib/cn";
 import { CodeViewer } from "@/components/code-viewer/CodeViewer";
 import { PaneTitlebarInset } from "./RightPane";
@@ -37,6 +38,9 @@ export function ArtifactInspector({
   // Viewing position per artifact tab, restored when reopened.
   const scrollRef = useRef<HTMLDivElement>(null);
   const onScroll = useScrollMemory(scrollRef, `artifact:${data.title}:${tab}`);
+  // Markdown tables and code blocks scroll sideways — hand their vertical
+  // gestures back to the pane.
+  useWheelChain(scrollRef);
 
   return (
     <div className="flex h-full flex-col">

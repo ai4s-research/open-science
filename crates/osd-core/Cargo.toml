@@ -1,0 +1,16 @@
+[package]
+name = "osd-core"
+description = "Open Science Desktop — the server core: workspace, OpenCode sidecar, and gateway. No GUI, no Tauri."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+getrandom.workspace = true
+# Watches the active workspace so file changes from outside the app (an
+# external editor, a detached process) still enqueue a debounced git snapshot.
+notify = "6"

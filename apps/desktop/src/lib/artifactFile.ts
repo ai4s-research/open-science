@@ -29,12 +29,21 @@ export async function readArtifact(path: string, root?: FileRoot): Promise<Artif
  *  MIME, so native viewers (PDF, images, HTML) render it directly. */
 export async function previewUrl(path: string, root?: FileRoot, dir?: string): Promise<string | null> {
   if (isGatewayWeb) {
+    // The gateway token must NOT ride in this URL: it feeds an <iframe>/<img>
+    // src and the "open in a tab" action, and a document can read its own
+    // location whatever its sandbox — so one prompt-injected HTML artifact
+    // would post the token out and hand over the whole gateway. Trade it,
+    // over an Authorization header, for a ticket that unlocks this one file.
     const t = gatewayToken();
-    return (
-      `${gatewayOrigin()}/v1/fs/read?path=${encodeURIComponent(path)}` +
-      `${root ? `&root=${root}` : ""}${dir ? `&dir=${encodeURIComponent(dir)}` : ""}` +
-      `${t ? `&token=${encodeURIComponent(t)}` : ""}`
-    );
+    const query =
+      `path=${encodeURIComponent(path)}` +
+      `${root ? `&root=${root}` : ""}${dir ? `&dir=${encodeURIComponent(dir)}` : ""}`;
+    const res = await fetch(`${gatewayOrigin()}/v1/fs/ticket?${query}`, {
+      headers: t ? { authorization: `Bearer ${t}` } : {},
+    });
+    if (!res.ok) return null;
+    const { ticket } = (await res.json()) as { ticket?: string };
+    return ticket ? `${gatewayOrigin()}/v1/fs/read?ticket=${encodeURIComponent(ticket)}` : null;
   }
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");

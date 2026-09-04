@@ -1,7 +1,7 @@
 // Thin bridge to the Tauri Rust side. In a plain browser these are no-ops so the
 // app still runs in `pnpm dev`; in the packaged desktop app they invoke Rust commands.
 
-import { isGatewayWeb, gatewayGet } from "./webMode";
+import { isGatewayWeb, gatewayGet, gatewayPost } from "./webMode";
 
 export const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -18,11 +18,49 @@ export type ConfigureResult =
   | { ok: false; reason: "not-desktop" }
   | { ok: false; reason: "error"; message: string };
 
-/** Start the bundled OpenCode sidecar (desktop only). Returns its base URL. */
+/** Start the bundled OpenCode sidecar (desktop only). Returns its base URL.
+ *  Reuses a runtime it believes is running — see restartRuntime for when that
+ *  belief is wrong. */
 export async function startRuntime(): Promise<string | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<string>("start_runtime");
+}
+
+/** Epoch ms the current sidecar started, 0 when none is running. Used to tell
+ *  a turn that is streaming now from one left half-written by a runtime that
+ *  has since died — see `turnStillStreaming`. */
+export async function runtimeStartedAt(): Promise<number> {
+  if (!isTauri) return 0;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<number>("runtime_started_at");
+}
+
+/** Kill whatever sidecar is there and spawn a fresh one on a new port. For the
+ *  case startRuntime cannot fix: the process is alive but has stopped serving,
+ *  so nothing terminates, nothing clears the lifecycle, and reconnecting dials
+ *  a port that will never answer. Returns the new base URL. */
+export async function restartRuntime(): Promise<string | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("restart_runtime");
+}
+
+/** A sidecar that exited, with its own last words. `exits` counts every one
+ *  since the app started: a runtime that is slow to listen has none, one that
+ *  refuses to start has a new one per attempt (#118). */
+export async function runtimeFailure(): Promise<{ exits: number; message: string } | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<{ exits: number; message: string } | null>("runtime_failure");
+}
+
+/** The config that was moved aside because neither side could read it, once.
+ *  Reading it clears it — the user is told when it happens, not every launch. */
+export async function takeConfigQuarantineNotice(): Promise<string | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string | null>("take_config_quarantine_notice");
 }
 
 /**
@@ -56,6 +94,17 @@ export async function probeEndpointModels(
   if (!isTauri) return [];
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ProbedModel[]>("probe_endpoint_models", { baseUrl, apiKey, kind });
+}
+
+/**
+ * Model ids OpenCode Zen actually serves right now (desktop only — opencode.ai
+ * sends no CORS headers, so the request runs in Rust). Throws when the list
+ * cannot be fetched; callers must fail open rather than hide every model.
+ */
+export async function zenServedModelIds(): Promise<string[]> {
+  if (!isTauri) return [];
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string[]>("zen_models");
 }
 
 /**
@@ -107,7 +156,9 @@ export async function importOpenCodeLogin(): Promise<boolean> {
 
 /** How agent actions get approved — the composer's Codex-style switch.
  *  "approve": dangerous shell commands (delete / install / remote / privilege)
- *  and web fetches prompt first. "full": everything in-workspace just runs. */
+ *  and web fetches prompt first, as does any path outside the workspace except
+ *  the OS temp dirs. "full": nothing prompts, paths outside the workspace
+ *  included. */
 export type ApprovalMode = "approve" | "full";
 
 /** The approval mode OpenCode's config currently holds ("approve" until changed). */
@@ -277,6 +328,40 @@ export async function acpServerScript(): Promise<string | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
   return await invoke<string | null>("acp_server_script");
+}
+
+/** How `osd` became reachable from a terminal — see `cli_shim.rs`. */
+export type CliPathRoute = "already-on-path" | "shell-profile" | "user-environment" | "unreachable";
+
+/** Where the bundled `osd` command is, and what was touched to make a terminal
+ *  find it. The app arranges this on launch; the UI only reports it. */
+export interface CliShimStatus {
+  /** The bundled `osd` beside the app binary, or null in a build without it. */
+  binary: string | null;
+  /** The wrapper's path, whether or not it is there yet. */
+  shim: string;
+  installed: boolean;
+  /** A file that is not ours already has that name. */
+  occupied: boolean;
+  route: CliPathRoute;
+  /** The profile file that was extended, when that is how PATH was arranged. */
+  profile: string | null;
+  /** Shown only when nothing automatic worked: the line to add by hand. */
+  pathHint: string | null;
+}
+
+/** Current state of the `osd` command (desktop only; null in browser). */
+export async function getCliShimStatus(): Promise<CliShimStatus | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<CliShimStatus>("cli_shim_status");
+}
+
+/** Redo the install — for an app that moved, or a launch that failed. */
+export async function installCliShim(): Promise<CliShimStatus | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<CliShimStatus>("install_cli_shim");
 }
 
 /** Enable/disable + set binding and access mode; (re)binds the server. */
@@ -719,6 +804,14 @@ export interface ProjectInfo {
 /** Create a project folder (with metadata, harness and an initial git
  *  snapshot). Does not switch the active workspace. */
 export async function createProject(name: string): Promise<ProjectInfo> {
+  // The web client creates projects through the gateway: a project is a folder
+  // plus metadata on the SERVER, which is exactly where a headless install has
+  // no desktop to fall back to (#81).
+  if (isGatewayWeb) {
+    const created = await gatewayPost<ProjectInfo>("/v1/projects", { name });
+    if (!created) throw new Error("the gateway did not return the new project");
+    return created;
+  }
   if (!isTauri) throw new Error("not running in the desktop app");
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ProjectInfo>("create_project", { name });

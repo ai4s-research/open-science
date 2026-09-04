@@ -1,6 +1,6 @@
 {
   "name": "ai4s-workbench",
-  "version": "0.3.3",
+  "version": "0.5.2",
   "private": true,
   "description": "Open Science Desktop — local-first, model-agnostic AI research workbench for macOS, Windows and Linux.",
   "license": "MIT",
@@ -16,14 +16,15 @@
   },
   "packageManager": "pnpm@9.4.0",
   "//overrides": {
-    "security": "Patched transitive floors for brace-expansion (GHSA-rgw5-rvv9-x895) and js-yaml (GHSA-5p4m-2wfm-xmqj). Keep each override on its existing major line until the dependency tree resolves a safe version without help."
+    "security": "Patched transitive floors for brace-expansion (GHSA-rgw5-rvv9-x895), js-yaml (GHSA-5p4m-2wfm-xmqj) and nanoid (GHSA-2v37-7h3g-55p8, reached through postcss). Keep each override on its existing major line until the dependency tree resolves a safe version without help."
   },
   "pnpm": {
     "overrides": {
       "brace-expansion@1": "^1.1.18",
       "brace-expansion@2": "^2.1.4",
       "brace-expansion@5": "^5.0.9",
-      "js-yaml@4": "^4.3.1"
+      "js-yaml@4": "^4.3.1",
+      "nanoid@3": "^3.3.18"
     }
   },
   "devDependencies": {

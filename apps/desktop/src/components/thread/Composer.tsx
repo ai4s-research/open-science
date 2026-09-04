@@ -38,7 +38,7 @@ import { AcpConfigPicker } from "@/components/thread/AcpConfigPicker";
 import type { AcpConfigOption } from "@ai4s/sdk/acp";
 import { WorkspaceChip } from "@/components/thread/WorkspaceChip";
 import { useUiStore } from "@/lib/store";
-import { parkDraft, unparkDraft, type ComposerDraft } from "@/lib/composerStash";
+import { parkDraft, unparkDraft } from "@/lib/composerStash";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { useCompactWidth } from "@/lib/useCompactWidth";
@@ -150,6 +150,8 @@ export function Composer({
   sessionDir,
   currentSessionId,
   onInteract,
+  acceptsHandoff = true,
+  visible = true,
 }: {
   /** `attachments` are the chip file names, omitted when there are none. The
    *  text already names them; the list lets the send attach the images too. */
@@ -195,6 +197,15 @@ export function Composer({
   /** Fired when the user edits the input — used to pin a tentative screen (#3)
    *  the moment they start typing, so it isn't reused/lost on the next click. */
   onInteract?: () => void;
+  /** May this composer take an app-wide prepared draft (the provenance panel's
+   *  "Reproduce")? Exactly one should: every pane of every screen is mounted,
+   *  including hidden ones, and a draft claimed by any other lands where the
+   *  user cannot see it. The live session passes its focused pane. */
+  acceptsHandoff?: boolean;
+  /** This composer's pane has layout boxes. A pane in a Screen hidden without
+   *  layout cannot be measured until it comes back — and one that kept its
+   *  layout must not be re-measured at all (see useCompactWidth). */
+  visible?: boolean;
 }) {
   const { t } = useTranslation(["session", "common"]);
   const resolvedPlaceholder = placeholder ?? t("composer.placeholder.default");
@@ -268,7 +279,7 @@ export function Composer({
   // toolbar keeps the icons and drops the labels; every one of those buttons
   // already carries an aria-label and a title, so nothing becomes unreachable.
   const rootRef = useRef<HTMLDivElement>(null);
-  const compactToolbar = useCompactWidth(rootRef, TOOLBAR_LABEL_MIN_PX);
+  const compactToolbar = useCompactWidth(rootRef, TOOLBAR_LABEL_MIN_PX, visible);
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   // Caret position, tracked so an "@"/"#" being typed can be recognized in
@@ -285,15 +296,12 @@ export function Composer({
   const composerDraft = useUiStore((s) => s.composerDraft);
   const setComposerDraft = useUiStore((s) => s.setComposerDraft);
 
-  // Hand the unsent draft back when this pane unmounts, so returning to its
-  // screen finds it again. The ref keeps the cleanup off the render deps: it
-  // must run on unmount, not on every keystroke.
-  const draftRef = useRef<ComposerDraft>({ text: value, files });
-  draftRef.current = { text: value, files };
+  // Mirror the unsent draft where the rest of the app can see it: a pane that
+  // unmounts must not throw away what was typed, and closing a Screen asks
+  // first only when there IS something to lose (see composerStash).
   useEffect(() => {
-    if (!draftKey) return;
-    return () => parkDraft(draftKey, draftRef.current);
-  }, [draftKey]);
+    if (draftKey) parkDraft(draftKey, { text: value, files });
+  }, [draftKey, value, files]);
 
   const shellMode = !!onRunShell && !command && value.startsWith("!");
   // The palette is open while the command NAME is being typed ("/na…"); the
@@ -409,11 +417,11 @@ export function Composer({
   // prefilled, never auto-sent: the user reviews and presses send. Text the
   // user was already typing is kept, with the draft appended below it.
   useEffect(() => {
-    if (composerDraft === null) return;
+    if (composerDraft === null || !acceptsHandoff) return;
     setValue((v) => (v.trim() ? `${v.trimEnd()}\n\n${composerDraft}` : composerDraft));
     setComposerDraft(null);
     taRef.current?.focus();
-  }, [composerDraft, setComposerDraft]);
+  }, [composerDraft, setComposerDraft, acceptsHandoff]);
 
   // Auto-grow with the content, scroll internally beyond the cap.
   useEffect(() => {

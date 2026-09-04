@@ -40,6 +40,8 @@ runs, and review into one auditable desktop workflow.
 
 ## News
 
+- **2026-08-18** — 🖥️ **Runs without a screen, and the terminal command comes with it.** `osd server` starts the whole workbench — workspace, agent runtime, and the *same* web UI — on a machine with no display, and `osd session send … --wait` drives it from a script or another agent. `osd` ships inside the desktop installer and puts itself on your PATH on first launch; on a server the archive needs nothing installed. Models, keys and approvals are all configurable from the terminal (`osd model`, `osd auth`, `osd approval`).
+- **2026-08-13** — 🔌 **Speaks the Agent Client Protocol, both directions.** Drive Codex, Gemini CLI, Claude Code, or any other ACP agent from inside this app — with its own models, history, and your MCP connectors — or drive Open Science itself from Zed, JetBrains, or Neovim. *(v0.4.0)*
 - **2026-08-01** — 🗂️ **Projects, memory, and full history.** Group sessions into named projects (import an existing repo *in place*, no copying), give the agent persistent global and project memory, and reach every past conversation through a searchable history with archive, restore, and export. *(v0.3.1)*
 - **2026-07-24** — 🪟 **Split-pane tiling.** Tile sessions side by side, drag panes to re-dock them, keep several independent Screens, and run a different model in each pane. *(v0.3.0)*
 - **2026-07-21** — 🌐 **Access from anywhere — even your phone.** A token-authenticated gateway serves the *real* desktop UI to a CLI, a browser on your LAN, or your phone (loopback by default; LAN is opt-in). Start a run at your desk and read the finished figure and report on your phone. *(v0.2.3)*
@@ -55,6 +57,7 @@ runs, and review into one auditable desktop workflow.
 - [🧪 Current capabilities](#current-capabilities)
 - [🔌 Skills and connectors](#skills-and-connectors)
 - [📦 Install](#install)
+- [🖥️ Headless & CLI (`osd`)](#headless--cli-osd)
 - [🚀 Build from source](#build-from-source)
 - [🔒 Safety and privacy](#safety-and-privacy)
 - [🗂️ Repository layout](#repository-layout)
@@ -175,7 +178,9 @@ office/document skills below.
 | Remote compute | Register machines from your `~/.ssh/config`, probe them, and submit, track, or cancel jobs from the app. |
 | Appearance | Light, Warm, and Dark themes with per-theme accents, and UI zoom. |
 | Files | Global and per-session file browsing, context menu actions, external open/reveal, copy path, and local preview server. |
+| Headless & CLI | `osd server` runs the workbench with no window — same workspace, same runtime, same web UI, served from one self-contained directory — and `osd` drives it (or a running desktop app) from a terminal: sessions, projects, runs, files, approvals, `--wait`, `--json`. |
 | Remote access | Token-authenticated gateway that serves the real UI to a CLI, a LAN web browser, or your phone (loopback by default, LAN opt-in); read-only vs full access modes; copy a link with the token embedded to connect in one tap. API keys never cross the wire. |
+| Editor interop (ACP) | Speaks the Agent Client Protocol in both directions: run any ACP agent (Codex, Gemini CLI, Claude Code, …) as the runtime behind the ordinary UI, with its own model and reasoning selectors, history replay, and this app's MCP connectors; or let an external editor (Zed, JetBrains, Neovim, …) drive Open Science, reusing the gateway token. |
 | Browser control | The agent drives your own Chrome — profile and login state preserved — reading pages through the accessibility tree, or an isolated/private browser on demand. |
 | Notebooks | Real `.ipynb` files, Python and R notebook creation, local kernel execution, managed Jupyter environment via bundled `uv`, and an Open JupyterLab action. |
 | Runs | Append-only run logs, global SQLite run index, search/facets/pagination, local/remote surfaces, output links, logs, and reproduce prompts. |
@@ -219,7 +224,7 @@ Download the latest installer from the
 [Releases page](https://github.com/ai4s-research/open-science/releases/latest).
 
 - **macOS**: `.dmg` / `.app`, Apple Silicon and Intel, macOS 13 Ventura or later.
-- **Windows**: NSIS `.exe` and `.msi`, Windows 10/11 x64.
+- **Windows**: NSIS `.exe`, Windows 10/11 x64 — installs per user, no admin needed. A `.msi` is also published for IT-managed deployment; pick one format and stay on it.
 - **Linux**: `.deb` and `.rpm` on x86_64 Linux.
 
 The macOS packages are Developer ID signed, notarized, and stapled, so they open
@@ -234,6 +239,127 @@ sudo apt install ./Open.Science_*.deb
 # or
 sudo rpm -i Open.Science-*.rpm
 ```
+
+## Headless & CLI (`osd`)
+
+A research machine usually has no screen. `osd` is the same workbench without
+one: the same workspace layout, the same agent runtime, the same projects, and
+the same web UI — served over HTTP instead of drawn in a window.
+
+**On a server, take the archive.** `osd-<version>-<target>` from Releases
+unpacks and runs with nothing installed — verified on a bare Ubuntu container
+with no packages added at all.
+
+```bash
+# Configure the machine (works before any server is running)
+./osd auth set anthropic --key sk-…       # stays on this machine, never on the wire
+./osd model set anthropic/claude-opus-4-5 # the default for every turn
+./osd server --lan                        # prints its URL and access token
+```
+
+Keys never have to touch a file: the agent runtime inherits this process's
+environment, so `ANTHROPIC_API_KEY=sk-… ./osd server` needs no `auth set` at
+all. A self-hosted or proxied endpoint goes in the same command
+(`--base-url https://my-gateway.internal/v1`), and `osd auth ls` prints provider
+names only — no key is ever printed by anything. Changing a key needs a restart;
+the CLI says so rather than leaving you to wonder.
+
+Open the printed URL and you get the real desktop UI in a browser, phone
+included. Or drive it from a terminal — on the same machine, over SSH, or from
+your laptop:
+
+```bash
+osd project new "Reef survey"
+id=$(osd session new --project "Reef survey")
+osd session send "$id" "Fit the 2015–2024 bleaching trend and write report.md" \
+    --model anthropic/claude-sonnet-4-5 --wait
+osd fs ls figures/
+osd fs get report.md --output ./report.md
+```
+
+On Windows the same commands work in PowerShell; only the shell's own syntax
+differs:
+
+```powershell
+$id = osd session new --project "Reef survey"
+osd session send $id "Fit the 2015-2024 bleaching trend and write report.md" --wait
+```
+
+**On your own machine it is already installed.** The desktop installer carries
+`osd`, and the app puts it on your PATH the first time it starts, so a new
+terminal has the command with nothing to set up. It writes one small wrapper
+(`~/.local/bin/osd`, or `~/bin` when a terminal already searches that) — never a
+symlink, because `osd` finds its runtime next to its real executable. If that
+folder is not on PATH, the app adds it to your login profile and Settings →
+Remote Access says which file it touched. Nothing else on your shell is changed.
+
+`--wait` returns when the turn is finished, not when it was accepted, and fails
+loudly if it produced no reply. `--json` prints the API's own response for
+scripts.
+
+### Which model, and who approves what
+
+`osd model` shows the default, `osd model ls` lists what the runtime can
+actually serve (the providers this machine has credentials for, current one
+marked), and `osd model set <provider/model>` changes it — over the gateway, so
+it works against a remote server too. Any single turn can override it with
+`osd session send --model … --agent … --effort …`.
+
+Approvals still apply: the agent asks before running commands, deleting files,
+installing dependencies or reaching the network. Without a window, `--wait` names
+what is waiting and offers both answers — `osd permission ls` /
+`osd permission allow <id>` in the terminal, or the gateway URL it prints, which
+carries the token so a browser on your laptop or phone can approve it.
+
+For a machine with nobody watching, opt out explicitly:
+
+```bash
+osd approval            # what has to be asked today
+osd approval set full   # never ask — commands, deletions, installs, network
+```
+
+`full` is a deliberate choice, not a default: the agent stays confined to the
+workspace, but nothing pauses for you. `osd approval set approve` puts every
+rule back.
+
+### As a service
+
+`osd server` is an ordinary foreground process, so systemd runs it as-is. This
+unit was run end to end on Ubuntu — enable, restart, crash, stop:
+
+```ini
+# /etc/systemd/system/osd.service
+[Unit]
+Description=Open Science Desktop (headless)
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=HOME=/home/ubuntu
+ExecStart=/opt/osd/osd server --port 4788
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`sudo systemctl enable --now osd` and the printed URL and token land in
+`journalctl -u osd`. A unit is also the tidiest way to run it: systemd stops the
+whole cgroup, so the agent runtime never survives the server, however it dies.
+
+With no `--gateway` given, `osd` talks to a gateway already running on the same
+machine — including the desktop app's — so with the app open, `osd session ls`
+just works. Otherwise point it anywhere with `osd login --gateway <url> --token
+<token>`.
+
+What is *not* there without a desktop: local Jupyter kernels, native file
+dialogs, and the OS file manager — the web UI hides those rather than offering
+controls that would fail. Two more are worth knowing: **provenance and run
+records are written by the desktop client**, so a headless server keeps the
+workspace's file history through git snapshots but does not append to
+`provenance.jsonl` or the run index.
 
 ## Build from source
 
@@ -253,6 +379,9 @@ pnpm install
 bash scripts/dev/fetch-opencode.sh
 bash scripts/dev/fetch-uv.sh
 bash scripts/dev/fetch-skills.sh
+
+# The osd terminal client is bundled too — it is ours, so it is built, not fetched.
+bash scripts/dev/build-osd-sidecar.sh $(rustc -vV | sed -n 's/host: //p')
 
 # Run in development or build installers.
 pnpm --filter @ai4s/desktop tauri dev
@@ -291,6 +420,8 @@ pnpm lint
 | `runtime/harness/` | Runtime harness knowledge and operator context. |
 | `runtime/mcp/` | MCP runtime notes/configuration. |
 | `examples/` | Built-in example workspaces. |
+| `crates/osd-core/` | The server core — workspace, sidecar, gateway. No Tauri, so it runs headless. |
+| `crates/osd-cli/` | `osd`: the headless server and its client. |
 | `scripts/dev/` | Sidecar, `uv`, skill fetchers, and focused regression probes. |
 | `docs/` | Product, technical, operator, connector, and research notes. |
 
@@ -322,8 +453,8 @@ If you use Open Science Desktop in your research, please cite it:
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.3},
-  doi     = {10.5281/zenodo.21805331},
+  version = {0.5.2},
+  doi     = {10.5281/zenodo.22136307},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

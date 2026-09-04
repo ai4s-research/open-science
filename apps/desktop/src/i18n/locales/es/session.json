@@ -117,7 +117,11 @@
       "smarter": "Más inteligente",
       "followingAgent": "Siguiendo al agente {{agent}}",
       "followAgent": "Seguir al agente {{agent}}",
-      "useDefault": "Usar el modelo predeterminado global"
+      "useDefault": "Usar el modelo predeterminado global",
+      "unknownContextTitle": "Ventana de contexto desconocida",
+      "unknownContextBody": "La compactación automática no se aplica a este modelo, la conversación crece sin límite y los turnos largos acaban bloqueándose. Define la ventana en Ajustes → Modelos.",
+      "retiredTitle": "El proveedor retiró el modelo",
+      "retiredBody": "{{model}} sigue configurado, pero el proveedor ya no lo sirve, así que todos los turnos fallan. Elige otro modelo arriba."
     },
     "reference": {
       "filesAria": "Archivos del espacio de trabajo",
@@ -157,6 +161,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "Esperando la respuesta de la app anfitriona. Deja esta página abierta: se conectará por su cuenta en cuanto el anfitrión esté accesible.",
+      "title": "Iniciando el entorno de ejecución local…",
+      "body": "El entorno de ejecución del agente incluido está arrancando. En el primer inicio, macOS puede pedir permiso para acceder a tus carpetas: concédelo y esto terminará por sí solo."
+    },
     "runtime": {
       "title": "Entorno de ejecución de OpenCode",
       "bodyPrefix": "La app de escritorio ejecuta automáticamente una instancia de OpenCode incluida. En el navegador, inicia una con",
@@ -194,6 +203,7 @@
       "paused": "Pausado — el agente necesita tu respuesta a continuación",
       "startingSession": "Iniciando la sesión en su carpeta…",
       "retrying": "Error del proveedor — reintentando (intento {{attempt}})",
+      "limitReached": "Límite del proveedor alcanzado — esperar no servirá",
       "working": "Trabajando…",
       "step": "paso {{count}}"
     },
@@ -204,6 +214,7 @@
       "cancelTitle": "Detener esta revisión"
     },
     "placeholder": {
+      "starting": "Iniciando el entorno de ejecución…",
       "disconnected": "Conéctate para chatear",
       "waiting": "Esperando la respuesta…",
       "readOnly": "Acceso de solo lectura — solo visualización"
@@ -356,6 +367,26 @@
       "revert": "Revertir aquí"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "Un mensaje guardado de esta conversación no tiene texto donde el formato del modelo lo exige, normalmente una respuesta cortada nada más empezar.",
+      "tool-result-missing": "A un paso {{tool}} guardado le falta el resultado que informó.",
+      "tool-error-missing": "Un paso {{tool}} guardado falló sin registrar por qué.",
+      "tool-call-id-missing": "Un paso de herramienta guardado perdió el id que lo empareja con su resultado.",
+      "unknown": "Esta conversación ya no se puede enviar al modelo y no hemos podido identificar qué mensaje guardado lo provoca."
+    },
+    "someTool": "herramienta",
+    "offer_one": "Volver justo antes descarta {{count}} mensaje y resuelve el problema.",
+    "offer_other": "Volver justo antes descarta {{count}} mensajes y resuelve el problema.",
+    "noTarget": "No hay ningún punto anterior al que volver, así que esta conversación no se puede reparar: empieza una nueva. No se borra nada; puedes seguir leyéndola y exportándola.",
+    "action": "Reparar conversación",
+    "confirm": {
+      "title": "¿Volver a antes del mensaje dañado?",
+      "body_one": "Esto descarta {{count}} mensaje y deshace los cambios de archivos de ese turno. Tu texto vuelve al campo de entrada. No se puede deshacer.",
+      "body_other": "Esto descarta {{count}} mensajes y deshace los cambios de archivos de esos turnos. Tu texto vuelve al campo de entrada. No se puede deshacer.",
+      "action": "Volver"
+    }
+  },
   "compaction": {
     "label": "Contexto compactado",
     "autoBody": "El entorno resumió los turnos anteriores para no salirse de la ventana de contexto del modelo, y la conversación siguió aquí.",
@@ -363,6 +394,21 @@
     "overflowBody": "Ocurrió porque el contexto ya se había llenado.",
     "at": "Cuándo: {{time}}",
     "originalKept": "La conversación original completa sigue guardada en local."
+  },
+  "meta": {
+    "context": "{{used}} / {{limit}} ({{percent}} %)",
+    "contextUnknown": "{{used}} tokens",
+    "durationTitle": "Lo que tardó esta respuesta",
+    "costTitle": "Lo que costó este turno",
+    "tooltip": {
+      "input": "Entrada: {{n}}",
+      "cacheRead": "Lectura de caché: {{n}}",
+      "cacheWrite": "Escritura de caché: {{n}}",
+      "output": "Salida: {{n}}",
+      "reasoning": "Razonamiento: {{n}}",
+      "context": "Contexto en uso: {{used}} de {{limit}}",
+      "contextUnknown": "Contexto en uso: {{used}} (ventana desconocida)"
+    }
   },
   "selection": {
     "aria": "Acciones para el texto seleccionado",
@@ -381,6 +427,13 @@
     "count_other": "{{count}} tareas",
     "empty": "Todavía no hay subagentes en esta conversación.",
     "noDetail": "No se registraron pasos para este subagente.",
-    "loadingDetail": "Cargando…"
+    "loadingDetail": "Cargando…",
+    "openRow": "Abrir este subagente en el panel"
+  },
+  "splitDestination": {
+    "title": "La sesión del nuevo panel se creará en",
+    "continueIn": "Continuar en {{name}}",
+    "newFolder": "Carpeta nueva",
+    "chooseOther": "Elegir otra carpeta…"
   }
 }

@@ -1,7 +1,7 @@
 name: build
 
-# Builds macOS (.dmg/.app), Windows (NSIS .exe / .msi) and Linux
-# (.deb/.rpm/.AppImage) installers. Each platform's installer can only be
+# Builds macOS (.dmg/.app), Windows (NSIS .exe + WiX .msi) and Linux
+# (.deb/.rpm) installers. Each platform's installer can only be
 # produced on its own runner — hence the matrix. On a `v*` tag push the
 # installers are also attached to a draft GitHub Release.
 
@@ -13,6 +13,13 @@ on:
 # tauri-action needs to create the draft release and upload assets.
 permissions:
   contents: write
+
+# One build per ref at a time. A tag push produced TWO identical runs one second
+# apart here, and both went on to write the same draft release — duplicate
+# assets, and a race over which one wins. Newer wins; the older is cancelled.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -58,7 +65,7 @@ jobs:
       - name: Cache cargo
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: apps/desktop/src-tauri
+          workspaces: .
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -82,6 +89,43 @@ jobs:
       - name: Fetch bundled goal plugin
         shell: bash
         run: bash scripts/dev/fetch-goal-plugin.sh
+
+      # A fetch script can fail without failing its step: a bash syntax error in
+      # fetch-agent-browser.sh aborted the script on every platform, but macOS's
+      # bash 3.2 still exited 0, so macOS shipped installers missing the bundled
+      # browser skill while Linux and Windows failed loudly. Assert the bundled
+      # resources exist rather than trusting the fetch steps' exit codes.
+      - name: Verify bundled resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""
+          case "${{ matrix.target }}" in *windows*) ext=".exe" ;; esac
+          status=0
+          for path in \
+            runtime/skills/external/ai4s-skills \
+            runtime/skills/external/anthropic-skills \
+            runtime/skills/external/agent-browser/open-science-browser/SKILL.md \
+            runtime/goal-plugin/goal-plugin.server.js \
+            runtime/browser-plugin/browser-guard.ts \
+            runtime/history-plugin/history-guard.ts \
+            "apps/desktop/src-tauri/binaries/opencode-${{ matrix.target }}$ext" \
+            "apps/desktop/src-tauri/binaries/uv-${{ matrix.target }}$ext" \
+            "apps/desktop/src-tauri/binaries/agent-browser-${{ matrix.target }}$ext"; do
+            if [ ! -e "$path" ]; then
+              echo "Missing bundled resource: $path" >&2
+              status=1
+            fi
+          done
+          exit "$status"
+
+      # `osd` is a sidecar like the other three, except that it is ours and
+      # compiles the web client into itself — so it is built here, BEFORE the
+      # Tauri build bundles it. The step fails loudly if the binary does not
+      # appear, because Tauri would otherwise fail its own externalBin check.
+      - name: Build the osd sidecar
+        shell: bash
+        run: bash scripts/dev/build-osd-sidecar.sh ${{ matrix.target }}
 
       - name: Configure macOS release signing
         if: runner.os == 'macOS'
@@ -126,10 +170,17 @@ jobs:
           # Linux: deb+rpm only. AppImage is off because linuxdeploy runs ldd
           # on every bundled ELF and ldd exits 1 on the Bun-built opencode
           # sidecar, aborting the whole bundle (tauri-apps/tauri#8929).
+          # Windows ships BOTH: the NSIS .exe is the default download
+          # (per-user, no admin), and the WiX .msi exists for IT-managed
+          # deployment, which is what Group Policy and Intune consume — 6-10%
+          # of Windows downloads have taken it every release. They must not be
+          # presented as interchangeable: installing one over the other leaves
+          # the app registered twice, which is the mess issue #113 sits next
+          # to. The release notes label them by audience.
           # macOS submits the signed app without blocking inside Tauri. The
           # following steps preserve that exact app, wait with a bounded retry
           # loop, staple it, and create the final DMG.
-          args: --target ${{ matrix.target }} ${{ startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ENABLED == 'true' && '--bundles app --skip-stapling' || startsWith(matrix.platform, 'macos') && '--bundles dmg' || startsWith(matrix.platform, 'ubuntu') && '--bundles deb,rpm' || '' }}
+          args: --target ${{ matrix.target }} ${{ startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ENABLED == 'true' && '--bundles app --skip-stapling' || startsWith(matrix.platform, 'macos') && '--bundles dmg' || startsWith(matrix.platform, 'ubuntu') && '--bundles deb,rpm' || '--bundles nsis,msi' }}
           # On a v* tag push, attach installers to a draft GitHub Release.
           # Empty tagName (workflow_dispatch) skips release creation.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
@@ -145,8 +196,11 @@ jobs:
             - Developer ID-signed and notarized. Open the DMG and drag **Open Science** into Applications.
             - When you use an existing project in place, allow access to its folder if macOS asks.
 
-            **Windows** — `…_x64-setup.exe` or `…_x64_en-US.msi`
+            **Windows** — `…_x64-setup.exe` (start here) · `…_x64_en-US.msi` (IT-managed deployment only)
             - SmartScreen shows *"Windows protected your PC"* → **More info** → **Run anyway**.
+            - Upgrading: choose **"Install over it, keeping my data"**. Removing the old version first is only for repairing a failed upgrade.
+            - Uninstalling: leave **"Also delete my sessions, run history and settings"** unchecked unless you mean it — it erases `%APPDATA%\com.ai4s.workbench`.
+            - Pick one format and stay on it. Installing the `.exe` over an `.msi` install (or the reverse) registers the app twice; uninstall the old one from **Settings → Apps** first.
 
             **Linux** — `.deb` / `.rpm`
             - `sudo apt install ./…_amd64.deb`  or  `sudo rpm -i …x86_64.rpm`
@@ -157,12 +211,45 @@ jobs:
 
             <!-- Prepend this release's changelog above this line before publishing. -->
 
+      # `osd` — the same workbench with no window, for machines that have no
+      # display to put one on. Packaged after the Tauri build so it reuses the
+      # frontend that build just produced (the web client is compiled into the
+      # binary) and the sidecars fetched above.
+      - name: Package the osd CLI
+        id: osd
+        if: steps.tauri_build.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=$(bash scripts/release/package-osd.sh "${{ matrix.target }}" | tail -1)
+          # Hand the next step a WORKSPACE-RELATIVE path. `upload-artifact` is a
+          # Node action, and on Windows it cannot resolve the MSYS path this
+          # shell speaks (/d/a/…), so an absolute one uploads nothing at all.
+          archive="${archive#"$PWD/"}"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          ls -la "$archive"
+
+      - name: Upload the osd CLI
+        if: steps.osd.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: osd-${{ matrix.target }}
+          path: ${{ steps.osd.outputs.archive }}
+          if-no-files-found: error
+
+      - name: Attach the osd CLI to the draft release
+        if: steps.osd.outcome == 'success' && github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.osd.outputs.archive }}" --clobber
+
       - name: Preserve submitted macOS app
         id: macos_app
         if: always() && runner.os == 'macOS' && env.MACOS_SIGNING_ENABLED == 'true'
         shell: bash
         run: |
-          app_path=$(find "apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit 2>/dev/null || true)
+          app_path=$(find "target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit 2>/dev/null || true)
           if [ -z "$app_path" ]; then
             echo "::warning::No macOS app bundle was produced."
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -178,7 +265,7 @@ jobs:
 
           archive_dir="$RUNNER_TEMP/macos-submitted-app"
           archive_path="$archive_dir/Open.Science_${version}_${suffix}.submitted.app.zip"
-          dmg_path="$PWD/apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/Open.Science_${version}_${suffix}.dmg"
+          dmg_path="$PWD/target/${{ matrix.target }}/release/bundle/dmg/Open.Science_${version}_${suffix}.dmg"
           mkdir -p "$archive_dir"
           ditto -c -k --keepParent --sequesterRsrc "$app_path" "$archive_path"
 
@@ -226,10 +313,9 @@ jobs:
         with:
           name: ai4s-workbench-${{ matrix.target }}
           path: |
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            target/${{ matrix.target }}/release/bundle/**/*.dmg
+            target/${{ matrix.target }}/release/bundle/**/*.exe
+            target/${{ matrix.target }}/release/bundle/**/*.msi
+            target/${{ matrix.target }}/release/bundle/**/*.deb
+            target/${{ matrix.target }}/release/bundle/**/*.rpm
           if-no-files-found: warn
