@@ -102,5 +102,10 @@
     "title": "404 — Nicht gefunden",
     "hint": "Diese Seite existiert nicht.",
     "backLink": "Zurück zum Arbeitsbereich"
+  },
+  "notify": {
+    "completeTitle": "Turn abgeschlossen",
+    "failedTitle": "Turn fehlgeschlagen",
+    "interruptedTitle": "Turn unterbrochen"
   }
 }

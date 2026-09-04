@@ -454,5 +454,11 @@
     "reveal": "Eingabe anzeigen",
     "hide": "Eingabe verbergen",
     "privacy": "Geht nur an das ssh auf diesem Rechner. Wird nie gespeichert, protokolliert oder in die Provenienz geschrieben."
+  },
+  "notify": {
+    "title": "Benachrichtigungen",
+    "hint": "Native Systembenachrichtigungen für Dinge, die fertig werden, während du nicht hinschaust.",
+    "turnCompleteTitle": "Benachrichtigen, wenn ein Turn endet",
+    "turnCompleteHint": "Sendet eine Systembenachrichtigung, wenn ein Turn endet — fertig, fehlgeschlagen oder unterbrochen — damit du nicht auf den Statuspunkt achten musst."
   }
 }

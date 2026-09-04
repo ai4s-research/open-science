@@ -84,7 +84,7 @@ import {
 import { isGoalInjectedPrompt } from "./goalPrompts";
 import { findHistoryDefects, repairTarget } from "./malformedHistory";
 import { runSync, syncDir } from "./syncRunner";
-import { notifyPermissionRequest } from "./systemNotification";
+import { notifyPermissionRequest, notifyTurnComplete } from "./systemNotification";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { listProvidersWithAvailability, ZEN_PROVIDER_ID } from "./zenModels";
 import { toast } from "@/lib/toast";
@@ -136,9 +136,19 @@ function initialReasoningVariant(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(REASONING_KEY) || null;
 }
+/** Settings key for the optional turn-completion system notification. Off by
+ *  default: a notification on every finished turn would nag, so it is the
+ *  user's call. Persisted in localStorage like its sibling AUTO_REVIEW_KEY. */
+const TURN_NOTIFY_KEY = "ai4s.turnNotify.v1";
+
 function initialAutoReview(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(AUTO_REVIEW_KEY) === "1";
+}
+
+function initialTurnNotify(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(TURN_NOTIFY_KEY) === "1";
 }
 
 export interface Thread {
@@ -222,6 +232,10 @@ interface RuntimeState {
    *  which also makes it work in the gateway web client. */
   autoReview: boolean;
   setAutoReview: (enabled: boolean) => void;
+  /** Optional native notification when a turn settles (done / failed /
+   *  interrupted). Off by default; persisted locally like autoReview. */
+  turnNotify: boolean;
+  setTurnNotify: (enabled: boolean) => void;
   /** Non-blocking reviewer activity keyed by the foreground parent session. */
   backgroundReviews: Record<string, "queued" | "running">;
   cancelAutoReview: (sessionId: string) => void;
@@ -828,6 +842,12 @@ const relayedSignIns = new Set<string>();
  *  and held across every trailing event; the next turn clears it (`turn → sid`). */
 const interruptedSessions = new Set<string>();
 
+/** Sessions whose CURRENT turn ended in a provider/runtime error (an `error`
+ *  SSE event), so the completion notification can tell "failed" from "done"
+ *  — `session.idle` fires after a failed turn too, with no flag of its own.
+ *  Cleared when the next turn starts, like interruptedSessions. */
+const erroredSessions = new Set<string>();
+
 // ---- Auto-review (#72) ----
 // Per-token review state stays outside Zustand so a background reviewer never
 // repaints the foreground pane. The store only receives queued/running
@@ -1319,6 +1339,7 @@ async function performTurn(
     }
     const sid = id;
     interruptedSessions.delete(sid); // a fresh turn folds its events normally
+    erroredSessions.delete(sid); // …and its outcome label starts clean
     void logDebug(`turn → ${sid}`);
     // A fresh turn restarts step counting (the SDK resets its own counter on idle).
     if (get().stepCounts[sid])
@@ -1668,12 +1689,51 @@ function drainReviewQueue(set: StoreSet, get: StoreGet): void {
  * turn ended in a user interrupt: there is nothing to review, but the slot still
  * has to be released if the interrupted turn WAS the review.
  */
+/** Fire the optional turn-completion notification (Settings → turn notify).
+ *  Called from onTurnIdle BEFORE its early returns, so it also fires for
+ *  users whose turn goes down the auto-review path. Distinguishes the three
+ *  outcomes via the markers the event handler keeps: interruptedSessions
+ *  (user Stop) and erroredSessions (a real provider/runtime error).
+ *
+ *  Deliberately silent for: background reviews (a second hidden turn the user
+ *  did not send — notifying on those would be noise), and subagent turns
+ *  (their settlement is part of the parent turn the user is watching). */
+function notifyTurnSettled(get: StoreGet, sid: string): void {
+  if (!get().turnNotify) return;
+  if (get().backgroundReviews[sid] === "running" || get().backgroundReviews[sid] === "queued") return;
+  if (get().sessionParents[sid]) return;
+  if (interruptedSessions.has(sid)) {
+    void notifyTurnComplete({
+      title: i18n.t("pages:notify.interruptedTitle"),
+      body: sessionTitleFor(get, sid),
+    });
+    return;
+  }
+  if (erroredSessions.has(sid)) {
+    void notifyTurnComplete({
+      title: i18n.t("pages:notify.failedTitle"),
+      body: sessionTitleFor(get, sid),
+    });
+    return;
+  }
+  void notifyTurnComplete({
+    title: i18n.t("pages:notify.completeTitle"),
+    body: sessionTitleFor(get, sid),
+  });
+}
+
+/** The session's own title for a notification body, falling back to its id. */
+function sessionTitleFor(get: StoreGet, sid: string): string {
+  return get().sessions.find((s) => s.id === sid)?.title || sid;
+}
+
 function onTurnIdle(set: StoreSet, get: StoreGet, sid: string, reviewable: boolean): void {
   // Before any of the early returns below. A turn settling is exactly when the
   // mirror is worth refreshing, and both of those returns are ordinary paths —
   // with auto-review on, the normal turn takes one of them, so scheduling at
   // the end of this function meant sync never ran for those users at all.
   scheduleConversationSync(get);
+  notifyTurnSettled(get, sid);
   if (finishAutoReview(set, get, sid, reviewable)) return;
   // This turn's own changes are settled either way, so clear them. A review the
   // session was already OWED is different: the files that earned it are on disk
@@ -1963,6 +2023,14 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     }
   },
   backgroundReviews: {},
+  turnNotify: initialTurnNotify(),
+  setTurnNotify: (enabled) => {
+    if (typeof window !== "undefined") {
+      if (enabled) window.localStorage.setItem(TURN_NOTIFY_KEY, "1");
+      else window.localStorage.removeItem(TURN_NOTIFY_KEY);
+    }
+    set({ turnNotify: enabled });
+  },
   cancelAutoReview: (sessionId) => {
     const queuedAt = reviewQueue.indexOf(sessionId);
     if (queuedAt >= 0) reviewQueue.splice(queuedAt, 1);
@@ -2545,6 +2613,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           return;
         }
         if (sid && interruptedSessions.has(sid)) return;
+        // A real failure (not an interrupt's own "aborted"): remember it so the
+        // completion notification can say "failed" instead of "done".
+        if (sid) erroredSessions.add(sid);
         // The retry notice this session is carrying (about to be cleared below)
         // is the only place the CAUSE was ever named: the final error text says
         // what failed, the action said why the account could not make the call.

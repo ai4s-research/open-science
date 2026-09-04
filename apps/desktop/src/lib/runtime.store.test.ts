@@ -87,6 +87,7 @@ const mocks = vi.hoisted(() => ({
     return "http://127.0.0.1:1";
   }),
   notifyPermissionRequest: vi.fn(async () => true),
+  notifyTurnComplete: vi.fn(async () => true),
   startRuntime: vi.fn(async () => "http://127.0.0.1:1"),
   restartRuntime: vi.fn(async () => "http://127.0.0.1:2"),
   /** What Rust reports about sidecars that EXITED (#118): null = none have. */
@@ -124,6 +125,7 @@ vi.mock("./tauri", () => ({
 vi.mock("./kernel", () => ({ kernelReset: mocks.kernelReset }));
 vi.mock("./systemNotification", () => ({
   notifyPermissionRequest: mocks.notifyPermissionRequest,
+  notifyTurnComplete: mocks.notifyTurnComplete,
 }));
 vi.mock("@ai4s/sdk", () => {
   class OpenCodeClient {
@@ -2797,6 +2799,109 @@ describe("auto-review on turn completion", () => {
     finishReview(0);
     await vi.waitFor(() => expect(reviewCalls()).toHaveLength(2));
     expect(reviewCalls()[1]![0]).toBe("ses_review_2");
+  });
+});
+
+describe("turn-completion notification", () => {
+  beforeEach(async () => {
+    useRuntimeStore.getState().disconnect();
+    await useRuntimeStore.getState().connect();
+    mocks.notifyTurnComplete.mockClear();
+  });
+
+  const withNotifyOn = (extra: Record<string, unknown> = {}) => {
+    mocks.messages = [
+      { role: "user", id: "msg_user", completed: 1, parts: [{ type: "text", text: "do it" }] },
+      {
+        role: "assistant",
+        id: "msg_checkpoint",
+        completed: 2,
+        parts: [{ type: "text", text: "done" }],
+      },
+    ];
+    // listSessions feeds refreshSessions, which sendPrompt triggers — set it so
+    // the session keeps its title instead of being wiped to an empty list.
+    mocks.sessionList = [{ id: "ses_new", title: "My session" }];
+    useRuntimeStore.setState({
+      turnNotify: true,
+      sessions: [{ id: "ses_new", title: "My session" }],
+      ...extra,
+    } as never);
+  };
+
+  it("notifies 'complete' when an ordinary turn goes idle", async () => {
+    withNotifyOn();
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Turn complete", body: "My session" }),
+    );
+  });
+
+  it("notifies 'failed' when the turn ended in an error", async () => {
+    withNotifyOn();
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({ type: "error", sessionId: "ses_new", message: "model unavailable" });
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Turn failed", body: "My session" }),
+    );
+  });
+
+  it("notifies 'interrupted' when the user stopped the turn", async () => {
+    withNotifyOn();
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.abortTrailing = [{ type: "session.idle", sessionId: "ses_new" }];
+    await useRuntimeStore.getState().interrupt("ses_new");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Turn interrupted", body: "My session" }),
+    );
+  });
+
+  it("stays silent when the setting is off", async () => {
+    mocks.messages = [
+      { role: "user", id: "msg_user", completed: 1, parts: [{ type: "text", text: "do it" }] },
+    ];
+    useRuntimeStore.setState({
+      turnNotify: false,
+      sessions: [{ id: "ses_new", title: "My session" }],
+    } as never);
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    expect(mocks.notifyTurnComplete).not.toHaveBeenCalled();
+  });
+
+  it("still notifies when auto-review is on and the turn takes that path", async () => {
+    // Auto-review users hit an early return inside onTurnIdle; the notification
+    // must fire BEFORE that return (same rule as scheduleConversationSync).
+    withNotifyOn({
+      autoReview: true,
+      agents: [
+        { name: "build", description: "", mode: "primary" as const },
+        { name: "reviewer", description: "", mode: "all" as const },
+      ],
+    });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({
+      type: "tool.updated",
+      sessionId: "ses_new",
+      callId: "c-ses_new",
+      tool: "write",
+      status: "success",
+      input: { filePath: "analysis.py" },
+    });
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    expect(mocks.notifyTurnComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Turn complete", body: "My session" }),
+    );
+  });
+
+  it("does not notify for a subagent's settlement", async () => {
+    withNotifyOn({ sessionParents: { ses_new: "ses_parent" } });
+    await useRuntimeStore.getState().sendPrompt("hi");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+    expect(mocks.notifyTurnComplete).not.toHaveBeenCalled();
   });
 });
 

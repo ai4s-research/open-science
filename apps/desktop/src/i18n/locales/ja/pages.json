@@ -102,5 +102,10 @@
     "title": "404 — 見つかりません",
     "hint": "このページは存在しません。",
     "backLink": "ワークスペースに戻る"
+  },
+  "notify": {
+    "completeTitle": "ターン完了",
+    "failedTitle": "ターン失敗",
+    "interruptedTitle": "ターン中断"
   }
 }

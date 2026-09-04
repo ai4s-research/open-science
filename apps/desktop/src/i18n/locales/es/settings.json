@@ -454,5 +454,11 @@
     "reveal": "Mostrar lo escrito",
     "hide": "Ocultar lo escrito",
     "privacy": "Solo se envía al ssh de este equipo. Nunca se guarda, ni se registra, ni entra en la procedencia."
+  },
+  "notify": {
+    "title": "Notificaciones",
+    "hint": "Notificaciones nativas del sistema para cosas que terminan mientras no estás mirando.",
+    "turnCompleteTitle": "Notificar cuando termine un turno",
+    "turnCompleteHint": "Envía una notificación del sistema cuando un turno termina — completado, fallido o interrumpido — para que no tengas que vigilar el punto de estado."
   }
 }

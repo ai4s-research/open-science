@@ -454,5 +454,11 @@
     "reveal": "Afficher la saisie",
     "hide": "Masquer la saisie",
     "privacy": "Transmis uniquement au ssh de cette machine. Jamais stocké, journalisé, ni inscrit dans la provenance."
+  },
+  "notify": {
+    "title": "Notifications",
+    "hint": "Notifications système natives pour ce qui se termine pendant que vous ne regardez pas.",
+    "turnCompleteTitle": "Notifier quand un tour se termine",
+    "turnCompleteHint": "Envoie une notification système quand un tour se termine — terminé, échoué ou interrompu — pour ne pas avoir à surveiller le point d'état."
   }
 }

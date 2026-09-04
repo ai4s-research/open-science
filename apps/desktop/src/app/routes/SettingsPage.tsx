@@ -117,6 +117,8 @@ export function SettingsPage() {
   const runtimeKind = useRuntimeStore((s) => s.runtimeKind);
   const autoReview = useRuntimeStore((s) => s.autoReview);
   const setAutoReview = useRuntimeStore((s) => s.setAutoReview);
+  const turnNotify = useRuntimeStore((s) => s.turnNotify);
+  const setTurnNotify = useRuntimeStore((s) => s.setTurnNotify);
   const connected = status === "ready";
   const updateEnabled = useUpdateStore((s) => s.enabled);
   const setUpdateEnabled = useUpdateStore((s) => s.setEnabled);
@@ -1729,6 +1731,27 @@ export function SettingsPage() {
             />
           </div>
         </Section>
+        )}
+
+        {/* ---- Turn-completion notifications ---- */}
+        {/* Desktop only: the gateway web client has no native notifications.
+            Off by default; fires one system notification per settled turn. */}
+        {section === "general" && isTauri && runtimeKind !== "acp" && (
+          <Section title={t("notify.title")} hint={t("notify.hint")} flush>
+            <div className="divide-y divide-faint">
+              <Row
+                title={t("notify.turnCompleteTitle")}
+                hint={t("notify.turnCompleteHint")}
+                control={
+                  <Switch
+                    checked={turnNotify}
+                    onChange={setTurnNotify}
+                    label={t("notify.turnCompleteTitle")}
+                  />
+                }
+              />
+            </div>
+          </Section>
         )}
 
         {/* ---- Conversation sync across the user's own machines (#124) ---- */}
