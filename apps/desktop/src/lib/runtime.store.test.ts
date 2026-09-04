@@ -3,6 +3,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  /** Desktop or plain-browser runtime (drives the isTauri gates). */
+  isTauri: true,
   /** The host's active workspace folder, as `active-workspace.txt` holds it.
    *  `setWorkspace`/`newDatedWorkspace` move it and `workspacePath` reads it
    *  back, because that is the contract the Rust side keeps: creating a dated
@@ -103,7 +105,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./tauri", () => ({
-  isTauri: true,
+  get isTauri() {
+    return mocks.isTauri;
+  },
   logDebug: async () => {},
   detectTools: async () => [],
   startRuntime: mocks.startRuntime,
@@ -2807,6 +2811,7 @@ describe("turn-completion notification", () => {
     useRuntimeStore.getState().disconnect();
     await useRuntimeStore.getState().connect();
     mocks.notifyTurnComplete.mockClear();
+    mocks.isTauri = true;
   });
 
   const withNotifyOn = (extra: Record<string, unknown> = {}) => {
@@ -2870,6 +2875,23 @@ describe("turn-completion notification", () => {
     await useRuntimeStore.getState().sendPrompt("hi");
     mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
     expect(mocks.notifyTurnComplete).not.toHaveBeenCalled();
+  });
+
+  it("stays silent outside the desktop app (gateway web / browser dev)", async () => {
+    // Desktop only: the Settings row is hidden when not in Tauri, and the
+    // notification plugin degrades to the browser Notification API there — so
+    // even a manually set localStorage flag must not fire browser notifications
+    // that the desktop-only contract never promised.
+    mocks.isTauri = false;
+    try {
+      withNotifyOn();
+      await useRuntimeStore.getState().sendPrompt("hi");
+      mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mocks.notifyTurnComplete).not.toHaveBeenCalled();
+    } finally {
+      mocks.isTauri = true;
+    }
   });
 
   it("still notifies when auto-review is on and the turn takes that path", async () => {

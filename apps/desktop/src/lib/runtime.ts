@@ -1704,6 +1704,11 @@ function drainReviewQueue(set: StoreSet, get: StoreGet): void {
  *  outcomes via the markers the event handler keeps: interruptedSessions
  *  (user Stop) and erroredSessions (a real provider/runtime error).
  *
+ *  Desktop only — the notification plugin falls back to the browser
+ *  Notification API in a plain browser, so the isTauri gate keeps the
+ *  desktop-only contract in code, not just behind the hidden Settings row
+ *  (the gateway web client and `pnpm dev` have no native notifications).
+ *
  *  At most ONE notification per settled turn: a session error is followed by
  *  its own session.idle, and a user abort streams several trailing idles, so
  *  onTurnIdle — and this — runs once per trailing event. The
@@ -1714,6 +1719,7 @@ function drainReviewQueue(set: StoreSet, get: StoreGet): void {
  *  did not send — notifying on those would be noise), and subagent turns
  *  (their settlement is part of the parent turn the user is watching). */
 function notifyTurnSettled(get: StoreGet, sid: string): void {
+  if (!isTauri) return;
   if (!get().turnNotify) return;
   if (get().backgroundReviews[sid] === "running" || get().backgroundReviews[sid] === "queued") return;
   if (get().sessionParents[sid]) return;
