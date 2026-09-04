@@ -1264,27 +1264,6 @@ export function SettingsPage() {
                     </button>
                     {showCustom && (
                       <div className="space-y-2 px-3 pb-3">
-                        {/* A preset only fills the fields below; everything stays
-                            editable, so this is a shortcut past typing a base URL
-                            and a context window, not a special-cased provider. */}
-                        <label className="block">
-                          <span className="mb-1 block text-xs text-muted">
-                            {t("providers.customPresetLabel")}
-                          </span>
-                          <select
-                            aria-label={t("providers.customPresetLabel")}
-                            value={cPresetId}
-                            onChange={(e) => applyCustomPreset(e.target.value)}
-                            className={selectCls("w-full")}
-                          >
-                            <option value="">{t("providers.customPresetPlaceholder")}</option>
-                            {CUSTOM_PROVIDER_PRESETS.map((preset) => (
-                              <option key={preset.id} value={preset.id}>
-                                {t(preset.labelKey)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
                         <div className="flex gap-2">
                           <input
                             value={cName}
@@ -1368,9 +1347,31 @@ export function SettingsPage() {
                             })}
                           </div>
                         )}
-                        <button className={btnAccent()} onClick={() => void saveCustom()} disabled={busy}>
-                          {t("providers.addEndpoint")}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button className={btnAccent()} onClick={() => void saveCustom()} disabled={busy}>
+                            {t("providers.addEndpoint")}
+                          </button>
+                          {/* A shortcut, and deliberately not the first thing in
+                              this form: it only fills the fields above, all of
+                              which stay editable, and a provider reaches the app
+                              the same way whether or not it is listed here. Given
+                              the top slot it would read as the way to add an
+                              endpoint, which would put the handful of vendors we
+                              happen to carry ahead of every other. */}
+                          <select
+                            aria-label={t("providers.customPresetLabel")}
+                            value={cPresetId}
+                            onChange={(e) => applyCustomPreset(e.target.value)}
+                            className={chipCls("ml-auto pr-1 text-xs text-muted")}
+                          >
+                            <option value="">{t("providers.customPresetPlaceholder")}</option>
+                            {CUSTOM_PROVIDER_PRESETS.map((preset) => (
+                              <option key={preset.id} value={preset.id}>
+                                {t(preset.labelKey)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     )}
                   </div>
