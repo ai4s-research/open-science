@@ -392,6 +392,57 @@ describe("historyToThread", () => {
     expect(t.blocks[2]).toMatchObject({ kind: "tool-call", status: "success" });
   });
 
+  it("reoffers the repair on reload, naming the part that makes the session unsendable", () => {
+    // The damage is on disk, so reopening the session hits the same wall. Without
+    // this the way out would exist only in the tab that was open when it first
+    // failed — and the reporter of #114 had already closed that tab.
+    const t = historyToThread([
+      { role: "user", id: "m1", parts: [{ type: "text", text: "plot it" }] },
+      {
+        role: "assistant",
+        id: "m2",
+        error: "Invalid prompt: The messages do not match the ModelMessage[] schema.",
+        parts: [{ type: "tool", tool: "bash", callID: "c1", state: { status: "completed" } }],
+      },
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toContain("history-repair");
+    expect(t.blocks[t.blocks.length - 1]).toMatchObject({
+      kind: "history-repair",
+      reason: "tool-result-missing",
+      tool: "bash",
+      target: { messageID: "m1", text: "plot it" },
+      drops: 2,
+    });
+  });
+
+  it("offers the repair once, however many times the session retried into the wall", () => {
+    // Once the history is malformed every later turn fails identically, so a
+    // reopened session shows a run of the same error — the reporter of #114 had
+    // three. The fix is the same for all of them; three identical cards would
+    // read as three separate problems.
+    const failed = "Invalid prompt: The messages do not match the ModelMessage[] schema.";
+    const t = historyToThread([
+      { role: "user", id: "u1", parts: [{ type: "text", text: "go" }] },
+      { role: "assistant", id: "a1", parts: [{ type: "text" }] },
+      { role: "user", id: "u2", parts: [{ type: "text", text: "again" }] },
+      { role: "assistant", id: "a2", error: failed, parts: [{ type: "text", text: "" }] },
+      { role: "user", id: "u3", parts: [{ type: "text", text: "hello?" }] },
+      { role: "assistant", id: "a3", error: failed, parts: [{ type: "text", text: "" }] },
+    ]);
+    const kinds = t.blocks.map((b) => b.kind);
+    expect(kinds.filter((k) => k === "history-repair")).toHaveLength(1);
+    // …and it sits under the LAST failure, where the user is looking.
+    expect(kinds[kinds.length - 1]).toBe("history-repair");
+  });
+
+  it("offers no repair for an ordinary failed turn — only this one is unretryable", () => {
+    const t = historyToThread([
+      { role: "user", id: "m1", parts: [{ type: "text", text: "plot it" }] },
+      { role: "assistant", id: "m2", error: "Overloaded", parts: [{ type: "text", text: "" }] },
+    ]);
+    expect(t.blocks.map((b) => b.kind)).not.toContain("history-repair");
+  });
+
   it("recovers a reloaded turn's tokens and timings, so reopening keeps the meta line", () => {
     const usage = { input: 3_000, output: 900, reasoning: 0, cacheRead: 118_000, cacheWrite: 2_100, cost: 0.42 };
     const t = historyToThread([
@@ -556,6 +607,20 @@ describe("historyToThread", () => {
       { kind: "user", text: "hi" },
       { kind: "status-line", text: "no channel available for this model", tone: "error" },
     ]);
+  });
+
+  it("explains a reloaded failure too — a restart is when the user knows least", () => {
+    const msgs: HistoryMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "hi" }] },
+      {
+        role: "assistant",
+        completed: 2,
+        error: "Free usage exceeded, subscribe to Go",
+        parts: [],
+      },
+    ];
+    const line = historyToThread(msgs).blocks.slice(-1)[0];
+    expect(line.kind === "status-line" && line.text).toMatch(/OpenCode Zen/);
   });
 
   it("keeps user-interrupted turns quiet: an aborted error adds no red line", () => {
@@ -742,9 +807,75 @@ describe("runtime error explanations", () => {
       "Invalid prompt: The messages do not match the ModelMessage[] schema.",
     );
     expect(out).toContain("ModelMessage[] schema"); // the SDK's own words survive
-    expect(out).toMatch(/tool call left without/i);
     expect(out).toMatch(/every retry resends/i);
-    expect(out).toMatch(/new session/i);
+    expect(out).toMatch(/retrying cannot work/i);
+  });
+
+  it("does not blame a cause it cannot know for a malformed history", () => {
+    // This line used to assert the damage was "a tool call left without its
+    // result". That was wrong — the runtime backfills an interrupted tool call
+    // with a synthetic result, and sessions carrying one keep working for
+    // hundreds of messages — and we published it on #114. The thread names the
+    // real part from the stored history instead; the error text guesses at
+    // nothing, or it sends people to delete history that was fine.
+    const out = explainRuntimeError(
+      "Invalid prompt: The messages do not match the ModelMessage[] schema.",
+    );
+    expect(out).not.toMatch(/tool call left without/i);
+  });
+
+  it("names the provider behind a spent free allowance, from the runtime's own action", () => {
+    // #117: the final error text names no provider, so the cause has to come
+    // from the action the retry status carried. The reporter filed this as the
+    // app's own quota being used up.
+    const out = explainRuntimeError("Free usage exceeded", {
+      reason: "free_tier_limit",
+      provider: "opencode",
+    });
+    expect(out).toContain("Free usage exceeded"); // upstream's words survive
+    expect(out).toMatch(/OpenCode Zen/);
+    expect(out).toMatch(/not a quota in this app/i);
+    expect(out).toContain("Settings → Models");
+  });
+
+  it("does not claim Zen for another provider's spent allowance", () => {
+    const out = explainRuntimeError("Free usage exceeded", {
+      reason: "free_tier_limit",
+      provider: "some-gateway",
+    });
+    expect(out).toContain("some-gateway");
+    expect(out).not.toMatch(/Zen/);
+  });
+
+  it("reads Zen's own free-tier constant with no action to go by", () => {
+    // A reloaded history has no action — but this whole sentence is a constant
+    // of the runtime's (GO_UPSELL_MESSAGE), so it is proof of the provider.
+    expect(explainRuntimeError("Free usage exceeded, subscribe to Go")).toMatch(/OpenCode Zen/);
+    // The prefix alone is not proof, and inventing a provider would be a lie.
+    expect(explainRuntimeError("Free usage exceeded on this endpoint")).toBe(
+      "Free usage exceeded on this endpoint",
+    );
+  });
+
+  it("offers a way out of a plan limit instead of only its reset time", () => {
+    const out = explainRuntimeError(
+      "Weekly usage limit reached. It will reset in 3 days 2 hours - https://opencode.ai/workspace/w/go",
+    );
+    expect(out).toContain("Settings → Models");
+    expect(
+      explainRuntimeError("Overloaded", { reason: "account_rate_limit" }),
+    ).toContain("Settings → Models");
+  });
+
+  it("separates a request that never reached the provider from a provider error", () => {
+    const out = explainRuntimeError(
+      "Cannot connect to API: The socket connection was closed unexpectedly",
+    );
+    expect(out).toMatch(/did not reach the provider/i);
+    expect(out).toMatch(/VPN or proxy/i);
+    // Not a blanket match on the word "connect".
+    const other = "The provider could not connect to its own upstream";
+    expect(explainRuntimeError(other)).toBe(other);
   });
 
   it("keeps the dangling-model hint and passes anything else through", () => {

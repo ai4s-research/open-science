@@ -1,7 +1,7 @@
 // Thin bridge to the Tauri Rust side. In a plain browser these are no-ops so the
 // app still runs in `pnpm dev`; in the packaged desktop app they invoke Rust commands.
 
-import { isGatewayWeb, gatewayGet } from "./webMode";
+import { isGatewayWeb, gatewayGet, gatewayPost } from "./webMode";
 
 export const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -44,6 +44,23 @@ export async function restartRuntime(): Promise<string | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<string>("restart_runtime");
+}
+
+/** A sidecar that exited, with its own last words. `exits` counts every one
+ *  since the app started: a runtime that is slow to listen has none, one that
+ *  refuses to start has a new one per attempt (#118). */
+export async function runtimeFailure(): Promise<{ exits: number; message: string } | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<{ exits: number; message: string } | null>("runtime_failure");
+}
+
+/** The config that was moved aside because neither side could read it, once.
+ *  Reading it clears it — the user is told when it happens, not every launch. */
+export async function takeConfigQuarantineNotice(): Promise<string | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string | null>("take_config_quarantine_notice");
 }
 
 /**
@@ -289,6 +306,8 @@ export interface GatewayStatus {
   mode: GatewayMode;
   running: boolean;
   port: number | null;
+  /** User-configured port; null means use the default (4098). */
+  configuredPort: number | null;
   loopbackUrl: string | null;
   /** The LAN URL (with the detected local IP) when `lan` is on and reachable. */
   lanUrl: string | null;
@@ -311,15 +330,50 @@ export async function acpServerScript(): Promise<string | null> {
   return await invoke<string | null>("acp_server_script");
 }
 
+/** How `osd` became reachable from a terminal — see `cli_shim.rs`. */
+export type CliPathRoute = "already-on-path" | "shell-profile" | "user-environment" | "unreachable";
+
+/** Where the bundled `osd` command is, and what was touched to make a terminal
+ *  find it. The app arranges this on launch; the UI only reports it. */
+export interface CliShimStatus {
+  /** The bundled `osd` beside the app binary, or null in a build without it. */
+  binary: string | null;
+  /** The wrapper's path, whether or not it is there yet. */
+  shim: string;
+  installed: boolean;
+  /** A file that is not ours already has that name. */
+  occupied: boolean;
+  route: CliPathRoute;
+  /** The profile file that was extended, when that is how PATH was arranged. */
+  profile: string | null;
+  /** Shown only when nothing automatic worked: the line to add by hand. */
+  pathHint: string | null;
+}
+
+/** Current state of the `osd` command (desktop only; null in browser). */
+export async function getCliShimStatus(): Promise<CliShimStatus | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<CliShimStatus>("cli_shim_status");
+}
+
+/** Redo the install — for an app that moved, or a launch that failed. */
+export async function installCliShim(): Promise<CliShimStatus | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<CliShimStatus>("install_cli_shim");
+}
+
 /** Enable/disable + set binding and access mode; (re)binds the server. */
 export async function setGatewayConfig(
   enabled: boolean,
   lan: boolean,
   mode: GatewayMode,
+  port?: number | null,
 ): Promise<GatewayStatus | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
-  return await invoke<GatewayStatus>("set_gateway_config", { enabled, lan, mode });
+  return await invoke<GatewayStatus>("set_gateway_config", { enabled, lan, mode, port: port ?? null });
 }
 
 /** Rotate the bearer token (old clients must re-enter the new one). */
@@ -750,6 +804,14 @@ export interface ProjectInfo {
 /** Create a project folder (with metadata, harness and an initial git
  *  snapshot). Does not switch the active workspace. */
 export async function createProject(name: string): Promise<ProjectInfo> {
+  // The web client creates projects through the gateway: a project is a folder
+  // plus metadata on the SERVER, which is exactly where a headless install has
+  // no desktop to fall back to (#81).
+  if (isGatewayWeb) {
+    const created = await gatewayPost<ProjectInfo>("/v1/projects", { name });
+    if (!created) throw new Error("the gateway did not return the new project");
+    return created;
+  }
   if (!isTauri) throw new Error("not running in the desktop app");
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ProjectInfo>("create_project", { name });

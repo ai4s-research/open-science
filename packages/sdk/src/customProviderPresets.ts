@@ -82,8 +82,13 @@ function makePreset(
   };
 }
 
-/** Curated MiniMax protocol and region presets for the custom endpoint form. */
-export const MINIMAX_CUSTOM_PROVIDER_PRESETS: readonly CustomProviderPreset[] = [
+/** Curated presets for the custom endpoint form: a shortcut past typing a base
+ *  URL, a model list and a context window by hand. Nothing here privileges a
+ *  provider — every field a preset fills stays editable, and a provider reaches
+ *  the app the same way with or without an entry in this list. MiniMax is here
+ *  because its four endpoints (two protocols x two regions) are the ones people
+ *  get wrong; add others as data, not as new code. */
+export const CUSTOM_PROVIDER_PRESETS: readonly CustomProviderPreset[] = [
   makePreset(
     "minimax-global-openai",
     "global",

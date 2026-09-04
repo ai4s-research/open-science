@@ -17,6 +17,10 @@ use serde_json::{json, Value};
 pub const MODE_APPROVE: &str = "approve";
 pub const MODE_FULL: &str = "full";
 
+/// The SDK a custom endpoint speaks unless told otherwise — the same default
+/// the desktop's custom-endpoint form offers.
+pub const OPENAI_COMPATIBLE_NPM: &str = "@ai-sdk/openai-compatible";
+
 const LEGACY_BROWSER_MCP_ID: &str = "browser-control";
 const BROWSER_MCP_ID: &str = "open-science-browser";
 const BROWSER_NAMESPACE: &str = "open-science-desktop";
@@ -339,15 +343,60 @@ pub fn permission_mode_of(existing: &str) -> Option<&'static str> {
     }
 }
 
+/// The default model a config names, if any.
+pub fn default_model_of(existing: &str) -> Option<String> {
+    read_config(existing)?
+        .get("model")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// Set the default model, leaving every other key as it is. Returns None when
+/// the file cannot be parsed — a config the app cannot read is never replaced
+/// (#116), the caller reports instead.
+pub fn set_default_model(existing: &str, model: &str) -> Option<String> {
+    let mut root = read_config(existing)?;
+    root.as_object_mut()?
+        .insert("model".to_string(), serde_json::json!(model));
+    serde_json::to_string_pretty(&root).ok().map(|mut s| {
+        s.push('\n');
+        s
+    })
+}
+
+/// One provider's credentials, as `osd auth set` and the desktop both write them.
+///
+/// `models` is load-bearing for an id OpenCode has no catalog entry for — i.e.
+/// any custom endpoint. Measured against the pinned opencode 1.18.18: an entry
+/// carrying only `options` (baseURL + apiKey) is silently DROPPED from
+/// `/config/providers`, while the same entry with a `models` map loads. A known
+/// catalog id (`anthropic`, `openai`, …) needs neither and takes its models from
+/// models.dev, so leaving both empty keeps that path exactly as it was.
+pub struct ProviderCredentials<'a> {
+    pub provider: &'a str,
+    pub api_key: &'a str,
+    /// Default model for the config root, as `provider/model`. Empty = leave.
+    pub model: &'a str,
+    pub base_url: Option<&'a str>,
+    /// AI SDK package driving a custom endpoint (`@ai-sdk/openai-compatible`,
+    /// `@ai-sdk/anthropic`). Only written alongside `models`.
+    pub npm: Option<&'a str>,
+    /// Model ids the endpoint serves. No context limit is written: an unknown
+    /// window must stay 0 so OpenCode skips overflow accounting (#52).
+    pub models: &'a [String],
+}
+
 /// Merge provider credentials/model into existing OpenCode config JSON.
 /// Empty fields are left untouched; existing unrelated keys are preserved.
-pub fn merge_config(
-    existing: &str,
-    provider: &str,
-    api_key: &str,
-    model: &str,
-    base_url: Option<&str>,
-) -> Result<String, String> {
+pub fn merge_config(existing: &str, creds: &ProviderCredentials) -> Result<String, String> {
+    let ProviderCredentials {
+        provider,
+        api_key,
+        model,
+        base_url,
+        npm,
+        models,
+    } = *creds;
     let mut root: Value = if existing.trim().is_empty() {
         json!({})
     } else {
@@ -387,6 +436,35 @@ pub fn merge_config(
         if let Some(b) = base_url {
             if !b.is_empty() {
                 oobj.insert("baseURL".to_string(), json!(b));
+            }
+        }
+        // A custom endpoint: name it, say which SDK drives it, and list the
+        // models it serves — the three keys that make OpenCode load a provider
+        // it has no catalog entry for. Existing models are merged, not replaced,
+        // so adding one model does not retire the rest.
+        if !models.is_empty() {
+            let eobj = entry.as_object_mut().unwrap();
+            eobj.entry("name").or_insert_with(|| json!(provider));
+            // Only an explicit choice replaces the SDK. Defaulting on every call
+            // would silently rewrite an Anthropic-compatible endpoint to the
+            // OpenAI one the next time a model was added to it.
+            match npm {
+                Some(pkg) => {
+                    eobj.insert("npm".to_string(), json!(pkg));
+                }
+                None => {
+                    eobj.entry("npm")
+                        .or_insert_with(|| json!(OPENAI_COMPATIBLE_NPM));
+                }
+            }
+            let known = eobj.entry("models").or_insert_with(|| json!({}));
+            if !known.is_object() {
+                *known = json!({});
+            }
+            let mobj = known.as_object_mut().unwrap();
+            for m in models {
+                mobj.entry(m.as_str())
+                    .or_insert_with(|| json!({ "name": m }));
             }
         }
     }
@@ -429,6 +507,13 @@ pub fn ensure_goal_plugin(existing: &str, plugin_path: &str) -> Option<String> {
 
 pub fn ensure_browser_guard_plugin(existing: &str, plugin_path: &str) -> Option<String> {
     ensure_named_plugin(existing, plugin_path, "browser-guard.ts")
+}
+
+/// The guard that restores the fields a stored message must carry before the
+/// runtime converts it for the model, so one damaged part cannot brick a
+/// session for good (#114).
+pub fn ensure_history_guard_plugin(existing: &str, plugin_path: &str) -> Option<String> {
+    ensure_named_plugin(existing, plugin_path, "history-guard.ts")
 }
 
 /// Project memory: OpenCode resolves a relative `instructions` entry against
@@ -541,11 +626,18 @@ fn parse_config(existing: &str) -> Result<Value, String> {
     }
 }
 
+/// Whether this app can read the config at all. False means every writer below
+/// will refuse to touch it AND the runtime will refuse to start on it, which is
+/// the state `quarantine_unreadable_config` exists to get out of (#118).
+pub fn config_is_readable(existing: &str) -> bool {
+    parse_config(existing).is_ok()
+}
+
 /// `parse_config` for the callers that answer with `None`. The failure is
 /// logged rather than swallowed: leaving the config alone is the safe choice,
 /// but a config the app can no longer edit stops every later repair silently —
 /// including the plugin registration the browser lease depends on (#116).
-fn read_config(existing: &str) -> Option<Value> {
+pub(crate) fn read_config(existing: &str) -> Option<Value> {
     match parse_config(existing) {
         Ok(value) => Some(value),
         Err(error) => {
@@ -712,6 +804,27 @@ mod tests {
     /// lenient parse behind `seed_compaction` turned an unparseable file into
     /// `{}` and wrote it back, so one launch replaced the user's provider keys,
     /// MCP servers, approval mode and model with a three-key stub (#116).
+    #[test]
+    fn the_default_model_is_set_without_disturbing_anything_else() {
+        let existing = r#"{"$schema":"https://opencode.ai/config.json","model":"openai/gpt-5","provider":{"openai":{"options":{"apiKey":"sk"}}},"permission":{"bash":{"rm *":"ask"}}}"#;
+        assert_eq!(default_model_of(existing).as_deref(), Some("openai/gpt-5"));
+
+        let updated = set_default_model(existing, "anthropic/claude-opus-4-5").expect("parses");
+        let v: Value = serde_json::from_str(&updated).unwrap();
+        assert_eq!(v["model"], "anthropic/claude-opus-4-5");
+        assert_eq!(v["provider"]["openai"]["options"]["apiKey"], "sk", "keys survive");
+        assert_eq!(v["permission"]["bash"]["rm *"], "ask", "so does the approval config");
+        assert_eq!(v["$schema"], "https://opencode.ai/config.json");
+
+        // A config with no model at all gains one.
+        let fresh = set_default_model("{}", "openai/gpt-5").expect("parses");
+        assert_eq!(serde_json::from_str::<Value>(&fresh).unwrap()["model"], "openai/gpt-5");
+
+        // An unreadable config is never rewritten (#116).
+        assert!(set_default_model("{ not json", "openai/gpt-5").is_none());
+        assert!(default_model_of("{ not json").is_none());
+    }
+
     #[test]
     fn an_unreadable_config_is_never_overwritten() {
         // Not JSONC — genuinely broken, and it must stay exactly as it is.
@@ -1020,18 +1133,34 @@ mod tests {
         assert!(v.get("agent").is_none());
     }
 
+    /// A known catalog provider: key (and maybe a base URL), nothing else.
+    fn creds<'a>(provider: &'a str, api_key: &'a str, model: &'a str) -> ProviderCredentials<'a> {
+        ProviderCredentials {
+            provider,
+            api_key,
+            model,
+            base_url: None,
+            npm: None,
+            models: &[],
+        }
+    }
+
     #[test]
     fn writes_provider_key_model_into_empty_config() {
-        let out = merge_config("", "anthropic", "sk-test", "anthropic/claude-sonnet-4-5", None).unwrap();
+        let out = merge_config("", &creds("anthropic", "sk-test", "anthropic/claude-sonnet-4-5")).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["model"], "anthropic/claude-sonnet-4-5");
         assert_eq!(v["provider"]["anthropic"]["options"]["apiKey"], "sk-test");
+        // A catalog id takes its models from models.dev — writing an empty
+        // `models` map here would hide every one of them.
+        assert!(v["provider"]["anthropic"].get("models").is_none());
+        assert!(v["provider"]["anthropic"].get("npm").is_none());
     }
 
     #[test]
     fn preserves_existing_unrelated_config() {
         let existing = r#"{"theme":"dark","provider":{"openai":{"options":{"apiKey":"old"}}}}"#;
-        let out = merge_config(existing, "anthropic", "sk-new", "", None).unwrap();
+        let out = merge_config(existing, &creds("anthropic", "sk-new", "")).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["theme"], "dark");
         assert_eq!(v["provider"]["openai"]["options"]["apiKey"], "old");
@@ -1040,9 +1169,68 @@ mod tests {
 
     #[test]
     fn sets_base_url_when_provided() {
-        let out = merge_config("", "openai", "k", "openai/gpt-4o", Some("https://x/v1")).unwrap();
+        let out = merge_config(
+            "",
+            &ProviderCredentials {
+                base_url: Some("https://x/v1"),
+                ..creds("openai", "k", "openai/gpt-4o")
+            },
+        )
+        .unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["provider"]["openai"]["options"]["baseURL"], "https://x/v1");
+    }
+
+    // #119: a custom endpoint is only loadable when the entry lists its models
+    // (verified against opencode 1.18.18 — an options-only entry is dropped from
+    // /config/providers). This is the shape `osd auth set --models` writes, and
+    // it has to match what the desktop's custom-endpoint form writes.
+    #[test]
+    fn a_custom_endpoint_gets_the_keys_that_make_it_load() {
+        let models = ["deepseek-v4-flash".to_string(), "sol".to_string()];
+        let out = merge_config(
+            "",
+            &ProviderCredentials {
+                base_url: Some("http://aisg.example/v1"),
+                models: &models,
+                ..creds("kny", "sk-test", "")
+            },
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let p = &v["provider"]["kny"];
+        assert_eq!(p["name"], "kny");
+        assert_eq!(p["npm"], "@ai-sdk/openai-compatible");
+        assert_eq!(p["options"]["baseURL"], "http://aisg.example/v1");
+        assert_eq!(p["models"]["deepseek-v4-flash"]["name"], "deepseek-v4-flash");
+        assert_eq!(p["models"]["sol"]["name"], "sol");
+        // No context limit: a guessed window aborts turns on models with a
+        // larger real one (#52).
+        assert!(p["models"]["sol"].get("limit").is_none());
+    }
+
+    #[test]
+    fn adding_a_model_keeps_the_ones_already_configured() {
+        let existing = r#"{"provider":{"kny":{"name":"My gateway","npm":"@ai-sdk/anthropic",
+            "models":{"old":{"name":"old","limit":{"context":131072,"output":0}}}}}}"#;
+        let models = ["new".to_string()];
+        let out = merge_config(
+            existing,
+            &ProviderCredentials {
+                models: &models,
+                ..creds("kny", "sk-test", "")
+            },
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let p = &v["provider"]["kny"];
+        // A hand-set display name and a probed limit both survive — and so does
+        // the SDK: defaulting npm here would flip this endpoint to the OpenAI
+        // one just because a model was added.
+        assert_eq!(p["name"], "My gateway");
+        assert_eq!(p["npm"], "@ai-sdk/anthropic");
+        assert_eq!(p["models"]["old"]["limit"]["context"], 131072);
+        assert_eq!(p["models"]["new"]["name"], "new");
     }
 
     #[test]
@@ -1213,6 +1401,37 @@ mod tests {
             json!(["/app/goal-plugin.server.js", "/new/browser-guard.ts"])
         );
         assert!(ensure_browser_guard_plugin(&out, "/new/browser-guard.ts").is_none());
+    }
+
+    #[test]
+    fn ensure_history_guard_plugin_joins_the_others_without_disturbing_them() {
+        // All three of our plugins coexist; registering one must not retire
+        // another, and re-registering the same path must not grow the list.
+        let existing = r#"{"plugin":["/app/goal-plugin.server.js","/app/browser-guard.ts"]}"#;
+        let out = ensure_history_guard_plugin(existing, "/app/history-guard.ts").unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v["plugin"],
+            json!([
+                "/app/goal-plugin.server.js",
+                "/app/browser-guard.ts",
+                "/app/history-guard.ts"
+            ])
+        );
+        assert!(ensure_history_guard_plugin(&out, "/app/history-guard.ts").is_none());
+    }
+
+    #[test]
+    fn ensure_history_guard_plugin_replaces_only_its_own_stale_path() {
+        // An upgrade moves the deployed path; the old entry must go, or the
+        // runtime tries to load a plugin that is no longer there.
+        let existing = r#"{"plugin":["/old/history-guard.ts","/app/browser-guard.ts"]}"#;
+        let out = ensure_history_guard_plugin(existing, "/new/history-guard.ts").unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v["plugin"],
+            json!(["/app/browser-guard.ts", "/new/history-guard.ts"])
+        );
     }
 
     #[test]

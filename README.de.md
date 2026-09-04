@@ -35,6 +35,7 @@ Formerly Open Science. Eine quelloffene Desktop-Alternative zu Claude Science un
 
 ## Neuigkeiten
 
+- **2026-08-18** — 🖥️ **Läuft ohne Bildschirm.** `osd server` startet die komplette Workbench — Workspace, Agent-Runtime und *dieselbe* Web-UI — auf einer Maschine ohne Display, und `osd session send … --wait` steuert sie aus einem Skript oder von einem anderen Agenten aus. Ein Archiv, kein Installer. `osd` steckt im Desktop-Installer und legt sich beim ersten Start auf den PATH; auf einem Server genügt das Archiv. Modelle, Schlüssel und Genehmigungen sind alle vom Terminal aus einstellbar (`osd model`, `osd auth`, `osd approval`).
 - **2026-08-13** — 🔌 **Spricht das Agent Client Protocol, in beide Richtungen.** Steuere Codex, Gemini CLI, Claude Code oder jeden anderen ACP-Agenten aus dieser App heraus — mit dessen eigenen Modellen, dessen Verlauf und deinen MCP-Konnektoren — oder steuere Open Science selbst aus Zed, JetBrains oder Neovim. *(v0.4.0)*
 - **2026-08-01** — 🗂️ **Projekte, Memory und vollständiger Verlauf.** Sitzungen in benannten Projekten gruppieren (ein bestehendes Repository wird *an seinem Ort* importiert, nicht kopiert), dem Agenten globales und projektbezogenes Memory geben und jede frühere Unterhaltung über einen durchsuchbaren Verlauf mit Archivieren, Wiederherstellen und Export erreichen. *(v0.3.1)*
 - **2026-07-24** — 🪟 **Geteilte Panes.** Sitzungen nebeneinander anordnen, Panes per Drag neu andocken, mehrere unabhängige Screens behalten und in jedem Pane ein anderes Modell fahren. *(v0.3.0)*
@@ -51,6 +52,7 @@ Formerly Open Science. Eine quelloffene Desktop-Alternative zu Claude Science un
 - [🧪 Aktuelle Funktionen](#aktuelle-funktionen)
 - [🔌 Skills und Konnektoren](#skills-und-konnektoren)
 - [📦 Installation](#installation)
+- [🖥️ Headless & CLI (`osd`)](#headless--cli-osd)
 - [🚀 Aus dem Quellcode bauen](#aus-dem-quellcode-bauen)
 - [🔒 Sicherheit und Datenschutz](#sicherheit-und-datenschutz)
 - [🗂️ Repository-Struktur](#repository-struktur)
@@ -134,6 +136,7 @@ Diese sind im `ai4s-skills`-Pack enthalten, neben den First-Party-Review-Skills 
 | Remote-Rechnen | Maschinen aus `~/.ssh/config` registrieren, prüfen und Jobs aus der App einreichen, verfolgen oder abbrechen. |
 | Erscheinungsbild | Themes Light, Warm und Dark mit eigenen Akzentfarben und UI-Zoom. |
 | Dateien | Globale und sitzungsbezogene Dateiansicht, Kontextmenü, extern öffnen/anzeigen, Pfad kopieren, lokaler Preview-Server. |
+| Headless & CLI | `osd server` betreibt die Workbench ohne Fenster — derselbe Workspace, dieselbe Runtime, dieselbe Web-UI, ausgeliefert aus einem einzigen eigenständigen Verzeichnis. `osd` steuert sie (oder eine laufende Desktop-App) vom Terminal aus: Sessions, Projekte, Runs, Dateien, Freigaben, `--wait`, `--json`. |
 | Fernzugriff | Token-authentifiziertes Gateway, das die echte UI an eine CLI, einen Web-Browser im LAN oder dein Handy liefert (standardmäßig nur Loopback, LAN optional aktivierbar); Modi für Nur-Lesen bzw. Vollzugriff; kopiere einen Link mit eingebettetem Token, um dich mit einem Tipp zu verbinden. API-Keys gehen niemals über die Leitung. |
 | Editor-Interop (ACP) | Spricht das Agent Client Protocol in beide Richtungen: Jeder ACP-Agent (Codex, Gemini CLI, Claude Code, …) läuft als Runtime hinter der gewohnten UI — mit seinen eigenen Modell- und Reasoning-Auswahlen, Verlaufswiedergabe und den MCP-Konnektoren dieser App; oder ein externer Editor (Zed, JetBrains, Neovim, …) steuert Open Science und nutzt dabei das Gateway-Token weiter. |
 | Browser-Steuerung | Der Agent steuert deinen eigenen Chrome — mit erhaltenem Profil und Login-Zustand —, liest Seiten über den Accessibility-Baum, oder bei Bedarf einen isolierten/privaten Browser. |
@@ -161,6 +164,118 @@ Die macOS-Pakete sind Developer-ID-signiert, notarisiert und gestapelt und öffn
 
 Unter Windows in SmartScreen **More info -> Run anyway** wählen.
 
+## Headless & CLI (`osd`)
+
+Eine Forschungsmaschine hat meist keinen Bildschirm. `osd` ist dieselbe Workbench ohne einen: dasselbe Workspace-Layout, dieselbe Agent-Runtime, dieselben Projekte, dieselbe Web-UI — nur über HTTP ausgeliefert statt in ein Fenster gezeichnet.
+
+**Auf einem Server nimm das Archiv.** `osd-<version>-<target>` aus den Releases
+wird entpackt und läuft, ohne Installation — geprüft in einem nackten
+Ubuntu-Container, in dem kein einziges Paket nachinstalliert wurde.
+
+```bash
+# Die Maschine einrichten (geht, bevor ein Server läuft)
+./osd auth set anthropic --key sk-…       # bleibt auf dieser Maschine, nie im Netz
+./osd model set anthropic/claude-opus-4-5 # das Standardmodell für jeden Zug
+./osd server --lan                        # gibt URL und Zugriffstoken aus
+```
+
+Schlüssel müssen keine Datei berühren: die Agent-Laufzeit erbt die Umgebung
+dieses Prozesses, also braucht `ANTHROPIC_API_KEY=sk-… ./osd server` kein
+`auth set`. Ein selbst gehosteter oder proxied Endpunkt steht im selben Befehl
+(`--base-url https://my-gateway.internal/v1`), und `osd auth ls` gibt nur
+Anbieternamen aus — ein Schlüssel wird nirgends ausgegeben. Ein geänderter
+Schlüssel braucht einen Neustart; die CLI sagt das, statt dich rätseln zu lassen.
+
+Die ausgegebene URL öffnen — und im Browser läuft die echte Desktop-UI, auch auf dem Telefon. Oder vom Terminal aus steuern: auf derselben Maschine, über SSH oder vom eigenen Laptop:
+
+```bash
+osd project new "Reef survey"
+id=$(osd session new --project "Reef survey")
+osd session send "$id" "Fit the 2015–2024 bleaching trend and write report.md" \
+    --model anthropic/claude-sonnet-4-5 --wait
+osd fs ls figures/
+osd fs get report.md --output ./report.md
+```
+
+Unter Windows funktionieren dieselben Befehle in PowerShell; nur die Syntax der
+Shell unterscheidet sich:
+
+```powershell
+$id = osd session new --project "Reef survey"
+osd session send $id "Fit the 2015-2024 bleaching trend and write report.md" --wait
+```
+
+**Auf deiner eigenen Maschine ist es schon installiert.** Der Desktop-Installer
+bringt `osd` mit, und die App legt es beim ersten Start auf deinen PATH — ein
+neues Terminal hat den Befehl, ohne dass du etwas einrichtest. Geschrieben wird
+ein kleiner Wrapper (`~/.local/bin/osd`, oder `~/bin`, wenn ein Terminal das
+ohnehin durchsucht) — niemals ein Symlink, denn `osd` findet seine Laufzeit
+neben seiner echten Programmdatei. Liegt der Ordner nicht auf dem PATH, ergänzt
+die App dein Login-Profil und Einstellungen → Fernzugriff nennt die Datei, die
+sie angefasst hat. An deiner Shell wird sonst nichts geändert.
+
+`--wait` kehrt zurück, wenn der Zug fertig ist, nicht wenn er angenommen wurde, und schlägt deutlich fehl, wenn keine Antwort entstand. `--json` gibt die Antwort der API selbst aus, für Skripte. Freigaben gelten weiterhin — der Agent fragt vor Kommandos, und `osd permission ls` / `osd permission allow <id>` ist die Antwort ohne Fenster.
+
+### Welches Modell, und wer genehmigt
+
+`osd model` zeigt das Standardmodell, `osd model ls` listet, was die Laufzeit
+**wirklich bedienen kann** (die Anbieter, für die diese Maschine Zugangsdaten
+hat; das aktuelle ist markiert), und `osd model set <provider/model>` ändert es —
+über das Gateway, also auch gegen einen entfernten Server. Jeder einzelne Zug
+lässt sich mit `osd session send --model … --agent … --effort …` überstimmen.
+
+Genehmigungen gelten weiter: der Agent fragt, bevor er Befehle ausführt, Dateien
+löscht, Abhängigkeiten installiert oder ins Netz greift. Ohne Fenster nennt
+`--wait`, **worauf** gewartet wird, und bietet beide Antwortwege — im Terminal
+`osd permission ls` / `osd permission allow <id>`, oder die ausgegebene
+Gateway-URL, die das Token mitführt, sodass ein Browser auf Laptop oder Handy
+genehmigen kann.
+
+Für eine Maschine, an der niemand sitzt, steig ausdrücklich aus:
+
+```bash
+osd approval            # was heute gefragt werden muss
+osd approval set full   # nie fragen: Befehle, Löschen, Installationen, Netz
+```
+
+`full` ist eine bewusste Wahl, kein Standard: der Agent bleibt auf den Workspace
+beschränkt, aber nichts hält mehr für dich an. `osd approval set approve` holt
+jede Regel zurück.
+
+### Als Dienst
+
+`osd server` ist ein gewöhnlicher Vordergrundprozess, systemd führt es also
+unverändert aus. Diese Unit wurde auf Ubuntu durchgespielt — aktivieren, neu
+starten, abstürzen, stoppen:
+
+```ini
+# /etc/systemd/system/osd.service
+[Unit]
+Description=Open Science Desktop (headless)
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=HOME=/home/ubuntu
+ExecStart=/opt/osd/osd server --port 4788
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`sudo systemctl enable --now osd`, und die ausgegebene URL samt Token landet in
+`journalctl -u osd`. Eine Unit ist auch die sauberste Art, es zu betreiben:
+systemd beendet die ganze Cgroup, also überlebt die Agent-Laufzeit den Server
+nicht, egal wie er stirbt.
+
+
+Ohne `--gateway` spricht `osd` mit einem Gateway, das auf derselben Maschine bereits läuft — auch dem der Desktop-App. Ist die App offen, funktioniert `osd session ls` also einfach. Sonst zeigt `osd login --gateway <url> --token <token>` auf beliebige Instanzen.
+
+Was ohne Desktop *fehlt*: lokale Jupyter-Kernel, native Dateidialoge und der Dateimanager des Systems — die Web-UI blendet diese aus, statt Bedienelemente anzubieten, die scheitern würden. Zwei weitere Punkte: **Provenienz- und Run-Einträge schreibt der Desktop-Client**, ein Headless-Server hält die Dateihistorie also über Git-Snapshots, schreibt aber nicht in `provenance.jsonl` oder den Run-Index.
+
 ## Aus dem Quellcode bauen
 
 ```bash
@@ -170,6 +285,9 @@ pnpm install
 bash scripts/dev/fetch-opencode.sh
 bash scripts/dev/fetch-uv.sh
 bash scripts/dev/fetch-skills.sh
+
+# Der Terminal-Client osd wird mitgeliefert — er ist unser Code, wird also gebaut, nicht geladen.
+bash scripts/dev/build-osd-sidecar.sh $(rustc -vV | sed -n 's/host: //p')
 pnpm --filter @ai4s/desktop tauri dev
 pnpm --filter @ai4s/desktop tauri build
 ```
@@ -196,6 +314,8 @@ Workspace-Dateien, Rohdaten, Sitzungsverlauf, Provenance, Notebooks und Run Reco
 | `runtime/skills/core/` | First-Party-Wissenschafts-Skills. |
 | `runtime/skills/external/` | Beim Build geholte externe Skills. |
 | `examples/` | Mitgelieferte Beispiel-Workspaces. |
+| `crates/osd-core/` | Der Server-Kern — Workspace, Sidecar, Gateway. Ohne Tauri, läuft daher headless. |
+| `crates/osd-cli/` | `osd`: der Headless-Server und sein Client. |
 | `scripts/dev/` | Fetcher für Sidecar, `uv`, Skills und fokussierte Regressionstests. |
 | `docs/` | Produkt-, Technik-, Operator-, Konnektor- und Forschungsnotizen. |
 
@@ -214,8 +334,8 @@ Wenn Sie Open Science Desktop in Ihrer Forschung verwenden, zitieren Sie es bitt
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.4.2},
-  doi     = {10.5281/zenodo.21967622},
+  version = {0.5.2},
+  doi     = {10.5281/zenodo.22004919},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

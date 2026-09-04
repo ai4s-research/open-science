@@ -113,6 +113,41 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
     ];
   };
 
+  // A turn refused because the account cannot make the call at all: the retry
+  // status carries an `action` naming the cause, the provider and the way out.
+  // Copied from what the pinned runtime emits for OpenCode Zen's spent free
+  // allowance (its `FreeUsageLimitError` branch), which is the shape the app
+  // has to tell apart from an ordinary provider hiccup (#117).
+  const streamQuotaTurn = (sessionID: string) => {
+    const push = (obj: unknown) => clients.forEach((c) => send(c, obj));
+    const message = "Free usage exceeded, subscribe to Go";
+    push({
+      type: "session.status",
+      properties: {
+        sessionID,
+        status: {
+          type: "retry",
+          attempt: 1,
+          message,
+          next: 1234,
+          action: {
+            reason: "free_tier_limit",
+            provider: "opencode",
+            title: "Free limit reached",
+            message: "Subscribe to OpenCode Go for reliable access…",
+            label: "subscribe",
+            link: "https://opencode.ai/go",
+          },
+        },
+      },
+    });
+    push({
+      type: "session.error",
+      properties: { sessionID, error: { name: "APICallError", data: { message } } },
+    });
+    push({ type: "session.idle", properties: { sessionID } });
+  };
+
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? "";
     requests.push(`${req.method} ${url}`);
@@ -293,9 +328,11 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
         res.end("{}");
         const turn = body.includes("flaky")
           ? streamFlakyTurn
-          : body.includes("compact")
-            ? streamCompactedTurn
-            : streamTurn;
+          : body.includes("out of quota")
+            ? streamQuotaTurn
+            : body.includes("compact")
+              ? streamCompactedTurn
+              : streamTurn;
         setTimeout(() => turn(decodeURIComponent(m[1])), 5);
       });
       return;

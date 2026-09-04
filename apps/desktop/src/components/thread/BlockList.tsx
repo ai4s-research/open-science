@@ -1,6 +1,13 @@
 import { memo } from "react";
 import type { ArtifactBlock, FigureAnnotation, ThreadBlock } from "@ai4s/shared";
-import { AgentMessage, DataTable, RunningJobsOverlay, StatusLine, UserMessage } from "./atoms";
+import {
+  AgentMessage,
+  DataTable,
+  HistoryRepair,
+  RunningJobsOverlay,
+  StatusLine,
+  UserMessage,
+} from "./atoms";
 import { ToolCallRow } from "./ToolCallRow";
 import { ToolGroup, groupToolBlocks } from "./ToolGroup";
 import { ReviewerCard } from "./ReviewerCard";
@@ -22,6 +29,9 @@ export interface BlockHandlers {
   /** Revert to a past user message (drop it + everything after) and prefill the
    *  composer with its text. Present only in the live session. */
   onRevertMessage?: (messageID: string, text: string) => void | Promise<void>;
+  /** Open the subagents panel on the subagent a task row spawned. Present only
+   *  in the live session — a nested transcript has no panel of its own. */
+  onOpenSubagent?: (childSessionId: string) => void;
 }
 
 export function renderBlock(
@@ -76,6 +86,11 @@ export function renderBlock(
       return <RunningJobsOverlay key={i} block={block} />;
     case "compaction":
       return <CompactionRow key={i} block={block} />;
+    case "history-repair":
+      // Reuses the Revert handler: the repair IS a revert, to a message the app
+      // picked instead of one the user clicked. Absent outside the live session,
+      // which correctly leaves the diagnosis readable but not actionable.
+      return <HistoryRepair key={i} block={block} onRevert={handlers?.onRevertMessage} />;
     case "status-line":
       return <StatusLine key={i} block={block} />;
   }
@@ -114,6 +129,7 @@ export const BlockList = memo(function BlockList({
             blocks={item.blocks}
             start={item.start}
             liveReasoningIndex={liveReasoningIndex}
+            onOpenSubagent={handlers?.onOpenSubagent}
           />
         ) : (
           renderBlock(

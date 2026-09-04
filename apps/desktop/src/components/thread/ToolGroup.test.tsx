@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ThreadBlock, ToolCallBlock } from "@ai4s/shared";
 import { ToolGroup, groupToolBlocks, summarizeGroup } from "./ToolGroup";
 
@@ -161,5 +161,76 @@ describe("ToolGroup", () => {
     fireEvent.click(screen.getByRole("button"));
     expect(screen.getByText("- device: cpu")).toBeInTheDocument();
     expect(screen.getByText("+ device: mps")).toBeInTheDocument();
+  });
+
+  it("says on the row itself why a step failed", () => {
+    render(
+      <ToolGroup
+        blocks={[
+          tool({
+            tool: "write",
+            verb: "Created",
+            title: "index.html",
+            status: "failed",
+            output: 'Error: cannot overwrite "index.html" without reading it first\n  at write',
+          }),
+        ]}
+      />,
+    );
+    expect(
+      screen.getByText('Error: cannot overwrite "index.html" without reading it first'),
+    ).toBeInTheDocument();
+  });
+
+  // The dot is sized in px, which an inline box ignores: the running row —
+  // the only one whose mark is not an svg — measured 0×0 and showed nothing.
+  // jsdom has no layout, so the class that fixes it is what can be asserted.
+  it("gives the running row a status mark with a box of its own", () => {
+    render(<ToolGroup blocks={[tool({ title: "python train.py", status: "running" })]} />);
+    const mark = screen.getByRole("img", { name: /running/i }).firstElementChild;
+    expect(mark?.className).toContain("inline-block");
+  });
+
+  it("a running subagent's row opens the panel instead of doing nothing", () => {
+    const onOpenSubagent = vi.fn();
+    render(
+      <ToolGroup
+        blocks={[
+          tool({
+            tool: "task",
+            verb: undefined,
+            title: "Review the statistics",
+            status: "running",
+            childSessionId: "child-1",
+            startedAt: Date.now() - 5000,
+          }),
+        ]}
+        onOpenSubagent={onOpenSubagent}
+      />,
+    );
+    fireEvent.click(screen.getByText("Review the statistics"));
+    expect(onOpenSubagent).toHaveBeenCalledWith("child-1");
+  });
+
+  it("leaves a finished subagent's row expanding in place", () => {
+    const onOpenSubagent = vi.fn();
+    render(
+      <ToolGroup
+        blocks={[
+          tool({
+            tool: "task",
+            verb: undefined,
+            title: "Review the statistics",
+            status: "success",
+            childSessionId: "child-1",
+            output: "found three outliers",
+          }),
+        ]}
+        onOpenSubagent={onOpenSubagent}
+      />,
+    );
+    fireEvent.click(screen.getByText("Review the statistics"));
+    expect(onOpenSubagent).not.toHaveBeenCalled();
+    expect(screen.getByText("found three outliers")).toBeInTheDocument();
   });
 });

@@ -15,6 +15,7 @@ import type {
   ProviderInfo,
   QuestionAskedEvent,
   PermissionAskedEvent,
+  RetryAction,
   SessionMeta,
   SessionPage,
   SessionQuery,
@@ -106,6 +107,22 @@ function errorText(error: unknown): string | undefined {
   const err = error as { name?: string; message?: string; data?: { message?: string } } | undefined;
   const full = err?.data?.message ?? err?.message ?? err?.name;
   return typeof full === "string" && full ? full.split("\n")[0] : undefined;
+}
+
+/** The `action` a retry status may carry, kept only when it has the one field
+ *  the app decides anything on. Every other field is optional and passed
+ *  through as-is when it is a string, so a runtime that adds one loses
+ *  nothing and a runtime that renames one cannot inject a non-string. */
+function retryAction(raw: unknown): RetryAction | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const it = raw as Record<string, unknown>;
+  if (typeof it.reason !== "string" || !it.reason) return undefined;
+  const action: RetryAction = { reason: it.reason };
+  for (const field of ["provider", "title", "message", "label", "link"] as const) {
+    const value = it[field];
+    if (typeof value === "string" && value) action[field] = value;
+  }
+  return action;
 }
 
 /** OpenCode's own token shape on an assistant message (both in history and on
@@ -588,7 +605,19 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
           type: "text",
           text,
           synthetic: true,
-          metadata: { source: "ai4s.background-review" },
+          // MUST be a two-level record, namespaced like every other thing we
+          // store (META_NS). A PART's metadata is not private to us the way a
+          // session's is: the runtime forwards an assistant text part's
+          // metadata to the model as `providerMetadata`, whose schema is
+          // `Record<string, Record<string, JSONValue>>`. This field used to be
+          // the flat `{ source: "ai4s.background-review" }`, and a string where
+          // a record belongs made the AI SDK reject the ENTIRE conversation
+          // with "Invalid prompt: The messages do not match the ModelMessage[]
+          // schema" — on the next turn and every turn after it, because the
+          // part is on disk. That was #114: a background review silently ended
+          // the conversation it was reviewing. Reproduced against the pinned
+          // runtime, both ways round.
+          metadata: { [META_NS]: { source: "background-review" } },
         }),
       },
     );
@@ -1094,13 +1123,20 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     }
   }
 
-  /** Build an Error carrying the server's diagnostic message, when it has one
-   *  (OpenCode errors look like `{ name, data: { message } }`). */
+  /** Build an Error carrying the server's diagnostic message, when it has one.
+   *  Two shapes reach here: OpenCode's own (`{ name, data: { message } }`) and
+   *  the gateway's (`{ error }`) — when the web client's call is refused by
+   *  gateway policy rather than by OpenCode, the reason is in `error`, and
+   *  dropping it turns an explained refusal into a bare status code (#119). */
   private async apiError(res: Response, what: string): Promise<Error> {
     let detail = "";
     try {
-      const body = (await res.json()) as { data?: { message?: string }; message?: string };
-      detail = body.data?.message ?? body.message ?? "";
+      const body = (await res.json()) as {
+        data?: { message?: string };
+        message?: string;
+        error?: string;
+      };
+      detail = body.data?.message ?? body.message ?? body.error ?? "";
     } catch {
       /* not JSON — keep the status alone */
     }
@@ -1614,21 +1650,34 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         break;
       }
       case "session.status": {
-        // A failed model call being retried server-side. OpenCode's retry
-        // policy has NO attempt cap (exponential backoff only), so these are
-        // the ONLY sign of life while a broken provider fails every attempt —
-        // dropping them leaves the UI on a bare "Working…" forever. ("busy"
-        // and "idle" statuses carry nothing session.idle doesn't already.)
+        // A failed model call being retried server-side: the ONLY sign of life
+        // while a broken provider fails every attempt, so dropping these leaves
+        // the UI on a bare "Working…". ("busy" and "idle" statuses carry
+        // nothing session.idle doesn't already.)
+        //
+        // `action` rides the same payload and is the difference between "the
+        // provider hiccuped" and "this account cannot make this call at all"
+        // (Zen's free allowance spent, a Go plan's limit reached). Keeping only
+        // the message throws that away and leaves the app free to call a
+        // terminal condition a retry.
         const status = props.status as
-          | { type?: string; attempt?: number; message?: string; next?: number }
+          | {
+              type?: string;
+              attempt?: number;
+              message?: string;
+              next?: number;
+              action?: Record<string, unknown>;
+            }
           | undefined;
         if (status?.type !== "retry") break;
+        const action = retryAction(status.action);
         this.emit({
           type: "session.retry",
           sessionId: String(props.sessionID ?? ""),
           attempt: status.attempt ?? 0,
           message: status.message ?? "provider error",
           nextAt: status.next ?? 0,
+          ...(action ? { action } : {}),
         });
         break;
       }

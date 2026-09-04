@@ -7,6 +7,9 @@ import { Section } from "./Section";
 
 interface ProviderManagerCardProps {
   providers: ProviderInfo[];
+  /** Overrides the default subtitle when the caller offers less than the full
+   *  surface (the web client can only read it). */
+  hint?: string;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   children: ReactNode;
@@ -14,6 +17,7 @@ interface ProviderManagerCardProps {
 
 export function ProviderManagerCard({
   providers,
+  hint,
   expanded,
   onExpandedChange,
   children,
@@ -27,7 +31,7 @@ export function ProviderManagerCard({
   return (
     <Section
       title={t("providers.title")}
-      hint={t("providers.hint")}
+      hint={hint ?? t("providers.hint")}
       action={
         /* The toggle only shows/hides content — it must stay clickable in
            every runtime state, or a disconnect strands an expanded panel. */

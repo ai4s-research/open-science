@@ -31,15 +31,14 @@ dependencies = [
 
 [[package]]
 name = "ai4s-workbench"
-version = "0.4.2"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
- "notify",
  "objc2-app-kit",
  "opener",
+ "osd-core",
  "portable-pty",
  "reqwest",
- "rusqlite",
  "serde",
  "serde_json",
  "tauri",
@@ -2800,6 +2799,28 @@ checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "osd-cli"
+version = "0.5.2"
+dependencies = [
+ "libc",
+ "osd-core",
+ "reqwest",
+ "serde_json",
+]
+
+[[package]]
+name = "osd-core"
+version = "0.5.2"
+dependencies = [
+ "getrandom 0.4.3",
+ "notify",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

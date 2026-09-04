@@ -65,9 +65,6 @@ export interface SessionIdleEvent {
   type: "session.idle";
   sessionId: string;
 }
-/** The turn's model call failed and the server is retrying it — OpenCode backs
- *  off exponentially with NO attempt cap, so without surfacing these the UI
- *  shows a bare "Working…" forever while every attempt fails. */
 /** A user message landed carrying its agent — including the build message
  *  OpenCode injects itself when the plan_exit question is answered Yes. The
  *  app syncs its per-session agent-mode state from this (never from question
@@ -82,6 +79,32 @@ export interface MessageAgentEvent {
   agent?: string;
 }
 
+/** What the runtime says the user can DO about a failed attempt, when it knows.
+ *  OpenCode fills this in for the two account-state failures it can recognise
+ *  from the response body, and only those: `free_tier_limit` (Zen's free
+ *  allowance is spent) and `account_rate_limit` (a Go plan's limit, with a
+ *  reset time in `message`). Both are terminal for the retry loop's purposes —
+ *  the attempts run out without the condition changing — so an app that shows
+ *  only "retrying" is telling the user to wait for something that will not
+ *  happen. `provider` is the provider id whose call failed. */
+export interface RetryAction {
+  /** `free_tier_limit` or `account_rate_limit` on the pinned runtime; any other
+   *  value is a newer runtime's, and means no more than "the runtime knows". */
+  reason: string;
+  provider?: string;
+  title?: string;
+  /** The runtime's own actionable sentence (English; it is not localized). */
+  message?: string;
+  label?: string;
+  link?: string;
+}
+
+/** The turn's model call failed and the server is retrying it. These status
+ *  events are the only sign of life while every attempt fails, so without them
+ *  the UI shows a bare "Working…". Measured on the pinned runtime: exponential
+ *  backoff from 2s, capped at 30s without `retry-after` headers, and
+ *  `RETRY_MAX_RETRIES = 5` — after which the failure arrives as a session
+ *  error. */
 export interface SessionRetryEvent {
   type: "session.retry";
   sessionId: string;
@@ -90,6 +113,8 @@ export interface SessionRetryEvent {
   message: string;
   /** Epoch ms of the next scheduled attempt. */
   nextAt: number;
+  /** Present when the runtime recognised an account-state cause. */
+  action?: RetryAction;
 }
 
 // ---- Interactive requests (the agent asks; the user must answer) ----
@@ -292,19 +317,39 @@ export interface HistoryPart {
   /** True on runtime-generated text (e.g. the "tool was executed by the user"
    *  marker a "!" shell run leaves in history) — not something the user typed. */
   synthetic?: boolean;
+  /** OpenCode marks a part the model must not see again. The converter drops
+   *  these before building the request, so they cannot malform it. */
+  ignored?: boolean;
   tool?: string;
+  /** The provider's id for this tool call — what pairs the call with its
+   *  result. Every tool part carries one; a part without it cannot be turned
+   *  into a valid message. */
+  callID?: string;
   state?: {
     status?: string;
     title?: string;
     input?: Record<string, unknown>;
     output?: string;
-    /** Epoch ms the tool started/finished — persisted with the part. */
-    time?: { start?: number; end?: number };
+    /** Why the tool failed, on `status: "error"`. Carried into the request as
+     *  the tool result, so it is as load-bearing as `output` is. */
+    error?: string;
+    /** Epoch ms the tool started/finished — persisted with the part.
+     *  `compacted` is set once compaction has cleared this result's text; from
+     *  then on the request carries a placeholder and `output` no longer
+     *  matters. */
+    time?: { start?: number; end?: number; compacted?: number };
     /** Tool-specific extras (bash stdout tail, edit diff, task session link).
      *  `sessionId` is the subagent session a `task` tool spawned — the live
      *  event stream reads the same field, and without it here a RELOADED
-     *  conversation loses every link to its subagents' own transcripts. */
-    metadata?: { output?: string; diff?: string; sessionId?: string };
+     *  conversation loses every link to its subagents' own transcripts.
+     *  `interrupted` marks a tool the user stopped: its `output` (not
+     *  `state.error`) is what the model is shown. */
+    metadata?: {
+      output?: string;
+      diff?: string;
+      sessionId?: string;
+      interrupted?: boolean;
+    };
   };
 }
 

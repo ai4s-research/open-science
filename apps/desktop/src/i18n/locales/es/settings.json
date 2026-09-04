@@ -10,7 +10,8 @@
     "privacy": "Privacidad",
     "browser": "Navegador",
     "remote": "Acceso remoto",
-    "memory": "Memoria"
+    "memory": "Memoria",
+    "desktopOnly": "Esta sección está disponible en la app de escritorio."
   },
   "appearance": {
     "title": "Apariencia",
@@ -127,6 +128,8 @@
   "providers": {
     "title": "Proveedores",
     "hint": "Autenticación, endpoints personalizados e inicios de sesión de OpenCode importados",
+    "webHint": "Proveedores conectados: solo lectura desde el navegador",
+    "webNote": "Las claves de API y los endpoints personalizados se configuran en la máquina que ejecuta el workbench: en la app de escritorio, o con `osd auth set` si funciona sin ventana. Las credenciales nunca pasan por el gateway.",
     "connectPrompt": "Conecta el runtime para gestionar proveedores.",
     "manage": "Administrar",
     "collapse": "Contraer",
@@ -147,7 +150,7 @@
     "customEndpoint": "Endpoint personalizado",
     "customEndpointHint": "autoalojado · Ollama local · compatible con OpenAI/Anthropic",
     "customPresetLabel": "Preajuste de proveedor seleccionado",
-    "customPresetPlaceholder": "Elige un endpoint de MiniMax",
+    "customPresetPlaceholder": "Elige un endpoint predefinido",
     "minimaxGlobalOpenai": "MiniMax · Global · compatible con OpenAI",
     "minimaxGlobalAnthropic": "MiniMax · Global · compatible con Anthropic",
     "minimaxCnOpenai": "MiniMax · China · compatible con OpenAI",
@@ -229,6 +232,26 @@
     "autoTitle": "Revisar tras cada turno que cambie archivos",
     "autoHint": "Ejecuta un turno de modelo adicional en segundo plano por cambio. La conversación sigue disponible; se omiten los turnos de solo lectura."
   },
+  "sync": {
+    "title": "Sincronización de conversaciones",
+    "hint": "Ten tus conversaciones en varias de tus propias máquinas. Apunta esto a una carpeta que sincronice tu servicio en la nube; cada conversación se refleja allí como un archivo propio. Desactivado hasta que elijas una carpeta.",
+    "hintOn": "Activado. Cada conversación se refleja en la carpeta de abajo como un archivo propio; otras máquinas que apunten a la misma carpeta las recogen. Los secretos nunca se sincronizan.",
+    "folderTitle": "Carpeta de sincronización",
+    "folderNone": "Sin definir: las conversaciones se quedan en esta máquina.",
+    "choose": "Elegir carpeta",
+    "change": "Cambiar",
+    "stop": "Desactivar",
+    "nowTitle": "Sincronizar ahora",
+    "nowHint": "Se ejecuta solo tras cada turno; esto es para cuando lo quieras de inmediato.",
+    "now": "Sincronizar",
+    "running": "Sincronizando…",
+    "done": "Sincronizado. {{imported}} recibidas, {{exported}} enviadas.",
+    "folderSet": "Carpeta de sincronización definida.",
+    "stopped": "Sincronización desactivada.",
+    "unusable": "Esa carpeta no se puede usar",
+    "last": "Última sincronización {{when}}: {{imported}} recibidas, {{exported}} enviadas.",
+    "lastFailed": "La última sincronización falló: {{error}}"
+  },
   "python": {
     "title": "Kernel local de Python",
     "hint": "Ejecuta las celdas del cuaderno en la app. Usa tu entorno de Jupyter cuando está configurado (el mismo Python que el agente); si no, se detecta automáticamente, o puedes indicar un intérprete explícito abajo",
@@ -249,6 +272,7 @@
     "couldNotSetModel": "No se pudo configurar el modelo",
     "defaultModelSet": "Modelo predeterminado establecido en {{model}}",
     "defaultModelReset": "El modelo predeterminado {{old}} ya no está disponible — se cambió a {{model}}",
+    "configRebuilt": "No se pudo leer el archivo de ajustes del entorno del agente, así que se movió a {{path}} y se reconstruyó. Puede que tengas que volver a añadir proveedores y servidores MCP.",
     "couldNotSaveKey": "No se pudo guardar la clave",
     "providerConnected": "{{providerID}} conectado",
     "couldNotStartLogin": "No se pudo iniciar el inicio de sesión",
@@ -379,9 +403,28 @@
     "error": "Error al cambiar el acceso remoto",
     "connect": "Conectar",
     "connectPrompt": "Introduce el token de acceso de la app de escritorio → Ajustes → Acceso remoto.",
-    "acpTitle": "Editores externos (ACP)",
+"acpTitle": "Editores externos (ACP)",
     "acpHint": "Controla este espacio de trabajo desde Zed, JetBrains, Neovim o cualquier editor que hable el Agent Client Protocol. Pega esta entrada de agente en la configuración del editor; se conecta por la pasarela de arriba, con el acceso que permita el token.",
-    "acpNodeHint": "El editor lanza este script con Node 18+. El token se pasa por el entorno, no en la línea de comandos."
+    "acpNodeHint": "El editor lanza este script con Node 18+. El token se pasa por el entorno, no en la línea de comandos.",
+"port": "Puerto de la pasarela",
+    "portHint": "El puerto en el que escucha la pasarela. Por defecto es 4098; configure un puerto personalizado para reglas de firewall o configuraciones multi-instancia.",
+    "portInvalid": "Introduzca un número de puerto válido (1-65535).",
+    "portApply": "Aplicar",
+    "portReset": "Restablecer predeterminado"
+  },
+  "cli": {
+    "title": "Comando de terminal (osd)",
+    "hint": "El taller desde una terminal: sesiones, proyectos, archivos y un servidor sin interfaz para una máquina sin pantalla. Se instala con la app, sin configurar nada.",
+    "readyPath": "Listo: ejecuta `osd` en una terminal nueva.",
+    "readyProfile": "Listo: añadido a {{profile}}. Ejecuta `osd` en una terminal nueva.",
+    "readyEnvironment": "Listo: añadido a tu PATH de usuario. Ejecuta `osd` en una terminal nueva.",
+    "unreachable": "Instalado, pero nada en tu PATH lo alcanza. Añade esta línea a tu perfil de shell:",
+    "notInstalled": "No instalado. Usa el botón o reinicia la app.",
+    "unavailable": "Esta versión no incluye el comando osd.",
+    "occupied": "Ya existe un archivo con ese nombre que no escribió esta app: renómbralo primero.",
+    "install": "Instalar el comando",
+    "repair": "Reinstalar",
+    "error": "No se pudo instalar el comando osd"
   },
   "memory": {
     "title": "Memoria",

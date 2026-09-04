@@ -1,6 +1,6 @@
 {
   "name": "ai4s-workbench",
-  "version": "0.4.2",
+  "version": "0.5.2",
   "private": true,
   "description": "Open Science Desktop — local-first, model-agnostic AI research workbench for macOS, Windows and Linux.",
   "license": "MIT",

@@ -10,7 +10,8 @@
     "privacy": "개인정보",
     "browser": "브라우저",
     "remote": "원격 접속",
-    "memory": "메모리"
+    "memory": "메모리",
+    "desktopOnly": "이 섹션은 데스크톱 앱에서 사용할 수 있습니다."
   },
   "appearance": {
     "title": "화면 모드",
@@ -127,6 +128,8 @@
   "providers": {
     "title": "공급자",
     "hint": "인증, 사용자 지정 엔드포인트 및 가져온 OpenCode 로그인",
+    "webHint": "연결된 공급자 — 브라우저에서는 읽기 전용",
+    "webNote": "API 키와 사용자 지정 엔드포인트는 워크벤치를 실행하는 머신에서 설정합니다. 데스크톱 앱에서, 또는 창 없이 실행 중이라면 `osd auth set`으로 하세요. 자격 증명은 게이트웨이를 지나지 않습니다.",
     "connectPrompt": "프로바이더를 관리하려면 런타임에 연결하세요.",
     "manage": "관리",
     "collapse": "접기",
@@ -146,7 +149,7 @@
     "customEndpoint": "사용자 지정 엔드포인트",
     "customEndpointHint": "자체 호스팅 · 로컬 Ollama · OpenAI/Anthropic 호환",
     "customPresetLabel": "엄선된 제공자 프리셋",
-    "customPresetPlaceholder": "MiniMax 엔드포인트 선택",
+    "customPresetPlaceholder": "엔드포인트 프리셋 선택",
     "minimaxGlobalOpenai": "MiniMax · 글로벌 · OpenAI 호환",
     "minimaxGlobalAnthropic": "MiniMax · 글로벌 · Anthropic 호환",
     "minimaxCnOpenai": "MiniMax · 중국 · OpenAI 호환",
@@ -228,6 +231,26 @@
     "autoTitle": "파일을 변경한 턴마다 검토",
     "autoHint": "변경마다 백그라운드에서 모델 턴을 한 번 더 실행합니다. 대화는 계속 사용할 수 있으며 읽기 전용 턴은 건너뜁니다."
   },
+  "sync": {
+    "title": "대화 동기화",
+    "hint": "여러 대의 내 컴퓨터에서 대화를 함께 봅니다. 클라우드 드라이브가 동기화하는 폴더를 지정하면 대화마다 개별 파일로 복제됩니다. 폴더를 고르기 전에는 꺼져 있습니다.",
+    "hintOn": "켜져 있습니다. 각 대화는 아래 폴더에 개별 파일로 복제되고, 같은 폴더를 가리키는 다른 컴퓨터가 가져갑니다. 비밀 정보는 동기화되지 않습니다.",
+    "folderTitle": "동기화 폴더",
+    "folderNone": "설정되지 않음 — 대화는 이 컴퓨터에만 남습니다.",
+    "choose": "폴더 선택",
+    "change": "변경",
+    "stop": "끄기",
+    "nowTitle": "지금 동기화",
+    "nowHint": "턴이 끝날 때마다 자동으로 실행됩니다. 이건 즉시 동기화하고 싶을 때 씁니다.",
+    "now": "지금 동기화",
+    "running": "동기화 중…",
+    "done": "동기화했습니다. 받음 {{imported}}개, 보냄 {{exported}}개.",
+    "folderSet": "동기화 폴더를 설정했습니다.",
+    "stopped": "대화 동기화를 껐습니다.",
+    "unusable": "이 폴더는 사용할 수 없습니다",
+    "last": "마지막 동기화 {{when}} — 받음 {{imported}}개, 보냄 {{exported}}개.",
+    "lastFailed": "마지막 동기화 실패: {{error}}"
+  },
   "python": {
     "title": "로컬 Python 커널",
     "hint": "앱에서 노트북 셀을 실행합니다. 설정된 경우 Jupyter 환경(에이전트와 동일한 Python)을 사용하며, 그렇지 않으면 자동 감지하거나 아래에서 인터프리터를 직접 지정할 수 있습니다",
@@ -248,6 +271,7 @@
     "couldNotSetModel": "모델을 설정할 수 없습니다",
     "defaultModelSet": "기본 모델이 {{model}}로 설정되었습니다",
     "defaultModelReset": "기본 모델 {{old}}을(를) 더 이상 사용할 수 없어 {{model}}(으)로 전환했습니다",
+    "configRebuilt": "에이전트 런타임 설정 파일을 읽을 수 없어 {{path}}(으)로 옮기고 새로 만들었습니다. 제공자와 MCP 서버를 다시 추가해야 할 수 있습니다.",
     "couldNotSaveKey": "키를 저장할 수 없습니다",
     "providerConnected": "{{providerID}} 연결됨",
     "couldNotStartLogin": "로그인을 시작할 수 없습니다",
@@ -377,9 +401,28 @@
     "error": "원격 접속 변경 실패",
     "connect": "연결",
     "connectPrompt": "데스크톱 앱의 접속 토큰을 입력하세요 → 설정 → 원격 접속.",
-    "acpTitle": "외부 편집기(ACP)",
+"acpTitle": "외부 편집기(ACP)",
     "acpHint": "Zed, JetBrains, Neovim 등 Agent Client Protocol을 사용하는 편집기에서 이 작업 공간을 구동할 수 있습니다. 아래 에이전트 항목을 편집기 설정에 붙여 넣으세요. 위의 게이트웨이로 연결되며 권한은 토큰을 따릅니다.",
-    "acpNodeHint": "편집기가 Node 18+로 이 스크립트를 실행합니다. 토큰은 명령줄이 아니라 환경 변수로 전달됩니다."
+    "acpNodeHint": "편집기가 Node 18+로 이 스크립트를 실행합니다. 토큰은 명령줄이 아니라 환경 변수로 전달됩니다.",
+"port": "게이트웨이 포트",
+    "portHint": "게이트웨이가 수신 대기하는 포트입니다. 기본값은 4098입니다. 방화벽 규칙 또는 다중 인스턴스 설정을 위해 사용자 지정 포트를 설정할 수 있습니다.",
+    "portInvalid": "유효한 포트 번호(1-65535)를 입력하세요.",
+    "portApply": "적용",
+    "portReset": "기본값으로 재설정"
+  },
+  "cli": {
+    "title": "터미널 명령 (osd)",
+    "hint": "터미널에서 쓰는 워크벤치 — 세션, 프로젝트, 파일, 그리고 화면 없는 머신을 위한 헤드리스 서버. 앱과 함께 설치되며 설정할 것이 없습니다.",
+    "readyPath": "준비됨 — 새 터미널에서 `osd`를 실행하세요.",
+    "readyProfile": "준비됨 — {{profile}}에 추가했습니다. 새 터미널에서 `osd`를 실행하세요.",
+    "readyEnvironment": "준비됨 — 사용자 PATH에 추가했습니다. 새 터미널에서 `osd`를 실행하세요.",
+    "unreachable": "설치됐지만 PATH로는 닿지 않습니다. 아래 줄을 셸 프로필에 추가하세요:",
+    "notInstalled": "설치되지 않음. 버튼을 누르거나 앱을 다시 시작하세요.",
+    "unavailable": "이 빌드에는 osd 명령이 들어 있지 않습니다.",
+    "occupied": "이 앱이 만들지 않은 파일이 같은 이름으로 이미 있습니다 — 먼저 이름을 바꿔 주세요.",
+    "install": "명령 설치",
+    "repair": "다시 설치",
+    "error": "osd 명령 설치에 실패했습니다"
   },
   "memory": {
     "title": "메모리",

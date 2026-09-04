@@ -161,6 +161,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "正在等待主机应用响应。请保持此页面打开——主机可访问后会自动连接。",
+      "title": "正在启动本地运行时…",
+      "body": "内置的智能体运行时正在启动。首次启动时 macOS 可能会请求访问文件夹的权限——允许后即可自动完成。"
+    },
     "runtime": {
       "title": "OpenCode 运行时",
       "bodyPrefix": "桌面应用会自动运行一个内置的 OpenCode。在浏览器中，请使用以下命令启动一个",
@@ -198,6 +203,7 @@
       "paused": "已暂停——代理需要您在下方回答",
       "startingSession": "正在其文件夹中启动会话…",
       "retrying": "服务商报错——正在重试（第 {{attempt}} 次）",
+      "limitReached": "已达服务商额度上限——等待无法解决",
       "working": "正在处理…",
       "step": "第 {{count}} 步"
     },
@@ -208,6 +214,7 @@
       "cancelTitle": "停止此次审阅"
     },
     "placeholder": {
+      "starting": "正在启动运行时…",
       "disconnected": "连接以开始聊天",
       "waiting": "等待回复…",
       "readOnly": "只读访问——仅可查看"
@@ -352,6 +359,24 @@
       "revert": "回退到这里"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "这段对话里有一条已保存的消息缺少正文，而模型的消息格式要求它必须有——通常是一次刚开始就被中断的回复。",
+      "tool-result-missing": "已保存的 {{tool}} 步骤缺少它返回的结果。",
+      "tool-error-missing": "已保存的 {{tool}} 步骤失败了，但没有记录失败原因。",
+      "tool-call-id-missing": "已保存的工具步骤丢失了用于和结果配对的调用 id。",
+      "unknown": "这段对话已经无法发送给模型，而我们没能识别出是哪一条已保存的消息导致的。"
+    },
+    "someTool": "工具",
+    "offer_other": "回滚到它之前会丢弃 {{count}} 条消息，并清除这个问题。",
+    "noTarget": "没有可回滚的更早节点，这段对话无法修复——请新建一段。已有内容不会被删除，仍然可以阅读和导出。",
+    "action": "修复对话",
+    "confirm": {
+      "title": "回滚到损坏的消息之前？",
+      "body_other": "这会丢弃 {{count}} 条消息，并回滚那些轮次所做的文件改动。你的输入会回到输入框。此操作无法撤销。",
+      "action": "回滚"
+    }
+  },
   "compaction": {
     "label": "上下文已压缩",
     "autoBody": "为了不超出该模型的上下文窗口，运行时已把更早的对话摘要化，对话从这里继续。",
@@ -391,7 +416,8 @@
     "count_other": "{{count}} 个任务",
     "empty": "这个会话还没有子智能体。",
     "noDetail": "这个子智能体没有记录到步骤。",
-    "loadingDetail": "加载中…"
+    "loadingDetail": "加载中…",
+    "openRow": "在面板中打开这个子智能体"
   },
   "splitDestination": {
     "title": "新窗格的会话将建在",

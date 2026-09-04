@@ -15,6 +15,9 @@ vi.mock("@/lib/tauri", () => ({
   getAgentVariants: async () => variants.current,
   setAgentModel,
   setAgentVariant,
+  // Read when the runtime store is created (it picks the first-paint status
+  // from whether there is a runtime to dial at all).
+  isTauri: true,
 }));
 
 // One reasoning model with its own effort vocabulary, one without any levels.

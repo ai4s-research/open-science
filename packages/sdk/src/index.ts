@@ -1,5 +1,5 @@
 export { OpenCodeClient, ApiError, isApiStatus } from "./OpenCodeClient";
-export { MINIMAX_CUSTOM_PROVIDER_PRESETS } from "./customProviderPresets";
+export { CUSTOM_PROVIDER_PRESETS } from "./customProviderPresets";
 export type {
   CustomProviderCompatibility,
   CustomProviderModality,
@@ -17,6 +17,8 @@ export {
   type ToolUpdatedEvent,
   type SessionIdleEvent,
   type RuntimeErrorEvent,
+  type SessionRetryEvent,
+  type RetryAction,
   type OpenCodeClientOptions,
   type RuntimeStatus,
   type ToolCallStatus,
@@ -27,6 +29,7 @@ export {
   type AgentInfo,
   type CommandInfo,
   type HistoryMessage,
+  type HistoryPart,
   type ProviderInfo,
   type ProviderModelInfo,
   type ProviderAuthMethod,

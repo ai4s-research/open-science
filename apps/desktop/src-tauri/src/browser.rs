@@ -21,10 +21,6 @@ fn close_args() -> [&'static str; 4] {
     ["--namespace", BROWSER_NAMESPACE, "close", "--all"]
 }
 
-fn close_legacy_args() -> [&'static str; 2] {
-    ["close", "--all"]
-}
-
 /// One Chrome profile as agent-browser reports it. `directory` is what gets
 /// passed as AGENT_BROWSER_PROFILE (e.g. "Default", "Profile 4"); `name` is the
 /// human label (person / account name) for the picker.
@@ -112,17 +108,6 @@ pub fn close_agent_browser_on_exit() {
     };
     let _ = crate::runtime::quiet_command(bin)
         .args(close_args())
-        .spawn();
-}
-
-/// One-time upgrade cleanup for connector configs created before the app used
-/// a private namespace. It runs only while that missing namespace is migrated.
-pub fn close_legacy_agent_browser_on_upgrade() {
-    let Some(bin) = crate::runtime::sidecar_bin("agent-browser") else {
-        return;
-    };
-    let _ = crate::runtime::quiet_command(bin)
-        .args(close_legacy_args())
         .spawn();
 }
 

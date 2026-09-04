@@ -54,6 +54,10 @@ import { cn } from "@/lib/cn";
 type ThreadBlocks = NonNullable<ReturnType<typeof useRuntimeStore.getState>["threads"][string]>["blocks"];
 type ToolCallBlock = Extract<ThreadBlocks[number], { kind: "tool-call" }>;
 
+/** Retry causes that no number of attempts can clear — the account, not the
+ *  call, is what failed. Every other cause is reported as an ordinary retry. */
+const LIMIT_REASONS = new Set(["free_tier_limit", "account_rate_limit"]);
+
 /** The newest still-running tool step, or undefined. Allocation-free: a live
  *  pane re-derives this on every render, so it must not copy the block list. */
 function findLastRunningTool(blocks?: ThreadBlocks): ToolCallBlock | undefined {
@@ -80,6 +84,26 @@ const HEADER_LABEL_MIN_PX = 620;
  *  painted the full title and then re-truncated it a frame later. Re-mounting a
  *  session already seen this run now paints its final header immediately. */
 const RUNS_KNOWN = new Map<string, boolean>();
+
+/** How long the runtime may take to come up before the wait is explained. A
+ *  normal launch connects in well under a second, so nothing is said; a fresh
+ *  install can sit here for minutes behind the macOS "access Documents" prompt,
+ *  and an empty pane with a small badge tells that user nothing. */
+const SLOW_START_MS = 6000;
+
+/** Has the runtime been connecting long enough to say something about it? */
+function useSlowStart(connecting: boolean): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!connecting) {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), SLOW_START_MS);
+    return () => clearTimeout(timer);
+  }, [connecting]);
+  return slow;
+}
 
 export function SessionView({
   sessionId,
@@ -205,6 +229,7 @@ export function SessionView({
   const connected = status === "ready" || switching;
   const connecting = status === "connecting" && !switching;
   const displayStatus = switching ? "ready" : status;
+  const slowStart = useSlowStart(connecting);
 
   // A newly-created session (draft's first send) binds onto this leaf; the
   // wrapper then follows it into the URL and opens its folder.
@@ -253,6 +278,13 @@ export function SessionView({
     return [...local, ...commands.filter((c) => !localNames.has(c.name))];
   }, [commands, t]);
 
+  // Which subagent the transcript last asked the panel to show. The counter
+  // makes a repeat ask distinct from the previous one (see SubagentPane).
+  const [subagentFocus, setSubagentFocus] = useState<{
+    childSessionId: string;
+    nonce: number;
+  } | null>(null);
+
   const handlers: BlockHandlers = useMemo(
     () => ({
       onArtifactOpen: (a) => {
@@ -268,8 +300,22 @@ export function SessionView({
       onRevertMessage: async (id, text) => {
         if (await revertMessage(id, sid ?? undefined)) setComposerDraft(text);
       },
+      onOpenSubagent: (childSessionId) => {
+        pinEphemeral();
+        setShowAgents(true, sid ?? undefined);
+        setSubagentFocus((prev) => ({ childSessionId, nonce: (prev?.nonce ?? 0) + 1 }));
+      },
     }),
-    [openArtifact, sendPrompt, editMessage, revertMessage, setComposerDraft, sid, pinEphemeral],
+    [
+      openArtifact,
+      sendPrompt,
+      editMessage,
+      revertMessage,
+      setComposerDraft,
+      sid,
+      pinEphemeral,
+      setShowAgents,
+    ],
   );
   const onEvaluate = (expr: string) =>
     void sendPrompt(`Evaluate in the notebook kernel:\n\`\`\`python\n${expr}\n\`\`\``, sid ?? undefined);
@@ -283,6 +329,11 @@ export function SessionView({
   // Scan backwards in place: copying + reversing the whole block list ran on
   // every render of a live pane, allocating a fresh array per streamed token.
   const currentTool = working ? findLastRunningTool(thread?.blocks) : undefined;
+  // The turn's own clock, anchored when this pane first sees the turn running.
+  // A reload mid-turn loses that boundary; counting from here is the honest
+  // answer, and matches what the row is for — "it is still going", not billing.
+  const [turnStart, setTurnStart] = useState<number | null>(null);
+  if (working !== (turnStart !== null)) setTurnStart(working ? Date.now() : null);
   const lastBlock = thread?.blocks[thread.blocks.length - 1];
   const liveReasoningIndex =
     running && thread && lastBlock?.kind === "reasoning" ? thread.blocks.length - 1 : undefined;
@@ -460,6 +511,7 @@ export function SessionView({
       sessionId={eid!}
       onClose={() => setShowAgents(false, sid ?? undefined)}
       controls={<MaximizePaneButton />}
+      focus={subagentFocus ?? undefined}
     />
   ) : showFiles ? (
     <SessionFilesPane
@@ -744,6 +796,26 @@ export function SessionView({
                 </div>
               </div>
             )}
+            {slowStart && focused && (
+              // Only for a start that is genuinely taking a while (see
+              // useSlowStart) — a normal launch connects before this appears,
+              // and nothing should be said about a wait the user never had.
+              <div
+                role="status"
+                className="rounded-card border border-border bg-surface p-5 shadow-card"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium text-text">
+                  <Loader2 size={13} className="animate-spin text-muted" />
+                  {t("live.starting.title")}
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  {/* The browser client waits on a gateway running on someone
+                      else's machine — the local first-launch permission prompt
+                      is not what is holding it up. */}
+                  {t(isGatewayWeb ? "live.starting.bodyWeb" : "live.starting.body")}
+                </p>
+              </div>
+            )}
             {error && focused && (
               <div className="rounded-input border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
                 {error}
@@ -788,35 +860,70 @@ export function SessionView({
             {!webReadOnly && <SelectionActions sessionId={eid} />}
             {working && (
               <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-                <Loader2 size={14} className="shrink-0 animate-spin" />
-                <span className="shrink-0">
+                {/* The agent is producing: the label itself carries the motion
+                    (a light travelling through its letters) and the turn's
+                    clock. The two exceptional states — waiting on the user,
+                    retrying a failed call — keep the spinner, because nothing
+                    is streaming for a shimmer to stand for. */}
+                {(activeRequest || retryNotice) && (
+                  <Loader2 size={14} className="shrink-0 animate-spin" />
+                )}
+                <span className={cn("shrink-0", !activeRequest && !retryNotice && "shimmer-text")}>
                   {activeRequest
                     ? t("live.status.paused")
                     : retryNotice
-                      ? t("live.status.retrying", { attempt: Math.max(1, retryNotice.attempt) })
+                      ? // A spent allowance or a reached plan limit does not
+                        // resolve by waiting, so it must not be labelled as a
+                        // retry the user should sit through (#117). Only these
+                        // two: another cause the runtime may name later could
+                        // well be transient, and "waiting will not help" would
+                        // then be our own invention.
+                        LIMIT_REASONS.has(retryNotice.action?.reason ?? "")
+                        ? t("live.status.limitReached")
+                        : t("live.status.retrying", { attempt: Math.max(1, retryNotice.attempt) })
                       : sending && !eid
                         ? t("live.status.startingSession")
                         : t("live.status.working")}
                 </span>
+                {!activeRequest && !retryNotice && turnStart !== null && (
+                  <Elapsed start={turnStart} />
+                )}
                 {!activeRequest && !retryNotice && step >= 2 && (
                   <span className="shrink-0 text-xs text-muted/70">
                     {t("live.status.step", { count: step })}
                   </span>
                 )}
                 {!activeRequest && retryNotice && (
-                  <span className="truncate font-mono text-xs text-warn" title={retryNotice.message}>
+                  <span
+                    className="truncate font-mono text-xs text-warn"
+                    // The provider whose call failed, the runtime's own
+                    // actionable sentence and its link all belong to this
+                    // notice, and only the hover text has room for them. The
+                    // line itself stays the bare message: the provider id
+                    // ("opencode" for Zen) would read as the app on one line.
+                    title={[
+                      retryNotice.action?.provider,
+                      retryNotice.message,
+                      retryNotice.action?.message,
+                      retryNotice.action?.link,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  >
                     {retryNotice.message}
                   </span>
                 )}
                 {!activeRequest && !retryNotice && currentTool && (
                   <>
+                    {/* The step's own clock stays on its row in the thread —
+                        a second clock here would time a subject the turn
+                        clock beside it does not. */}
                     <span
                       className="truncate font-mono text-xs"
                       title={currentTool.command ?? currentTool.title}
                     >
                       {currentTool.title}
                     </span>
-                    {currentTool.startedAt !== undefined && <Elapsed start={currentTool.startedAt} />}
                   </>
                 )}
               </div>
@@ -904,11 +1011,13 @@ export function SessionView({
                   ? t("live.placeholder.readOnly")
                   : working
                     ? t("live.placeholder.waiting")
-                    : !connected
-                      ? t("live.placeholder.disconnected")
-                      : planAvailable && agentMode === "plan"
-                        ? t("composer.placeholder.plan")
-                        : t("composer.placeholder.default")
+                    : connecting
+                      ? t("live.placeholder.starting")
+                      : !connected
+                        ? t("live.placeholder.disconnected")
+                        : planAvailable && agentMode === "plan"
+                          ? t("composer.placeholder.plan")
+                          : t("composer.placeholder.default")
               }
               // Both switches belong to the OpenCode runtime: the approval mode is
               // its config (an ACP agent asks for permission on its own terms),

@@ -6,10 +6,10 @@ fn main() {
     let _executable = args.next();
     if args.next().as_deref()
         == Some(std::ffi::OsStr::new(
-            ai4s_workbench_lib::browser_mcp_proxy::PROXY_FLAG,
+            osd_core::browser_mcp_proxy::PROXY_FLAG,
         ))
     {
-        std::process::exit(ai4s_workbench_lib::browser_mcp_proxy::run(args.collect()));
+        std::process::exit(osd_core::browser_mcp_proxy::run(args.collect()));
     }
     ai4s_workbench_lib::run()
 }

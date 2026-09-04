@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  MINIMAX_CUSTOM_PROVIDER_PRESETS,
+  CUSTOM_PROVIDER_PRESETS,
   OpenCodeClient,
   type OpenCodeEvent,
 } from "@ai4s/sdk";
@@ -113,6 +113,34 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
       "high",
     ]);
     expect(models.find((m) => m.id === "gpt-4")?.variants).toEqual([]);
+  });
+
+  it("namespaces a background-review part's metadata, because the model is shown it", async () => {
+    // #114, reproduced against the pinned runtime: an assistant text part's
+    // metadata is forwarded to the model as `providerMetadata`, whose schema is
+    // Record<string, Record<string, JSONValue>>. The flat
+    // `{ source: "ai4s.background-review" }` this used to send put a string
+    // where a record belongs, and the AI SDK then rejected the WHOLE
+    // conversation — on that turn and every turn after, since the part is
+    // persisted. A background review permanently ended the conversation it had
+    // just reviewed. Every value here must be an object, one level down.
+    let sent: Record<string, unknown> = {};
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sent = JSON.parse(String(init?.body));
+      return new Response("{}", { status: 200 });
+    };
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.appendTextPart("ses_1", "msg_1", "```review\n{}\n```", "prt_1");
+
+    const metadata = sent.metadata as Record<string, unknown>;
+    expect(Object.keys(metadata).length).toBeGreaterThan(0);
+    for (const value of Object.values(metadata)) {
+      expect(typeof value).toBe("object");
+      expect(value).not.toBeNull();
+      expect(Array.isArray(value)).toBe(false);
+    }
+    expect(metadata).toEqual({ ai4s: { source: "background-review" } });
   });
 
   it("surfaces each model's context window, and 0 when OpenCode has none", async () => {
@@ -245,13 +273,15 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     await client.sendPrompt(sessionId, "flaky provider call");
     await waitFor(() => events.some((e) => e.type === "session.idle"));
 
-    // The server-side retry loop is unbounded — its status events are the only
-    // sign of life while every attempt fails, so they must reach the app.
-    expect(events.find((e) => e.type === "session.retry")).toMatchObject({
+    // The status events are the only sign of life while every attempt fails, so
+    // they must reach the app. An ordinary provider failure carries no `action`.
+    const retry = events.find((e) => e.type === "session.retry");
+    expect(retry).toMatchObject({
       sessionId,
       attempt: 2,
       message: "no channel available for this model",
     });
+    expect(retry && "action" in retry ? retry.action : undefined).toBeUndefined();
     expect(events.find((e) => e.type === "error")).toMatchObject({
       sessionId,
       message: "no channel available for this model",
@@ -262,6 +292,30 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     const last = messages[messages.length - 1];
     expect(last.role).toBe("assistant");
     expect(last.error).toBe("no channel available for this model");
+    client.close();
+  });
+
+  it("carries the account-state action a retry status names, not just its message", async () => {
+    // Without the action, "the free allowance is spent" and "the provider
+    // hiccuped" are the same event to the app, and it can only offer to wait
+    // out a condition that no number of attempts will change (#117).
+    const events: OpenCodeEvent[] = [];
+    const client = new OpenCodeClient({ baseUrl: `http://127.0.0.1:${server.port}` });
+    client.onEvent((e) => events.push(e));
+    await client.connect();
+    const sessionId = await client.createSession();
+    await client.sendPrompt(sessionId, "a turn that is out of quota");
+    await waitFor(() => events.some((e) => e.type === "session.idle"));
+
+    expect(events.find((e) => e.type === "session.retry")).toMatchObject({
+      sessionId,
+      message: "Free usage exceeded, subscribe to Go",
+      action: {
+        reason: "free_tier_limit",
+        provider: "opencode",
+        link: "https://opencode.ai/go",
+      },
+    });
     client.close();
   });
 
@@ -669,7 +723,7 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
     ["minimax-cn-anthropic", "@ai-sdk/anthropic", "https://api.minimaxi.com/anthropic"],
   ])("serializes the %s preset without misleading flat-rate cost metadata", async (presetId, npm, baseURL) => {
     const { fetchImpl, patches } = mockGlobalConfig();
-    const preset = MINIMAX_CUSTOM_PROVIDER_PRESETS.find((candidate) => candidate.id === presetId)!;
+    const preset = CUSTOM_PROVIDER_PRESETS.find((candidate) => candidate.id === presetId)!;
     const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
 
     await client.addCustomProvider(preset.providerId, {
@@ -742,6 +796,26 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
 
     await client.clearDefaultCustomModelContextLimits();
     expect(patches).toHaveLength(1); // nothing left matching the default → no second PATCH
+  });
+
+  // #119: from the gateway-served web client this PATCH is refused by gateway
+  // policy, which reports its reason as `{error}`. Swallowing that field left
+  // the user with "Failed to add the provider (403)" — indistinguishable from
+  // their own API key being rejected, which is what they concluded.
+  it("surfaces the gateway's refusal reason, not a bare status", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify({ error: "provider/model config is managed on the desktop" }), {
+        status: 403,
+      });
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+    await expect(
+      client.addCustomProvider("custom", {
+        name: "Custom",
+        npm: "@ai-sdk/openai-compatible",
+        baseURL: "https://example.test/v1",
+        models: ["sol"],
+      }),
+    ).rejects.toThrow("provider/model config is managed on the desktop");
   });
 });
 

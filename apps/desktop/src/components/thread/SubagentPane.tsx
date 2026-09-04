@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Bot, CheckCircle2, ChevronRight, CircleDashed, X, XCircle } from "lucide-react";
 import type { ToolCallStatus } from "@ai4s/shared";
@@ -41,10 +41,15 @@ export function SubagentPane({
   sessionId,
   onClose,
   controls,
+  focus,
 }: {
   sessionId: string;
   onClose: () => void;
   controls?: React.ReactNode;
+  /** A subagent the transcript asked this panel to show, expanded. The counter
+   *  makes each ask distinct, so clicking the same task row again re-opens the
+   *  row the reader collapsed in between. */
+  focus?: { childSessionId: string; nonce: number };
 }) {
   const { t } = useTranslation(["session", "common"]);
   const blocks = useRuntimeStore((s) => s.threads[sessionId]?.blocks);
@@ -90,7 +95,14 @@ export function SubagentPane({
         ) : (
           <ul className="flex flex-col gap-1.5">
             {rows.map((row, i) => (
-              <SubagentRow key={`${row.childSessionId ?? "row"}:${i}`} row={row} now={now} />
+              <SubagentRow
+                key={`${row.childSessionId ?? "row"}:${i}`}
+                row={row}
+                now={now}
+                focusNonce={
+                  focus && focus.childSessionId === row.childSessionId ? focus.nonce : undefined
+                }
+              />
             ))}
           </ul>
         )}
@@ -104,11 +116,33 @@ export function SubagentPane({
  * without a child session (the task never started) stays a plain summary —
  * there is nothing to open.
  */
-function SubagentRow({ row, now }: { row: Row; now: number }) {
-  const [open, setOpen] = useState(false);
+function SubagentRow({
+  row,
+  now,
+  focusNonce,
+}: {
+  row: Row;
+  now: number;
+  /** Set (and bumped) when the transcript asks for THIS subagent. */
+  focusNonce?: number;
+}) {
+  const [open, setOpen] = useState(focusNonce !== undefined);
+  // The ask arrives as a prop, so it is answered during render rather than in
+  // an effect — the row is already expanded on the frame the panel appears.
+  const [seenNonce, setSeenNonce] = useState(focusNonce);
+  if (focusNonce !== seenNonce) {
+    setSeenNonce(focusNonce);
+    if (focusNonce !== undefined) setOpen(true);
+  }
+  const ref = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    // A conversation with a dozen subagents can have the asked-for one below
+    // the fold; opening a row the reader cannot see reads as a dead click.
+    if (focusNonce !== undefined) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [focusNonce]);
   const childId = row.childSessionId;
   return (
-    <li className="rounded-card border border-border bg-surface-2">
+    <li ref={ref} className="rounded-card border border-border bg-surface-2">
       {/* The WHOLE row toggles, not just the title: aiming at the words was a
           target most people miss, and clicking the icon or the elapsed time
           looked like the row simply did not respond. */}

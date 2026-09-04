@@ -70,3 +70,6 @@ skills-lock.json
 
 # Build output: the ACP agent script an editor spawns (scripts/build-acp-server.mjs)
 runtime/acp-server/
+
+# osd release archives (built by scripts/release/package-osd.sh)
+dist-osd/
