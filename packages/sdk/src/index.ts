@@ -1,4 +1,5 @@
 export { OpenCodeClient, ApiError, isApiStatus } from "./OpenCodeClient";
+export type { CustomProviderModality, CustomProviderModel } from "./OpenCodeClient";
 export type { AgentRuntime } from "./runtime";
 export { BaseAgentRuntime } from "./base-runtime";
 export {

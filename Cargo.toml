@@ -18,7 +18,7 @@ resolver = "2"
 members = ["apps/desktop/src-tauri", "crates/osd-core", "crates/osd-cli"]
 
 [workspace.package]
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 license = "MIT"
 

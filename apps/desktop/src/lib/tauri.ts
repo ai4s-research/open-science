@@ -306,6 +306,8 @@ export interface GatewayStatus {
   mode: GatewayMode;
   running: boolean;
   port: number | null;
+  /** User-configured port; null means use the default (4098). */
+  configuredPort: number | null;
   loopbackUrl: string | null;
   /** The LAN URL (with the detected local IP) when `lan` is on and reachable. */
   lanUrl: string | null;
@@ -367,10 +369,11 @@ export async function setGatewayConfig(
   enabled: boolean,
   lan: boolean,
   mode: GatewayMode,
+  port?: number | null,
 ): Promise<GatewayStatus | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
-  return await invoke<GatewayStatus>("set_gateway_config", { enabled, lan, mode });
+  return await invoke<GatewayStatus>("set_gateway_config", { enabled, lan, mode, port: port ?? null });
 }
 
 /** Rotate the bearer token (old clients must re-enter the new one). */

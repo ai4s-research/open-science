@@ -397,7 +397,12 @@
     "connectPrompt": "输入桌面应用中的访问令牌:设置 → 远程访问。",
     "acpTitle": "外部编辑器（ACP）",
     "acpHint": "从 Zed、JetBrains、Neovim 或任何支持 Agent Client Protocol 的编辑器驱动本工作区。把下面这段 agent 配置粘贴到编辑器设置里；它通过上面的网关连接，权限以令牌为准。",
-    "acpNodeHint": "编辑器会用 Node 18+ 启动这个脚本。令牌通过环境变量传入，不出现在命令行里。"
+    "acpNodeHint": "编辑器会用 Node 18+ 启动这个脚本。令牌通过环境变量传入，不出现在命令行里。",
+    "port": "网关端口",
+    "portHint": "网关监听的端口。默认为 4098；可设置自定义端口用于防火墙规则或多实例部署。",
+    "portInvalid": "请输入有效的端口号（1-65535）。",
+    "portApply": "应用",
+    "portReset": "恢复默认"
   },
   "cli": {
     "title": "终端命令（osd）",

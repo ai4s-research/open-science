@@ -712,6 +712,75 @@ describe("custom-model context limits (#52: never pin a guessed window)", () => 
     });
   });
 
+  it("carries a described model's own metadata into the runtime's record", async () => {
+    // A caller that knows more than an id (a probe that reported the window, a
+    // user who filled the form) must be able to say so: the alternative is the
+    // runtime guessing, which is what #52 was about. Ids alone still work.
+    const { fetchImpl, patches } = mockGlobalConfig();
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.addCustomProvider("selfhosted", {
+      name: "Self-hosted",
+      npm: "@ai-sdk/openai-compatible",
+      baseURL: "https://llm.example.internal/v1",
+      models: [
+        {
+          id: "big",
+          context: 200_000,
+          reasoning: true,
+          modalities: { input: ["text", "image"] },
+          variants: { fast: { thinking: { type: "disabled" } } },
+        },
+        "small",
+      ],
+    });
+
+    const models = patches[patches.length - 1].provider.selfhosted.models!;
+    expect(models.big).toMatchObject({
+      name: "big",
+      limit: { context: 200_000, output: 0 },
+      reasoning: true,
+      modalities: { input: ["text", "image"] },
+      variants: { fast: { thinking: { type: "disabled" } } },
+    });
+    // Nothing is invented for a model given as a bare id.
+    expect(models.small).toEqual({ name: "small" });
+    // And no cost is written for either: a rate nobody supplied would be a
+    // guess, and a wrong one shows up as wrong money in the usage readout.
+    expect(models.big).not.toHaveProperty("cost");
+    expect(models.small).not.toHaveProperty("cost");
+  });
+
+  it("keeps what is already configured for a model it is re-saving", async () => {
+    // Re-adding an endpoint used to rebuild each model from scratch, dropping
+    // everything the record held beyond its limit — a hand-set cost or set of
+    // modalities disappeared the next time the form was submitted.
+    const { fetchImpl, patches } = mockGlobalConfig({
+      selfhosted: {
+        models: {
+          big: {
+            name: "big",
+            limit: { context: 200_000, output: 0 },
+            cost: { input: 1, output: 2 },
+          },
+        },
+      },
+    });
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.addCustomProvider("selfhosted", {
+      name: "Self-hosted",
+      npm: "@ai-sdk/openai-compatible",
+      baseURL: "https://llm.example.internal/v1",
+      models: ["big"],
+    });
+
+    expect(patches[patches.length - 1].provider.selfhosted.models!.big).toMatchObject({
+      limit: { context: 200_000, output: 0 },
+      cost: { input: 1, output: 2 },
+    });
+  });
+
   it("keeps a hand-set limit when no window is provided", async () => {
     const { fetchImpl, patches } = mockGlobalConfig({
       custom: { name: "Custom", models: { sol: { name: "sol", limit: { context: 64_000, output: 0 } } } },
