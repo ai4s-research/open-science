@@ -399,7 +399,12 @@
     "connectPrompt": "Saisis le jeton d'accès de l'app de bureau → Réglages → Accès distant.",
     "acpTitle": "Éditeurs externes (ACP)",
     "acpHint": "Pilotez cet espace de travail depuis Zed, JetBrains, Neovim ou tout éditeur qui parle l'Agent Client Protocol. Collez cette entrée d'agent dans les réglages de l'éditeur ; elle se connecte via la passerelle ci-dessus, avec les droits du jeton.",
-    "acpNodeHint": "L'éditeur lance ce script avec Node 18+. Le jeton passe par l'environnement, pas par la ligne de commande."
+    "acpNodeHint": "L'éditeur lance ce script avec Node 18+. Le jeton passe par l'environnement, pas par la ligne de commande.",
+    "port": "Port de la passerelle",
+    "portHint": "Le port sur lequel la passerelle écoute. Par défaut 4098 ; définissez un port personnalisé pour les règles pare-feu ou les configurations multi-instances.",
+    "portInvalid": "Entrez un numéro de port valide (1-65535).",
+    "portApply": "Appliquer",
+    "portReset": "Réinitialiser par défaut"
   },
   "cli": {
     "title": "Commande de terminal (osd)",

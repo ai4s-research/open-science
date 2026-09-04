@@ -399,7 +399,12 @@
     "connectPrompt": "Gib das Zugriffstoken aus der Desktop-App ein → Einstellungen → Fernzugriff.",
     "acpTitle": "Externe Editoren (ACP)",
     "acpHint": "Diesen Arbeitsbereich aus Zed, JetBrains, Neovim oder jedem Editor steuern, der das Agent Client Protocol spricht. Diesen Agenten-Eintrag in die Editor-Einstellungen einfügen; er verbindet sich über das obige Gateway, mit den Rechten des Tokens.",
-    "acpNodeHint": "Der Editor startet dieses Skript mit Node 18+. Das Token wird über die Umgebung übergeben, nicht auf der Kommandozeile."
+    "acpNodeHint": "Der Editor startet dieses Skript mit Node 18+. Das Token wird über die Umgebung übergeben, nicht auf der Kommandozeile.",
+    "port": "Gateway-Port",
+    "portHint": "Der Port, auf dem das Gateway lauscht. Standard ist 4098; setzen Sie einen benutzerdefinierten Port für Firewall-Regeln oder Multi-Instance-Setup.",
+    "portInvalid": "Geben Sie eine gültige Portnummer (1-65535) ein.",
+    "portApply": "Anwenden",
+    "portReset": "Auf Standard zurücksetzen"
   },
   "cli": {
     "title": "Terminal-Befehl (osd)",

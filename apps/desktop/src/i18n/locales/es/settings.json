@@ -399,7 +399,12 @@
     "connectPrompt": "Introduce el token de acceso de la app de escritorio → Ajustes → Acceso remoto.",
     "acpTitle": "Editores externos (ACP)",
     "acpHint": "Controla este espacio de trabajo desde Zed, JetBrains, Neovim o cualquier editor que hable el Agent Client Protocol. Pega esta entrada de agente en la configuración del editor; se conecta por la pasarela de arriba, con el acceso que permita el token.",
-    "acpNodeHint": "El editor lanza este script con Node 18+. El token se pasa por el entorno, no en la línea de comandos."
+    "acpNodeHint": "El editor lanza este script con Node 18+. El token se pasa por el entorno, no en la línea de comandos.",
+    "port": "Puerto de la pasarela",
+    "portHint": "El puerto en el que escucha la pasarela. Por defecto es 4098; configure un puerto personalizado para reglas de firewall o configuraciones multi-instancia.",
+    "portInvalid": "Introduzca un número de puerto válido (1-65535).",
+    "portApply": "Aplicar",
+    "portReset": "Restablecer predeterminado"
   },
   "cli": {
     "title": "Comando de terminal (osd)",

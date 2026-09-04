@@ -27,6 +27,31 @@ import { DEFAULT_OPENCODE_URL } from "./types";
 import type { AgentRuntime } from "./runtime";
 import { BaseAgentRuntime } from "./base-runtime";
 
+export type CustomProviderModality = "text" | "audio" | "image" | "video" | "pdf";
+
+/** A model on a custom endpoint. A caller that knows nothing but the id passes
+ *  the id; one that knows the window, the pricing or the modalities passes them
+ *  too, and they reach the runtime's own model record rather than being guessed
+ *  at. Nothing here is required, because nothing about a self-hosted endpoint
+ *  can be assumed. */
+export interface CustomProviderModel {
+  id: string;
+  name?: string;
+  context?: number;
+  cost?: {
+    input: number;
+    output: number;
+    cache_read?: number;
+    cache_write?: number;
+  };
+  modalities?: {
+    input?: CustomProviderModality[];
+    output?: CustomProviderModality[];
+  };
+  reasoning?: boolean;
+  variants?: Record<string, Record<string, unknown>>;
+}
+
 /**
  * An error from an OpenCode API call, carrying the HTTP status so a caller can
  * tell "this is already gone" (404) from a real failure. Answering a permission
@@ -71,10 +96,21 @@ const ARTIFACT_PRESENTATION_SYSTEM = `Open Science Desktop can display workspace
 type CustomProviderConfig = Record<
   string,
   {
-    models?: Record<string, { name?: string; limit?: { context: number; output: number } }>;
+    models?: Record<string, CustomProviderModelConfig>;
     [key: string]: unknown;
   }
 >;
+
+type CustomProviderModelConfig = {
+  id?: string;
+  name?: string;
+  limit?: { context: number; output: number };
+  cost?: { input: number; output: number; cache_read?: number; cache_write?: number };
+  modalities?: { input?: string[]; output?: string[] };
+  reasoning?: boolean;
+  variants?: Record<string, Record<string, unknown>>;
+  [key: string]: unknown;
+};
 
 function mapToolStatus(status: string): ToolCallStatus {
   switch (status) {
@@ -838,7 +874,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       npm: string;
       baseURL: string;
       apiKey?: string;
-      models: string[];
+      models: ReadonlyArray<string | CustomProviderModel>;
       /** Context window per model id (e.g. probed from the endpoint). */
       contexts?: Record<string, number>;
     },
@@ -852,13 +888,34 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     // high never helps a smaller one. Known values come from the probe
     // (Ollama/vLLM/LM Studio report their window) or the user; when both are
     // absent, leaving context 0 makes OpenCode skip the accounting entirely.
-    const existing = await this.customProviderModelLimits(id);
+    const existing = await this.customProviderModels(id);
     const models = Object.fromEntries(
-      opts.models.map((m) => {
-        const context = opts.contexts?.[m];
+      opts.models.map((input) => {
+        const model = typeof input === "string" ? { id: input } : input;
+        const previous = existing[model.id];
+        const context = opts.contexts?.[model.id] ?? model.context;
         const limit =
-          context && context > 0 ? { context, output: existing[m]?.output ?? 0 } : existing[m];
-        return [m, limit ? { name: m, limit } : { name: m }];
+          context && context > 0
+            ? { context, output: previous?.limit?.output ?? 0 }
+            : previous?.limit;
+        const metadata =
+          typeof input === "string"
+            ? {}
+            : {
+                ...(model.cost !== undefined ? { cost: model.cost } : {}),
+                ...(model.modalities !== undefined ? { modalities: model.modalities } : {}),
+                ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
+                ...(model.variants !== undefined ? { variants: model.variants } : {}),
+              };
+        return [
+          model.id,
+          {
+            ...(previous ?? {}),
+            name: model.name ?? model.id,
+            ...(limit ? { limit } : {}),
+            ...metadata,
+          },
+        ];
       }),
     );
     const provider = {
@@ -879,15 +936,9 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
 
   /** Context limits already configured for a custom provider's models, keyed by
    *  model id. Best-effort: an unreadable config just means "no limits set". */
-  private async customProviderModelLimits(
-    id: string,
-  ): Promise<Record<string, { context: number; output: number }>> {
+  private async customProviderModels(id: string): Promise<Record<string, CustomProviderModelConfig>> {
     const cfg = await this.customProviderConfig();
-    const out: Record<string, { context: number; output: number }> = {};
-    for (const [model, m] of Object.entries(cfg[id]?.models ?? {})) {
-      if (m.limit && m.limit.context > 0) out[model] = m.limit;
-    }
-    return out;
+    return cfg[id]?.models ?? {};
   }
 
   private async customProviderConfig(): Promise<CustomProviderConfig> {
