@@ -623,13 +623,28 @@ def check_social(ctx: Ctx) -> list[Finding]:
 # definition: Monod/Haldane max growth rate & saturation/inhibition constants,
 # Pirt maintenance terms, yield coefficients, Luedeking-Piret growth and
 # non-growth-associated production coefficients.
+#
+# Split by how much a name proves on its own. `mu_max` or `Yxs` names a
+# fermentation model and nothing else; `alpha`, `beta`, `kd` are what everyone
+# calls the parameters of any curve at all, and a power law's exponent is
+# routinely negative — bounding it at zero would break the fit this gate exists
+# to protect. The ambiguous names therefore only count alongside an unambiguous
+# one, or in a file that is otherwise visibly about a fermentation.
 _KINETIC_PARAM_NAMES = {
     "mu_max", "mumax", "umax", "mu0",
-    "ks", "ki", "kd", "ka",
+    "ks", "ki",
     "yxs", "yps", "yxo", "y_xs", "y_ps",
-    "alpha", "beta",
     "qs", "qp", "qo2",
 }
+_AMBIGUOUS_KINETIC_PARAM_NAMES = {"alpha", "beta", "kd", "ka"}
+
+# Vocabulary that marks a file as being about a fermentation / bioreactor, for
+# the rules whose statistics are field-independent but whose ADVICE is not.
+_BIOPROCESS_CONTEXT = re.compile(
+    r"\bkla|\bod600\b|\bcfu\b|fermentat|bioreactor|monod|haldane|luedeking"
+    r"|\bpirt\b|biomass|substrate|inocul|\bbroth\b|chemostat|fed[_-]?batch",
+    re.IGNORECASE,
+)
 
 _FIT_FUNCS = {"curve_fit"}
 
@@ -715,6 +730,7 @@ def check_bioprocess(ctx: Ctx) -> list[Finding]:
     out: list[Finding] = []
     if ctx.tree is None:
         return out
+    in_bioprocess_file = bool(_BIOPROCESS_CONTEXT.search(ctx.src))
 
     # (1) curve_fit on a kinetic model with classic non-negative parameters
     #     and no `bounds=` — the fit can silently converge to a negative
@@ -727,7 +743,11 @@ def check_bioprocess(ctx: Ctx) -> list[Finding]:
         params = _func_param_names(ctx.tree, node.args[0].id)
         if not params:
             continue
-        hit = params & _KINETIC_PARAM_NAMES
+        named = params & _KINETIC_PARAM_NAMES
+        ambiguous = params & _AMBIGUOUS_KINETIC_PARAM_NAMES
+        # An ambiguous name alone is not evidence of a kinetic model: `alpha`
+        # and `beta` are the parameters of every second fit ever written.
+        hit = named | ambiguous if (named or in_bioprocess_file) else set()
         if hit and not _has_bounds_kwarg(node):
             out.append(Finding(
                 "warn", "bioprocess · unconstrained-kinetics",
@@ -745,7 +765,11 @@ def check_bioprocess(ctx: Ctx) -> list[Finding]:
     #     kLa comes from regressing ln(C* - C) against time. Regressing ln(C)
     #     on the raw DO reading (not the saturation-minus-DO driving force)
     #     is a classic "runs cleanly, wrong number" mistake in this method.
-    if re.search(r"\bkla\b", ctx.src, re.IGNORECASE):
+    # `\bkla` rather than `\bkla\b`: the coefficient is almost always held in a
+    # named variable (kla_slope, kLa_est), and requiring a bare `kla` disarmed
+    # the rule on exactly the files that compute one. The leading boundary keeps
+    # it out of words that merely contain the letters, such as Oklahoma.
+    if re.search(r"\bkla", ctx.src, re.IGNORECASE):
         for node in ast.walk(ctx.tree):
             if not (isinstance(node, ast.Call) and _call_name(node) == "log"):
                 continue
@@ -787,7 +811,13 @@ def check_bioprocess(ctx: Ctx) -> list[Finding]:
     # (4) ANOVA / Tukey HSD run with no normality or variance-homogeneity
     #     check anywhere in this file — the two assumptions the test relies
     #     on to keep its stated false-positive rate.
-    if ctx.tree is not None:
+    #
+    #     Gated on the file being about a fermentation, because the finding is
+    #     tagged `bioprocess` and would otherwise land on every three-arm survey
+    #     in the workspace under a heading about bioreactors. The statistics
+    #     generalize; whether to gate ANOVA everywhere is its own decision, and
+    #     belongs to whoever adds a general statistics rule set.
+    if in_bioprocess_file:
         all_calls = [n for n in ast.walk(ctx.tree) if isinstance(n, ast.Call)]
         anova_calls = [n for n in all_calls if _call_name(n) in _ANOVA_FUNCS]
         checked = any(_call_name(n) in _ASSUMPTION_FUNCS for n in all_calls)

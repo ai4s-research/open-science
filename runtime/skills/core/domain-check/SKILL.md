@@ -63,7 +63,10 @@ It prints exactly one ` ```review ` fenced JSON block on stdout.
   function whose parameters are classic non-negative kinetic constants
   (Monod/Haldane `mu_max`/`Ks`/`Ki`, Pirt/yield `Yxs`/`Yps`, Luedeking-Piret
   `alpha`/`beta`, …) with no `bounds=`, letting a noisy or sparse fit converge
-  to a physically impossible negative value.
+  to a physically impossible negative value. Names that belong to any curve at
+  all (`alpha`, `beta`, `kd`, `ka`) count only beside an unambiguous one or in
+  a file that otherwise reads as a fermentation, so a plain power law, whose
+  exponent is routinely negative, is left alone.
 - **bioprocess · kla-driving-force** — in a file that computes `kLa`, taking
   `log()` of the raw dissolved-oxygen reading instead of the `(C* - C)`
   driving force the dynamic gassing-out method requires (`dC/dt = kLa(C*-C)`,
@@ -78,7 +81,10 @@ It prints exactly one ` ```review ` fenced JSON block on stdout.
   `pairwise_tukeyhsd`/`tukey_hsd` run in a file with no normality
   (`shapiro`/`normaltest`/`anderson`) or variance-homogeneity
   (`levene`/`bartlett`/`fligner`) check anywhere in it — the two assumptions
-  the test's stated false-positive rate depends on.
+  the test's stated false-positive rate depends on. Scoped to files that read
+  as a fermentation (`biomass`, `bioreactor`, `CFU`, `fed-batch`, …): the
+  statistics generalize, but a finding tagged `bioprocess` on a three-arm
+  survey does not.
 - **bioprocess · rsm-first-order-fit** — a Box-Behnken/central-composite
   design (`bbdesign`/`ccdesign`/`box_behnken`/`central_composite` in the
   file) fit through a `statsmodels` formula with no quadratic (`I(x**2)`) or

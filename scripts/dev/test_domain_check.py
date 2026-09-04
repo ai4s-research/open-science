@@ -266,6 +266,30 @@ class Bioprocess(unittest.TestCase):
         )
         self.assertNotIn("bioprocess · unconstrained-kinetics", tags(src))
 
+    def test_luedeking_piret_alpha_beta_in_a_fermentation_file(self):
+        # alpha and beta ARE the Luedeking-Piret coefficients, and both are
+        # non-negative — flagged, because the file says what it is about.
+        src = (
+            "from scipy.optimize import curve_fit\n"
+            "# product titre from a fed-batch fermentation\n"
+            "def luedeking_piret(x, alpha, beta):\n"
+            "    return alpha * x + beta\n"
+            "popt, _ = curve_fit(luedeking_piret, x_data, p_data)\n"
+        )
+        self.assertIn("bioprocess · unconstrained-kinetics", tags(src))
+
+    def test_generic_alpha_beta_fit_ok(self):
+        # The same two parameter names on a plain power law. A power-law
+        # exponent is routinely negative, so bounding it at zero would break
+        # the fit; nothing here says fermentation, so the rule stays quiet.
+        src = (
+            "from scipy.optimize import curve_fit\n"
+            "def power_law(x, alpha, beta):\n"
+            "    return alpha * x ** beta\n"
+            "popt, _ = curve_fit(power_law, x_data, y_data)\n"
+        )
+        self.assertNotIn("bioprocess · unconstrained-kinetics", tags(src))
+
     def test_curve_fit_non_kinetic_model_ok(self):
         # Parameters unrelated to bioprocess kinetics -> not flagged.
         src = (
@@ -281,6 +305,12 @@ class Bioprocess(unittest.TestCase):
             "kla_slope, _ = np.polyfit(t, np.log(DO), 1)\n"
             "kla = -kla_slope\n"
         )
+        self.assertIn("bioprocess · kla-driving-force", tags(src))
+
+    def test_kla_held_in_a_named_variable(self):
+        # What the coefficient is actually called in real code. Requiring a
+        # bare `kla` disarmed the rule on the files that compute one.
+        src = "kla_slope, _ = np.polyfit(t, np.log(DO), 1)\n"
         self.assertIn("bioprocess · kla-driving-force", tags(src))
 
     def test_kla_log_driving_force_ok(self):
@@ -325,19 +355,34 @@ class Bioprocess(unittest.TestCase):
         )
 
     def test_anova_no_assumption_check(self):
-        src = "from scipy import stats\nf, p = stats.f_oneway(a, b, c)\n"
+        src = (
+            "from scipy import stats\n"
+            "biomass = load_runs()\n"
+            "f, p = stats.f_oneway(a, b, c)\n"
+        )
         self.assertIn("bioprocess · anova-assumptions", tags(src))
 
     def test_tukey_no_assumption_check(self):
         src = (
             "from statsmodels.stats.multicomp import pairwise_tukeyhsd\n"
+            "# titre by bioreactor feed strategy\n"
             "res = pairwise_tukeyhsd(data, groups)\n"
         )
         self.assertIn("bioprocess · anova-assumptions", tags(src))
 
+    def test_anova_outside_a_fermentation_file_ok(self):
+        # The statistics generalize, the tag does not: a three-arm survey must
+        # not be told about its bioreactor assumptions.
+        src = (
+            "from scipy import stats\n"
+            "f, p = stats.f_oneway(control, nudge, payment)\n"
+        )
+        self.assertNotIn("bioprocess · anova-assumptions", tags(src))
+
     def test_anova_with_shapiro_ok(self):
         src = (
             "from scipy import stats\n"
+            "biomass = load_runs()\n"
             "f, p = stats.f_oneway(a, b, c)\n"
             "w, pw = stats.shapiro(residuals)\n"
         )
@@ -346,6 +391,7 @@ class Bioprocess(unittest.TestCase):
     def test_anova_with_levene_ok(self):
         src = (
             "from scipy import stats\n"
+            "biomass = load_runs()\n"
             "f, p = stats.f_oneway(a, b, c)\n"
             "lw, lp = stats.levene(a, b, c)\n"
         )
