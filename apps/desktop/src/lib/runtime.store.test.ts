@@ -2944,9 +2944,7 @@ describe("background pane streams", () => {
 describe("manual context compaction", () => {
   beforeEach(async () => {
     mocks.compactSessionSpy.mockClear();
-    mocks.getSessionInfoSpy.mockClear();
     mocks.failCompact = false;
-    mocks.sessionInfo = {};
     useRuntimeStore.getState().disconnect();
     await useRuntimeStore.getState().connect();
     useRuntimeStore.setState({
