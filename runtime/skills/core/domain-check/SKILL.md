@@ -1,6 +1,6 @@
 ---
 name: domain-check
-description: Use whenever you write or run scientific analysis code (physics, earth/geo, biology, chemistry, social science, or bioprocess/fermentation) in this workspace — before executing it and again after generating results. Runs a deterministic domain-correctness gate that catches code which runs but is scientifically wrong (unit/dimension mismatch, Euclidean distance on lat/lon without a CRS, 0-based/1-based coordinate and strand errors, impossible SMILES valence, uncorrected multiple comparisons, averaging a categorical code, unconstrained kinetic-parameter fits, kLa computed from raw DO instead of the driving force, arithmetic mean of raw CFU counts, ANOVA/Tukey with no assumption check, a curvature DOE design fit with a first-order model). Surfaces structured findings; never claims the code is correct.
+description: Use whenever you write or run scientific analysis code (physics, earth/geo, biology, chemistry, social science, or bioprocess/fermentation) in this workspace — before executing it and again after generating results. Runs a deterministic domain-correctness gate that catches code which runs but is scientifically wrong (unit/dimension mismatch, Euclidean distance on lat/lon without a CRS, 0-based/1-based coordinate and strand errors, impossible SMILES valence, uncorrected multiple comparisons, averaging a categorical code, unconstrained kinetic-parameter fits, kLa computed from raw DO instead of the driving force, arithmetic mean of raw CFU counts, ANOVA/Tukey with no assumption check, a curvature DOE design fit with a first-order model, an ML model fit across process scales with no correction). Surfaces structured findings; never claims the code is correct.
 ---
 
 # Domain-correctness gate
@@ -90,6 +90,14 @@ It prints exactly one ` ```review ` fenced JSON block on stdout.
   file) fit through a `statsmodels` formula with no quadratic (`I(x**2)`) or
   interaction (`x1:x2`) term — the design was built to estimate curvature, so
   a first-order model wastes it and cannot locate an interior optimum.
+- **bioprocess · cross-scale-fit** — a real model fit (`.fit(...)`, guarded to
+  a file that imports scikit-learn, XGBoost, statsmodels, PyTorch,
+  TensorFlow, or Keras — a plain `scipy.curve_fit` never counts) in a file
+  that mentions both a small-scale (flask, bench-scale) and a large-scale
+  (bioreactor, batch, pilot-scale) process vocabulary, e.g. trained on flask
+  data and applied to a bioreactor. Advisory: still fires when a
+  calibration/scaling-factor/cross-validation term is present, since
+  confirming intent matters either way, but with a different message.
 
 Rules favour precision: an unrecognized unit, arithmetic with no discipline
 signal, a SMILES using bracket atoms (which carry their own valence/charge), a
