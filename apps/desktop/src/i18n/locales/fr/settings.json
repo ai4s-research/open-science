@@ -167,6 +167,7 @@
     "hint": "Outils supplémentaires pour l'agent (Model Context Protocol) — p. ex. un MCP Jupyter ou navigateur",
     "connectPrompt": "Connectez le runtime pour configurer les serveurs MCP.",
     "openSource": "open source",
+    "official": "officiel",
     "enterKeyFirstTitle": "Entrez d'abord la clé API",
     "settingUp": "Configuration en cours…",
     "enable": "Activer",

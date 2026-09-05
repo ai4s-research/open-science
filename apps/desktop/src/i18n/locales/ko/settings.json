@@ -166,6 +166,7 @@
     "hint": "에이전트를 위한 추가 도구 (Model Context Protocol) — 예: Jupyter 또는 브라우저 MCP",
     "connectPrompt": "MCP 서버를 구성하려면 런타임을 연결하세요.",
     "openSource": "오픈소스",
+    "official": "공식",
     "enterKeyFirstTitle": "먼저 API 키를 입력하세요",
     "settingUp": "설정 중…",
     "enable": "활성화",

@@ -1,16 +1,27 @@
-// Curated open-source science MCP connectors (P1-2). These are existing,
-// maintained open-source MCP servers — we one-click provision them into a
-// shared isolated env (bundled uv) and register them; we do not reimplement
+// Curated science MCP connectors (P1-2). Almost all of these are existing,
+// maintained open-source MCP servers that we one-click provision into a
+// shared isolated env (bundled uv) and register — we do not reimplement
 // literature/database access ourselves. Keep this list small and vetted.
+//
+// A `type: "remote"` entry is the one exception to "we host it": it points at
+// a vendor's own official hosted MCP server (OAuth-authenticated) instead of
+// a PyPI package, for cases where the vendor runs the only sanctioned
+// endpoint (e.g. Elicit) rather than publishing something installable.
 import type { McpConfig } from "@ai4s/sdk";
 
-export interface ScienceConnector {
+interface ScienceConnectorBase {
   /** MCP server name written into OpenCode's config. */
   id: string;
   label: string;
   /** Short discipline chip, e.g. "materials", "economics". */
   discipline: string;
   description: string;
+  /** Upstream project, shown so users can vet it before enabling. */
+  source: string;
+}
+
+export interface LocalScienceConnector extends ScienceConnectorBase {
+  type?: "local";
   /** PyPI package installed into the shared science-MCP env. */
   pkg: string;
   /** Console script the package installs (resolved next to the managed python).
@@ -25,11 +36,30 @@ export interface ScienceConnector {
   apiKeyUrl?: string;
   /** Shown before Enable when the install is large. */
   installNote?: string;
-  /** Upstream project, shown so users can vet it before enabling. */
-  source: string;
 }
 
+export interface RemoteScienceConnector extends ScienceConnectorBase {
+  type: "remote";
+  /** The vendor's own hosted MCP endpoint — nothing installed locally. */
+  url: string;
+  /** How OpenCode authenticates to `url`. Only "oauth" exists today. */
+  auth: "oauth";
+}
+
+export type ScienceConnector = LocalScienceConnector | RemoteScienceConnector;
+
 export const SCIENCE_CONNECTORS: ScienceConnector[] = [
+  {
+    type: "remote",
+    id: "elicit",
+    label: "Elicit",
+    discipline: "all fields",
+    description:
+      "Semantic search over 138M+ papers, systematic reviews, and evidence reports — official Elicit connector, sign in with your Elicit account",
+    url: "https://elicit.com/api/mcp",
+    auth: "oauth",
+    source: "elicit.com (official, docs.elicit.com)",
+  },
   {
     id: "paper-search",
     label: "Literature search",
@@ -116,16 +146,21 @@ function scriptBeside(python: string, bin: string): string {
   return `${dir}${sep}${bin}${exe}`;
 }
 
-/** Local-MCP config for a connector, given the managed interpreter path and an
- *  optional API key (passed via env, never written to provenance/logs). */
+/** MCP config for a connector. `python` (the managed interpreter path) and
+ *  `apiKey` (passed via env, never written to provenance/logs) only apply to
+ *  a local connector; a remote one just points at the vendor's own URL and
+ *  authenticates separately via `OpenCodeClient.startMcpOAuth`. */
 export function connectorConfig(
   c: ScienceConnector,
-  python: string,
+  python?: string,
   apiKey?: string,
 ): McpConfig {
+  if (c.type === "remote") {
+    return { type: "remote", url: c.url, enabled: true };
+  }
   const command = c.bin
-    ? [scriptBeside(python, c.bin)]
-    : [python, "-m", c.module ?? "", ...(c.args ?? [])];
+    ? [scriptBeside(python ?? "", c.bin)]
+    : [python ?? "", "-m", c.module ?? "", ...(c.args ?? [])];
   const config: McpConfig = { type: "local", command, enabled: true };
   if (c.apiKeyEnv && apiKey && apiKey.trim()) {
     config.environment = { [c.apiKeyEnv]: apiKey.trim() };

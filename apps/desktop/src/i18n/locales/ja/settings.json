@@ -166,6 +166,7 @@
     "hint": "エージェント向けの追加ツール（Model Context Protocol）— 例: Jupyter やブラウザの MCP",
     "connectPrompt": "MCP サーバーを設定するには、ランタイムに接続してください。",
     "openSource": "オープンソース",
+    "official": "公式",
     "enterKeyFirstTitle": "先に API キーを入力してください",
     "settingUp": "セットアップ中…",
     "enable": "有効化",

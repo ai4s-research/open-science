@@ -1354,7 +1354,12 @@ export function SettingsPage() {
               {isTauri &&
                 SCIENCE_CONNECTORS.filter((c) => !mcpServers.some((s) => s.name === c.id)).map(
                   (c) => {
-                    const keyMissing = Boolean(c.apiKeyEnv) && !connectorKeys[c.id]?.trim();
+                    // Only a local connector takes an API key — narrow once so the
+                    // rest of this card can read plain optional fields either way.
+                    const apiKeyEnv = c.type === "remote" ? undefined : c.apiKeyEnv;
+                    const apiKeyUrl = c.type === "remote" ? undefined : c.apiKeyUrl;
+                    const installNote = c.type === "remote" ? undefined : c.installNote;
+                    const keyMissing = Boolean(apiKeyEnv) && !connectorKeys[c.id]?.trim();
                     return (
                       <div
                         key={c.id}
@@ -1368,12 +1373,12 @@ export function SettingsPage() {
                               {c.discipline}
                             </span>
                             <span className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted ring-1 ring-border">
-                              {t("mcp.openSource")}
+                              {c.type === "remote" ? t("mcp.official") : t("mcp.openSource")}
                             </span>
                             <div className="truncate text-xs text-muted">{c.description}</div>
                             <div className="truncate font-mono text-[11px] text-muted/70">
                               {c.source}
-                              {c.installNote ? ` · ${c.installNote}` : ""}
+                              {installNote ? ` · ${installNote}` : ""}
                             </div>
                           </div>
                           <button
@@ -1391,7 +1396,7 @@ export function SettingsPage() {
                             )}
                           </button>
                         </div>
-                        {c.apiKeyEnv && (
+                        {apiKeyEnv && (
                           <div className="mt-2 flex items-center gap-2 pl-6">
                             <input
                               type="password"
@@ -1399,12 +1404,12 @@ export function SettingsPage() {
                               onChange={(e) =>
                                 setConnectorKeys((k) => ({ ...k, [c.id]: e.target.value }))
                               }
-                              placeholder={`${c.apiKeyEnv} ${t("mcp.freeKeySuffix")}`}
+                              placeholder={`${apiKeyEnv} ${t("mcp.freeKeySuffix")}`}
                               className="h-8 min-w-0 flex-1 rounded-input border border-transparent bg-surface-2 px-2 font-mono text-[12px] text-text outline-none placeholder:text-muted/60 focus:border-accent/55 focus:bg-surface"
                             />
-                            {c.apiKeyUrl && (
+                            {apiKeyUrl && (
                               <a
-                                href={c.apiKeyUrl}
+                                href={apiKeyUrl}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-accent hover:underline"

@@ -167,6 +167,7 @@
     "hint": "Zusätzliche Werkzeuge für den Agenten (Model Context Protocol) — z. B. ein Jupyter- oder Browser-MCP",
     "connectPrompt": "Verbinden Sie die Runtime, um MCP-Server zu konfigurieren.",
     "openSource": "Open Source",
+    "official": "offiziell",
     "enterKeyFirstTitle": "Zuerst den API-Schlüssel eingeben",
     "settingUp": "Wird eingerichtet…",
     "enable": "Aktivieren",
