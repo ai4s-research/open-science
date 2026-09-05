@@ -1358,6 +1358,7 @@ export function SettingsPage() {
                     // rest of this card can read plain optional fields either way.
                     const apiKeyEnv = c.type === "remote" ? undefined : c.apiKeyEnv;
                     const apiKeyUrl = c.type === "remote" ? undefined : c.apiKeyUrl;
+                    const apiKeyRequired = c.type === "remote" ? false : c.apiKeyRequired;
                     const installNote = c.type === "remote" ? undefined : c.installNote;
                     const keyMissing = Boolean(apiKeyEnv) && !connectorKeys[c.id]?.trim();
                     return (
@@ -1404,7 +1405,7 @@ export function SettingsPage() {
                               onChange={(e) =>
                                 setConnectorKeys((k) => ({ ...k, [c.id]: e.target.value }))
                               }
-                              placeholder={`${apiKeyEnv} ${t("mcp.freeKeySuffix")}`}
+                              placeholder={`${apiKeyEnv} ${apiKeyRequired ? t("mcp.requiredSuffix") : t("mcp.freeKeySuffix")}`}
                               className="h-8 min-w-0 flex-1 rounded-input border border-transparent bg-surface-2 px-2 font-mono text-[12px] text-text outline-none placeholder:text-muted/60 focus:border-accent/55 focus:bg-surface"
                             />
                             {apiKeyUrl && (
@@ -1414,7 +1415,8 @@ export function SettingsPage() {
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-accent hover:underline"
                               >
-                                <ExternalLink size={11} /> {t("mcp.getFreeKey")}
+                                <ExternalLink size={11} />{" "}
+                                {apiKeyRequired ? t("mcp.learnMore") : t("mcp.getFreeKey")}
                               </a>
                             )}
                           </div>

@@ -35,6 +35,27 @@ describe("connectorConfig", () => {
     ]);
   });
 
+  it("launches GEOmcp as a console script and passes NCBI's required email", () => {
+    const c = byId("geo-mcp");
+    if (c.type === "remote") throw new Error("geo-mcp should be a local connector");
+    expect(c.apiKeyRequired).toBe(true); // NCBI E-utils rejects requests with none
+    const cfg = connectorConfig(c, "/env/bin/python", "me@example.org");
+    expect(cfg).toEqual({
+      type: "local",
+      command: ["/env/bin/geo-mcp"],
+      enabled: true,
+      environment: { GEOMCP_EMAIL: "me@example.org" },
+    });
+  });
+
+  it("does not mark a merely-optional key as required (materials-project, fred)", () => {
+    for (const id of ["materials-project", "fred"]) {
+      const c = byId(id);
+      if (c.type === "remote") throw new Error(`${id} should be a local connector`);
+      expect(c.apiKeyRequired).toBeFalsy();
+    }
+  });
+
   it("resolves the console script on Windows with .exe", () => {
     const cfg = connectorConfig(byId("fred"), "C:\\env\\Scripts\\python.exe", "KEY");
     expect(cfg.type === "local" && cfg.command).toEqual([

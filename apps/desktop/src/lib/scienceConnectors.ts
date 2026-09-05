@@ -34,6 +34,11 @@ export interface LocalScienceConnector extends ScienceConnectorBase {
   apiKeyEnv?: string;
   /** Where the user gets a free key. */
   apiKeyUrl?: string;
+  /** True when `apiKeyEnv` is a hard requirement to run at all (e.g. a
+   *  contact email NCBI's E-utils rejects requests without) rather than an
+   *  optional rate-limit key — changes the field's hint text, not whether
+   *  Enable is disabled (that already keys off `apiKeyEnv` alone). */
+  apiKeyRequired?: boolean;
   /** Shown before Enable when the install is large. */
   installNote?: string;
 }
@@ -79,6 +84,19 @@ export const SCIENCE_CONNECTORS: ScienceConnector[] = [
     module: "biomcp",
     args: ["run"],
     source: "github.com/genomoncology/biomcp",
+  },
+  {
+    id: "geo-mcp",
+    label: "GEO (Gene Expression Omnibus)",
+    discipline: "biology",
+    description:
+      "Search and retrieve gene expression / functional genomics datasets, series, samples, and platforms from NCBI GEO via E-utils",
+    pkg: "geo-mcp",
+    bin: "geo-mcp",
+    apiKeyEnv: "GEOMCP_EMAIL",
+    apiKeyRequired: true,
+    apiKeyUrl: "https://ncbiinsights.ncbi.nlm.nih.gov/2017/11/02/new-api-keys-for-the-e-utilities/",
+    source: "github.com/MCPmed/geomcp",
   },
   {
     id: "materials-project",
