@@ -92,6 +92,16 @@ export function leaves(node: PaneNode): PaneLeaf[] {
   return node.kind === "leaf" ? [node] : node.children.flatMap(leaves);
 }
 
+/**
+ * The screens worth keeping alive: the one on display first, then the most
+ * recently visited before it, capped at `limit`. Whatever falls off the end is
+ * unmounted and rebuilt on the click that returns to it — so the active screen
+ * must never be the one dropped, however long the history gets.
+ */
+export function recentScreens(previous: string[], activeId: string, limit: number): string[] {
+  return [activeId, ...previous.filter((id) => id !== activeId)].slice(0, Math.max(1, limit));
+}
+
 export function findLeaf(node: PaneNode, id: string): PaneLeaf | null {
   return leaves(node).find((l) => l.id === id) ?? null;
 }
@@ -395,8 +405,9 @@ interface LayoutState {
   ephemeralGroupId: string | null;
   /** Open `sessionId` full-screen in the tentative screen — reusing the current
    *  tentative screen if one exists, else opening a new one. The sidebar-click
-   *  entry (#3). */
-  openSessionEphemeral: (sessionId: string) => void;
+   *  entry (#3). `name` labels the screen it opens (the session's project), so
+   *  the tab strip says where the work is rather than "Screen 3". */
+  openSessionEphemeral: (sessionId: string, name?: string) => void;
   /** Pin the tentative screen (clear `ephemeralGroupId`) — called by any real
    *  interaction with it. No-op when there is none. */
   pinEphemeral: () => void;
@@ -414,8 +425,11 @@ interface LayoutState {
   renameGroup: (groupId: string, name: string) => void;
   setActiveGroup: (groupId: string) => void;
   /** Split the focused leaf toward `dir` (row → new pane on the right, col →
-   *  below), binding `sessionId` to it (or a draft when null) and focusing it. */
-  split: (dir: SplitDir, sessionId: string | null) => void;
+   *  below), binding `sessionId` to it (or a draft when null) and focusing it.
+   *  Returns the new leaf's id — a draft pane's caller needs it to aim the
+   *  pane's own `draft:<leafId>` slot at a folder — or null when there was no
+   *  focused leaf to split. */
+  split: (dir: SplitDir, sessionId: string | null) => string | null;
   /** Dock a NEW pane (bound to `sessionId`, or a draft when null) against
    *  `targetLeafId` on `edge`; focuses it. The drag-to-dock entry for a session
    *  coming from the sidebar. */
@@ -480,6 +494,26 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       };
     });
 
+  /** Write a patch into whichever group OWNS `leafId`, active or not, and
+   *  re-mirror the active group's fields. Every Screen stays mounted, so a pane
+   *  can outlive the switch away from it: an async send that lands after the
+   *  user moved to another Screen must still bind its own pane, not miss the
+   *  active tree and leave that pane an empty draft. No-op if no group has it. */
+  const commitLeafGroup = (leafId: string, patch: (group: LayoutGroup) => Partial<LayoutGroup>) =>
+    set((s) => {
+      const owner = s.groups.find((g) => g.tree && findLeaf(g.tree, leafId));
+      if (!owner) return {};
+      const groups = s.groups.map((g) => (g.id === owner.id ? { ...g, ...patch(g) } : g));
+      const active = groups.find((g) => g.id === s.activeGroupId)!;
+      persist(groups, s.activeGroupId);
+      return {
+        groups,
+        tree: active.tree,
+        focusedLeafId: active.focusedLeafId,
+        zoomedLeafId: active.zoomedLeafId,
+      };
+    });
+
   return {
     groups: initGroups,
     activeGroupId: initActiveId,
@@ -488,8 +522,33 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
     zoomedLeafId: null,
     ephemeralGroupId: null,
 
-    openSessionEphemeral: (sessionId) =>
+    openSessionEphemeral: (sessionId, name = "") =>
       set((s) => {
+        // Already on screen somewhere? Go there — clicking a session in the
+        // sidebar means "show me this conversation", and building a second
+        // screen for one already open split the user's attention across two
+        // copies of it. First match in tab order wins, and its pane takes the
+        // focus. Only a session nowhere in the layout opens a new screen.
+        for (const g of s.groups) {
+          const hit = g.tree && sessionId ? leaves(g.tree).find((l) => l.sessionId === sessionId) : null;
+          if (!hit) continue;
+          // A zoomed pane hides its neighbours: revealing one of them has to
+          // undo the zoom, or the focus lands somewhere invisible.
+          const zoomedLeafId = g.zoomedLeafId === hit.id ? g.zoomedLeafId : null;
+          const groups = s.groups.map((x) =>
+            x.id === g.id ? { ...x, focusedLeafId: hit.id, zoomedLeafId } : x,
+          );
+          persist(groups, g.id);
+          // `ephemeralGroupId` is left alone: looking at a screen is not work
+          // done in the tentative one, so the next preview still reuses it (#78).
+          return {
+            groups,
+            activeGroupId: g.id,
+            tree: g.tree,
+            focusedLeafId: hit.id,
+            zoomedLeafId,
+          };
+        }
         const reusable =
           s.ephemeralGroupId && s.groups.some((g) => g.id === s.ephemeralGroupId)
             ? s.ephemeralGroupId
@@ -499,7 +558,9 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           // Reuse the tentative screen: swap its single pane's session, stay
           // tentative. This is the ONE path that keeps ephemeralGroupId.
           const groups = s.groups.map((g) =>
-            g.id === reusable ? { ...g, tree: leaf, focusedLeafId: leaf.id, zoomedLeafId: null } : g,
+            g.id === reusable
+              ? { ...g, name, tree: leaf, focusedLeafId: leaf.id, zoomedLeafId: null }
+              : g,
           );
           persist(groups, reusable);
           return {
@@ -512,7 +573,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           };
         }
         // Open a fresh tentative screen.
-        const g: LayoutGroup = { id: genGroupId(), name: "", tree: leaf, focusedLeafId: leaf.id, zoomedLeafId: null };
+        const g: LayoutGroup = { id: genGroupId(), name, tree: leaf, focusedLeafId: leaf.id, zoomedLeafId: null };
         const groups = [...s.groups, g];
         persist(groups, g.id);
         return {
@@ -592,21 +653,24 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((s) => {
         const g = s.groups.find((x) => x.id === groupId);
         if (!g) return {};
-        // Switching AWAY from the tentative screen pins it — only a direct
-        // sidebar session-click (openSessionEphemeral) keeps it tentative.
-        const ephemeralGroupId =
-          s.ephemeralGroupId && s.ephemeralGroupId !== groupId ? null : s.ephemeralGroupId;
+        // Looking at another Screen is NOT work done in the tentative one, so it
+        // stays tentative and the next sidebar click reuses it. Pinning here
+        // instead meant every glance away stranded a preview Screen and the next
+        // click built another, so they piled up without limit (#78) — which also
+        // multiplies the panes a Screen switch has to render (#92). Only real
+        // work in the pane pins it, via pinEphemeral.
         persist(s.groups, groupId);
-        return { activeGroupId: groupId, tree: g.tree, focusedLeafId: g.focusedLeafId, zoomedLeafId: g.zoomedLeafId, ephemeralGroupId };
+        return { activeGroupId: groupId, tree: g.tree, focusedLeafId: g.focusedLeafId, zoomedLeafId: g.zoomedLeafId };
       }),
 
     split: (dir, sessionId) => {
       const { tree, focusedLeafId } = get();
-      if (!tree || !focusedLeafId) return;
+      if (!tree || !focusedLeafId) return null;
       get().pinEphemeral();
       const leaf = makeLeaf(sessionId);
       const edge: DockEdge = dir === "row" ? "right" : "bottom";
       commitActive({ tree: insertLeaf(tree, focusedLeafId, edge, leaf), focusedLeafId: leaf.id, zoomedLeafId: null });
+      return leaf.id;
     },
     dockSession: (targetLeafId, edge, sessionId) => {
       get().pinEphemeral();
@@ -798,11 +862,8 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       if (!tree) return;
       commitActive({ tree: setSplitSizes(tree, splitId, sizes) });
     },
-    bindSession: (leafId, sessionId) => {
-      const { tree } = get();
-      if (!tree) return;
-      commitActive({ tree: setLeafSession(tree, leafId, sessionId) });
-    },
+    bindSession: (leafId, sessionId) =>
+      commitLeafGroup(leafId, (g) => ({ tree: setLeafSession(g.tree!, leafId, sessionId) })),
     setLeafZoom: (leafId, zoom) => {
       const { tree } = get();
       if (!tree) return;

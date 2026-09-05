@@ -36,8 +36,23 @@ export function useScrollMemory(
   initial: "top" | "bottom" = "top",
 ): (e: UIEvent<HTMLElement>) => void {
   useLayoutEffect(() => {
-    if (!ready || !ref.current) return;
-    ref.current.scrollTop = offsets.get(key) ?? (initial === "bottom" ? ref.current.scrollHeight : 0);
+    const el = ref.current;
+    if (!ready || !el) return;
+    const restore = () => {
+      el.scrollTop = offsets.get(key) ?? (initial === "bottom" ? el.scrollHeight : 0);
+    };
+    restore();
+    // An element with no box drops that assignment — which is every pane of an
+    // inactive Screen, mounted but display:none. Restore once more when it gets
+    // a box, rather than letting the Screen come back scrolled to the top.
+    if (el.clientHeight > 0 || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (el.clientHeight === 0) return;
+      ro.disconnect();
+      restore();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [ref, key, ready, initial]);
   return (e) => {
     if (ready) offsets.set(key, e.currentTarget.scrollTop);
@@ -86,8 +101,24 @@ export function useChatScroll(
 
   // Runs after useScrollMemory's layout effect restored the saved/default
   // position, so the control starts in the correct visible state.
+  // The conversation this pane last settled on. Keyed, not a bare flag: a pane
+  // pointed at ANOTHER session is a first entry, and must land where that
+  // session was left rather than inherit the previous one's follow state.
+  const entered = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (ready && ref.current) update(ref.current);
+    const el = ref.current;
+    if (!ready || !el) return;
+    // Coming BACK to the same conversation (an inactive Screen shown again, an
+    // inspector closed): it may have streamed on meanwhile, which makes the
+    // remembered offset stale for a reader who was pinned to the latest — they
+    // expect the latest, not the message that used to be last. Anyone reading
+    // older turns keeps the place just restored.
+    if (entered.current === key && following.current) {
+      el.scrollTop = el.scrollHeight;
+      offsets.set(key, el.scrollTop);
+    }
+    entered.current = key;
+    update(el);
     // `update` intentionally stays local: key/ready are the restore boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ref, key, ready]);

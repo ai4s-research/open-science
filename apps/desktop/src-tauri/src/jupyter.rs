@@ -14,7 +14,16 @@ use crate::runtime::{free_port, workspace_dir};
 // core scientific stack: this env is now the DEFAULT interpreter for the app's
 // own notebook Run button (kernel::python_bin), so `import numpy/pandas` must
 // work out of the box — an empty jupyter-only env would make the unified kernel
-// useless for real work.
+// useless for real work. scipy/statsmodels/pyDOE3 extend that stack to
+// design-of-experiments analysis — response-surface fits, ANOVA, Tukey/Dunnett
+// post-hoc tests, main-effects plots, and Box-Behnken/CCD designs — the same
+// stack the domain-check bioprocess rules assume is available.
+//
+// The ~50 MB they add is not paid at install or at launch: nothing here ships
+// in the bundle, and this list is only ever installed by setup_jupyter, which
+// the user starts from Settings and which already warns that the first run
+// downloads a few hundred MB. A user who never enables Jupyter never fetches
+// any of it.
 const PIP_SPEC: &[&str] = &[
     "jupyterlab==4.4.1",
     "jupyter-collaboration==4.0.2",
@@ -23,6 +32,9 @@ const PIP_SPEC: &[&str] = &[
     "numpy",
     "pandas",
     "matplotlib",
+    "scipy",
+    "statsmodels",
+    "pyDOE3",
 ];
 
 #[derive(Default)]
@@ -64,7 +76,7 @@ fn kill_orphan_jupyter(app: &AppHandle) {
     #[cfg(unix)]
     if let Ok(dir) = env_dir(app) {
         let pattern = format!("{}/bin/jupyter-lab", dir.to_string_lossy());
-        let _ = std::process::Command::new("pkill").args(["-9", "-f", &pattern]).output();
+        let _ = crate::runtime::quiet_command("pkill").args(["-9", "-f", &pattern]).output();
         std::thread::sleep(std::time::Duration::from_millis(400));
     }
     // Windows: taskkill the recorded PID, filtered to python.exe so a recycled

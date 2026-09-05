@@ -8,8 +8,7 @@
     "compact": {
       "busy": "Attendez la fin du tour en cours avant de compresser.",
       "error": "Impossible de compresser le contexte.",
-      "done": "Contexte compressé. La prochaine réponse utilisera la conversation compressée.",
-      "triggered": "Prêt : envoyez votre prochain message et il sera d'abord compressé automatiquement (la limite est restaurée ensuite)."
+      "done": "Contexte compressé. La prochaine réponse utilisera la conversation compressée."
     }
   }
 }

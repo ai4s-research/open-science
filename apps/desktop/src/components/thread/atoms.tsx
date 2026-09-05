@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Check, Copy, Loader2, Paperclip, Pencil, RotateCcw } from "lucide-react";
+import { Check, Copy, Loader2, Paperclip, Pencil, RotateCcw, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/lib/toast";
@@ -7,15 +7,21 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type {
   ArtifactBlock,
   DataTableBlock,
+  HistoryRepairBlock,
+  MessageUsage,
   RunningJobsBlock,
   StatusLineBlock,
   UserMessageBlock,
 } from "@ai4s/shared";
+import { MessageMeta } from "./MessageMeta";
 import { cn } from "@/lib/cn";
 import { MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
 import { extractArtifactRefs, refToArtifactBlock } from "@/lib/artifacts";
 import { resolveArtifactPath } from "@/lib/artifactFile";
 import { useThrottledValue } from "@/lib/useThrottledValue";
+import { HSCROLL_ATTR } from "@/lib/wheelChain";
+import { HOVER_HOST } from "@/lib/hoverTracking";
+import { RunningDot } from "./RunningDot";
 
 // All block atoms are memoized on their props: a fold rebuilds only the one
 // block object it changed (the blocks-array copy preserves the rest by
@@ -135,11 +141,14 @@ export const UserMessage = memo(function UserMessage({
   }
 
   return (
-    <div className="group flex flex-col items-end">
+    <div {...{ [HOVER_HOST]: "" }} className="flex flex-col items-end">
       <div className="w-fit max-w-[85%] whitespace-pre-wrap break-words rounded-card bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed text-text">
         {block.text}
       </div>
-      <div className="flex items-center gap-0.5 pr-0.5 pt-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+      <div
+        data-hover-row
+        className="flex items-center gap-0.5 pr-0.5 pt-1"
+      >
         <button
           onClick={copy}
           title={copied ? t("message.copied") : t("message.copy")}
@@ -176,9 +185,19 @@ export const UserMessage = memo(function UserMessage({
 
 export const AgentMessage = memo(function AgentMessage({
   markdown,
+  created,
+  completed,
+  usage,
+  contextLimit,
   onOpenArtifact,
 }: {
   markdown: string;
+  /** Turn timings and token accounting, when the runtime reported them —
+   *  rendered beside Copy in the hover row (see MessageMeta). */
+  created?: number;
+  completed?: number;
+  usage?: MessageUsage;
+  contextLimit?: number;
   onOpenArtifact?: (a: ArtifactBlock) => void;
 }) {
   const { t } = useTranslation(["session", "common"]);
@@ -225,7 +244,7 @@ export const AgentMessage = memo(function AgentMessage({
   return (
     // Marked so a text selection inside an ANSWER (never a tool log or the
     // user's own message) can offer follow-up actions — see SelectionActions.
-    <div className="group" data-agent-message>
+    <div {...{ [HOVER_HOST]: "" }} data-agent-message>
       <MarkdownViewer>{shown}</MarkdownViewer>
       {refs.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
@@ -242,15 +261,24 @@ export const AgentMessage = memo(function AgentMessage({
           ))}
         </div>
       )}
-      <div className="flex items-center gap-0.5 pt-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+      <div
+        data-hover-row
+        className="flex min-w-0 items-center gap-1.5 pt-1"
+      >
         <button
           onClick={copy}
           title={copied ? t("message.copied") : t("message.copy")}
           aria-label={t("message.copy")}
-          className="rounded p-1 text-muted hover:bg-surface-2 hover:text-text"
+          className="shrink-0 rounded p-1 text-muted hover:bg-surface-2 hover:text-text"
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
+        <MessageMeta
+          created={created}
+          completed={completed}
+          usage={usage}
+          contextLimit={contextLimit}
+        />
       </div>
     </div>
   );
@@ -258,7 +286,14 @@ export const AgentMessage = memo(function AgentMessage({
 
 export const DataTable = memo(function DataTable({ block }: { block: DataTableBlock }) {
   return (
-    <div className="overflow-x-auto rounded-card border border-border bg-surface shadow-card">
+    // `overflow-y-hidden`: a lone `overflow-x` makes the other axis `auto` too,
+    // and the scrollbar's own height then made this card eat vertical wheel
+    // events that belonged to the conversation. The marker hands WebKit's
+    // latched trackpad gestures back as well (lib/wheelChain).
+    <div
+      {...{ [HSCROLL_ATTR]: "" }}
+      className="overflow-x-auto overflow-y-hidden rounded-card border border-border bg-surface shadow-card"
+    >
       {block.caption && (
         <div className="border-b border-border px-4 py-2 text-xs text-muted">{block.caption}</div>
       )}
@@ -307,7 +342,7 @@ export const RunningJobsOverlay = memo(function RunningJobsOverlay({
       <ul className="divide-y divide-border/60">
         {block.jobs.map((j, i) => (
           <li key={i} className="flex items-center gap-2 px-4 py-2 text-sm">
-            <Loader2 size={13} className="animate-spin text-accent" />
+            <RunningDot className="text-accent" />
             <span className="flex-1 truncate text-text">{j.label}</span>
             <span className="text-xs text-muted">{j.elapsed}</span>
           </li>
@@ -334,6 +369,69 @@ export const StatusLine = memo(function StatusLine({ block }: { block: StatusLin
         />
         <span>{block.text}</span>
       </div>
+    </div>
+  );
+});
+
+// A session whose stored history the model can no longer be sent (#114). The
+// error line above already said retrying cannot work; this says what is broken
+// and offers the only thing that clears it. It sits under the error rather than
+// replacing it, because the two answer different questions ("why did this fail"
+// / "what do I do now"), and it is a quiet bordered card, not another red line —
+// the failure has been reported once already, and a second alarm reads as two
+// problems. The rollback discards messages and rolls back files, so it confirms
+// through the same dialog as Revert, naming the count first.
+export const HistoryRepair = memo(function HistoryRepair({
+  block,
+  onRevert,
+}: {
+  block: HistoryRepairBlock;
+  onRevert?: (messageID: string, text: string) => void | Promise<void>;
+}) {
+  const { t } = useTranslation(["session", "common"]);
+  const [confirming, setConfirming] = useState(false);
+  const target = block.target;
+  const canRepair = !!onRevert && !!target;
+
+  return (
+    <div className="rounded-card border border-border bg-surface-2/50 p-3 text-sm">
+      <div className="flex items-start gap-2">
+        <Wrench size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-text">
+            {block.reason
+              ? t(`historyRepair.reason.${block.reason}`, {
+                  tool: block.tool || t("historyRepair.someTool"),
+                })
+              : t("historyRepair.reason.unknown")}
+          </p>
+          <p className="mt-1 text-muted">
+            {canRepair
+              ? t("historyRepair.offer", { count: block.drops ?? 0 })
+              : t("historyRepair.noTarget")}
+          </p>
+          {canRepair && (
+            <button
+              className="mt-2.5 rounded-input border border-border px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-2"
+              onClick={() => setConfirming(true)}
+            >
+              {t("historyRepair.action")}
+            </button>
+          )}
+        </div>
+      </div>
+      {confirming && target && (
+        <ConfirmDialog
+          title={t("historyRepair.confirm.title")}
+          body={t("historyRepair.confirm.body", { count: block.drops ?? 0 })}
+          confirmLabel={t("historyRepair.confirm.action")}
+          onConfirm={() => {
+            setConfirming(false);
+            void onRevert?.(target.messageID, target.text);
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 });

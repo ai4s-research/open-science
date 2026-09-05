@@ -10,7 +10,8 @@
     "privacy": "Confidentialité",
     "browser": "Navigateur",
     "remote": "Accès distant",
-    "memory": "Mémoire"
+    "memory": "Mémoire",
+    "desktopOnly": "Cette section est disponible dans l'application de bureau."
   },
   "appearance": {
     "title": "Apparence",
@@ -112,6 +113,7 @@
     "currentDefault": "Modèle par défaut actuel",
     "switching": "Changement…",
     "unavailableDefault": "Modèle configuré indisponible : {{model}}",
+    "retiredDefault": "Retiré par son fournisseur : {{model}} n’est plus servi et chaque tour échouera. Choisissez un autre modèle ci-dessous.",
     "catalogUnavailable": "Le catalogue de modèles est actuellement indisponible.",
     "catalogLoading": "Chargement du catalogue de modèles…",
     "noModels": "Aucun modèle disponible.",
@@ -126,6 +128,8 @@
   "providers": {
     "title": "Fournisseurs",
     "hint": "Authentification, points de terminaison personnalisés et connexions OpenCode importées",
+    "webHint": "Fournisseurs connectés — lecture seule depuis le navigateur",
+    "webNote": "Les clés d'API et les points de terminaison personnalisés se définissent sur la machine qui fait tourner le workbench : dans l'app de bureau, ou avec `osd auth set` si elle tourne sans fenêtre. Les identifiants ne transitent jamais par la passerelle.",
     "connectPrompt": "Connectez le runtime pour gérer les fournisseurs.",
     "manage": "Gérer",
     "collapse": "Réduire",
@@ -187,9 +191,6 @@
     "browseAs": "Naviguer en tant que",
     "isolated": "Isolé — nouveau, déconnecté",
     "showWindow": "Afficher la fenêtre du navigateur",
-    "headedOffTitle": "Masquer la fenêtre ?",
-    "headedOffBody": "Vous réutilisez votre session Chrome (« {{profile}} »), l'agent pilote donc votre vrai Chrome — même désactivée, une fenêtre s'ouvrira généralement, surtout si Chrome est déjà ouvert. Pour un navigateur réellement sans fenêtre (headless), basculez « Browse as » sur le navigateur privé.",
-    "headedOffConfirm": "Désactiver quand même",
     "noChrome": "Aucun Chrome trouvé",
     "download": "Télécharger un navigateur",
     "noChromeWillDownload": "Aucun Chrome détecté — un navigateur privé sera téléchargé à la première utilisation.",
@@ -225,6 +226,26 @@
     "autoTitle": "Relire après chaque tour qui modifie des fichiers",
     "autoHint": "Exécute un tour de modèle supplémentaire en arrière-plan par modification. La conversation reste disponible ; les tours en lecture seule sont ignorés."
   },
+  "sync": {
+    "title": "Synchronisation des conversations",
+    "hint": "Gardez vos conversations sur plusieurs de vos machines. Indiquez ici un dossier synchronisé par votre service cloud ; chaque conversation y est reflétée dans son propre fichier. Inactif tant qu'aucun dossier n'est choisi.",
+    "hintOn": "Activé. Chaque conversation est reflétée dans le dossier ci-dessous dans son propre fichier ; les autres machines pointant vers ce dossier les récupèrent. Les secrets ne sont jamais synchronisés.",
+    "folderTitle": "Dossier de synchronisation",
+    "folderNone": "Non défini — les conversations restent sur cette machine.",
+    "choose": "Choisir un dossier",
+    "change": "Modifier",
+    "stop": "Désactiver",
+    "nowTitle": "Synchroniser maintenant",
+    "nowHint": "S'exécute seul après chaque tour ; ceci sert quand vous le voulez tout de suite.",
+    "now": "Synchroniser",
+    "running": "Synchronisation…",
+    "done": "Synchronisé. {{imported}} reçues, {{exported}} envoyées.",
+    "folderSet": "Dossier de synchronisation défini.",
+    "stopped": "Synchronisation désactivée.",
+    "unusable": "Ce dossier est inutilisable",
+    "last": "Dernière synchronisation {{when}} — {{imported}} reçues, {{exported}} envoyées.",
+    "lastFailed": "Échec de la dernière synchronisation : {{error}}"
+  },
   "python": {
     "title": "Noyau Python local",
     "hint": "Exécute les cellules de notebook dans l'application. Utilise votre environnement Jupyter s'il est configuré (même Python que l'agent), sinon détection automatique — ou définissez un interpréteur explicite ci-dessous",
@@ -245,6 +266,7 @@
     "couldNotSetModel": "Impossible de définir le modèle",
     "defaultModelSet": "Modèle par défaut défini sur {{model}}",
     "defaultModelReset": "Le modèle par défaut {{old}} n'est plus disponible — remplacé par {{model}}",
+    "configRebuilt": "Le fichier de réglages du moteur d'agent était illisible : il a été déplacé vers {{path}} et reconstruit. Les fournisseurs et serveurs MCP devront peut-être être rajoutés.",
     "couldNotSaveKey": "Impossible d'enregistrer la clé",
     "providerConnected": "{{providerID}} connecté",
     "couldNotStartLogin": "Impossible de démarrer la connexion",
@@ -377,7 +399,26 @@
     "connectPrompt": "Saisis le jeton d'accès de l'app de bureau → Réglages → Accès distant.",
     "acpTitle": "Éditeurs externes (ACP)",
     "acpHint": "Pilotez cet espace de travail depuis Zed, JetBrains, Neovim ou tout éditeur qui parle l'Agent Client Protocol. Collez cette entrée d'agent dans les réglages de l'éditeur ; elle se connecte via la passerelle ci-dessus, avec les droits du jeton.",
-    "acpNodeHint": "L'éditeur lance ce script avec Node 18+. Le jeton passe par l'environnement, pas par la ligne de commande."
+    "acpNodeHint": "L'éditeur lance ce script avec Node 18+. Le jeton passe par l'environnement, pas par la ligne de commande.",
+    "port": "Port de la passerelle",
+    "portHint": "Le port sur lequel la passerelle écoute. Par défaut 4098 ; définissez un port personnalisé pour les règles pare-feu ou les configurations multi-instances.",
+    "portInvalid": "Entrez un numéro de port valide (1-65535).",
+    "portApply": "Appliquer",
+    "portReset": "Réinitialiser par défaut"
+  },
+  "cli": {
+    "title": "Commande de terminal (osd)",
+    "hint": "L'atelier depuis un terminal : sessions, projets, fichiers, et un serveur sans interface pour une machine sans écran. Installée avec l'application, sans réglage.",
+    "readyPath": "Prête — lancez `osd` dans un nouveau terminal.",
+    "readyProfile": "Prête — ajoutée à {{profile}}. Lancez `osd` dans un nouveau terminal.",
+    "readyEnvironment": "Prête — ajoutée à votre PATH utilisateur. Lancez `osd` dans un nouveau terminal.",
+    "unreachable": "Installée, mais rien dans votre PATH ne l'atteint. Ajoutez cette ligne à votre profil shell :",
+    "notInstalled": "Pas installée. Utilisez le bouton, ou redémarrez l'application.",
+    "unavailable": "Cette version n'embarque pas la commande osd.",
+    "occupied": "Un fichier que cette application n'a pas écrit porte déjà ce nom — renommez-le d'abord.",
+    "install": "Installer la commande",
+    "repair": "Réinstaller",
+    "error": "L'installation de la commande osd a échoué"
   },
   "memory": {
     "title": "Mémoire",
@@ -404,7 +445,9 @@
     "followDefaultNamed": "Par défaut ({{model}})",
     "modelFor": "Modèle pour {{agent}}",
     "defaultEffort": "Effort par défaut",
-    "effortFor": "Effort de raisonnement pour {{agent}}"
+    "effortFor": "Effort de raisonnement pour {{agent}}",
+    "retiredOption": "{{model}} — plus disponible",
+    "primaryHint": "build et plan exécutent les messages que vous envoyez. Le modèle défini ici s'applique, sauf si vous en choisissez un dans une conversation, qui l'emporte pour cette conversation uniquement."
   },
   "ssh": {
     "title": "Se connecter à {{host}}",

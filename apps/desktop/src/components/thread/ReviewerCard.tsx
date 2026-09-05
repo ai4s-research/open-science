@@ -47,18 +47,20 @@ export const ReviewerCard = memo(function ReviewerCard({ block }: { block: Revie
                 <div className="flex items-start gap-2">
                   <span
                     className={cn(
-                      "rounded px-1.5 py-0.5 text-xs font-medium ring-1",
+                      "shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ring-1",
                       badge.className,
                     )}
                   >
                     {t(`reviewer.badge.${f.level}`)}
                   </span>
                   {(f.tag || f.check) && (
-                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted ring-1 ring-border">
+                    <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted ring-1 ring-border">
                       {f.tag ?? (f.check ? t(`reviewer.checkTag.${f.check}`) : "")}
                     </span>
                   )}
-                  <span className="text-sm font-medium text-text">{f.title}</span>
+                  <span className="min-w-0 break-words text-sm font-medium text-text">
+                    {f.title}
+                  </span>
                   <button
                     className="ml-auto shrink-0 text-muted opacity-0 hover:text-text group-hover:opacity-100"
                     aria-label={t("reviewer.dismissAria", { title: f.title })}
@@ -69,7 +71,11 @@ export const ReviewerCard = memo(function ReviewerCard({ block }: { block: Revie
                   </button>
                 </div>
                 {f.evidence && (
-                  <p className="whitespace-pre-wrap font-mono text-[12.5px] leading-relaxed text-muted">
+                  // Evidence is code and file paths — one long token with no
+                  // space in it, which `pre-wrap` alone will not break. Without
+                  // `break-words` a finding stuck out past the card and made
+                  // the whole conversation scroll sideways.
+                  <p className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-muted">
                     {f.evidence}
                   </p>
                 )}

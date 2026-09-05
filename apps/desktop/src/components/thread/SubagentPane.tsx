@@ -1,9 +1,12 @@
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, CheckCircle2, CircleDashed, Loader2, X, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, ChevronRight, CircleDashed, X, XCircle } from "lucide-react";
 import type { ToolCallStatus } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
 import { subagentActivity, useRuntimeStore } from "@/lib/runtime";
 import { PaneTitlebarInset } from "@/components/inspector/RightPane";
+import { BlockList } from "./BlockList";
+import { RunningDot } from "./RunningDot";
 
 /** One subagent this conversation spawned. */
 interface Row {
@@ -28,15 +31,25 @@ function elapsed(row: Row, now: number): string {
  * as a collapsed tool row in the transcript: you cannot see which subagent is
  * running, on what, or how long it has been going. This panel lists them all —
  * finished ones included, so a finished run can still be reviewed.
+ *
+ * Each row opens into the subagent's OWN transcript. Collapsed by default and
+ * fetched on first open: a subagent's thread is usually tool-heavy, and
+ * mounting several of them at once is exactly the cost that made switching
+ * panes slow (#92).
  */
 export function SubagentPane({
   sessionId,
   onClose,
   controls,
+  focus,
 }: {
   sessionId: string;
   onClose: () => void;
   controls?: React.ReactNode;
+  /** A subagent the transcript asked this panel to show, expanded. The counter
+   *  makes each ask distinct, so clicking the same task row again re-opens the
+   *  row the reader collapsed in between. */
+  focus?: { childSessionId: string; nonce: number };
 }) {
   const { t } = useTranslation(["session", "common"]);
   const blocks = useRuntimeStore((s) => s.threads[sessionId]?.blocks);
@@ -59,7 +72,7 @@ export function SubagentPane({
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-surface">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+      <div className="flex h-12 shrink-0 select-none items-center gap-2 border-b border-border px-4">
         <PaneTitlebarInset />
         <Bot size={14} strokeWidth={1.5} className="shrink-0 text-text" />
         <span className="text-sm font-medium text-text">{t("subagents.title")}</span>
@@ -82,25 +95,131 @@ export function SubagentPane({
         ) : (
           <ul className="flex flex-col gap-1.5">
             {rows.map((row, i) => (
-              <li
+              <SubagentRow
                 key={`${row.childSessionId ?? "row"}:${i}`}
-                className="rounded-card border border-border bg-surface-2 px-2.5 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <StatusIcon status={row.status} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
-                  <span className="shrink-0 text-[11px] tabular-nums text-muted">
-                    {elapsed(row, now)}
-                  </span>
-                </div>
-                {row.childSessionId && row.status === "running" && (
-                  <Activity childId={row.childSessionId} />
-                )}
-              </li>
+                row={row}
+                now={now}
+                focusNonce={
+                  focus && focus.childSessionId === row.childSessionId ? focus.nonce : undefined
+                }
+              />
             ))}
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One subagent: the summary line, and its full transcript once opened. A row
+ * without a child session (the task never started) stays a plain summary —
+ * there is nothing to open.
+ */
+function SubagentRow({
+  row,
+  now,
+  focusNonce,
+}: {
+  row: Row;
+  now: number;
+  /** Set (and bumped) when the transcript asks for THIS subagent. */
+  focusNonce?: number;
+}) {
+  const [open, setOpen] = useState(focusNonce !== undefined);
+  // The ask arrives as a prop, so it is answered during render rather than in
+  // an effect — the row is already expanded on the frame the panel appears.
+  const [seenNonce, setSeenNonce] = useState(focusNonce);
+  if (focusNonce !== seenNonce) {
+    setSeenNonce(focusNonce);
+    if (focusNonce !== undefined) setOpen(true);
+  }
+  const ref = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    // A conversation with a dozen subagents can have the asked-for one below
+    // the fold; opening a row the reader cannot see reads as a dead click.
+    if (focusNonce !== undefined) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [focusNonce]);
+  const childId = row.childSessionId;
+  return (
+    <li ref={ref} className="rounded-card border border-border bg-surface-2">
+      {/* The WHOLE row toggles, not just the title: aiming at the words was a
+          target most people miss, and clicking the icon or the elapsed time
+          looked like the row simply did not respond. */}
+      {childId ? (
+        <button
+          className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <StatusIcon status={row.status} />
+          <ChevronRight
+            size={12}
+            className={cn("shrink-0 text-muted transition-transform", open && "rotate-90")}
+          />
+          <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted">{elapsed(row, now)}</span>
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 px-2.5 py-2">
+          <StatusIcon status={row.status} />
+          <span className="min-w-0 flex-1 truncate text-[13px] text-text">{row.task}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted">{elapsed(row, now)}</span>
+        </div>
+      )}
+      <div className="px-2.5 pb-2">
+      {/* The one-line "current step" is what the collapsed row can say; once the
+          transcript is open it would just repeat the last line of it. */}
+        {childId && row.status === "running" && !open && <Activity childId={childId} />}
+        {childId && open && <Transcript childId={childId} />}
+      </div>
+    </li>
+  );
+}
+
+/** The subagent's own thread, fetched on first open. `loadHistory` is session-
+ *  scoped, so it needs no workspace switch and is a no-op once loaded. */
+function Transcript({ childId }: { childId: string }) {
+  const { t } = useTranslation(["session", "common"]);
+  const thread = useRuntimeStore((s) => s.threads[childId]);
+  const loadHistory = useRuntimeStore((s) => s.loadHistory);
+  // Idempotent: it returns immediately once the thread is loaded, and a live
+  // subagent's blocks are already being folded in by the event stream.
+  useEffect(() => {
+    void loadHistory(childId);
+  }, [childId, loadHistory]);
+  const blocks = thread?.blocks;
+  if (!blocks?.length) {
+    // Distinguish "still fetching" from "there is genuinely nothing" — an
+    // endless spinner is indistinguishable from a dead click.
+    return (
+      <p className="py-2 text-center text-[11px] text-muted">
+        {thread?.loaded ? t("subagents.noDetail") : t("subagents.loadingDetail")}
+      </p>
+    );
+  }
+  // The leading user block is not the user talking — it is the brief the parent
+  // handed this subagent. Rendered as the chat's own user message it came out as
+  // a right-aligned 85%-wide bubble whose surface matches the row behind it, so
+  // in a narrow panel it read as text randomly indented into a ragged column.
+  // It belongs at the top, full width and quiet, as the task it is.
+  const firstAgentStep = blocks.findIndex((b) => b.kind !== "user");
+  const brief = (firstAgentStep === -1 ? blocks : blocks.slice(0, firstAgentStep))
+    .map((b) => (b.kind === "user" ? b.text : ""))
+    .filter(Boolean)
+    .join("\n\n");
+  const rest = firstAgentStep === -1 ? [] : blocks.slice(firstAgentStep);
+
+  return (
+    // A rail marks the whole expansion as this row's content rather than a
+    // sibling of the rows around it.
+    <div className="nested-transcript mt-1.5 border-l border-border pl-2.5">
+      {brief && (
+        <p className="whitespace-pre-wrap break-words pb-2 text-[11px] leading-relaxed text-muted">
+          {brief}
+        </p>
+      )}
+      {rest.length > 0 && <BlockList blocks={rest} />}
     </div>
   );
 }
@@ -116,7 +235,7 @@ function Activity({ childId }: { childId: string }) {
 function StatusIcon({ status }: { status: ToolCallStatus }) {
   const common = "shrink-0";
   if (status === "running")
-    return <Loader2 size={13} className={cn(common, "animate-spin text-accent")} />;
+    return <RunningDot className={cn(common, "text-accent")} />;
   if (status === "success") return <CheckCircle2 size={13} className={cn(common, "text-ok")} />;
   if (status === "failed") return <XCircle size={13} className={cn(common, "text-error")} />;
   return <CircleDashed size={13} className={cn(common, "text-muted")} />;

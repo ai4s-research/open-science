@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useUiStore } from "@/lib/store";
+import { resetParkedDrafts } from "@/lib/composerStash";
 import { Composer } from "./Composer";
 
 describe("Composer", () => {
@@ -349,5 +350,91 @@ describe("agent mode switch (Build / Plan)", () => {
     );
     expect(container.firstElementChild?.className).toContain("border-link/60");
     expect(screen.getByLabelText("Agent mode").className).toContain("text-link");
+  });
+});
+
+// A narrow pane could not fit "Approve for me · Build · GPT-5.6 sol · High" as
+// words, so the toolbar wrapped and ate the composer's height.
+describe("Composer toolbar in a narrow pane", () => {
+  /** Drive the ResizeObserver the composer measures itself with. */
+  function withWidth(width: number) {
+    const observers: ((w: number) => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private cb: (e: { contentRect: { width: number } }[]) => void) {
+          observers.push((w) => this.cb([{ contentRect: { width: w } }]));
+        }
+        observe() {
+          observers[observers.length - 1]!(width);
+        }
+        disconnect() {}
+      },
+    );
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps the labels when there is room", () => {
+    withWidth(900);
+    render(<Composer onSend={vi.fn()} agentMode="build" onAgentModeChange={vi.fn()} />);
+    expect(screen.getByLabelText("Agent mode").textContent).toContain("Build");
+  });
+
+  it("drops the labels but keeps the control reachable when narrow", () => {
+    withWidth(320);
+    render(
+      <Composer
+        onSend={vi.fn()}
+        agentMode="build"
+        onAgentModeChange={vi.fn()}
+        approvalMode="approve"
+        onApprovalModeChange={vi.fn()}
+      />,
+    );
+    const agent = screen.getByLabelText("Agent mode");
+    const approval = screen.getByLabelText("Approval mode");
+    // The words are gone …
+    expect(agent.textContent).not.toContain("Build");
+    expect(approval.textContent).not.toContain("Approve for me");
+    // … but the buttons are still there, still named, and still work.
+    expect(agent).toBeInTheDocument();
+    fireEvent.click(agent);
+    expect(screen.getByRole("menuitemradio", { name: /Plan/ })).toBeInTheDocument();
+  });
+});
+
+describe("Composer per-pane draft (#91)", () => {
+  beforeEach(() => resetParkedDrafts());
+
+  const input = () => screen.getByLabelText<HTMLTextAreaElement>("Ask anything");
+  const pane = (draftKey: string) => render(<Composer onSend={vi.fn()} draftKey={draftKey} />);
+
+  it("hands an unsent draft back to the same pane after a screen switch unmounts it", () => {
+    const { unmount } = pane("draft:pane-1");
+    fireEvent.change(input(), { target: { value: "half-written thought" } });
+    unmount();
+
+    pane("draft:pane-1");
+    expect(input().value).toBe("half-written thought");
+  });
+
+  it("never hands one pane's draft to another", () => {
+    const { unmount } = pane("draft:pane-1");
+    fireEvent.change(input(), { target: { value: "meant for pane one" } });
+    unmount();
+
+    pane("draft:pane-2");
+    expect(input().value).toBe("");
+  });
+
+  it("does not resurrect a message that was already sent", () => {
+    const { unmount } = pane("draft:pane-1");
+    fireEvent.change(input(), { target: { value: "off it goes" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    unmount();
+
+    pane("draft:pane-1");
+    expect(input().value).toBe("");
   });
 });

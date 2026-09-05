@@ -5,6 +5,7 @@ import type {
   OpenCodeEvent,
   PermissionAskedEvent,
   PermissionReply,
+  PromptFile,
   QuestionAskedEvent,
   RuntimeStatus,
   SessionMeta,
@@ -70,13 +71,16 @@ export interface AgentRuntime {
    *  turn to the current default, overriding a session's stale creation-time
    *  binding; omit to use the session/runtime default. `variant` picks a
    *  per-turn reasoning-effort level (a name from the model's `variants`); omit
-   *  for the model's default effort. See lib/runtime.ts. */
+   *  for the model's default effort. `files` sends attachments as real
+   *  multimodal parts so a vision model sees the image, not just its name (#88).
+   *  See lib/runtime.ts. */
   sendPrompt(
     sessionId: string,
     text: string,
     agent?: string,
     model?: string | null,
     variant?: string | null,
+    files?: PromptFile[],
   ): Promise<void>;
   abortSession(sessionId: string): Promise<void>;
   /** Compact a session's conversation: older turns are summarized by the
@@ -84,18 +88,6 @@ export interface AgentRuntime {
    *  run on a bounded context. V1 `/session/:id/summarize`; the session's
    *  provider/model when known, else the server default. */
   compactSession(sessionId: string, providerID?: string, modelID?: string): Promise<void>;
-  /** One session's live info: cumulative tokens, cost, compaction state. */
-  getSessionInfo(sessionId: string): Promise<{
-    tokens?: { input?: number; output?: number; reasoning?: number };
-    cost?: number;
-    compacting?: number | null;
-    title?: string;
-  }>;
-  /** Set (or clear, with 0) a provider model's context window in the global
-   *  config. Lowering it makes the next turn auto-compact on overflow. */
-  setModelContextLimit(providerId: string, modelId: string, context: number, output?: number): Promise<void>;
-  /** The configured context window for a provider model (0 when unset). */
-  getModelContextLimit(providerId: string, modelId: string): Promise<number>;
   /** Revert the session to (and including) `messageID`, dropping it and every
    *  message after it (and rolling back any files they changed). Used to edit a
    *  past user message: revert to it, then `sendPrompt` the corrected text.

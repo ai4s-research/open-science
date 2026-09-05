@@ -1,9 +1,9 @@
 [package]
 name = "ai4s-workbench"
-version = "0.3.3"
+version.workspace = true
 description = "Open Science Desktop"
 authors = ["AI4S Workbench contributors"]
-edition = "2021"
+edition.workspace = true
 
 [lib]
 name = "ai4s_workbench_lib"
@@ -13,25 +13,24 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# The server core: workspace, sidecar, gateway — everything that also runs
+# under `osd server`, where there is no window and no Tauri.
+osd-core.workspace = true
 # macos-private-api: transparent webview background for the vibrancy sidebar
 # (tauri.macos.conf.json); no-op on other platforms.
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde.workspace = true
+serde_json.workspace = true
 # Already in the tree via tauri — used directly for stall timeouts on uv setup.
 tokio = { version = "1", features = ["time"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-notification = "2"
-getrandom = "0.4.3"
+getrandom.workspace = true
 opener = { version = "0.8.5", features = ["reveal"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
-# Watches the active workspace so file changes from outside the app (an external
-# editor, a detached process) still enqueue a debounced git snapshot.
-notify = "6"
+reqwest.workspace = true
 # ssh reads authentication answers from a terminal, never from stdin, so an
 # interactive sign-in to a 2FA cluster (#73) needs a real pty on every platform.
 portable-pty = "0.9"

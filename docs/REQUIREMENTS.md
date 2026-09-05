@@ -509,7 +509,7 @@ competitors.
 - **Acceptance.** A non-technical user installs and reaches a working first
   session on both macOS and Windows via a signed installer.
 - **Status.** 🟡 macOS installer shipped; sidecars bundled. Windows CI pipeline in
-  place (matrix produces NSIS `.exe`/`.msi`; both sidecar fetch scripts emit the
+  place (matrix produces the NSIS `.exe` and the `.msi`; both sidecar fetch scripts emit the
   Windows binaries) and cross-platform paths audited (fixed a Windows-only
   orphaned-jupyter cleanup gap). Gap (host-bound): producing + code-signing the
   Windows installer and verifying a real first-run need a Windows machine/CI.

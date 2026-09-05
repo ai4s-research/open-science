@@ -1,6 +1,6 @@
 ---
 name: domain-check
-description: Use whenever you write or run scientific analysis code (physics, earth/geo, biology, chemistry, or social science) in this workspace — before executing it and again after generating results. Runs a deterministic domain-correctness gate that catches code which runs but is scientifically wrong (unit/dimension mismatch, Euclidean distance on lat/lon without a CRS, 0-based/1-based coordinate and strand errors, impossible SMILES valence, uncorrected multiple comparisons, averaging a categorical code). Surfaces structured findings; never claims the code is correct.
+description: Use whenever you write or run scientific analysis code (physics, earth/geo, biology, chemistry, social science, or bioprocess/fermentation) in this workspace — before executing it and again after generating results. Runs a deterministic domain-correctness gate that catches code which runs but is scientifically wrong (unit/dimension mismatch, Euclidean distance on lat/lon without a CRS, 0-based/1-based coordinate and strand errors, impossible SMILES valence, uncorrected multiple comparisons, averaging a categorical code, unconstrained kinetic-parameter fits, kLa computed from raw DO instead of the driving force, arithmetic mean of raw CFU counts, ANOVA/Tukey with no assumption check, a curvature DOE design fit with a first-order model). Surfaces structured findings; never claims the code is correct.
 ---
 
 # Domain-correctness gate
@@ -59,6 +59,37 @@ It prints exactly one ` ```review ` fenced JSON block on stdout.
   …) taken directly on a nominal category code (`gender`, `race`, `region`,
   `condition`, …), treating an unordered label as an interval quantity. A
   `groupby('gender')` key is correct usage and is not flagged.
+- **bioprocess · unconstrained-kinetics** — `curve_fit` fitting a local model
+  function whose parameters are classic non-negative kinetic constants
+  (Monod/Haldane `mu_max`/`Ks`/`Ki`, Pirt/yield `Yxs`/`Yps`, Luedeking-Piret
+  `alpha`/`beta`, …) with no `bounds=`, letting a noisy or sparse fit converge
+  to a physically impossible negative value. Names that belong to any curve at
+  all (`alpha`, `beta`, `kd`, `ka`) count only beside an unambiguous one or in
+  a file that otherwise reads as a fermentation, so a plain power law, whose
+  exponent is routinely negative, is left alone.
+- **bioprocess · kla-driving-force** — in a file that computes `kLa`, taking
+  `log()` of the raw dissolved-oxygen reading instead of the `(C* - C)`
+  driving force the dynamic gassing-out method requires (`dC/dt = kLa(C*-C)`,
+  so the regression is on `ln(C* - C)`, not `ln(C)`).
+- **bioprocess · cfu-log-scale** — a numeric reduction (`.mean()`/`.std()`/…)
+  taken directly on a raw CFU (colony-forming-unit) plate count. Microbial
+  counts are approximately log-normal; the convention is to average
+  `log10(CFU)`, not the raw count. A variable already named as the log
+  quantity (`log_cfu`) or a `.mean()` taken after `np.log10(...)` is not
+  flagged.
+- **bioprocess · anova-assumptions** — `f_oneway`/`anova_lm`/
+  `pairwise_tukeyhsd`/`tukey_hsd` run in a file with no normality
+  (`shapiro`/`normaltest`/`anderson`) or variance-homogeneity
+  (`levene`/`bartlett`/`fligner`) check anywhere in it — the two assumptions
+  the test's stated false-positive rate depends on. Scoped to files that read
+  as a fermentation (`biomass`, `bioreactor`, `CFU`, `fed-batch`, …): the
+  statistics generalize, but a finding tagged `bioprocess` on a three-arm
+  survey does not.
+- **bioprocess · rsm-first-order-fit** — a Box-Behnken/central-composite
+  design (`bbdesign`/`ccdesign`/`box_behnken`/`central_composite` in the
+  file) fit through a `statsmodels` formula with no quadratic (`I(x**2)`) or
+  interaction (`x1:x2`) term — the design was built to estimate curvature, so
+  a first-order model wastes it and cannot locate an interior optimum.
 
 Rules favour precision: an unrecognized unit, arithmetic with no discipline
 signal, a SMILES using bracket atoms (which carry their own valence/charge), a

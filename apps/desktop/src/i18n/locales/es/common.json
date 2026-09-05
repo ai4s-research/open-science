@@ -8,8 +8,7 @@
     "compact": {
       "busy": "Espera a que termine el turno actual antes de comprimir.",
       "error": "No se pudo comprimir el contexto.",
-      "done": "Contexto comprimido. La siguiente respuesta usará la conversación comprimida.",
-      "triggered": "Listo: envía tu próximo mensaje y se comprimirá automáticamente primero (el límite se restaura después)."
+      "done": "Contexto comprimido. La siguiente respuesta usará la conversación comprimida."
     }
   }
 }

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { OpenCodeEvent, HistoryMessage } from "@ai4s/sdk";
 import { AUTO_REVIEW_PROMPT } from "./autoReview";
+import { GOAL_RESUME_NUDGE } from "./goalPrompts";
 import {
   datedWorkspaceName,
   explainRuntimeError,
+  turnStillStreaming,
   foldCarriageReturns,
   foldEvent,
   historyToThread,
@@ -252,6 +254,71 @@ describe("foldEvent", () => {
     ]);
     expect(s.blocks.filter((b) => b.kind === "status-line" && b.tone === "done")).toHaveLength(1);
   });
+
+  it("does not call a failed turn done", () => {
+    // The store appends the red line outside this reducer (the error handler),
+    // then the server's trailing session.idle arrives — which used to add a
+    // cheerful "done" underneath, so a request that never ran read as having
+    // succeeded (#114). Seed the failed state the same way the store leaves it.
+    const failed: FoldState = {
+      blocks: [{ kind: "status-line", text: "Invalid prompt", tone: "error" }],
+      index: {},
+    };
+    const s = foldAll([{ type: "session.idle", sessionId: S }], failed);
+    expect(s.blocks.some((b) => b.kind === "status-line" && b.tone === "done")).toBe(false);
+    expect(s.blocks).toHaveLength(1);
+  });
+});
+
+describe("message usage", () => {
+  const usage = { input: 3_000, output: 900, reasoning: 0, cacheRead: 118_000, cacheWrite: 2_100, cost: 0.42 };
+
+  it("stamps a turn's tokens onto the text it produced", () => {
+    const s = foldAll([
+      { type: "text.updated", sessionId: S, partId: "p1", text: "Done", messageID: "m1" },
+      { type: "message.usage", sessionId: S, messageID: "m1", usage, created: 100, completed: 7_400 },
+    ]);
+    expect(s.blocks[0]).toMatchObject({ kind: "agent", usage, created: 100, completed: 7_400 });
+  });
+
+  it("stamps every block the same message produced — a tool call splits the answer", () => {
+    const s = foldAll([
+      { type: "text.updated", sessionId: S, partId: "p1", text: "Let me look", messageID: "m1" },
+      { type: "tool.updated", sessionId: S, callId: "c1", tool: "read", status: "success" },
+      { type: "text.updated", sessionId: S, partId: "p2", text: "Found it", messageID: "m1" },
+      { type: "message.usage", sessionId: S, messageID: "m1", usage },
+    ]);
+    const agents = s.blocks.filter((b) => b.kind === "agent");
+    expect(agents).toHaveLength(2);
+    expect(agents.every((b) => b.kind === "agent" && b.usage === usage)).toBe(true);
+  });
+
+  it("leaves another message's blocks alone", () => {
+    const s = foldAll([
+      { type: "text.updated", sessionId: S, partId: "p1", text: "First", messageID: "m1" },
+      { type: "text.updated", sessionId: S, partId: "p2", text: "Second", messageID: "m2" },
+      { type: "message.usage", sessionId: S, messageID: "m2", usage },
+    ]);
+    expect(s.blocks[0]).not.toHaveProperty("usage");
+    expect(s.blocks[1]).toMatchObject({ usage });
+  });
+
+  it("survives the text that keeps streaming after it", () => {
+    // Usage and text arrive interleaved on separate events, and the text upsert
+    // rebuilds the block — so a later token must not blank the numbers out.
+    const s = foldAll([
+      { type: "text.updated", sessionId: S, partId: "p1", text: "Wor", messageID: "m1" },
+      { type: "message.usage", sessionId: S, messageID: "m1", usage },
+      { type: "text.updated", sessionId: S, partId: "p1", text: "Working on it", messageID: "m1" },
+    ]);
+    expect(s.blocks[0]).toMatchObject({ kind: "agent", markdown: "Working on it", usage });
+  });
+
+  it("is a no-op when the message has produced no text yet", () => {
+    // A turn that calls tools first reports tokens before any answer exists.
+    const s = foldAll([{ type: "message.usage", sessionId: S, messageID: "m1", usage }]);
+    expect(s.blocks).toHaveLength(0);
+  });
 });
 
 describe("subagent activity", () => {
@@ -325,6 +392,161 @@ describe("historyToThread", () => {
     expect(t.blocks[2]).toMatchObject({ kind: "tool-call", status: "success" });
   });
 
+  it("reoffers the repair on reload, naming the part that makes the session unsendable", () => {
+    // The damage is on disk, so reopening the session hits the same wall. Without
+    // this the way out would exist only in the tab that was open when it first
+    // failed — and the reporter of #114 had already closed that tab.
+    const t = historyToThread([
+      { role: "user", id: "m1", parts: [{ type: "text", text: "plot it" }] },
+      {
+        role: "assistant",
+        id: "m2",
+        error: "Invalid prompt: The messages do not match the ModelMessage[] schema.",
+        parts: [{ type: "tool", tool: "bash", callID: "c1", state: { status: "completed" } }],
+      },
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toContain("history-repair");
+    expect(t.blocks[t.blocks.length - 1]).toMatchObject({
+      kind: "history-repair",
+      reason: "tool-result-missing",
+      tool: "bash",
+      target: { messageID: "m1", text: "plot it" },
+      drops: 2,
+    });
+  });
+
+  it("offers the repair once, however many times the session retried into the wall", () => {
+    // Once the history is malformed every later turn fails identically, so a
+    // reopened session shows a run of the same error — the reporter of #114 had
+    // three. The fix is the same for all of them; three identical cards would
+    // read as three separate problems.
+    const failed = "Invalid prompt: The messages do not match the ModelMessage[] schema.";
+    const t = historyToThread([
+      { role: "user", id: "u1", parts: [{ type: "text", text: "go" }] },
+      { role: "assistant", id: "a1", parts: [{ type: "text" }] },
+      { role: "user", id: "u2", parts: [{ type: "text", text: "again" }] },
+      { role: "assistant", id: "a2", error: failed, parts: [{ type: "text", text: "" }] },
+      { role: "user", id: "u3", parts: [{ type: "text", text: "hello?" }] },
+      { role: "assistant", id: "a3", error: failed, parts: [{ type: "text", text: "" }] },
+    ]);
+    const kinds = t.blocks.map((b) => b.kind);
+    expect(kinds.filter((k) => k === "history-repair")).toHaveLength(1);
+    // …and it sits under the LAST failure, where the user is looking.
+    expect(kinds[kinds.length - 1]).toBe("history-repair");
+  });
+
+  it("offers no repair for an ordinary failed turn — only this one is unretryable", () => {
+    const t = historyToThread([
+      { role: "user", id: "m1", parts: [{ type: "text", text: "plot it" }] },
+      { role: "assistant", id: "m2", error: "Overloaded", parts: [{ type: "text", text: "" }] },
+    ]);
+    expect(t.blocks.map((b) => b.kind)).not.toContain("history-repair");
+  });
+
+  it("recovers a reloaded turn's tokens and timings, so reopening keeps the meta line", () => {
+    const usage = { input: 3_000, output: 900, reasoning: 0, cacheRead: 118_000, cacheWrite: 2_100, cost: 0.42 };
+    const t = historyToThread([
+      {
+        role: "assistant",
+        id: "m1",
+        created: 1_000,
+        completed: 8_400,
+        usage,
+        parts: [{ type: "text", text: "done" }],
+      },
+    ]);
+    expect(t.blocks[0]).toMatchObject({
+      kind: "agent",
+      messageID: "m1",
+      created: 1_000,
+      completed: 8_400,
+      usage,
+    });
+  });
+
+  it("dates a reloaded compaction by its message — the part carries no clock", () => {
+    const t = historyToThread([
+      { role: "assistant", created: 4_242, parts: [{ type: "compaction" }] },
+    ]);
+    expect(t.blocks[0]).toMatchObject({ kind: "compaction", auto: true, at: 4_242 });
+  });
+
+  // The shape OpenCode actually persists: SessionCompaction.create writes a
+  // message with role "user" and hangs the compaction part off THAT. Reading
+  // compaction parts only on assistant messages meant a reopened conversation
+  // silently lost every marker — the turns vanish with nothing to say why.
+  it("shows a compaction stored on its user-role marker message", () => {
+    const t = historyToThread([
+      { role: "user", parts: [{ type: "text", text: "analyze this" }] },
+      { role: "user", created: 9_100, parts: [{ type: "compaction" }] },
+      { role: "assistant", parts: [{ type: "text", text: "carrying on" }] },
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["user", "compaction", "agent"]);
+    expect(t.blocks[1]).toMatchObject({ kind: "compaction", auto: true, at: 9_100 });
+  });
+
+  it("does not render the marker message as an empty user turn", () => {
+    const t = historyToThread([{ role: "user", parts: [{ type: "compaction" }] }]);
+    expect(t.blocks.filter((b) => b.kind === "user")).toHaveLength(0);
+  });
+
+  // Reported after a restart: `/goal read the docs…` showed correctly while
+  // live, then reopened as the goal plugin's entire instruction block. The
+  // collapse itself works — it just needs the command templates, and a cold
+  // open could render history before the catalog arrived. This pins both the
+  // collapse and what its absence looks like, so the ordering guarantee in
+  // openSession/loadHistory has something to fail against.
+  it("collapses a stored slash-command expansion back to what was typed", () => {
+    const template =
+      'OpenCode goal mode command "/goal" was invoked.\n\nArguments:\n' +
+      "<goal_command_arguments>\n$ARGUMENTS\n</goal_command_arguments>\n\n" +
+      "Use the goal tools to handle this command:\n- If the arguments are empty, call get_goal.";
+    const expanded = template.replace("$ARGUMENTS", "read the docs, then build the repo");
+    const msgs: HistoryMessage[] = [{ role: "user", parts: [{ type: "text", text: expanded }] }];
+
+    const withCommands = historyToThread(msgs, [
+      { name: "goal", description: "goal mode", template },
+    ]);
+    expect(withCommands.blocks[0]).toMatchObject({
+      kind: "user",
+      text: "/goal read the docs, then build the repo",
+    });
+
+    // Without the templates there is nothing to collapse against, and the raw
+    // expansion is what the user sees — the bug as reported.
+    const withoutCommands = historyToThread(msgs);
+    expect(withoutCommands.blocks[0]).toMatchObject({ kind: "user", text: expanded });
+  });
+
+  // Every subagent in a reloaded conversation was unopenable: the live fold
+  // keeps the spawned session id from the event, but rebuilding history dropped
+  // it, so the panel had nothing to open.
+  it("restores the subagent session a task spawned", () => {
+    const msgs: HistoryMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "go" }] },
+      {
+        role: "assistant",
+        parts: [
+          {
+            type: "tool",
+            tool: "task",
+            state: {
+              status: "completed",
+              title: "Explore data adapters",
+              metadata: { sessionId: "ses_child_1" },
+            },
+          },
+        ],
+      },
+    ];
+    const t = historyToThread(msgs);
+    expect(t.blocks[t.blocks.length - 1]).toMatchObject({
+      kind: "tool-call",
+      tool: "task",
+      childSessionId: "ses_child_1",
+    });
+  });
+
   it("restores reasoning parts on reload as reasoning blocks, before the answer", () => {
     const msgs: HistoryMessage[] = [
       { role: "user", parts: [{ type: "text", text: "hi" }] },
@@ -385,6 +607,20 @@ describe("historyToThread", () => {
       { kind: "user", text: "hi" },
       { kind: "status-line", text: "no channel available for this model", tone: "error" },
     ]);
+  });
+
+  it("explains a reloaded failure too — a restart is when the user knows least", () => {
+    const msgs: HistoryMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "hi" }] },
+      {
+        role: "assistant",
+        completed: 2,
+        error: "Free usage exceeded, subscribe to Go",
+        parts: [],
+      },
+    ];
+    const line = historyToThread(msgs).blocks.slice(-1)[0];
+    expect(line.kind === "status-line" && line.text).toMatch(/OpenCode Zen/);
   });
 
   it("keeps user-interrupted turns quiet: an aborted error adds no red line", () => {
@@ -503,6 +739,34 @@ describe("historyToThread", () => {
       findings: [{ level: "warn", title: "seed not pinned" }],
     });
   });
+
+  // Goal mode drives itself by writing user turns into the session. Those are
+  // machine prompts (continuation policy wrapped around the objective) and were
+  // shown verbatim as if the user had typed them.
+  it("hides the goal plugin's auto-continue and the app's resume nudge", () => {
+    const msgs: HistoryMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "train the model" }] },
+      { role: "assistant", parts: [{ type: "text", text: "started" }] },
+      {
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text:
+              "Continue working toward the active session goal.\n\n" +
+              "<untrusted_objective>\ntrain the model\n</untrusted_objective>\n\n" +
+              "Continuation behavior:\n- This goal persists across turns.",
+          },
+        ],
+      },
+      { role: "assistant", parts: [{ type: "text", text: "continued" }] },
+      { role: "user", parts: [{ type: "text", text: GOAL_RESUME_NUDGE }] },
+      { role: "assistant", parts: [{ type: "text", text: "resumed" }] },
+    ];
+    const t = historyToThread(msgs);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["user", "agent", "agent", "agent"]);
+    expect(t.blocks[0]).toMatchObject({ text: "train the model" });
+  });
 });
 
 describe("lastAgentMode", () => {
@@ -538,6 +802,82 @@ describe("runtime error explanations", () => {
     expect(out).toMatch(/new session|another model/i);
   });
 
+  it("explains why a malformed session history cannot be retried", () => {
+    const out = explainRuntimeError(
+      "Invalid prompt: The messages do not match the ModelMessage[] schema.",
+    );
+    expect(out).toContain("ModelMessage[] schema"); // the SDK's own words survive
+    expect(out).toMatch(/every retry resends/i);
+    expect(out).toMatch(/retrying cannot work/i);
+  });
+
+  it("does not blame a cause it cannot know for a malformed history", () => {
+    // This line used to assert the damage was "a tool call left without its
+    // result". That was wrong — the runtime backfills an interrupted tool call
+    // with a synthetic result, and sessions carrying one keep working for
+    // hundreds of messages — and we published it on #114. The thread names the
+    // real part from the stored history instead; the error text guesses at
+    // nothing, or it sends people to delete history that was fine.
+    const out = explainRuntimeError(
+      "Invalid prompt: The messages do not match the ModelMessage[] schema.",
+    );
+    expect(out).not.toMatch(/tool call left without/i);
+  });
+
+  it("names the provider behind a spent free allowance, from the runtime's own action", () => {
+    // #117: the final error text names no provider, so the cause has to come
+    // from the action the retry status carried. The reporter filed this as the
+    // app's own quota being used up.
+    const out = explainRuntimeError("Free usage exceeded", {
+      reason: "free_tier_limit",
+      provider: "opencode",
+    });
+    expect(out).toContain("Free usage exceeded"); // upstream's words survive
+    expect(out).toMatch(/OpenCode Zen/);
+    expect(out).toMatch(/not a quota in this app/i);
+    expect(out).toContain("Settings → Models");
+  });
+
+  it("does not claim Zen for another provider's spent allowance", () => {
+    const out = explainRuntimeError("Free usage exceeded", {
+      reason: "free_tier_limit",
+      provider: "some-gateway",
+    });
+    expect(out).toContain("some-gateway");
+    expect(out).not.toMatch(/Zen/);
+  });
+
+  it("reads Zen's own free-tier constant with no action to go by", () => {
+    // A reloaded history has no action — but this whole sentence is a constant
+    // of the runtime's (GO_UPSELL_MESSAGE), so it is proof of the provider.
+    expect(explainRuntimeError("Free usage exceeded, subscribe to Go")).toMatch(/OpenCode Zen/);
+    // The prefix alone is not proof, and inventing a provider would be a lie.
+    expect(explainRuntimeError("Free usage exceeded on this endpoint")).toBe(
+      "Free usage exceeded on this endpoint",
+    );
+  });
+
+  it("offers a way out of a plan limit instead of only its reset time", () => {
+    const out = explainRuntimeError(
+      "Weekly usage limit reached. It will reset in 3 days 2 hours - https://opencode.ai/workspace/w/go",
+    );
+    expect(out).toContain("Settings → Models");
+    expect(
+      explainRuntimeError("Overloaded", { reason: "account_rate_limit" }),
+    ).toContain("Settings → Models");
+  });
+
+  it("separates a request that never reached the provider from a provider error", () => {
+    const out = explainRuntimeError(
+      "Cannot connect to API: The socket connection was closed unexpectedly",
+    );
+    expect(out).toMatch(/did not reach the provider/i);
+    expect(out).toMatch(/VPN or proxy/i);
+    // Not a blanket match on the word "connect".
+    const other = "The provider could not connect to its own upstream";
+    expect(explainRuntimeError(other)).toBe(other);
+  });
+
   it("keeps the dangling-model hint and passes anything else through", () => {
     expect(explainRuntimeError("model not found: openai/gone")).toContain(
       "Settings → Models",
@@ -566,5 +906,41 @@ describe("redactForLog", () => {
     const long = redactForLog("the upstream provider refused this call. ".repeat(40));
     expect(long.length).toBeLessThanOrEqual(LOG_ERROR_CAP + 1);
     expect(long.endsWith("…")).toBe(true);
+  });
+});
+
+describe("turnStillStreaming", () => {
+  // Reproduced from a real install: the app was quit mid-turn, so the runtime
+  // died with the request in flight. What it left behind — assistant role, no
+  // `completed`, no `error` — is byte-for-byte what a turn streaming RIGHT NOW
+  // looks like, so every later load read it as live. That session sat on
+  // "Working…" for ten hours: no error to retry, no process to finish it, and
+  // no way for the user to tell. Liveness has to come from something that dies
+  // with the process.
+  const RUNTIME_START = 2_000;
+  const unfinished = (created: number) => [
+    { role: "user" as const, parts: [], completed: created - 1 },
+    { role: "assistant" as const, parts: [], created },
+  ];
+
+  it("treats an unfinished turn from a dead runtime as over", () => {
+    expect(turnStillStreaming(unfinished(1_000), RUNTIME_START)).toBe(false);
+  });
+
+  it("still reads a turn this runtime is producing as live", () => {
+    expect(turnStillStreaming(unfinished(3_000), RUNTIME_START)).toBe(true);
+  });
+
+  it("keeps the old behaviour when the runtime start is unknown", () => {
+    // Web/gateway clients have no local sidecar to compare against; there the
+    // stored shape is all we have, and calling a live turn dead would be worse.
+    expect(turnStillStreaming(unfinished(1_000))).toBe(true);
+  });
+
+  it("is unmoved by a finished or failed turn", () => {
+    const done = [{ role: "assistant" as const, parts: [], created: 3_000, completed: 3_100 }];
+    const failed = [{ role: "assistant" as const, parts: [], created: 3_000, error: "boom" }];
+    expect(turnStillStreaming(done, RUNTIME_START)).toBe(false);
+    expect(turnStillStreaming(failed, RUNTIME_START)).toBe(false);
   });
 });

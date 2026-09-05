@@ -82,6 +82,31 @@ jobs:
           mkdir -p "$output_dir"
           produced=false
 
+          # Upload by release ID, never by tag. `gh release upload <tag>` cannot
+          # resolve a DRAFT release reliably — it answered 404 on one run and, on
+          # another, 422 "ReleaseAsset.name already exists" when its own retry
+          # raced the upload it had just completed. Both landed AFTER stapling and
+          # submitting to Apple, so every failure re-submitted the same build.
+          # The queue already carries the release id; use it, and make the replace
+          # explicit rather than relying on --clobber.
+          upload_asset() {
+            local release_id="$1" path="$2" name
+            name=$(basename "$path")
+            local prior
+            prior=$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --jq ".assets[] | select(.name == \"$name\") | .id")
+            if [ -n "$prior" ]; then
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$prior"
+            fi
+            gh api --method POST \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$name" \
+              --input "$path" >/dev/null
+            # Trust the listing, not the exit code: confirm it is really there.
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --jq ".assets[] | select(.name == \"$name\") | .name" | grep -qx "$name"
+          }
+
           while IFS= read -r item; do
             tag=$(jq -r '.tag' <<<"$item")
             release_id=$(jq -r '.release_id' <<<"$item")
@@ -125,7 +150,7 @@ jobs:
               submitted_dmg_path="$item_dir/$submitted_dmg_name"
               MACOS_DMG_NOTARIZATION_MODE=submit \
                 bash scripts/release/finalize-macos-notarization.sh "$app_path" "$submitted_dmg_path"
-              gh release upload "$tag" "$submitted_dmg_path" --clobber
+              upload_asset "$release_id" "$submitted_dmg_path"
               gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
               continue
             fi
@@ -143,7 +168,7 @@ jobs:
 
             final_path="$output_dir/$final_name"
             ditto "$queued_path" "$final_path"
-            gh release upload "$tag" "$final_path" --clobber
+            upload_asset "$release_id" "$final_path"
             gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
             produced=true
           done < <(jq -c '.[]' <<<"$queue")

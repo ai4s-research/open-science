@@ -9,20 +9,68 @@ import type {
   OpenCodePart,
   OpenCodeRawEvent,
   PermissionReply,
+  PromptFile,
   ProviderAuthMethod,
   ProviderCatalogEntry,
   ProviderInfo,
   QuestionAskedEvent,
   PermissionAskedEvent,
+  RetryAction,
   SessionMeta,
   SessionPage,
   SessionQuery,
   SkillInfo,
   ToolCallStatus,
 } from "./types";
+import type { MessageUsage } from "@ai4s/shared";
 import { DEFAULT_OPENCODE_URL } from "./types";
 import type { AgentRuntime } from "./runtime";
 import { BaseAgentRuntime } from "./base-runtime";
+
+export type CustomProviderModality = "text" | "audio" | "image" | "video" | "pdf";
+
+/** A model on a custom endpoint. A caller that knows nothing but the id passes
+ *  the id; one that knows the window, the pricing or the modalities passes them
+ *  too, and they reach the runtime's own model record rather than being guessed
+ *  at. Nothing here is required, because nothing about a self-hosted endpoint
+ *  can be assumed. */
+export interface CustomProviderModel {
+  id: string;
+  name?: string;
+  context?: number;
+  cost?: {
+    input: number;
+    output: number;
+    cache_read?: number;
+    cache_write?: number;
+  };
+  modalities?: {
+    input?: CustomProviderModality[];
+    output?: CustomProviderModality[];
+  };
+  reasoning?: boolean;
+  variants?: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * An error from an OpenCode API call, carrying the HTTP status so a caller can
+ * tell "this is already gone" (404) from a real failure. Answering a permission
+ * request that the runtime has already resolved is the former, and it must not
+ * read to the user as a broken action.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** True when `err` is an API failure with this HTTP status. */
+export function isApiStatus(err: unknown, status: number): boolean {
+  return err instanceof Error && (err as { status?: unknown }).status === status;
+}
 
 /** The blind context window earlier versions wrote for custom-endpoint models
  *  whose real limit was unknown. We no longer write it (a wrong guess is worse
@@ -48,10 +96,21 @@ const ARTIFACT_PRESENTATION_SYSTEM = `Open Science Desktop can display workspace
 type CustomProviderConfig = Record<
   string,
   {
-    models?: Record<string, { name?: string; limit?: { context: number; output: number } }>;
+    models?: Record<string, CustomProviderModelConfig>;
     [key: string]: unknown;
   }
 >;
+
+type CustomProviderModelConfig = {
+  id?: string;
+  name?: string;
+  limit?: { context: number; output: number };
+  cost?: { input: number; output: number; cache_read?: number; cache_write?: number };
+  modalities?: { input?: string[]; output?: string[] };
+  reasoning?: boolean;
+  variants?: Record<string, Record<string, unknown>>;
+  [key: string]: unknown;
+};
 
 function mapToolStatus(status: string): ToolCallStatus {
   switch (status) {
@@ -72,6 +131,52 @@ function errorText(error: unknown): string | undefined {
   const err = error as { name?: string; message?: string; data?: { message?: string } } | undefined;
   const full = err?.data?.message ?? err?.message ?? err?.name;
   return typeof full === "string" && full ? full.split("\n")[0] : undefined;
+}
+
+/** The `action` a retry status may carry, kept only when it has the one field
+ *  the app decides anything on. Every other field is optional and passed
+ *  through as-is when it is a string, so a runtime that adds one loses
+ *  nothing and a runtime that renames one cannot inject a non-string. */
+function retryAction(raw: unknown): RetryAction | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const it = raw as Record<string, unknown>;
+  if (typeof it.reason !== "string" || !it.reason) return undefined;
+  const action: RetryAction = { reason: it.reason };
+  for (const field of ["provider", "title", "message", "label", "link"] as const) {
+    const value = it[field];
+    if (typeof value === "string" && value) action[field] = value;
+  }
+  return action;
+}
+
+/** OpenCode's own token shape on an assistant message (both in history and on
+ *  every `message.updated`). Flattened into `MessageUsage` so callers never
+ *  reach through `cache.` — and so a runtime that omits a field reads as 0
+ *  rather than NaN in a sum. */
+interface RawTokens {
+  input?: number;
+  output?: number;
+  reasoning?: number;
+  cache?: { read?: number; write?: number };
+}
+
+/** Normalize a message's `tokens`/`cost` into `MessageUsage`.
+ *
+ *  Returns undefined when the runtime reported no tokens at all — a user
+ *  message, an ACP turn, a mock. An all-zero `tokens` object is NOT undefined:
+ *  a turn that was aborted before the first response really did use nothing,
+ *  and reporting that is different from having no data. */
+function toUsage(tokens: RawTokens | undefined, cost: unknown): MessageUsage | undefined {
+  if (!tokens || typeof tokens !== "object") return undefined;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    input: n(tokens.input),
+    output: n(tokens.output),
+    reasoning: n(tokens.reasoning),
+    cacheRead: n(tokens.cache?.read),
+    cacheWrite: n(tokens.cache?.write),
+    cost: n(cost),
+  };
 }
 
 /** Split a "provider/model" default-model string into the `{providerID, modelID}`
@@ -165,7 +270,10 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
    *  full part only at text-start (empty) and text-end; every token in between
    *  arrives as a message.part.delta that must be summed here — otherwise the
    *  app shows nothing until the whole passage is finished. */
-  private readonly textStreams = new Map<string, { sessionId: string; text: string }>();
+  private readonly textStreams = new Map<
+    string,
+    { sessionId: string; text: string; messageID?: string }
+  >();
   /** partID → accumulated reasoning text. Reasoning parts stream the same way as
    *  text (field "text" deltas) but were dropped because they were never seeded
    *  here — so the model's thinking never reached the UI. */
@@ -448,7 +556,6 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       parentID?: string | null;
       metadata?: Record<string, unknown>;
       time?: { created?: number; updated?: number };
-      tokens?: { input?: number; output?: number; reasoning?: number };
       model?: { id?: string; providerID?: string };
     }>;
     const sessions = arr.map((s) => {
@@ -461,7 +568,6 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         parentId: s.parentID ?? undefined,
         created: s.time?.created,
         updated: s.time?.updated,
-        ...(s.tokens ? { tokens: s.tokens } : {}),
         ...(s.model ? { model: s.model } : {}),
         ...(typeof mine.archived === "number" ? { archived: mine.archived } : {}),
         ...(s.metadata ? { metadata: s.metadata } : {}),
@@ -525,7 +631,19 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
           type: "text",
           text,
           synthetic: true,
-          metadata: { source: "ai4s.background-review" },
+          // MUST be a two-level record, namespaced like every other thing we
+          // store (META_NS). A PART's metadata is not private to us the way a
+          // session's is: the runtime forwards an assistant text part's
+          // metadata to the model as `providerMetadata`, whose schema is
+          // `Record<string, Record<string, JSONValue>>`. This field used to be
+          // the flat `{ source: "ai4s.background-review" }`, and a string where
+          // a record belongs made the AI SDK reject the ENTIRE conversation
+          // with "Invalid prompt: The messages do not match the ModelMessage[]
+          // schema" — on the next turn and every turn after it, because the
+          // part is on disk. That was #114: a background review silently ended
+          // the conversation it was reviewing. Reproduced against the pinned
+          // runtime, both ways round.
+          metadata: { [META_NS]: { source: "background-review" } },
         }),
       },
     );
@@ -597,20 +715,25 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       info: {
         id?: string;
         role: "user" | "assistant";
-        time?: { completed?: number };
+        time?: { completed?: number; created?: number };
         error?: unknown;
         agent?: string;
+        cost?: number;
+        tokens?: RawTokens;
       };
       parts: HistoryMessage["parts"];
     }>;
     return arr.map((m) => {
       const error = errorText(m.info.error);
+      const usage = toUsage(m.info.tokens, m.info.cost);
       return {
         role: m.info.role,
         ...(m.info.id ? { id: m.info.id } : {}),
         completed: m.info.time?.completed,
+        created: m.info.time?.created,
         ...(error ? { error } : {}),
         ...(m.info.agent ? { agent: m.info.agent } : {}),
+        ...(usage ? { usage } : {}),
         parts: m.parts ?? [],
       };
     });
@@ -668,69 +791,33 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     providerID?: string,
     modelID?: string,
   ): Promise<void> {
+    // The endpoint REQUIRES both keys: posting `{}` comes back 400 "Missing key
+    // at [providerID]", not a server-side default. A session that has not bound
+    // a model yet (none sent a turn) therefore falls back to the app's default,
+    // and only fails if there is no model at all — which is a state the composer
+    // could not have reached anyway.
+    let pid = providerID;
+    let mid = modelID;
+    if (!pid || !mid) {
+      const fallback = await this.getDefaultModel();
+      const slash = fallback ? fallback.indexOf("/") : -1;
+      if (slash > 0) {
+        pid = fallback!.slice(0, slash);
+        mid = fallback!.slice(slash + 1);
+      }
+    }
+    if (!pid || !mid) {
+      throw new Error("No model to compact with — pick one in the model picker first.");
+    }
     const res = await this.fetchImpl(
       `${this.baseUrl}/session/${encodeURIComponent(sessionId)}/summarize`,
       {
         method: "POST",
         headers: this.headers(true),
-        body: JSON.stringify(
-          providerID && modelID ? { providerID, modelID } : {},
-        ),
+        body: JSON.stringify({ providerID: pid, modelID: mid }),
       },
     );
     if (!res.ok) throw await this.apiError(res, "Failed to compact the session");
-  }
-
-  /** One session's live info: cumulative token usage, cost, and compaction
-   *  state (`compacting` is set while a compaction is in progress). */
-  async getSessionInfo(sessionId: string): Promise<{
-    tokens?: { input?: number; output?: number; reasoning?: number };
-    cost?: number;
-    compacting?: number | null;
-    title?: string;
-  }> {
-    const res = await this.fetchImpl(
-      `${this.baseUrl}/api/session/${encodeURIComponent(sessionId)}`,
-      { headers: this.headers() },
-    );
-    if (!res.ok) throw await this.apiError(res, "Failed to read the session");
-    const json = (await res.json()) as { data?: { tokens?: { input?: number; output?: number; reasoning?: number }; cost?: number; compacting?: number | null; title?: string } };
-    return json.data ?? {};
-  }
-
-  /** Set (or clear, with `context` 0) a provider model's context window in the
-   *  global config. This is the knob behind the "context limit" control and
-   *  the manual-compact workaround: OpenCode's overflow accounting compacts a
-   *  session when its last step's tokens exceed this limit, so lowering it
-   *  makes the NEXT turn auto-compact. Merges, never clobbers other keys. */
-  async setModelContextLimit(
-    providerId: string,
-    modelId: string,
-    context: number,
-    output = 0,
-  ): Promise<void> {
-    const existing = await this.customProviderModelLimits(providerId);
-    const limit =
-      context > 0 ? { context, output: existing[modelId]?.output ?? output } : undefined;
-    const provider = {
-      [providerId]: {
-        models: {
-          [modelId]: limit ? { name: modelId, limit } : { name: modelId },
-        },
-      },
-    };
-    const res = await this.fetchImpl(`${this.baseUrl}/global/config`, {
-      method: "PATCH",
-      headers: this.headers(true),
-      body: JSON.stringify({ provider }),
-    });
-    if (!res.ok) throw await this.apiError(res, "Failed to update the context limit");
-  }
-
-  /** The configured context window for a provider model (from the global
-   *  config's provider override), or 0 when none is set. */
-  async getModelContextLimit(providerId: string, modelId: string): Promise<number> {
-    return (await this.customProviderModelLimits(providerId))[modelId]?.context ?? 0;
   }
 
   /** Every skill OpenCode has really loaded for this workspace: built-in,
@@ -798,7 +885,14 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         // OpenCode carries a per-model `variants` map (variant name → provider
         // options) built from models.dev + config; a model with no reasoning
         // levels has none. We surface just the ordered names.
-        models?: Record<string, { name?: string; variants?: Record<string, unknown> }>;
+        models?: Record<
+          string,
+          {
+            name?: string;
+            variants?: Record<string, unknown>;
+            limit?: { context?: number };
+          }
+        >;
       }>;
     };
     return (body.providers ?? []).map((p) => ({
@@ -808,6 +902,9 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         id,
         name: m.name ?? id,
         variants: orderVariants(Object.keys(m.variants ?? {})),
+        // 0 and "absent" mean the same thing here — OpenCode reports an unknown
+        // window as 0 — so normalise to 0 and let callers test one value.
+        contextLimit: m.limit?.context ?? 0,
       })),
     }));
   }
@@ -823,7 +920,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       npm: string;
       baseURL: string;
       apiKey?: string;
-      models: string[];
+      models: ReadonlyArray<string | CustomProviderModel>;
       /** Context window per model id (e.g. probed from the endpoint). */
       contexts?: Record<string, number>;
     },
@@ -837,13 +934,34 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     // high never helps a smaller one. Known values come from the probe
     // (Ollama/vLLM/LM Studio report their window) or the user; when both are
     // absent, leaving context 0 makes OpenCode skip the accounting entirely.
-    const existing = await this.customProviderModelLimits(id);
+    const existing = await this.customProviderModels(id);
     const models = Object.fromEntries(
-      opts.models.map((m) => {
-        const context = opts.contexts?.[m];
+      opts.models.map((input) => {
+        const model = typeof input === "string" ? { id: input } : input;
+        const previous = existing[model.id];
+        const context = opts.contexts?.[model.id] ?? model.context;
         const limit =
-          context && context > 0 ? { context, output: existing[m]?.output ?? 0 } : existing[m];
-        return [m, limit ? { name: m, limit } : { name: m }];
+          context && context > 0
+            ? { context, output: previous?.limit?.output ?? 0 }
+            : previous?.limit;
+        const metadata =
+          typeof input === "string"
+            ? {}
+            : {
+                ...(model.cost !== undefined ? { cost: model.cost } : {}),
+                ...(model.modalities !== undefined ? { modalities: model.modalities } : {}),
+                ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
+                ...(model.variants !== undefined ? { variants: model.variants } : {}),
+              };
+        return [
+          model.id,
+          {
+            ...(previous ?? {}),
+            name: model.name ?? model.id,
+            ...(limit ? { limit } : {}),
+            ...metadata,
+          },
+        ];
       }),
     );
     const provider = {
@@ -864,15 +982,9 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
 
   /** Context limits already configured for a custom provider's models, keyed by
    *  model id. Best-effort: an unreadable config just means "no limits set". */
-  private async customProviderModelLimits(
-    id: string,
-  ): Promise<Record<string, { context: number; output: number }>> {
+  private async customProviderModels(id: string): Promise<Record<string, CustomProviderModelConfig>> {
     const cfg = await this.customProviderConfig();
-    const out: Record<string, { context: number; output: number }> = {};
-    for (const [model, m] of Object.entries(cfg[id]?.models ?? {})) {
-      if (m.limit && m.limit.context > 0) out[model] = m.limit;
-    }
-    return out;
+    return cfg[id]?.models ?? {};
   }
 
   private async customProviderConfig(): Promise<CustomProviderConfig> {
@@ -1081,17 +1193,24 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     }
   }
 
-  /** Build an Error carrying the server's diagnostic message, when it has one
-   *  (OpenCode errors look like `{ name, data: { message } }`). */
+  /** Build an Error carrying the server's diagnostic message, when it has one.
+   *  Two shapes reach here: OpenCode's own (`{ name, data: { message } }`) and
+   *  the gateway's (`{ error }`) — when the web client's call is refused by
+   *  gateway policy rather than by OpenCode, the reason is in `error`, and
+   *  dropping it turns an explained refusal into a bare status code (#119). */
   private async apiError(res: Response, what: string): Promise<Error> {
     let detail = "";
     try {
-      const body = (await res.json()) as { data?: { message?: string }; message?: string };
-      detail = body.data?.message ?? body.message ?? "";
+      const body = (await res.json()) as {
+        data?: { message?: string };
+        message?: string;
+        error?: string;
+      };
+      detail = body.data?.message ?? body.message ?? body.error ?? "";
     } catch {
       /* not JSON — keep the status alone */
     }
-    return new Error(`${what} (${res.status}${detail ? `: ${detail}` : ""})`);
+    return new ApiError(`${what} (${res.status}${detail ? `: ${detail}` : ""})`, res.status);
   }
 
   /** Real agents configured in OpenCode. */
@@ -1174,6 +1293,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     agent?: string,
     model?: string | null,
     variant?: string | null,
+    files?: PromptFile[],
   ): Promise<void> {
     const m = parseModel(model);
     const res = await this.fetchWithTimeout(
@@ -1182,7 +1302,18 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         method: "POST",
         headers: this.headers(true),
         body: JSON.stringify({
-          parts: [{ type: "text", text }],
+          // Attachments ride as `file` parts so a vision model actually sees
+          // them; the text still names them, so the agent can also open the
+          // workspace copy with its own tools (#88).
+          parts: [
+            { type: "text", text },
+            ...(files ?? []).map((f) => ({
+              type: "file",
+              mime: f.mime,
+              filename: f.filename,
+              url: f.url,
+            })),
+          ],
           ...(agent ? { agent } : {}),
           ...(m ? { model: m } : {}),
           system: ARTIFACT_PRESENTATION_SYSTEM,
@@ -1333,9 +1464,33 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       case "message.updated": {
         // Learn each message's role so we can skip the echoed user message parts.
         const info = props.info as
-          | { id?: string; role?: string; sessionID?: string; agent?: string }
+          | {
+              id?: string;
+              role?: string;
+              sessionID?: string;
+              agent?: string;
+              cost?: number;
+              tokens?: RawTokens;
+              time?: { created?: number; completed?: number };
+            }
           | undefined;
         if (info?.id && info.role) this.roles.set(info.id, info.role);
+        // An assistant message republishes its running token totals here on
+        // every update — this is the ONLY place the protocol reports them, so
+        // dropping the event is what left the app unable to show how much of
+        // the context window a conversation had eaten.
+        if (info?.role === "assistant" && info.id && info.sessionID) {
+          const usage = toUsage(info.tokens, info.cost);
+          if (usage)
+            this.emit({
+              type: "message.usage",
+              sessionId: String(info.sessionID),
+              messageID: String(info.id),
+              usage,
+              ...(info.time?.created ? { created: info.time.created } : {}),
+              ...(info.time?.completed ? { completed: info.time.completed } : {}),
+            });
+        }
         // A user message surfaces its id (so the app can tag the live block for
         // editing) and its agent (so the per-session agent mode stays in sync —
         // plan_exit "Yes" injects a build one). Emitted for every user message,
@@ -1355,13 +1510,32 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
           | (OpenCodePart & { sessionID?: string; messageID?: string })
           | undefined;
         if (!part) return;
-        // The user's own message is echoed here; the app already shows it locally.
-        if (part.messageID && this.roles.get(String(part.messageID)) === "user") return;
+        // The user's own message is echoed here; the app already shows it
+        // locally. Compaction is the exception and must be checked FIRST:
+        // OpenCode's SessionCompaction.create opens a message with role "user"
+        // purely to hang the marker off, so this guard used to swallow every
+        // compaction before it could be emitted.
+        if (
+          part.type !== "compaction" &&
+          part.messageID &&
+          this.roles.get(String(part.messageID)) === "user"
+        )
+          return;
         const sessionId = String(part.sessionID ?? "");
         if (part.type === "text") {
           const t = part as { id: string; text: string };
-          this.textStreams.set(t.id, { sessionId, text: t.text ?? "" });
-          this.emit({ type: "text.updated", sessionId, partId: t.id, text: t.text ?? "" });
+          // The message id rides along in the stream state: every later delta
+          // re-emits the whole text, and the fold upserts by part id — so an
+          // event that forgot the id would blank it out again.
+          const messageID = part.messageID ? String(part.messageID) : undefined;
+          this.textStreams.set(t.id, { sessionId, text: t.text ?? "", messageID });
+          this.emit({
+            type: "text.updated",
+            sessionId,
+            partId: t.id,
+            text: t.text ?? "",
+            ...(messageID ? { messageID } : {}),
+          });
         } else if (part.type === "reasoning") {
           // Seed the reasoning stream so its "text" deltas accumulate (below),
           // and surface the thinking the app used to discard.
@@ -1436,7 +1610,13 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         const acc = this.textStreams.get(partId);
         if (acc) {
           acc.text += d.delta;
-          this.emit({ type: "text.updated", sessionId: acc.sessionId, partId, text: acc.text });
+          this.emit({
+            type: "text.updated",
+            sessionId: acc.sessionId,
+            partId,
+            text: acc.text,
+            ...(acc.messageID ? { messageID: acc.messageID } : {}),
+          });
           return;
         }
         const racc = this.reasoningStreams.get(partId);
@@ -1540,21 +1720,34 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         break;
       }
       case "session.status": {
-        // A failed model call being retried server-side. OpenCode's retry
-        // policy has NO attempt cap (exponential backoff only), so these are
-        // the ONLY sign of life while a broken provider fails every attempt —
-        // dropping them leaves the UI on a bare "Working…" forever. ("busy"
-        // and "idle" statuses carry nothing session.idle doesn't already.)
+        // A failed model call being retried server-side: the ONLY sign of life
+        // while a broken provider fails every attempt, so dropping these leaves
+        // the UI on a bare "Working…". ("busy" and "idle" statuses carry
+        // nothing session.idle doesn't already.)
+        //
+        // `action` rides the same payload and is the difference between "the
+        // provider hiccuped" and "this account cannot make this call at all"
+        // (Zen's free allowance spent, a Go plan's limit reached). Keeping only
+        // the message throws that away and leaves the app free to call a
+        // terminal condition a retry.
         const status = props.status as
-          | { type?: string; attempt?: number; message?: string; next?: number }
+          | {
+              type?: string;
+              attempt?: number;
+              message?: string;
+              next?: number;
+              action?: Record<string, unknown>;
+            }
           | undefined;
         if (status?.type !== "retry") break;
+        const action = retryAction(status.action);
         this.emit({
           type: "session.retry",
           sessionId: String(props.sessionID ?? ""),
           attempt: status.attempt ?? 0,
           message: status.message ?? "provider error",
           nextAt: status.next ?? 0,
+          ...(action ? { action } : {}),
         });
         break;
       }

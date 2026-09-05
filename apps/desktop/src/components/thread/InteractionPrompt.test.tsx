@@ -47,6 +47,53 @@ describe("InteractionPrompt — question", () => {
     expect(onAnswer).toHaveBeenCalledWith("que_2", [["atlas.csv", "export.csv"]]);
   });
 
+  // A model that offers an "Other" option but forgets `custom` used to leave
+  // nowhere to say WHAT — and in quick-pick it answered the whole question with
+  // the bare word. Every question can now be answered in the user's own words.
+  it("always offers an own-words answer, even when the model did not ask for one", async () => {
+    const onAnswer = vi.fn();
+    render(<InteractionPrompt question={singleQ} onAnswer={onAnswer} onReject={noop} onPermission={noop} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Something else/ }));
+    // Revealing the field ends quick-pick: there is something to type first.
+    expect(onAnswer).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByPlaceholderText(/type your own answer/i), "the parquet one");
+    await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+
+    // The typed text is the answer — not the label of the row that revealed it.
+    expect(onAnswer).toHaveBeenCalledWith("que_1", [["the parquet one"]]);
+  });
+
+  it("does not submit an empty own-words answer", async () => {
+    const onAnswer = vi.fn();
+    render(<InteractionPrompt question={singleQ} onAnswer={onAnswer} onReject={noop} onPermission={noop} />);
+    await userEvent.click(screen.getByRole("button", { name: /Something else/ }));
+    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled();
+  });
+
+  it("own words replace the pick on a single-select question", async () => {
+    const onAnswer = vi.fn();
+    render(<InteractionPrompt question={multiQ} onAnswer={onAnswer} onReject={noop} onPermission={noop} />);
+    // multi-select keeps its picks alongside the typed text
+    await userEvent.click(screen.getByText("atlas.csv"));
+    await userEvent.click(screen.getByRole("button", { name: /Something else/ }));
+    await userEvent.type(screen.getByPlaceholderText(/type your own answer/i), "and a third");
+    await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onAnswer).toHaveBeenCalledWith("que_2", [["atlas.csv", "and a third"]]);
+  });
+
+  it("shows the field outright when the model did ask for free text", () => {
+    const customQ: QuestionAskedEvent = {
+      ...singleQ,
+      requestId: "que_3",
+      questions: [{ ...singleQ.questions[0], custom: true }],
+    };
+    render(<InteractionPrompt question={customQ} onAnswer={noop} onReject={noop} onPermission={noop} />);
+    expect(screen.getByPlaceholderText(/type your own answer/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Something else/ })).not.toBeInTheDocument();
+  });
+
   it("skips a question via reject", async () => {
     const onReject = vi.fn();
     render(<InteractionPrompt question={singleQ} onAnswer={noop} onReject={onReject} onPermission={noop} />);

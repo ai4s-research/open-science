@@ -67,7 +67,8 @@
       "hintDisconnected": "Connect the runtime first.",
       "installed": "Installed “{{name}}” — available in every workspace.",
       "agentPrompt": "The user typed this into the Skills install box:\n\n---\n{{input}}\n---\n\nPlease help them install it patiently: work out which skill they mean (fetch the URL, search for it, or ask them if it is ambiguous), then save it as a skill file at .opencode/skills/<name>/SKILL.md inside this workspace — never outside it; the app then makes it available in every workspace. The customize-opencode skill documents the format. Finally reply with the installed skill's name.",
-      "echo": "Please help me install this skill:\n\n{{input}}"
+      "echo": "Please help me install this skill:\n\n{{input}}",
+      "adoptFailed": "The skill was written but could not be moved into your profile, so it will disappear when this session's folder is replaced: {{detail}}"
     },
     "environment": {
       "sectionTitle": "Scientific environment",

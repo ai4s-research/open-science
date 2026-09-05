@@ -29,12 +29,21 @@ export async function readArtifact(path: string, root?: FileRoot): Promise<Artif
  *  MIME, so native viewers (PDF, images, HTML) render it directly. */
 export async function previewUrl(path: string, root?: FileRoot, dir?: string): Promise<string | null> {
   if (isGatewayWeb) {
+    // The gateway token must NOT ride in this URL: it feeds an <iframe>/<img>
+    // src and the "open in a tab" action, and a document can read its own
+    // location whatever its sandbox — so one prompt-injected HTML artifact
+    // would post the token out and hand over the whole gateway. Trade it,
+    // over an Authorization header, for a ticket that unlocks this one file.
     const t = gatewayToken();
-    return (
-      `${gatewayOrigin()}/v1/fs/read?path=${encodeURIComponent(path)}` +
-      `${root ? `&root=${root}` : ""}${dir ? `&dir=${encodeURIComponent(dir)}` : ""}` +
-      `${t ? `&token=${encodeURIComponent(t)}` : ""}`
-    );
+    const query =
+      `path=${encodeURIComponent(path)}` +
+      `${root ? `&root=${root}` : ""}${dir ? `&dir=${encodeURIComponent(dir)}` : ""}`;
+    const res = await fetch(`${gatewayOrigin()}/v1/fs/ticket?${query}`, {
+      headers: t ? { authorization: `Bearer ${t}` } : {},
+    });
+    if (!res.ok) return null;
+    const { ticket } = (await res.json()) as { ticket?: string };
+    return ticket ? `${gatewayOrigin()}/v1/fs/read?ticket=${encodeURIComponent(ticket)}` : null;
   }
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
@@ -47,8 +56,31 @@ export async function previewUrl(path: string, root?: FileRoot, dir?: string): P
  *  null when no such file exists; echoes the path back in browser dev. */
 export async function resolveArtifactPath(path: string): Promise<string | null> {
   if (!isTauri) return path;
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<string | null>("resolve_artifact", { path });
+  const inflight = resolvedPaths.get(path);
+  if (inflight) return inflight;
+  const lookup = (async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<string | null>("resolve_artifact", { path });
+  })();
+  resolvedPaths.set(path, lookup);
+  // A failed lookup must not be remembered as an answer — drop it so the next
+  // mention can try again.
+  lookup.catch(() => resolvedPaths.delete(path));
+  return lookup;
+}
+
+/**
+ * Resolutions are stable for a given workspace, and switching to a pane mounts
+ * every one of its messages at once — so an uncached call per file mention meant
+ * N identical IPC round-trips, each one a directory walk over the workspace
+ * (#92). Misses are cached too: "this file does not exist" is exactly the answer
+ * that costs a full walk to produce.
+ */
+const resolvedPaths = new Map<string, Promise<string | null>>();
+
+/** Forget every resolution — they are only valid for one workspace folder. */
+export function clearResolvedPaths(): void {
+  resolvedPaths.clear();
 }
 
 /** Open a root-relative file in the OS default application (desktop only). */

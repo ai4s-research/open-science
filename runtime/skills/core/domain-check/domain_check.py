@@ -616,10 +616,256 @@ def check_social(ctx: Ctx) -> list[Finding]:
 
 
 # --------------------------------------------------------------------------- #
+# Bioprocess / fermentation — kinetics fitting & oxygen-transfer calculations
+# --------------------------------------------------------------------------- #
+
+# Growth/production kinetic constants that are physically non-negative by
+# definition: Monod/Haldane max growth rate & saturation/inhibition constants,
+# Pirt maintenance terms, yield coefficients, Luedeking-Piret growth and
+# non-growth-associated production coefficients.
+#
+# Split by how much a name proves on its own. `mu_max` or `Yxs` names a
+# fermentation model and nothing else; `alpha`, `beta`, `kd` are what everyone
+# calls the parameters of any curve at all, and a power law's exponent is
+# routinely negative — bounding it at zero would break the fit this gate exists
+# to protect. The ambiguous names therefore only count alongside an unambiguous
+# one, or in a file that is otherwise visibly about a fermentation.
+_KINETIC_PARAM_NAMES = {
+    "mu_max", "mumax", "umax", "mu0",
+    "ks", "ki",
+    "yxs", "yps", "yxo", "y_xs", "y_ps",
+    "qs", "qp", "qo2",
+}
+_AMBIGUOUS_KINETIC_PARAM_NAMES = {"alpha", "beta", "kd", "ka"}
+
+# Vocabulary that marks a file as being about a fermentation / bioreactor, for
+# the rules whose statistics are field-independent but whose ADVICE is not.
+_BIOPROCESS_CONTEXT = re.compile(
+    r"\bkla|\bod600\b|\bcfu\b|fermentat|bioreactor|monod|haldane|luedeking"
+    r"|\bpirt\b|biomass|substrate|inocul|\bbroth\b|chemostat|fed[_-]?batch",
+    re.IGNORECASE,
+)
+
+_FIT_FUNCS = {"curve_fit"}
+
+_DO_NAMES = {"do", "dox", "do2", "o2", "dissolvedoxygen"}
+
+# Substrings that mark a variable as a raw microbial plate count. Excluded
+# whenever "log" also appears in the (normalized) name — log_cfu / cfu_log10
+# are already the log-transformed quantity, not the raw count.
+_CFU_TOKENS = ("cfu", "colonycount", "platecount", "viablecount", "bacterialcount")
+
+# ANOVA / Tukey HSD assume normal residuals and homogeneous group variances.
+_ANOVA_FUNCS = {"f_oneway", "anova_lm", "pairwise_tukeyhsd", "tukey_hsd"}
+_ASSUMPTION_FUNCS = {"shapiro", "normaltest", "anderson", "levene", "bartlett", "fligner"}
+
+# A Box-Behnken / central-composite design is built to estimate curvature;
+# fitting it with a first-order-only formula wastes that and cannot locate
+# an interior optimum.
+_RSM_DESIGN_MARKERS = re.compile(
+    r"\bbbdesign\b|\bccdesign\b|box[_-]?behnken|central[_-]?composite",
+    re.IGNORECASE,
+)
+
+
+def _ols_formula_literal(call: ast.Call) -> str | None:
+    """The formula string of an `ols(...)` call, positional or `formula=`,
+    only when it is a literal (never guess through a variable/f-string)."""
+    if call.args and isinstance(call.args[0], ast.Constant) \
+            and isinstance(call.args[0].value, str):
+        return call.args[0].value
+    for kw in call.keywords:
+        if kw.arg == "formula" and isinstance(kw.value, ast.Constant) \
+                and isinstance(kw.value.value, str):
+            return kw.value.value
+    return None
+
+
+def _func_param_names(tree: ast.AST, func_name: str) -> set[str] | None:
+    """Lowercased parameter names of a local `def func_name(...)`, if any."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            a = node.args
+            names = [p.arg for p in (*a.posonlyargs, *a.args, *a.kwonlyargs)]
+            return {n.lower() for n in names}
+    return None
+
+
+def _has_bounds_kwarg(call: ast.Call) -> bool:
+    return any(kw.arg == "bounds" for kw in call.keywords)
+
+
+def _ident_key(node: ast.AST) -> str | None:
+    """A bare identifier-like key for a Name / Attribute / string Subscript,
+    e.g. `do`, `df.DO`, `df['DO']` -> "DO"."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Subscript):
+        sl = node.slice
+        if isinstance(sl, ast.Constant) and isinstance(sl.value, str):
+            return sl.value
+    return None
+
+
+def _is_do_named(node: ast.AST) -> bool:
+    key = _ident_key(node)
+    if not key:
+        return False
+    return key.lower().replace(" ", "").replace("_", "") in _DO_NAMES
+
+
+def _is_cfu_named(node: ast.AST) -> bool:
+    key = _ident_key(node)
+    if not key:
+        return False
+    norm = key.lower().replace(" ", "").replace("_", "")
+    if "log" in norm:
+        return False
+    return any(tok in norm for tok in _CFU_TOKENS)
+
+
+def check_bioprocess(ctx: Ctx) -> list[Finding]:
+    out: list[Finding] = []
+    if ctx.tree is None:
+        return out
+    in_bioprocess_file = bool(_BIOPROCESS_CONTEXT.search(ctx.src))
+
+    # (1) curve_fit on a kinetic model with classic non-negative parameters
+    #     and no `bounds=` — the fit can silently converge to a negative
+    #     mu_max / Ks / Ki / yield / production-rate constant.
+    for node in ast.walk(ctx.tree):
+        if not (isinstance(node, ast.Call) and _call_name(node) in _FIT_FUNCS):
+            continue
+        if not node.args or not isinstance(node.args[0], ast.Name):
+            continue
+        params = _func_param_names(ctx.tree, node.args[0].id)
+        if not params:
+            continue
+        named = params & _KINETIC_PARAM_NAMES
+        ambiguous = params & _AMBIGUOUS_KINETIC_PARAM_NAMES
+        # An ambiguous name alone is not evidence of a kinetic model: `alpha`
+        # and `beta` are the parameters of every second fit ever written.
+        hit = named | ambiguous if (named or in_bioprocess_file) else set()
+        if hit and not _has_bounds_kwarg(node):
+            out.append(Finding(
+                "warn", "bioprocess · unconstrained-kinetics",
+                f"curve_fit on a kinetic model with no bounds ({', '.join(sorted(hit))})",
+                ctx.snippet(ctx.line_of(node))
+                + f"\n  {', '.join(sorted(hit))} are physically non-negative "
+                "(max growth rate, saturation/inhibition constant, yield or "
+                "production-rate coefficient). curve_fit defaults to "
+                "(-inf, inf); sparse or noisy data can converge to a negative "
+                "value that runs cleanly but is meaningless. Pass "
+                "bounds=(0, np.inf) (or per-parameter bounds).",
+            ))
+
+    # (2) kLa from the dynamic (gassing-out) method: dC/dt = kLa*(C* - C), so
+    #     kLa comes from regressing ln(C* - C) against time. Regressing ln(C)
+    #     on the raw DO reading (not the saturation-minus-DO driving force)
+    #     is a classic "runs cleanly, wrong number" mistake in this method.
+    # `\bkla` rather than `\bkla\b`: the coefficient is almost always held in a
+    # named variable (kla_slope, kLa_est), and requiring a bare `kla` disarmed
+    # the rule on exactly the files that compute one. The leading boundary keeps
+    # it out of words that merely contain the letters, such as Oklahoma.
+    if re.search(r"\bkla", ctx.src, re.IGNORECASE):
+        for node in ast.walk(ctx.tree):
+            if not (isinstance(node, ast.Call) and _call_name(node) == "log"):
+                continue
+            if not node.args:
+                continue
+            arg = node.args[0]
+            if isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Sub):
+                continue  # already a driving-force difference — fine
+            if _is_do_named(arg):
+                out.append(Finding(
+                    "warn", "bioprocess · kla-driving-force",
+                    "kLa regression on raw DO, not the (C*-C) driving force",
+                    ctx.snippet(ctx.line_of(node))
+                    + "\n  the dynamic gassing-out method fits ln(C* - C) vs. "
+                    "time (slope = -kLa); this takes log() of the raw "
+                    "dissolved-oxygen reading instead of the "
+                    "saturation-minus-DO driving force.",
+                ))
+
+    # (3) Arithmetic mean/SD of raw CFU (colony-forming-unit) plate counts —
+    #     microbial counts are approximately log-normal, so the convention is
+    #     to average log10(CFU), not the raw count (mirrors the categorical-
+    #     mean mistake in check_social, for a numeric-but-skewed variable).
+    for node in ast.walk(ctx.tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr not in _NUMERIC_REDUCE:
+            continue
+        if _is_cfu_named(node.func.value):
+            out.append(Finding(
+                "warn", "bioprocess · cfu-log-scale",
+                f"Numeric reduction .{node.func.attr}() on raw CFU counts",
+                ctx.snippet(ctx.line_of(node))
+                + f"\n  plate counts (CFU) are approximately log-normal; "
+                f"average log10(CFU), not the raw count, before "
+                f".{node.func.attr}().",
+            ))
+
+    # (4) ANOVA / Tukey HSD run with no normality or variance-homogeneity
+    #     check anywhere in this file — the two assumptions the test relies
+    #     on to keep its stated false-positive rate.
+    #
+    #     Gated on the file being about a fermentation, because the finding is
+    #     tagged `bioprocess` and would otherwise land on every three-arm survey
+    #     in the workspace under a heading about bioreactors. The statistics
+    #     generalize; whether to gate ANOVA everywhere is its own decision, and
+    #     belongs to whoever adds a general statistics rule set.
+    if in_bioprocess_file:
+        all_calls = [n for n in ast.walk(ctx.tree) if isinstance(n, ast.Call)]
+        anova_calls = [n for n in all_calls if _call_name(n) in _ANOVA_FUNCS]
+        checked = any(_call_name(n) in _ASSUMPTION_FUNCS for n in all_calls)
+        if anova_calls and not checked:
+            node = anova_calls[0]
+            out.append(Finding(
+                "warn", "bioprocess · anova-assumptions",
+                f"{_call_name(node)}() with no normality/variance check in this file",
+                ctx.snippet(ctx.line_of(node))
+                + "\n  ANOVA/Tukey HSD assume normal residuals and homogeneous "
+                "group variances; no shapiro/normaltest/anderson (normality) "
+                "or levene/bartlett/fligner (variance) call appears anywhere "
+                "in this file.",
+            ))
+
+    # (5) A curvature design (Box-Behnken / CCD) fit with a first-order-only
+    #     model formula — the quadratic terms the design was built to
+    #     estimate are never fit, so no interior optimum can be located.
+    if ctx.tree is not None and _RSM_DESIGN_MARKERS.search(ctx.src):
+        for node in ast.walk(ctx.tree):
+            if not (isinstance(node, ast.Call) and _call_name(node) == "ols"):
+                continue
+            formula = _ols_formula_literal(node)
+            if formula is None:
+                continue
+            has_quad = bool(re.search(r"\*\*\s*2|I\(", formula))
+            has_interaction = ":" in formula
+            if not has_quad and not has_interaction:
+                out.append(Finding(
+                    "warn", "bioprocess · rsm-first-order-fit",
+                    "Box-Behnken/CCD design fit with a first-order-only model",
+                    ctx.snippet(ctx.line_of(node))
+                    + f'\n  formula "{formula}" has no quadratic (I(x**2)) or '
+                    "interaction (x1:x2) term, but the design was built for "
+                    "curvature — a first-order model cannot estimate it or "
+                    "locate an interior optimum.",
+                ))
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Registry + driver
 # --------------------------------------------------------------------------- #
 
-VALIDATORS = [check_physics, check_earth, check_biology, check_chemistry, check_social]
+VALIDATORS = [
+    check_physics, check_earth, check_biology, check_chemistry, check_social,
+    check_bioprocess,
+]
 
 _CODE_EXT = {".py": "python", ".r": "r", ".R": "r"}
 

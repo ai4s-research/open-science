@@ -1,6 +1,6 @@
 {
   "name": "@ai4s/desktop",
-  "version": "0.3.3",
+  "version": "0.5.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -45,7 +45,7 @@
     "react-dom": "^18.3.1",
     "react-i18next": "^17",
     "react-markdown": "^9.0.1",
-    "react-router-dom": "^7.18.1",
+    "react-router-dom": "^7.18.2",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
     "remark-math": "^6.0.0",

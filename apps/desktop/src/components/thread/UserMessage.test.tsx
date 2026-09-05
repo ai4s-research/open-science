@@ -15,6 +15,17 @@ const dialog = () => screen.getByRole("alertdialog");
 describe("UserMessage", () => {
   afterEach(() => vi.clearAllMocks());
 
+  // Its controls are revealed by the message the pointer is tracked to, not by
+  // CSS :hover — which WebKit leaves stale (see lib/hoverTracking).
+  it("is a hover host, and its controls are a tracked hover row", () => {
+    const { container } = render(<UserMessage block={{ kind: "user", text: "hi" }} />);
+    expect(container.querySelector("[data-hover-host]")).not.toBeNull();
+    const row = container.querySelector("[data-hover-row]");
+    expect(row).not.toBeNull();
+    // No :hover class decides visibility any more; the stylesheet does.
+    expect(row?.className).not.toContain("group-hover");
+  });
+
   it("renders the text in a right-aligned, content-hugging bubble", () => {
     const { container } = render(<UserMessage block={{ kind: "user", text: "部署" }} />);
     expect(screen.getByText("部署")).toBeInTheDocument();

@@ -9,7 +9,8 @@ import { PaneDragGhost } from "@/components/session/PaneDragGhost";
 import { Toaster } from "@/components/ui/Toaster";
 import { SshSignInDialog } from "@/components/ui/SshSignInDialog";
 import { mockProject } from "@/lib/mock";
-import { useRuntimeStore } from "@/lib/runtime";
+import { adoptSourceFolder, useRuntimeStore } from "@/lib/runtime";
+import { useHoverTracking } from "@/lib/hoverTracking";
 import { ensureSetupProgressListener } from "@/lib/setup";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
@@ -19,11 +20,13 @@ import { useUpdateStore } from "@/lib/update";
 import { isGatewayWeb, gatewayToken, setUnauthorizedHandler } from "@/lib/webMode";
 import { WebTokenGate } from "@/components/web/WebTokenGate";
 import { useIsMobile } from "@/lib/useIsMobile";
-import { leaves, useLayoutStore, type SplitDir } from "@/lib/layout";
+import { findLeaf, leaves, useLayoutStore, type SplitDir } from "@/lib/layout";
 import { useNativeContextMenuGuard } from "@/lib/nativeMenu";
 
 export function AppShell() {
   const { t } = useTranslation("nav");
+  // One tracker for every message row in the app (lib/hoverTracking).
+  useHoverTracking();
   const { sidebarCollapsed, setSidebarCollapsed } = useUiStore();
   const isMobile = useIsMobile();
   // Gateway web client: hold the app behind a token gate until authenticated.
@@ -57,8 +60,19 @@ export function AppShell() {
     const doSplit = (dir: SplitDir) => {
       const layout = useLayoutStore.getState();
       // Empty group → the new draft fills it; otherwise split the focused pane.
-      if (!layout.tree) layout.dockSession("", dir === "row" ? "right" : "bottom", null);
-      else layout.split(dir, null);
+      if (!layout.tree) {
+        layout.dockSession("", dir === "row" ? "right" : "bottom", null);
+        return;
+      }
+      // The pane being split from, read BEFORE the split moves the focus.
+      const source = layout.focusedLeafId ? findLeaf(layout.tree, layout.focusedLeafId) : null;
+      // A split continues the work in front of you, so the new pane starts in
+      // the same folder — the pane offers "new folder" as one click while it is
+      // still empty. Nothing is created until its first message either way.
+      adoptSourceFolder(
+        layout.split(dir, null),
+        source ? { leafId: source.id, sessionId: source.sessionId } : null,
+      );
     };
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;

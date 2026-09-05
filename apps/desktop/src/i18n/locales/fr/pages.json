@@ -67,7 +67,8 @@
       "hintDisconnected": "Connectez d'abord le runtime.",
       "installed": "« {{name}} » installée — disponible dans tous les espaces de travail.",
       "agentPrompt": "L'utilisateur a saisi ceci dans le champ d'installation de compétences :\n\n---\n{{input}}\n---\n\nAide-le patiemment à l'installer : détermine de quelle compétence il s'agit (récupérer l'URL, la chercher, ou lui demander si c'est ambigu), puis enregistre-la comme fichier de compétence dans .opencode/skills/<name>/SKILL.md à l'intérieur de cet espace de travail — jamais en dehors ; l'application la rend ensuite disponible dans tous les espaces de travail. La compétence customize-opencode documente le format. Réponds enfin avec le nom de la compétence installée.",
-      "echo": "Aide-moi à installer cette compétence :\n\n{{input}}"
+      "echo": "Aide-moi à installer cette compétence :\n\n{{input}}",
+      "adoptFailed": "La skill a été écrite mais n'a pas pu être déplacée dans votre profil ; elle disparaîtra au remplacement du dossier de cette session : {{detail}}"
     },
     "environment": {
       "sectionTitle": "Environnement scientifique",

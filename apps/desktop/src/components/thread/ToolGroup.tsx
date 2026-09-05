@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from "react";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, PanelRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ThreadBlock, ToolCallBlock } from "@ai4s/shared";
 import i18n from "@/i18n";
@@ -8,6 +8,7 @@ import { DiffView } from "@/components/code-viewer/DiffView";
 import { STATUS } from "./ToolCallRow";
 import { ReasoningRow } from "./ReasoningRow";
 import { SubagentActivity } from "./SubagentActivity";
+import { RunningDot } from "./RunningDot";
 
 // Codex-style tool activity: consecutive quiet tool steps fold into one
 // summary line ("Ran 3 commands, created a file"); expanding shows the list;
@@ -149,6 +150,17 @@ function Collapse({ open, children }: { open: boolean; children: React.ReactNode
 const PANE =
   "whitespace-pre-wrap break-all px-3 py-2 font-mono text-xs leading-5";
 
+/** The statuses whose row leads with WHY, not what. */
+const FAILED = new Set(["failed", "warning"]);
+
+/** The headline of an error: its first non-empty line, which is where a tool
+ *  puts the sentence a reader needs ("cannot overwrite … without reading it
+ *  first"); the lines under it are context for the expanded view. */
+function firstLine(text?: string): string | undefined {
+  const line = text?.split("\n").find((l) => l.trim() !== "");
+  return line?.trim();
+}
+
 /** Last few lines of a running command's stdout — the "it's alive" signal. */
 function LiveTail({ text }: { text: string }) {
   const tail = text.replace(/\s+$/, "").split("\n").slice(-8).join("\n");
@@ -207,7 +219,13 @@ function detailFor(block: ToolCallBlock): React.ReactNode | null {
 // Memoized on `block`: within a group, only the tool step an SSE event actually
 // changed re-renders — the group's other steps keep their block reference and
 // are skipped, so a long tool run costs O(1) per event instead of O(steps) (#34).
-const ToolRow = memo(function ToolRow({ block }: { block: ToolCallBlock }) {
+const ToolRow = memo(function ToolRow({
+  block,
+  onOpenSubagent,
+}: {
+  block: ToolCallBlock;
+  onOpenSubagent?: (childSessionId: string) => void;
+}) {
   const { t } = useTranslation(["session", "common"]);
   const s = STATUS[block.status];
   const running = block.status === "running";
@@ -219,25 +237,36 @@ const ToolRow = memo(function ToolRow({ block }: { block: ToolCallBlock }) {
   const open = (userOpen ?? !!block.outputSummary) && !!detail;
   const done = block.startedAt !== undefined && block.endedAt !== undefined;
   const duration = done ? block.endedAt! - block.startedAt! : 0;
+  // A subagent that is still working has no settled detail to unfold, and its
+  // own transcript lives in the panel — so the row leads there instead of
+  // being the one row in the group that does nothing when clicked.
+  const opensPanel = running && !!block.childSessionId && !!onOpenSubagent;
+  const errorLine = FAILED.has(block.status) ? firstLine(block.output) : undefined;
+  const activate = opensPanel
+    ? () => onOpenSubagent!(block.childSessionId!)
+    : detail
+      ? () => setUserOpen(!open)
+      : undefined;
   return (
     <div data-status={block.status}>
       <div
-        role={detail ? "button" : undefined}
-        tabIndex={detail ? 0 : undefined}
-        onClick={detail ? () => setUserOpen(!open) : undefined}
+        role={activate ? "button" : undefined}
+        tabIndex={activate ? 0 : undefined}
+        title={opensPanel ? t("subagents.openRow") : undefined}
+        onClick={activate}
         onKeyDown={
-          detail
+          activate
             ? (e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  setUserOpen(!open);
+                  activate();
                 }
               }
             : undefined
         }
         className={cn(
           "group flex items-center gap-2 rounded-input px-2 py-1 text-[12.5px]",
-          detail && "cursor-pointer hover:bg-surface-2",
+          activate && "cursor-pointer hover:bg-surface-2",
         )}
       >
         <span className={cn("shrink-0", s.className)} aria-label={t(`tool.status.${block.status}`)} role="img">
@@ -260,7 +289,19 @@ const ToolRow = memo(function ToolRow({ block }: { block: ToolCallBlock }) {
             )}
           />
         )}
-        <span className="min-w-0 flex-1" />
+        {opensPanel && (
+          <PanelRight size={12} className="shrink-0 text-muted opacity-0 group-hover:opacity-100" />
+        )}
+        {/* Why a step failed is the point of it. Behind two folds — the group,
+            then the row — it was effectively unreadable, so the first line of
+            the error rides the row itself. */}
+        {!running && errorLine ? (
+          <span className="min-w-0 flex-1 truncate text-error" title={block.output}>
+            {errorLine}
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1" />
+        )}
         {running && block.startedAt !== undefined && <Elapsed start={block.startedAt} />}
         {!running && done && duration >= 1000 && (
           <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted">
@@ -270,8 +311,16 @@ const ToolRow = memo(function ToolRow({ block }: { block: ToolCallBlock }) {
         {block.meta && <span className="shrink-0 text-xs text-muted">{block.meta}</span>}
       </div>
       {/* Live pulse of the subagent this task spawned — self-subscribing so its
-          child's folds never re-render this memoized row. */}
-      {running && block.childSessionId && <SubagentActivity childId={block.childSessionId} />}
+          child's folds never re-render this memoized row. It leads into the
+          panel too: it is the line a reader is looking at when they decide
+          they want to watch this subagent properly. */}
+      {running && block.childSessionId && (
+        <SubagentActivity
+          childId={block.childSessionId}
+          onOpen={opensPanel ? () => onOpenSubagent!(block.childSessionId!) : undefined}
+          openLabel={t("subagents.openRow")}
+        />
+      )}
       {/* While running, the output tail is always visible — no click needed. */}
       {running && block.partialOutput && <LiveTail text={block.partialOutput} />}
       {detail && <Collapse open={open}>{detail}</Collapse>}
@@ -283,12 +332,15 @@ export function ToolGroup({
   blocks,
   start = 0,
   liveReasoningIndex,
+  onOpenSubagent,
 }: {
   blocks: ThreadBlock[];
   /** Thread index of this group's first block — maps a row to its global index. */
   start?: number;
   /** Global index of the reasoning block currently streaming (if any). */
   liveReasoningIndex?: number;
+  /** Open the subagents panel on a running task's subagent. */
+  onOpenSubagent?: (childSessionId: string) => void;
 }) {
   const { t } = useTranslation(["session", "common"]);
   // While a step runs the group stays open (the live tail must be visible);
@@ -320,7 +372,7 @@ export function ToolGroup({
     b.kind === "reasoning" ? (
       <ReasoningRow key={i} block={b} streaming={start + i === liveReasoningIndex} inline />
     ) : b.kind === "tool-call" ? (
-      <ToolRow key={i} block={b} />
+      <ToolRow key={i} block={b} onOpenSubagent={onOpenSubagent} />
     ) : null,
   );
   // A lone tool step (no interleaved thinking) keeps the bare-row look.
@@ -333,7 +385,7 @@ export function ToolGroup({
         className="group flex w-full items-center gap-2 rounded-input px-2 py-1 text-left text-[12.5px] text-muted hover:bg-surface-2 hover:text-text"
       >
         {active ? (
-          <Loader2 size={13} className="shrink-0 animate-spin text-accent" />
+          <RunningDot className="text-accent" />
         ) : (
           <ChevronRight
             size={13}

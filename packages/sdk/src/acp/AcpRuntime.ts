@@ -34,6 +34,7 @@ import type {
   HistoryPart,
   PermissionAskedEvent,
   PermissionReply,
+  PromptFile,
   QuestionAskedEvent,
   SessionMeta,
   SessionPage,
@@ -591,6 +592,7 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
     _agent?: string,
     _model?: string | null,
     _variant?: string | null,
+    _files?: PromptFile[],
   ): Promise<void> {
     const state = await this.ensureSession(sessionId);
     state.promptRunning = true;
@@ -599,6 +601,10 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
     // approximated: ACP v1 has no per-turn agent, no `session/set_model`, and no
     // effort vocabulary. codex-acp folds effort INTO the model id, so honouring
     // `variant` would mean guessing another agent's id grammar.
+    // `files` is dropped for now too: ACP has image content blocks, but sending
+    // them requires honouring the agent's advertised `promptCapabilities.image`,
+    // and an agent that never claimed the capability would fail the whole turn.
+    // The attachment still reaches the workspace, and the text still names it.
     try {
       const result = await this.peer.request<AcpPromptResult>(
         "session/prompt",
@@ -638,22 +644,10 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
     throw new Error(`${this.displayName} does not support reverting messages`);
   }
 
-  // ---- compaction & usage (not ACP concepts) ----
+  // ---- compaction (not an ACP concept) ----
 
   async compactSession(_sessionId: string): Promise<void> {
     throw new Error(`${this.displayName} does not support compacting sessions`);
-  }
-
-  async getSessionInfo(): Promise<Record<string, never>> {
-    return {}; // ACP carries no token accounting the app could read here.
-  }
-
-  async setModelContextLimit(): Promise<void> {
-    throw new Error(`${this.displayName} does not support changing the context limit`);
-  }
-
-  async getModelContextLimit(): Promise<number> {
-    return 0; // Unknown; the UI shows "auto".
   }
 
   // ---- capability discovery ----

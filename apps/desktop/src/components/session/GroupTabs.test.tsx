@@ -2,10 +2,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeLeaf, useLayoutStore } from "@/lib/layout";
+import { resetParkedDrafts } from "@/lib/composerStash";
 import { GroupTabs } from "./GroupTabs";
 
 describe("GroupTabs Screen close", () => {
   beforeEach(() => {
+    resetParkedDrafts();
     const first = makeLeaf("session-a");
     const second = makeLeaf("session-b");
     useLayoutStore.setState({
@@ -33,7 +35,37 @@ describe("GroupTabs Screen close", () => {
     });
   });
 
-  it("keeps the Screen until the user confirms", async () => {
+  // The preview a sidebar click just opened, untouched: nothing to lose.
+  it("closes an untouched preview Screen on the click", async () => {
+    useLayoutStore.setState({ ephemeralGroupId: "screen-a" });
+    render(<GroupTabs />);
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Close screen" })[0]);
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(useLayoutStore.getState().groups).toHaveLength(1);
+    expect(useLayoutStore.getState().groups[0].id).toBe("screen-b");
+  });
+
+  it("closes an empty Screen on the click", async () => {
+    useLayoutStore.setState({
+      groups: [
+        { id: "screen-a", name: "", tree: null, focusedLeafId: null, zoomedLeafId: null },
+        useLayoutStore.getState().groups[1],
+      ],
+      tree: null,
+    });
+    render(<GroupTabs />);
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Close screen" })[0]);
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(useLayoutStore.getState().groups).toHaveLength(1);
+  });
+
+  // Anything the user has actually worked in — including every Screen a
+  // relaunch restored, which is exactly where "it looked empty" went wrong.
+  it("asks before closing a Screen that was worked in", async () => {
     render(<GroupTabs />);
 
     await userEvent.click(screen.getAllByRole("button", { name: "Close screen" })[0]);
@@ -46,7 +78,6 @@ describe("GroupTabs Screen close", () => {
     await userEvent.click(screen.getAllByRole("button", { name: "Close screen" })[0]);
     await userEvent.click(screen.getByRole("button", { name: "Close Screen" }));
     expect(useLayoutStore.getState().groups).toHaveLength(1);
-    expect(useLayoutStore.getState().groups[0].id).toBe("screen-b");
   });
 });
 

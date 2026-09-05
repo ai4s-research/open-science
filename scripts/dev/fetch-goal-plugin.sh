@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 GOAL_PLUGIN_VERSION="${GOAL_PLUGIN_VERSION:-0.1.24}"
-OPENCODE_PLUGIN_VERSION="${OPENCODE_PLUGIN_VERSION:-1.18.12}"
+OPENCODE_PLUGIN_VERSION="${OPENCODE_PLUGIN_VERSION:-1.18.18}"
 PKG="@prevalentware/opencode-goal-plugin"
 OUT_DIR="$ROOT/runtime/goal-plugin"
 

@@ -6,6 +6,7 @@ import { CodeViewer } from "@/components/code-viewer/CodeViewer";
 import { PaneTitlebarInset } from "./RightPane";
 import { formatExecResult, kernelExecute } from "@/lib/kernel";
 import { useScrollMemory } from "@/lib/scrollMemory";
+import { useWheelChain } from "@/lib/wheelChain";
 
 export function NotebookInspector({
   data,
@@ -27,6 +28,8 @@ export function NotebookInspector({
   // Viewing position, restored when this notebook is reopened.
   const scrollRef = useRef<HTMLDivElement>(null);
   const onScroll = useScrollMemory(scrollRef, `nb:${data.name}`);
+  // Code cells scroll sideways — hand their vertical gestures back to the pane.
+  useWheelChain(scrollRef);
 
   const evaluate = async () => {
     const code = expr.trim();
@@ -65,7 +68,7 @@ export function NotebookInspector({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+      <header className="flex h-12 shrink-0 select-none items-center gap-2 border-b border-border px-4">
         <PaneTitlebarInset />
         <NotebookPen size={14} strokeWidth={1.5} className="text-text" />
         <span className="text-sm font-medium text-text">{t("notebook.title")}</span>

@@ -5,7 +5,15 @@
 import type { McpConfig } from "@ai4s/sdk";
 
 /** MCP server name written into OpenCode's config. */
-export const BROWSER_MCP_ID = "browser-control";
+export const BROWSER_MCP_ID = "open-science-browser";
+
+/** Keep every browser process owned by this app in one isolated namespace so
+ *  Disable and app exit can close it without touching agent-browser sessions
+ *  started by the user from another tool. */
+export const BROWSER_NAMESPACE = "open-science-desktop";
+
+/** Hard fallback when a conversation forgets to release its browser lease. */
+export const BROWSER_IDLE_TIMEOUT_MS = "600000";
 
 /** Sentinel profile value meaning "use a separate downloaded browser, not the
  *  system Chrome" — selectable even when Chrome IS installed. */
@@ -23,13 +31,15 @@ export const BROWSER_DISPLAY_NAMES: Record<string, string> = {
 };
 
 export interface BrowserMcpOptions {
+  /** Absolute path to the desktop executable's MCP ownership-proxy mode. */
+  proxyBin: string;
   /** Absolute path to the bundled agent-browser binary (from agentBrowserBin). */
   bin: string;
   /** Chrome profile directory to reuse ("Default", "Profile 4"); empty/undefined
    *  ⇒ an isolated fresh profile (no existing logins). */
   profileDir?: string;
-  /** Path to the detected system browser — reuses the user's Chrome instead of
-   *  downloading Chrome for Testing (and decrypts its cookies cleanly on macOS). */
+  /** Path to the detected system browser executable. agent-browser launches a
+   *  separate managed process; it never attaches to the user's live Chrome. */
   executablePath?: string;
   /** Show a visible browser window instead of running headless. */
   headed?: boolean;
@@ -43,21 +53,38 @@ export interface BrowserMcpOptions {
   allowedDomains?: string[];
 }
 
-/** Build the local-MCP config for agent-browser. Secrets never appear here —
- *  the browser reuses on-disk Chrome sessions, not stored keys. */
+/** Build the local-MCP config for agent-browser. Secrets never appear here — a
+ *  selected login is copied by agent-browser into its managed browser process. */
 export function buildBrowserMcpConfig(opts: BrowserMcpOptions): McpConfig {
-  const environment: Record<string, string> = {};
-  if (opts.profileDir?.trim()) environment.AGENT_BROWSER_PROFILE = opts.profileDir.trim();
+  const profile = opts.profileDir?.trim() ?? "";
+  const domains = (opts.allowedDomains ?? []).map((d) => d.trim()).filter(Boolean);
+  // Upstream rejects this combination: Chrome may restore profile tabs before
+  // its network allowlist is installed. Fail before writing a broken config.
+  if (profile && domains.length > 0) {
+    throw new Error("A Chrome profile cannot be combined with a domain allowlist");
+  }
+
+  const environment: Record<string, string> = {
+    AGENT_BROWSER_NAMESPACE: BROWSER_NAMESPACE,
+    AGENT_BROWSER_IDLE_TIMEOUT_MS: BROWSER_IDLE_TIMEOUT_MS,
+  };
+  if (profile) environment.AGENT_BROWSER_PROFILE = profile;
   if (opts.executablePath?.trim())
     environment.AGENT_BROWSER_EXECUTABLE_PATH = opts.executablePath.trim();
   if (opts.headed) environment.AGENT_BROWSER_HEADED = "true";
   if (opts.proxy?.trim()) environment.AGENT_BROWSER_PROXY = opts.proxy.trim();
-  const domains = (opts.allowedDomains ?? []).map((d) => d.trim()).filter(Boolean);
   if (domains.length > 0) environment.AGENT_BROWSER_ALLOWED_DOMAINS = domains.join(",");
 
   const config: McpConfig = {
     type: "local",
-    command: [opts.bin, "mcp", "--tools", opts.tools?.trim() || "core"],
+    command: [
+      opts.proxyBin,
+      "--browser-mcp",
+      opts.bin,
+      "mcp",
+      "--tools",
+      opts.tools?.trim() || "core",
+    ],
     enabled: true,
   };
   if (Object.keys(environment).length > 0) config.environment = environment;

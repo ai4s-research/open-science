@@ -42,10 +42,13 @@ Required support:
 | macOS Apple Silicon | `.dmg` / `.app` | P0 |
 | macOS Intel | `.dmg` / `.app` | P1 |
 | Windows x64 | `.exe` NSIS installer | P0 |
-| Windows x64 | `.msi` installer | P1 |
+| Windows x64 | `.msi` installer (IT-managed deployment) | P1 |
 
-Tauri officially supports macOS and Windows and can package `dmg`, `app`, `nsis`,
-and `msi` targets; Windows can ship as `.msi` or an NSIS `setup.exe`.
+Tauri can package `dmg`, `app`, `nsis`, and `msi` targets. Windows ships both:
+NSIS is the default download and the only target supporting per-user install,
+while the MSI serves Group Policy / Intune deployment and has taken 6-10% of
+Windows downloads every release. They are labelled by audience rather than
+offered as equals — installing one over the other registers the app twice.
 
 ### 2.2 Differentiation
 
@@ -386,6 +389,23 @@ discussion. Shipped versions are kept here as the delivery record.
   auto-review (#72); per-agent reasoning effort (#71); Windows projects match
   their sessions across path spellings (#76); zoom no longer restructures the
   desktop into phone layout (#63).
+- **v0.4.0 ACP, both directions** — the app now speaks the Agent Client Protocol
+  as a client *and* as an agent (#14, design in `docs/rfc/multi-agent-acp.md`),
+  both on the one runtime-agnostic `AgentRuntime` seam rather than a surface per
+  feature. Northbound, `AcpRuntime` drives any ACP agent (Codex, Gemini CLI,
+  Claude Code, …) through the ordinary UI, Rust-supervised, with listing,
+  history replay, the agent's own model / reasoning selectors, this app's MCP
+  connectors and survival across an agent restart — all capability-gated on what
+  each agent advertises. Southbound, external editors (Zed, JetBrains, Neovim,
+  …) spawn `acp-server.mjs` from inside the bundle and drive Open Science in
+  ACP's dialect, reusing the shipped gateway and its token. Alongside it: a
+  subagent opens into its own transcript (#105); a configured per-agent model
+  actually runs the turn (#96); `resolve_artifact` moved off the UI thread,
+  which was the real cause of the split-pane freeze (#92); image attachments ride
+  as multimodal parts (#97); the notebook gained Jupyter's edit/command split and
+  stable cell identity (#98, #100); the agent's questions can always be answered
+  in the user's own words (#109); plus traffic-light alignment, non-Latin
+  provider names (#90, #94) and per-screen composer isolation (#95).
 
 ### Planned
 
@@ -393,35 +413,17 @@ discussion. Shipped versions are kept here as the delivery record.
   open: plan-first workflow (surface OpenCode's plan mode as an explicit "plan,
   review, then execute" loop) and adaptive approvals — documenting and refining
   the risk tiers between "approve dangerous only" and "full access" (#20).
-- **v0.4.0 ACP + the remaining reach surfaces** — the gateway itself, the LAN web
-  UI and the CLI shipped in v0.2.3, so what is left of this axis is the
-  interop that speaks someone else's dialect or runs on someone else's host.
-  All of them still ride the one runtime-agnostic `AgentRuntime` seam (#24, base
-  class #36) rather than adding a surface-specific entity:
-  - **ACP, client direction first** — `AcpRuntime` drives any agent that speaks
-    the Agent Client Protocol (Codex, Gemini CLI, Claude Code, …) as a second
-    `AgentRuntime` beside `OpenCodeClient` (#14, design in
-    `docs/rfc/multi-agent-acp.md`). This is what #14's reporter actually asked
-    for — "I'd like OpenScience to be able to invoke Codex ACP, Cursor Agent
-    ACP" — so it comes before the server direction, which earlier drafts of this
-    section had listed alone. In progress: the runtime, its Rust-supervised
-    child, and the Settings picker + runtime selector have landed, so an agent
-    configured in Settings → Runtime answers a turn through the ordinary UI.
-    Listing (`session/list`), history (`session/load` replay), the agent's own
-    model / reasoning selectors (`session/set_config_option`) and this app's MCP
-    connectors all work through it, capability-gated on what each agent
-    advertises, and a session survives the agent process restarting
-    (`session/resume`). What is left on this half: the agent's own sign-in
+- **v0.4.x The rest of the reach surfaces** — the gateway itself, the LAN web UI
+  and the CLI shipped in v0.2.3 and ACP shipped in v0.4.0, so what is left of
+  this axis is the interop that runs on someone else's host, plus the two ACP
+  halves that are not finished. All of them still ride the one runtime-agnostic
+  `AgentRuntime` seam (#24, base class #36) rather than adding a
+  surface-specific entity:
+  - **ACP, client direction** — still open: the agent's own sign-in
     (`authenticate` / `auth.logout` — Codex's ChatGPT login, not our provider
     keys), and `providers`, which is still a draft RFD rather than stable v1;
-  - **Open Science *as* an ACP agent — shipped.** External editors (Zed,
-    JetBrains, Neovim, …) spawn `acp-server.mjs` from inside the app bundle and
-    drive the runtime in ACP's dialect: sessions, streaming, history replay,
-    listing, cancellation and permission requests answered in the editor. It
-    reuses the shipped gateway and its token rather than adding a second
-    surface, and Settings → Remote Access shows the agent entry to paste in.
-    Still open on this half: image prompts, and the editor's own `fs` /
-    `terminal` client capabilities;
+  - **ACP, server direction** — still open: image prompts, and the editor's own
+    `fs` / `terminal` client capabilities;
   - messaging-platform integrations (Slack / Discord / Telegram / Feishu) — each
     a thin bot client that relays `sendPrompt` → streamed events (#20);
   - cloud tunnel — reach the same gateway + token over a public URL
@@ -429,8 +431,8 @@ discussion. Shipped versions are kept here as the delivery record.
 - **v0.5.0 Pluggable & remote runtimes (southbound)** — the same `AgentRuntime`
   seam consumed in the *other* direction: swap or relocate the execution
   backend behind a pluggable transport (in-process / HTTP / stdio-JSON-RPC /
-  SSH). This axis shares the seam and base class (#36) with v0.4.0 — a remote
-  runtime is literally the v0.4.0 gateway consumed by a `RemoteRuntime` client,
+  SSH). This axis shares the seam and base class (#36) with v0.4.x — a remote
+  runtime is literally the shipped gateway consumed by a `RemoteRuntime` client,
   the two halves of one pipe.
   - remote agent runtime — run the runtime on another machine, drive it from the
     desktop over the gateway;
@@ -439,10 +441,10 @@ discussion. Shipped versions are kept here as the delivery record.
     chosen remote target, building on the shipped SSH / Slurm compute (#35).
 
 Ordering rationale: the v0.2.x–v0.3.x line made the core desktop loop better for
-the existing research audience (small-to-medium, high frequency-of-use); v0.4.0
-and v0.5.0 open new surfaces (large, security-sensitive) by hardening the one
-`AgentRuntime` seam rather than adding entities per feature — the API gateway,
-LAN UI, and messaging bridges must not weaken the local-first /
+the existing research audience (small-to-medium, high frequency-of-use); the
+v0.4.x–v0.5.0 line opens new surfaces (large, security-sensitive) by hardening
+the one `AgentRuntime` seam rather than adding entities per feature — the API
+gateway, LAN UI, and messaging bridges must not weaken the local-first /
 keychain-only-secrets guarantees, and remote execution must never silently fall
 back to local (#35).
 

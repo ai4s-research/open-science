@@ -76,6 +76,29 @@ describe("MarkdownViewer", () => {
     expect(container.textContent).toContain("$5");
   });
 
+  // The math plugins are skipped for a message with no dollar delimiter — the
+  // common case, and two whole tree passes per message on the path a screen
+  // switch walks for every message of every pane (#92). GFM is NOT part of that
+  // trade: tables and strikethrough must survive on the plain path.
+  it("renders GFM on the no-math path", () => {
+    const { container } = render(
+      <MarkdownViewer>
+        {"| a | b |\n| - | - |\n| 1 | 2 |\n\n~~gone~~ and `code`"}
+      </MarkdownViewer>,
+    );
+    expect(container.querySelectorAll("td")).toHaveLength(2);
+    expect(container.querySelector("del")?.textContent).toBe("gone");
+    expect(container.querySelector("code")?.textContent).toBe("code");
+    expect(container.querySelector(".katex")).toBeNull();
+  });
+
+  // A message that only becomes math AFTER normalization still gets the
+  // plugins: the check reads the normalized source, not the raw input.
+  it("keeps math that arrives in bracket form only", () => {
+    const { container } = render(<MarkdownViewer>{"\\(x^2\\)"}</MarkdownViewer>);
+    expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(1);
+  });
+
   it("opens an http(s) link externally without navigating the application", () => {
     const { getByRole } = render(
       <MarkdownViewer>{"[Open Science](https://example.com/research)"}</MarkdownViewer>,

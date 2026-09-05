@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   /** Resolves ⇒ an entry existed and was removed; rejects ⇒ nothing to remove. */
   removeConfigEntry: vi.fn(async () => {}),
   agentBrowserBin: vi.fn(async () => "/bin/agent-browser"),
+  browserMcpBin: vi.fn(async () => "/bin/open-science-desktop"),
+  closeAgentBrowser: vi.fn(async () => {}),
   detectChrome: vi.fn(async () => ({ path: "/Chrome", kind: "chrome" })),
   getProxySetting: vi.fn(async () => ({ effective: null })),
   /** Resolver for the in-flight setupJupyter promise, so tests hold it open. */
@@ -40,6 +42,8 @@ vi.mock("./tauri", () => ({
   watchSetupProgress: async () => () => {},
   removeConfigEntry: mocks.removeConfigEntry,
   agentBrowserBin: mocks.agentBrowserBin,
+  browserMcpBin: mocks.browserMcpBin,
+  closeAgentBrowser: mocks.closeAgentBrowser,
   detectChrome: mocks.detectChrome,
   getProxySetting: mocks.getProxySetting,
 }));
@@ -103,7 +107,8 @@ describe("setup store", () => {
   it("rewrites the browser entry from scratch on reconfigure — removes before re-adding", async () => {
     await useSetupStore.getState().enableBrowser({ headed: false, useSystemChrome: true });
 
-    expect(mocks.removeConfigEntry).toHaveBeenCalledWith("mcp", "browser-control");
+    expect(mocks.removeConfigEntry).toHaveBeenCalledWith("mcp", "open-science-browser");
+    expect(mocks.closeAgentBrowser).toHaveBeenCalledOnce();
     // An existing entry was removed, so we wait for the restarted sidecar.
     expect(mocks.connectRetry).toHaveBeenCalled();
     // Remove must precede the re-add, or the add merges into the stale entry.
@@ -124,6 +129,6 @@ describe("setup store", () => {
     await useSetupStore.getState().enableBrowser({ headed: true, useSystemChrome: true });
 
     expect(mocks.connectRetry).not.toHaveBeenCalled();
-    expect(mocks.addMcpServer).toHaveBeenCalledWith("browser-control", expect.anything());
+    expect(mocks.addMcpServer).toHaveBeenCalledWith("open-science-browser", expect.anything());
   });
 });

@@ -149,6 +149,25 @@ body,
   height: 100%;
 }
 
+/* This is app chrome, not a document: the window itself must never scroll or
+   rubber-band. Without this, dragging anywhere — including the sidebar, the
+   Screen tabs and a pane header, none of which scroll — bounced the whole
+   window a few points and sprang back, so fixed furniture did not feel fixed. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* A real scroller reaching its end must not hand the leftover gesture to its
+   ancestors (which is what made the window bounce from inside a list). Keyed to
+   the utility classes the app actually scrolls with. */
+.overflow-y-auto,
+.overflow-auto,
+.overflow-x-auto {
+  overscroll-behavior: contain;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -156,6 +175,26 @@ body {
   font-family: Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* A subagent's transcript is a NESTED, secondary read inside a narrow panel.
+   The thread's own type scale (15px body) is sized for the main conversation
+   and overwhelms it there. The block components set their sizes explicitly, so
+   the step down is applied once here rather than threaded as a prop through
+   every one of them. */
+.nested-transcript,
+.nested-transcript p,
+.nested-transcript li {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* Sidebar icon weight. lucide ships stroke-width 2, which next to the 1.5 of the
+   collapse button read thick and slightly fuzzy at these sizes. One rule instead
+   of a prop on every call site, so an icon added later matches by default.
+   (A CSS stroke-width beats the presentation attribute lucide sets inline.) */
+.sidebar-surface svg {
+  stroke-width: 1.5;
 }
 
 /* Sidebar background. With window vibrancy (macOS desktop app, data-vibrancy
@@ -231,6 +270,96 @@ body {
 }
 .animate-effort-flash {
   animation: effort-flash 0.6s ease-in-out 2;
+}
+
+/* "Still emitting" sweep for a row whose text is streaming in (the reasoning
+   row). A faint band of light travels across the row — motion that reads as
+   progress without adding a second spinner to a turn that already has one (see
+   RunningDot). Animating a transform keeps it off the layout path. */
+.live-sweep {
+  position: relative;
+  overflow: hidden;
+}
+.live-sweep::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--text) 7%, transparent),
+    transparent
+  );
+  animation: live-sweep 2.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes live-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  90%,
+  100% {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-sweep::after {
+    display: none;
+  }
+}
+
+/* The turn's "still producing" mark: a light travels left-to-right THROUGH the
+   letters of the status label, so the row needs no spinner beside it. The
+   gradient is three times the label's width and clipped to the glyphs; sliding
+   its position is what moves the light.
+
+   The label is painted a plain colour FIRST, and only goes transparent inside
+   @supports. Making the glyphs transparent and letting a decorative gradient
+   supply the colour means that if the gradient does not paint — an engine
+   without color-mix() drops the whole declaration as invalid, and the ones
+   without background-clip:text never fill the glyphs — the text is still
+   there, still selectable, and completely invisible. That is #122: "正在处理"
+   could be highlighted with the mouse but not seen. Legibility must not depend
+   on an ornament. */
+.shimmer-text {
+  color: var(--link);
+  -webkit-text-fill-color: var(--link);
+}
+@supports ((background-clip: text) or (-webkit-background-clip: text)) and
+  (color: color-mix(in srgb, red 50%, white)) {
+  .shimmer-text {
+    background-image: linear-gradient(
+      90deg,
+      var(--link) 0%,
+      var(--link) 40%,
+      color-mix(in srgb, var(--link) 35%, #ffffff) 50%,
+      var(--link) 60%,
+      var(--link) 100%
+    );
+    background-size: 250% 100%;
+    background-position: 100% 0;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer-text 1.8s linear infinite;
+  }
+}
+@keyframes shimmer-text {
+  to {
+    background-position: 0 0;
+  }
+}
+/* After the @supports block, so it wins on equal specificity. */
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    background-image: none;
+    animation: none;
+    color: var(--link);
+    -webkit-text-fill-color: var(--link);
+  }
 }
 
 /* highlight.js token colors on the per-theme --hl-* variables (CodeViewer).
@@ -343,4 +472,39 @@ textarea,
   user-select: none !important;
   -webkit-user-select: none !important;
   cursor: grabbing !important;
+}
+
+/* Hover-revealed rows under a message: Copy, and the turn's timing/context
+   readout. Shown by the message the pointer is actually over (lib/hoverTracking
+   sets `data-hovered`), NOT by `:hover` — WebKit leaves that flag on whatever
+   the cursor last touched, so rows stayed lit after the pointer had gone.
+   Keyboard focus reveals them too; a click does not, or the row would stay lit
+   for as long as the button kept focus. Pointer-less devices (touch) get them
+   unconditionally: there is no hover to reveal anything with. */
+@media (hover: hover) {
+  /* `visibility`, not opacity alone: opacity is a compositor property, and on a
+     long conversation (hundreds of rows in one scroller) WebKit left the old
+     tiles on screen — the computed style said hidden while the pixels stayed.
+     A dump taken in that state proved it: 351 rows, exactly one of them
+     visible by computed style, several still drawn. Visibility invalidates
+     differently and cannot be animated on the compositor, so the row goes when
+     it is told to. No transition, for the same reason. */
+  [data-hover-row] {
+    opacity: 0;
+    visibility: hidden;
+  }
+  [data-hovered] [data-hover-row] {
+    opacity: 1;
+    visibility: visible;
+  }
+  /* Deliberately its own rule, not a second selector on the one above. A
+     selector list is dropped ENTIRELY when any part of it fails to parse, so an
+     engine without :has() would lose the hover reveal too — and the row's
+     controls (Copy, Edit, Revert) would then be unreachable by any means, not
+     merely un-focusable. Keeping it separate costs a rule and cannot take the
+     hover path down with it (#122). */
+  [data-hover-row]:has(:focus-visible) {
+    opacity: 1;
+    visibility: visible;
+  }
 }

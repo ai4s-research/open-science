@@ -1,6 +1,12 @@
 ---
 description: Reviews finished work in the workspace for scientific rigour — traceability, statistics, units, provenance and reproducibility — and reports findings without changing anything.
-mode: all
+# `primary`, deliberately NOT `all`: `all` also offers this agent to the task
+# tool, so a model could delegate to it on its own and reviews then appeared
+# inside subagents even with auto-review switched off. The app's auto-review
+# pins it as the agent of its own background session, which is the primary
+# role — so this keeps that working while taking it off the delegation menu.
+# Reviewing a subagent is a separate feature, to be designed as one.
+mode: primary
 temperature: 0.1
 permission:
   edit: deny

@@ -97,6 +97,30 @@ export function installGatewayAuthGuard(): void {
   };
 }
 
+/** POST a gateway `/v1/...` path with the bearer token. Returns null when not in
+ *  web mode; throws on a non-OK response, carrying the gateway's own message so
+ *  a refusal (read-only token, a path outside the workspace) says why. */
+export async function gatewayPost<T>(path: string, body: unknown): Promise<T | null> {
+  if (!isGatewayWeb) return null;
+  const token = gatewayToken();
+  const res = await fetch(`${gatewayOrigin()}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((j: { error?: string }) => j.error)
+      .catch(() => null);
+    throw new Error(detail ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
 /** GET a gateway `/v1/...` path with the bearer token. Returns null when not in
  *  web mode; throws on a non-OK response. JSON is parsed, else text is returned. */
 export async function gatewayGet<T>(path: string): Promise<T | null> {

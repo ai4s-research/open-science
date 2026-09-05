@@ -35,6 +35,8 @@ Formerly Open Science. Una alternativa desktop open source a Claude Science y wo
 
 ## Novedades
 
+- **2026-08-18** — 🖥️ **Funciona sin pantalla.** `osd server` levanta el banco de trabajo completo — workspace, runtime del agente y la *misma* UI web — en una máquina sin display, y `osd session send … --wait` lo maneja desde un script o desde otro agente. Un archivo comprimido, sin instalador. `osd` viaja dentro del instalador de escritorio y se pone en tu PATH al primer arranque; en un servidor basta el archivo comprimido. Modelos, claves y aprobaciones se configuran desde la terminal (`osd model`, `osd auth`, `osd approval`).
+- **2026-08-13** — 🔌 **Habla el Agent Client Protocol, en ambas direcciones.** Maneja Codex, Gemini CLI, Claude Code o cualquier otro agente ACP desde dentro de esta app — con sus propios modelos, su historial y tus conectores MCP — o maneja Open Science desde Zed, JetBrains o Neovim. *(v0.4.0)*
 - **2026-08-01** — 🗂️ **Proyectos, memoria e historial completo.** Agrupa sesiones en proyectos con nombre (un repositorio existente se importa *en su sitio*, sin copiarlo), da al agente memoria persistente global y por proyecto, y alcanza cualquier conversación pasada desde un historial buscable con archivar, restaurar y exportar. *(v0.3.1)*
 - **2026-07-24** — 🪟 **Paneles divididos.** Coloca sesiones en mosaico, arrastra paneles para reacomodarlos, mantén varias pantallas independientes y usa un modelo distinto en cada panel. *(v0.3.0)*
 - **2026-07-21** — 🌐 **Acceso desde cualquier lugar — incluso desde tu teléfono.** Un gateway autenticado por token sirve la UI de escritorio *real* a una CLI, un navegador en tu LAN o tu teléfono (loopback por defecto; la LAN es opcional). Inicia una ejecución en tu escritorio y lee la figura y el informe terminados desde tu teléfono. *(v0.2.3)*
@@ -50,6 +52,7 @@ Formerly Open Science. Una alternativa desktop open source a Claude Science y wo
 - [🧪 Capacidades actuales](#capacidades-actuales)
 - [🔌 Skills y conectores](#skills-y-conectores)
 - [📦 Instalación](#instalación)
+- [🖥️ Sin pantalla y CLI (`osd`)](#sin-pantalla-y-cli-osd)
 - [🚀 Compilar desde el código](#compilar-desde-el-código)
 - [🔒 Seguridad y privacidad](#seguridad-y-privacidad)
 - [🗂️ Estructura del repositorio](#estructura-del-repositorio)
@@ -133,7 +136,9 @@ Vienen en el pack `ai4s-skills`, junto a las skills de revisión propias y las s
 | Cómputo remoto | Registra máquinas desde tu `~/.ssh/config`, compruébalas y envía, sigue o cancela trabajos desde la app. |
 | Apariencia | Temas Light, Warm y Dark con acentos propios, y zoom de la interfaz. |
 | Archivos | Navegación global y por sesión, menú contextual, abrir/revelar en el sistema, copiar ruta y servidor local de previsualización. |
+| Sin pantalla y CLI | `osd server` ejecuta el banco de trabajo sin ventana — el mismo workspace, el mismo runtime, la misma UI web, servidos desde un único directorio autocontenido — y `osd` lo maneja (o maneja una app de escritorio en marcha) desde la terminal: sesiones, proyectos, ejecuciones, archivos, aprobaciones, `--wait`, `--json`. |
 | Acceso remoto | Gateway autenticado por token que sirve la UI real a una CLI, un navegador web en la LAN o tu teléfono (loopback por defecto, LAN opcional); modos de solo lectura frente a acceso completo; copia un enlace con el token incrustado para conectarte con un toque. Las API keys nunca cruzan la red. |
+| Interoperabilidad con editores (ACP) | Habla el Agent Client Protocol en ambas direcciones: ejecuta cualquier agente ACP (Codex, Gemini CLI, Claude Code, …) como el runtime detrás de la UI de siempre, con sus propios selectores de modelo y de esfuerzo de razonamiento, reproducción del historial y los conectores MCP de esta app; o deja que un editor externo (Zed, JetBrains, Neovim, …) maneje Open Science reutilizando el token del gateway. |
 | Control del navegador | El agente maneja tu propio Chrome — con el perfil y el estado de sesión preservados — leyendo las páginas a través del árbol de accesibilidad, o un navegador aislado/privado cuando lo pidas. |
 | Notebooks | Archivos `.ipynb` reales, creación Python/R, kernel local, entorno Jupyter gestionado con `uv` incluido y acción para abrir JupyterLab. |
 | Ejecuciones | Logs append-only, índice SQLite global, búsqueda/facetas/paginación, superficies locales/remotas, enlaces a salidas, logs y prompts de reproducción. |
@@ -152,12 +157,124 @@ Conectores MCP científicos de un clic: búsqueda bibliográfica, bases biomédi
 Descarga la versión más reciente desde [Releases](https://github.com/ai4s-research/open-science/releases/latest).
 
 - **macOS**: `.dmg` / `.app`, Apple Silicon e Intel, macOS 13 Ventura o posterior.
-- **Windows**: `.exe` NSIS y `.msi`, Windows 10/11 x64.
+- **Windows**: `.exe` NSIS, Windows 10/11 x64: se instala por usuario, sin permisos de administrador. También se publica un `.msi` para despliegue gestionado por TI; elige un formato y mantente en él.
 - **Linux**: `.deb` y `.rpm` para x86_64.
 
 Los paquetes de macOS están firmados con Developer ID, notarizados y con el ticket adjunto, así que se abren con normalidad: no hace falta el truco de `xattr`. Los builds de Windows y Linux aún no están firmados.
 
 En Windows, usa **More info -> Run anyway** en SmartScreen.
+
+## Sin pantalla y CLI (`osd`)
+
+Una máquina de investigación normalmente no tiene pantalla. `osd` es el mismo banco de trabajo sin ella: la misma organización del workspace, el mismo runtime del agente, los mismos proyectos y la misma UI web — servida por HTTP en lugar de dibujada en una ventana.
+
+**En un servidor, usa el archivo comprimido.** `osd-<version>-<target>` de
+Releases se descomprime y funciona sin instalar nada — verificado en un
+contenedor Ubuntu desnudo, sin añadir un solo paquete.
+
+```bash
+# Configurar la máquina (funciona antes de que haya un servidor)
+./osd auth set anthropic --key sk-…       # se queda en esta máquina, nunca viaja por la red
+./osd model set anthropic/claude-opus-4-5 # el modelo por defecto de cada turno
+./osd server --lan                        # imprime su URL y su token de acceso
+```
+
+Las claves no tienen que tocar ningún archivo: el runtime del agente hereda el
+entorno de este proceso, así que `ANTHROPIC_API_KEY=sk-… ./osd server` no
+necesita `auth set`. Un endpoint propio o tras proxy va en el mismo comando
+(`--base-url https://my-gateway.internal/v1`), y `osd auth ls` imprime solo
+nombres de proveedores — ninguna clave se imprime en ninguna parte. Cambiar una
+clave exige reiniciar; la CLI lo dice en lugar de dejarte a oscuras.
+
+Abre la URL que imprime y tendrás la UI de escritorio real en un navegador, teléfono incluido. O manéjalo desde una terminal: en la misma máquina, por SSH o desde tu portátil:
+
+```bash
+osd project new "Reef survey"
+id=$(osd session new --project "Reef survey")
+osd session send "$id" "Fit the 2015–2024 bleaching trend and write report.md" \
+    --model anthropic/claude-sonnet-4-5 --wait
+osd fs ls figures/
+osd fs get report.md --output ./report.md
+```
+
+En Windows los mismos comandos funcionan en PowerShell; solo cambia la sintaxis
+del shell:
+
+```powershell
+$id = osd session new --project "Reef survey"
+osd session send $id "Fit the 2015-2024 bleaching trend and write report.md" --wait
+```
+
+**En tu propia máquina ya está instalado.** El instalador de escritorio lleva
+`osd` dentro, y la app lo pone en tu PATH la primera vez que arranca: una
+terminal nueva ya tiene el comando, sin configurar nada. Escribe un pequeño
+envoltorio (`~/.local/bin/osd`, o `~/bin` cuando una terminal ya busca ahí) —
+nunca un enlace simbólico, porque `osd` encuentra su runtime junto a su
+ejecutable real. Si esa carpeta no está en el PATH, la app la añade a tu perfil
+de inicio y Ajustes → Acceso remoto dice qué archivo tocó. Nada más de tu shell
+cambia.
+
+`--wait` vuelve cuando el turno ha terminado, no cuando fue aceptado, y falla de forma explícita si no produjo respuesta. `--json` imprime la respuesta de la propia API, para scripts. Las aprobaciones siguen vigentes — el agente pregunta antes de ejecutar comandos, y `osd permission ls` / `osd permission allow <id>` es cómo se responde sin ventana.
+
+### Qué modelo, y quién aprueba
+
+`osd model` muestra el modelo por defecto, `osd model ls` lista lo que el runtime
+**realmente puede servir** (los proveedores con credenciales en esta máquina; el
+actual va marcado) y `osd model set <provider/model>` lo cambia — a través del
+gateway, así que también sirve contra un servidor remoto. Cualquier turno puede
+imponer otro con `osd session send --model … --agent … --effort …`.
+
+Las aprobaciones siguen vigentes: el agente pregunta antes de ejecutar comandos,
+borrar archivos, instalar dependencias o salir a la red. Sin ventana, `--wait`
+dice **qué** está esperando y ofrece las dos formas de responder — en la terminal
+`osd permission ls` / `osd permission allow <id>`, o la URL del gateway que
+imprime, que lleva el token para que un navegador en tu portátil o tu móvil lo
+apruebe.
+
+Para una máquina sin nadie delante, sal explícitamente:
+
+```bash
+osd approval            # qué hay que preguntar hoy
+osd approval set full   # no preguntar nunca: comandos, borrados, instalaciones, red
+```
+
+`full` es una decisión deliberada, no un valor por defecto: el agente sigue
+confinado al workspace, pero nada se detiene a esperarte.
+`osd approval set approve` devuelve todas las reglas.
+
+### Como servicio
+
+`osd server` es un proceso en primer plano corriente, así que systemd lo ejecuta
+tal cual. Esta unit se probó de principio a fin en Ubuntu — activar, reiniciar,
+caer, detener:
+
+```ini
+# /etc/systemd/system/osd.service
+[Unit]
+Description=Open Science Desktop (headless)
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=HOME=/home/ubuntu
+ExecStart=/opt/osd/osd server --port 4788
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`sudo systemctl enable --now osd` y la URL con el token acaban en
+`journalctl -u osd`. Una unit es además la forma más limpia de operarlo: systemd
+detiene todo el cgroup, así que el runtime del agente nunca sobrevive al
+servidor, muera como muera.
+
+
+Sin `--gateway`, `osd` habla con un gateway que ya esté corriendo en la misma máquina — incluido el de la app de escritorio — así que con la app abierta, `osd session ls` funciona sin más. Si no, apúntalo a donde quieras con `osd login --gateway <url> --token <token>`.
+
+Lo que *no* hay sin escritorio: kernels locales de Jupyter, diálogos de archivo nativos y el gestor de archivos del sistema — la UI web los oculta en lugar de ofrecer controles que fallarían. Dos cosas más: **la procedencia y los registros de ejecución los escribe el cliente de escritorio**, así que un servidor sin pantalla conserva el historial de archivos vía snapshots de git, pero no añade a `provenance.jsonl` ni al índice de ejecuciones.
 
 ## Compilar desde el código
 
@@ -168,6 +285,9 @@ pnpm install
 bash scripts/dev/fetch-opencode.sh
 bash scripts/dev/fetch-uv.sh
 bash scripts/dev/fetch-skills.sh
+
+# El cliente de terminal osd también va incluido: es nuestro, así que se compila, no se descarga.
+bash scripts/dev/build-osd-sidecar.sh $(rustc -vV | sed -n 's/host: //p')
 pnpm --filter @ai4s/desktop tauri dev
 pnpm --filter @ai4s/desktop tauri build
 ```
@@ -194,6 +314,8 @@ Los archivos del workspace, datos crudos, historial, procedencia, notebooks y ru
 | `runtime/skills/core/` | Skills científicos propios. |
 | `runtime/skills/external/` | Skills externos obtenidos durante build. |
 | `examples/` | Workspaces de ejemplo incluidos. |
+| `crates/osd-core/` | El núcleo del servidor — workspace, sidecar, gateway. Sin Tauri, por eso funciona sin pantalla. |
+| `crates/osd-cli/` | `osd`: el servidor sin pantalla y su cliente. |
 | `scripts/dev/` | Fetchers de sidecar, `uv`, skills y pruebas enfocadas. |
 | `docs/` | Notas de producto, técnica, operator, conectores e investigación. |
 
@@ -212,8 +334,8 @@ Si usas Open Science Desktop en tu investigación, cítalo así:
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.3},
-  doi     = {10.5281/zenodo.21805331},
+  version = {0.5.2},
+  doi     = {10.5281/zenodo.22004919},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

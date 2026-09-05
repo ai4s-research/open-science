@@ -115,13 +115,13 @@
       "reasoningDefault": "モデルの既定",
       "faster": "高速",
       "smarter": "高性能",
-      "contextLimit": "コンテキストウィンドウ",
-      "contextAuto": "自動",
-      "contextSave": "保存",
-      "contextHint": "モデルのコンテキスト上限(k tokens)。下げると、次のターンで超過した際に自動圧縮されます。空欄 = モデル既定値。",
-      "contextSaved": "コンテキストウィンドウを更新しました",
-      "contextSaveError": "保存に失敗しました",
-      "kSuffix": "k"
+      "followingAgent": "{{agent}} エージェントの設定に従っています",
+      "followAgent": "{{agent}} エージェントの設定に従う",
+      "useDefault": "グローバル既定を使用",
+      "unknownContextTitle": "コンテキストウィンドウが不明です",
+      "unknownContextBody": "このモデルでは自動圧縮が働かないため、会話が際限なく大きくなり、長いターンは最終的に停止します。「設定 → モデル」でウィンドウサイズを設定してください。",
+      "retiredTitle": "モデルはプロバイダーが提供を終了しました",
+      "retiredBody": "{{model}} は設定されたままですが、プロバイダーが提供を終了したため、すべてのターンが失敗します。上から別のモデルを選んでください。"
     },
     "reference": {
       "filesAria": "ワークスペースのファイル",
@@ -165,6 +165,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "ホストアプリの応答を待っています。このページを開いたままにしてください。ホストに接続できるようになると自動的につながります。",
+      "title": "ローカルランタイムを起動中…",
+      "body": "バンドルされたエージェントランタイムを起動しています。初回起動時は macOS がフォルダへのアクセス許可を求めることがあります。許可すれば自動的に完了します。"
+    },
     "runtime": {
       "title": "OpenCode ランタイム",
       "bodyPrefix": "デスクトップアプリはバンドルされた OpenCode を自動的に実行します。ブラウザでは、",
@@ -202,6 +207,7 @@
       "paused": "一時停止中 — エージェントが下で回答を待っています",
       "startingSession": "セッションをそのフォルダで開始しています…",
       "retrying": "プロバイダーエラー — 再試行中（{{attempt}} 回目）",
+      "limitReached": "プロバイダーの上限に達しました — 待っても解決しません",
       "working": "作業中…",
       "step": "ステップ {{count}}"
     },
@@ -212,6 +218,7 @@
       "cancelTitle": "このレビューを停止"
     },
     "placeholder": {
+      "starting": "ランタイムを起動中…",
       "disconnected": "チャットするには接続してください",
       "waiting": "返信を待っています…",
       "readOnly": "読み取り専用アクセス — 閲覧のみ"
@@ -293,7 +300,8 @@
   "interaction": {
     "question": {
       "heading": "エージェントが入力を必要としています",
-      "customPlaceholder": "または自分で回答を入力…"
+      "customPlaceholder": "または自分で回答を入力…",
+      "other": "その他…"
     },
     "permission": {
       "heading": "エージェントが許可を求めています："
@@ -355,6 +363,24 @@
       "revert": "ここまで戻す"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "この会話に保存されているメッセージの 1 つに、モデルの形式が必須とする本文がありません。多くは開始直後に途切れた応答です。",
+      "tool-result-missing": "保存された {{tool}} ステップに、返したはずの結果がありません。",
+      "tool-error-missing": "保存された {{tool}} ステップは失敗しましたが、理由が記録されていません。",
+      "tool-call-id-missing": "保存されたツールステップから、結果と対応付けるための ID が失われています。",
+      "unknown": "この会話はモデルに送信できなくなりましたが、原因となっている保存済みメッセージを特定できませんでした。"
+    },
+    "someTool": "ツール",
+    "offer_other": "その直前まで巻き戻すと、{{count}} 件のメッセージを破棄して問題が解消します。",
+    "noTarget": "巻き戻せる時点がないため、この会話は修復できません。新しい会話を開始してください。既存の内容は削除されず、閲覧とエクスポートは引き続き可能です。",
+    "action": "会話を修復",
+    "confirm": {
+      "title": "破損したメッセージの直前まで巻き戻しますか？",
+      "body_other": "{{count}} 件のメッセージを破棄し、それらのターンによるファイル変更を元に戻します。入力内容は入力欄に戻ります。この操作は取り消せません。",
+      "action": "巻き戻す"
+    }
+  },
   "compaction": {
     "label": "コンテキストを圧縮しました",
     "autoBody": "モデルのコンテキストウィンドウに収めるため、ランタイムが以前のやり取りを要約し、会話はここから続いています。",
@@ -362,6 +388,21 @@
     "overflowBody": "コンテキストがすでに一杯になっていたために実行されました。",
     "at": "日時: {{time}}",
     "originalKept": "元の会話全体はローカルに保存されたままです。"
+  },
+  "meta": {
+    "context": "{{used}} / {{limit}}（{{percent}}%）",
+    "contextUnknown": "{{used}} トークン",
+    "durationTitle": "この返信にかかった時間",
+    "costTitle": "このターンの費用",
+    "tooltip": {
+      "input": "入力: {{n}}",
+      "cacheRead": "キャッシュ読み取り: {{n}}",
+      "cacheWrite": "キャッシュ書き込み: {{n}}",
+      "output": "出力: {{n}}",
+      "reasoning": "推論: {{n}}",
+      "context": "使用中のコンテキスト: {{used}} / {{limit}}",
+      "contextUnknown": "使用中のコンテキスト: {{used}}（ウィンドウ不明）"
+    }
   },
   "selection": {
     "aria": "選択したテキストへの操作",
@@ -377,11 +418,15 @@
     "toggleTitle": "サブエージェントの状況を表示",
     "closeAria": "サブエージェントパネルを閉じる",
     "count_other": "{{count}} 件のタスク",
-    "empty": "この会話にはまだサブエージェントがいません。"
+    "empty": "この会話にはまだサブエージェントがいません。",
+    "noDetail": "このサブエージェントの手順は記録されていません。",
+    "loadingDetail": "読み込み中…",
+    "openRow": "このサブエージェントをパネルで開く"
   },
-  "usage": {
-    "thisTurn": "今回",
-    "total": "累計",
-    "tooltip": "↑ 入力トークン、↓ 出力トークン（今回分 / セッション累計）"
+  "splitDestination": {
+    "title": "新しいペインのセッションの作成先",
+    "continueIn": "{{name}} を引き継ぐ",
+    "newFolder": "新しいフォルダー",
+    "chooseOther": "別のフォルダーを選択…"
   }
 }

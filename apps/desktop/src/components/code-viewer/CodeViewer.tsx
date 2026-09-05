@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import hljs from "highlight.js/lib/common";
+import { HSCROLL_ATTR } from "@/lib/wheelChain";
 // Token colors are theme-scoped in index.css (.hljs-* on --hl-* variables) —
 // a stylesheet import here would hardcode one theme for all three.
 
@@ -25,7 +26,10 @@ export function CodeViewer({ code, language, startLine = 1 }: Props) {
   const lineCount = code.replace(/\n$/, "").split("\n").length;
 
   return (
-    <div className="flex overflow-x-auto rounded-input border border-border bg-surface font-mono text-[12.5px] leading-[1.55]">
+    <div
+      {...{ [HSCROLL_ATTR]: "" }}
+      className="flex overflow-x-auto overflow-y-hidden rounded-input border border-border bg-surface font-mono text-[12.5px] leading-[1.55]"
+    >
       <div
         aria-hidden
         className="select-none border-r border-border bg-surface-2 px-3 py-3 text-right text-muted"

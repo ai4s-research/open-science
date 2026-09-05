@@ -8,8 +8,7 @@
     "compact": {
       "busy": "Wait for the current turn to finish before compressing.",
       "error": "Could not compress the context.",
-      "done": "Context compressed. The next reply uses the compacted conversation.",
-      "triggered": "Ready: send your next message and it will auto-compact first (the context limit is restored afterwards)."
+      "done": "Context compressed. The next reply uses the compacted conversation."
     }
   }
 }

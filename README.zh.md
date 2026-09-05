@@ -39,6 +39,8 @@
 
 ## 最新动态
 
+- **2026-08-18** — 🖥️ **无屏也能跑，终端命令随包附带。** `osd server` 在没有显示器的机器上启动整套工作台——工作区、智能体运行时，以及*同一套* Web UI；`osd session send … --wait` 让脚本或另一个智能体来驱动它。`osd` 现在装在桌面安装包里，首次启动自动进入 PATH；服务器上用压缩包，什么都不用装。模型、密钥、审批都能在终端配置（`osd model`、`osd auth`、`osd approval`）。
+- **2026-08-13** — 🔌 **双向支持 Agent Client Protocol。** 在本应用里直接驱动 Codex、Gemini CLI、Claude Code 等任意 ACP 智能体——沿用它自己的模型、历史，以及你在本应用配置的 MCP 连接器；反过来，也可以从 Zed、JetBrains、Neovim 里驱动 Open Science。 *(v0.4.0)*
 - **2026-08-01** — 🗂️ **项目、记忆与完整历史。** 会话可以归入命名项目（**就地**导入已有仓库，不做复制），智能体获得持久的全局记忆与项目记忆，全部历史对话都能在可搜索的历史视图中找到，并支持归档、恢复与导出。 *(v0.3.1)*
 - **2026-07-24** — 🪟 **分屏平铺。** 会话可以并排平铺、拖拽分栏重新停靠、保留多个互不干扰的「屏幕」，每个分栏还能用不同的模型。 *(v0.3.0)*
 - **2026-07-21** — 🌐 **随时随地访问——连手机都行。** 一个基于令牌认证的网关，把*真正的*桌面 UI 提供给命令行、局域网中的浏览器或你的手机（默认仅回环地址；局域网需手动开启）。在电脑前发起一次运行，然后在手机上查看完成的图表和报告。 *(v0.2.3)*
@@ -54,6 +56,7 @@
 - [🧪 当前能力](#当前能力)
 - [🔌 技能与连接器](#技能与连接器)
 - [📦 安装](#安装)
+- [🖥️ 无头与命令行(`osd`)](#无头与命令行osd)
 - [🚀 从源码构建](#从源码构建)
 - [🔒 安全与隐私](#安全与隐私)
 - [🗂️ 仓库结构](#仓库结构)
@@ -90,7 +93,7 @@
 
 **驱动你自己的 Chrome。** 智能体通过你真实的浏览器配置文件——连同登录状态——读取实时网页，再把找到的内容变成一张图和一份可排序的 CSV。
 
-![智能体通过 browser-control 驱动用户自己的 Chrome，把 bioRxiv 预印本采集成图表和 CSV](./docs/assets/showcase-browser.webp)
+![智能体通过 open-science-browser 驱动用户自己的 Chrome，把 bioRxiv 预印本采集成图表和 CSV](./docs/assets/showcase-browser.webp)
 
 **随时随地做研究——连手机都行。** 内置的认证网关把*真正的*桌面 UI 提供给局域网里的浏览器(或通过隧道),这样你就能在电脑前发起一次运行,再在手机上查看完成的图表和报告。
 
@@ -143,7 +146,9 @@
 | 远程计算 | 从 `~/.ssh/config` 登记计算机、探测可用性,并在应用内提交、跟踪或取消作业。 |
 | 外观 | Light / Warm / Dark 三套主题(各有自己的强调色)与界面缩放。 |
 | 文件 | 全局和会话内文件浏览、右键菜单、系统打开/定位、复制路径、本地预览服务。 |
+| 无头与命令行 | `osd server` 以无窗口方式运行工作台——同样的工作区、同样的运行时、同样的 Web UI，全部来自一个自包含目录；`osd` 则从终端驱动它（或驱动正在运行的桌面应用）：会话、项目、运行记录、文件、审批，支持 `--wait` 与 `--json`。 |
 | 远程访问 | 基于令牌认证的网关，把真正的 UI 提供给命令行、局域网 Web 浏览器或你的手机(默认仅回环地址，局域网需手动开启);支持只读与完全访问两种模式;可复制一条内嵌令牌的链接，一键连接。API key 永不经过网络传输。 |
+| 编辑器互通（ACP） | 双向支持 Agent Client Protocol：既可以把任意 ACP 智能体（Codex、Gemini CLI、Claude Code 等）作为运行时接到常规界面背后，沿用它自己的模型与推理档位选择、历史回放，以及本应用的 MCP 连接器；也可以让外部编辑器（Zed、JetBrains、Neovim 等）驱动 Open Science，复用网关令牌。 |
 | 浏览器控制 | 智能体驱动你自己的 Chrome——保留配置文件和登录状态——通过无障碍树读取页面，也可按需使用隔离的隐私浏览器。 |
 | 笔记本 | 真实 `.ipynb` 文件、Python/R 笔记本创建、本地内核运行、内置 `uv` 管理 Jupyter 环境，以及打开 JupyterLab。 |
 | 运行记录 | 追加式 run log、全局 SQLite 索引、搜索/筛选/分页、本地与远程 surface、输出链接、日志和复现提示。 |
@@ -182,7 +187,7 @@
 从 [Releases 页面](https://github.com/ai4s-research/open-science/releases/latest) 下载最新安装包。
 
 - **macOS**：`.dmg` / `.app`，Apple Silicon 和 Intel，要求 macOS 13 Ventura 或更高。
-- **Windows**：NSIS `.exe` 和 `.msi`，Windows 10/11 x64。
+- **Windows**：NSIS `.exe`，Windows 10/11 x64 —— 按用户安装，无需管理员权限。另发 `.msi` 供机构批量部署；两种格式请择一使用，不要混装。
 - **Linux**：x86_64 Linux 的 `.deb` 和 `.rpm`。
 
 macOS 安装包已使用 Developer ID 签名、公证并 staple，可直接打开，无需 `xattr` 之类的绕过操作。Windows 与 Linux 构建尚未签名。
@@ -196,6 +201,86 @@ sudo apt install ./Open.Science_*.deb
 # 或
 sudo rpm -i Open.Science-*.rpm
 ```
+
+## 无头与命令行(`osd`)
+
+科研机器通常没有屏幕。`osd` 就是没有屏幕的同一套工作台：同样的工作区布局、同样的智能体运行时、同样的项目、同样的 Web UI——只是通过 HTTP 提供，而不是画在窗口里。
+
+**在服务器上，用压缩包。** Releases 里的 `osd-<version>-<target>` 解压即跑，什么都不用装——已在一个不加任何软件包的空白 Ubuntu 容器里验证过。
+
+```bash
+# 配置这台机器（服务还没启动时也能配）
+./osd auth set anthropic --key sk-…       # 只留在本机，绝不上网络
+./osd model set anthropic/claude-opus-4-5 # 之后每一轮的默认模型
+./osd server --lan                        # 打印访问地址和令牌
+```
+
+密钥也可以完全不落盘：智能体运行时继承本进程的环境变量，所以 `ANTHROPIC_API_KEY=sk-… ./osd server` 根本不需要 `auth set`。自建或代理的端点写在同一条命令里（`--base-url https://my-gateway.internal/v1`）；`osd auth ls` 只打印提供商名字——任何地方都不会打印密钥。改了密钥需要重启服务，CLI 会主动提示，而不是让你自己猜。
+
+打开打印出来的地址，浏览器里就是真正的桌面 UI，手机也一样。也可以从终端驱动它——本机、SSH 过去，或者从你的笔记本：
+
+```bash
+osd project new "Reef survey"
+id=$(osd session new --project "Reef survey")
+osd session send "$id" "Fit the 2015–2024 bleaching trend and write report.md" \
+    --model anthropic/claude-sonnet-4-5 --wait
+osd fs ls figures/
+osd fs get report.md --output ./report.md
+```
+
+Windows 上同样的命令在 PowerShell 里可用，只是 shell 语法不同：
+
+```powershell
+$id = osd session new --project "Reef survey"
+osd session send $id "Fit the 2015-2024 bleaching trend and write report.md" --wait
+```
+
+**在你自己的机器上，它已经装好了。** 桌面安装包里带着 `osd`，应用首次启动时会把它放到你的 PATH 上，所以新开一个终端就能用，不需要任何设置。它只写一个小的包装脚本（`~/.local/bin/osd`，或者当终端本来就搜索 `~/bin` 时放那里）——绝不是符号链接，因为 `osd` 要在自己真实可执行文件的旁边找运行时。如果那个目录不在 PATH 上，应用会把它加进你的登录 profile，并在「设置 → 远程访问」里说明改了哪个文件。你 shell 上的其他东西一概不动。
+
+`--wait` 在这一轮真正跑完时才返回，而不是在被接受时；如果这一轮什么都没答，它会明确报错。`--json` 输出接口原样的响应，供脚本解析。
+
+### 用哪个模型，谁来批准
+
+`osd model` 显示当前默认模型，`osd model ls` 列出运行时**真正能服务**的模型（也就是这台机器有凭据的那些提供商，当前那个带星号），`osd model set <provider/model>` 修改它——走网关，所以对远程服务器同样有效。任何单轮都可以用 `osd session send --model … --agent … --effort …` 覆盖。
+
+审批规则依然生效：智能体在执行命令、删除文件、安装依赖或访问网络前会询问。没有窗口时，`--wait` 会说明**在等什么**，并给出两条回答路径——终端里 `osd permission ls` / `osd permission allow <id>`，或者它打印的那个网关地址（带令牌，所以笔记本或手机上的浏览器可以直接批准）。
+
+无人值守的机器可以显式放弃审批：
+
+```bash
+osd approval            # 现在哪些动作需要询问
+osd approval set full   # 一律不问：命令、删除、装依赖、访问网络
+```
+
+`full` 是一个明确的选择，不是默认值：智能体仍被限制在工作区内，但不会再为你暂停。`osd approval set approve` 把所有规则放回去。
+
+### 作为系统服务运行
+
+`osd server` 就是一个普通的前台进程，systemd 直接跑它即可。下面这份 unit 已在 Ubuntu 上完整跑过——启用、重启、崩溃、停止：
+
+```ini
+# /etc/systemd/system/osd.service
+[Unit]
+Description=Open Science Desktop (headless)
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=HOME=/home/ubuntu
+ExecStart=/opt/osd/osd server --port 4788
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`sudo systemctl enable --now osd`，打印出的地址和令牌会进 `journalctl -u osd`。用 unit 也是最干净的跑法：systemd 停止时会收走整个 cgroup，所以无论服务怎么死，智能体运行时都不会活得比它久。
+
+不指定 `--gateway` 时，`osd` 会连上本机已经在跑的网关——包括桌面应用自己的那个——所以只要应用开着，`osd session ls` 直接就能用。否则用 `osd login --gateway <url> --token <token>` 指向任意一台。
+
+没有桌面时*不具备*的能力：本地 Jupyter 内核、系统文件对话框、系统文件管理器——Web UI 会直接隐藏它们，而不是给出一个注定失败的按钮。另有两点值得知道：**溯源记录与运行记录是由桌面客户端写入的**，所以无头服务端仍会用 git 快照保留工作区的文件历史，但不会追加 `provenance.jsonl` 和运行索引。
 
 ## 从源码构建
 
@@ -214,6 +299,9 @@ pnpm install
 bash scripts/dev/fetch-opencode.sh
 bash scripts/dev/fetch-uv.sh
 bash scripts/dev/fetch-skills.sh
+
+# osd 终端客户端也一起打包；它是我们自己的代码，所以是构建而非下载。
+bash scripts/dev/build-osd-sidecar.sh $(rustc -vV | sed -n 's/host: //p')
 
 pnpm --filter @ai4s/desktop tauri dev
 pnpm --filter @ai4s/desktop tauri build
@@ -247,6 +335,8 @@ pnpm lint
 | `runtime/harness/` | 运行时 harness 知识与 operator 上下文。 |
 | `runtime/mcp/` | MCP 运行时说明和配置。 |
 | `examples/` | 内置示例工作区。 |
+| `crates/osd-core/` | 服务端内核——工作区、sidecar、网关。不依赖 Tauri，因而可无头运行。 |
+| `crates/osd-cli/` | `osd`：无头服务端及其客户端。 |
 | `scripts/dev/` | sidecar、`uv`、技能拉取器和聚焦回归探针。 |
 | `docs/` | 产品、技术、operator、连接器和研究笔记。 |
 
@@ -272,8 +362,8 @@ pnpm lint
   author  = {{The Open Science Desktop Contributors}},
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
-  version = {0.3.3},
-  doi     = {10.5281/zenodo.21805331},
+  version = {0.5.2},
+  doi     = {10.5281/zenodo.22004919},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

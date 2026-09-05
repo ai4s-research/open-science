@@ -10,7 +10,8 @@
     "privacy": "Privacy",
     "browser": "Browser",
     "remote": "Remote Access",
-    "memory": "Memory"
+    "memory": "Memory",
+    "desktopOnly": "This section is available in the desktop app."
   },
   "appearance": {
     "title": "Appearance",
@@ -112,6 +113,7 @@
     "currentDefault": "Current default",
     "switching": "Switching…",
     "unavailableDefault": "Configured model unavailable: {{model}}",
+    "retiredDefault": "Retired by its provider: {{model}} is no longer served and every turn will fail. Pick another model below.",
     "catalogUnavailable": "The model catalog is currently unavailable.",
     "catalogLoading": "Loading the model catalog…",
     "noModels": "No models available.",
@@ -126,6 +128,8 @@
   "providers": {
     "title": "Providers",
     "hint": "Authentication, custom endpoints, and imported OpenCode logins",
+    "webHint": "Connected providers — read-only from the browser",
+    "webNote": "API keys and custom endpoints are set on the machine running the workbench — in the desktop app, or with `osd auth set` when it runs headless. Credentials never cross the gateway.",
     "connectPrompt": "Connect the runtime to manage providers.",
     "manage": "Manage",
     "collapse": "Collapse",
@@ -187,9 +191,6 @@
     "browseAs": "Browse as",
     "isolated": "Isolated — fresh, logged out",
     "showWindow": "Show the browser window",
-    "headedOffTitle": "Turn the window off?",
-    "headedOffBody": "You're reusing your Chrome login (“{{profile}}”), so the agent drives your real Chrome — it will usually still open a window even with this off, especially while Chrome is already running. For a true no-window (headless) browser, switch “Browse as” to the private browser.",
-    "headedOffConfirm": "Turn off anyway",
     "noChrome": "No Chrome found",
     "download": "Download a browser",
     "noChromeWillDownload": "No Chrome detected — a private browser will be downloaded on first use.",
@@ -225,6 +226,26 @@
     "autoTitle": "Review after every turn that changes files",
     "autoHint": "Runs one extra model turn in the background per change. The conversation stays usable; read-only turns are skipped."
   },
+  "sync": {
+    "title": "Conversation sync",
+    "hint": "Keep your conversations on more than one of your own machines. Point this at a folder your cloud drive syncs; each conversation is mirrored there as its own file. Off until you choose a folder.",
+    "hintOn": "On. Each conversation is mirrored to the folder below as its own file; other machines pointed at the same folder pick them up. Secrets are never synced.",
+    "folderTitle": "Sync folder",
+    "folderNone": "Not set — conversations stay on this machine.",
+    "choose": "Choose folder",
+    "change": "Change",
+    "stop": "Turn off",
+    "nowTitle": "Sync now",
+    "nowHint": "Runs on its own after each turn; this is for when you want it immediately.",
+    "now": "Sync now",
+    "running": "Syncing…",
+    "done": "Synced. {{imported}} in, {{exported}} out.",
+    "folderSet": "Sync folder set.",
+    "stopped": "Conversation sync turned off.",
+    "unusable": "That folder cannot be used",
+    "last": "Last sync {{when}} — {{imported}} in, {{exported}} out.",
+    "lastFailed": "Last sync failed: {{error}}"
+  },
   "python": {
     "title": "Local Python kernel",
     "hint": "Runs notebook cells in the app. Uses your Jupyter environment when set up (same Python as the agent), else auto-detects — or set an explicit interpreter below",
@@ -245,6 +266,7 @@
     "couldNotSetModel": "Could not set the model",
     "defaultModelSet": "Default model set to {{model}}",
     "defaultModelReset": "Default model {{old}} is no longer available — switched to {{model}}",
+    "configRebuilt": "The agent runtime's settings file could not be read, so it was moved to {{path}} and rebuilt. Providers and MCP servers may need adding again.",
     "couldNotSaveKey": "Could not save the key",
     "providerConnected": "{{providerID}} connected",
     "couldNotStartLogin": "Could not start the login",
@@ -377,7 +399,26 @@
     "connectPrompt": "Enter the access token from the desktop app → Settings → Remote Access.",
     "acpTitle": "External editors (ACP)",
     "acpHint": "Drive this workspace from Zed, JetBrains, Neovim or any editor that speaks the Agent Client Protocol. Paste this agent entry into the editor's settings; it connects over the gateway above, with the access the token allows.",
-    "acpNodeHint": "The editor launches this script with Node 18+. The token is passed in the environment, not on the command line."
+    "acpNodeHint": "The editor launches this script with Node 18+. The token is passed in the environment, not on the command line.",
+    "port": "Gateway port",
+    "portHint": "The port the gateway listens on. Default is 4098; set a custom port for firewall rules or multi-instance setups.",
+    "portInvalid": "Enter a valid port number (1-65535).",
+    "portApply": "Apply",
+    "portReset": "Reset to default"
+  },
+  "cli": {
+    "title": "Terminal command (osd)",
+    "hint": "The workbench from a terminal — sessions, projects, files, and a headless server for a machine with no screen. Installed with the app; no setup.",
+    "readyPath": "Ready — run `osd` in a new terminal.",
+    "readyProfile": "Ready — added to {{profile}}. Run `osd` in a new terminal.",
+    "readyEnvironment": "Ready — added to your user PATH. Run `osd` in a new terminal.",
+    "unreachable": "Installed, but nothing on your PATH reaches it. Add this line to your shell profile:",
+    "notInstalled": "Not installed. Use the button, or restart the app.",
+    "unavailable": "This build does not carry the osd command.",
+    "occupied": "A file this app did not write already has that name — rename it first.",
+    "install": "Install command",
+    "repair": "Reinstall",
+    "error": "Installing the osd command failed"
   },
   "memory": {
     "title": "Memory",
@@ -404,7 +445,9 @@
     "followDefaultNamed": "Default ({{model}})",
     "modelFor": "Model for {{agent}}",
     "defaultEffort": "Default effort",
-    "effortFor": "Reasoning effort for {{agent}}"
+    "effortFor": "Reasoning effort for {{agent}}",
+    "retiredOption": "{{model}} — no longer served",
+    "primaryHint": "build and plan run the messages you send. A model set here applies unless you pick one inside a conversation, which wins for that conversation only."
   },
   "ssh": {
     "title": "Sign in to {{host}}",

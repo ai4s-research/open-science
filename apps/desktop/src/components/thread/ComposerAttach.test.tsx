@@ -32,8 +32,11 @@ describe("Composer attachments (desktop)", () => {
     fireEvent.change(input, { target: { value: "analyze this" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
+    // The note names the workspace copy; the chip list rides along so the send
+    // can also attach the images as real multimodal parts (#88).
     expect(onSend).toHaveBeenCalledWith(
       "analyze this\n\nFiles added to the workspace: data.csv",
+      ["data.csv"],
     );
     // Chips are cleared after sending.
     expect(screen.queryByText("data.csv")).toBeNull();

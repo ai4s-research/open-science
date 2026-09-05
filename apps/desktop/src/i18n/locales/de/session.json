@@ -115,13 +115,13 @@
       "reasoningDefault": "Modellstandard",
       "faster": "Schneller",
       "smarter": "Klüger",
-      "contextLimit": "Kontextfenster",
-      "contextAuto": "Auto",
-      "contextSave": "Speichern",
-      "contextHint": "Kontextlimit des Modells (k Tokens). Wird es gesenkt, komprimiert die Sitzung beim nächsten Überlauf automatisch. Leer = Modellstandard.",
-      "contextSaved": "Kontextfenster aktualisiert",
-      "contextSaveError": "Speichern fehlgeschlagen",
-      "kSuffix": "k"
+      "followingAgent": "Folgt dem Agenten {{agent}}",
+      "followAgent": "Dem Agenten {{agent}} folgen",
+      "useDefault": "Globale Vorgabe verwenden",
+      "unknownContextTitle": "Kontextfenster unbekannt",
+      "unknownContextBody": "Die automatische Komprimierung bleibt für dieses Modell aus, das Gespräch wächst unbegrenzt und lange Durchläufe bleiben irgendwann hängen. Fenstergröße unter Einstellungen → Modelle setzen.",
+      "retiredTitle": "Modell vom Anbieter eingestellt",
+      "retiredBody": "{{model}} ist weiterhin konfiguriert, wird vom Anbieter aber nicht mehr bereitgestellt, daher schlägt jeder Durchlauf fehl. Oben ein anderes Modell wählen."
     },
     "reference": {
       "filesAria": "Dateien im Arbeitsbereich",
@@ -165,6 +165,11 @@
     }
   },
   "live": {
+    "starting": {
+      "bodyWeb": "Warte auf eine Antwort der Host-App. Lassen Sie diese Seite offen — sie verbindet sich von selbst, sobald der Host erreichbar ist.",
+      "title": "Lokale Runtime wird gestartet…",
+      "body": "Die gebündelte Agent-Runtime startet. Beim ersten Start fragt macOS möglicherweise nach Zugriff auf Ihre Ordner — erlauben Sie ihn, dann schließt der Vorgang von selbst ab."
+    },
     "runtime": {
       "title": "OpenCode-Runtime",
       "bodyPrefix": "Die Desktop-App führt automatisch eine gebündelte OpenCode-Instanz aus. Starten Sie im Browser eine mit",
@@ -202,6 +207,7 @@
       "paused": "Pausiert — der Agent benötigt Ihre Antwort unten",
       "startingSession": "Die Sitzung wird in ihrem Ordner gestartet…",
       "retrying": "Anbieterfehler — neuer Versuch (Versuch {{attempt}})",
+      "limitReached": "Anbieterlimit erreicht — Warten hilft nicht",
       "working": "Arbeitet…",
       "step": "Schritt {{count}}"
     },
@@ -212,6 +218,7 @@
       "cancelTitle": "Diese Prüfung stoppen"
     },
     "placeholder": {
+      "starting": "Runtime wird gestartet…",
       "disconnected": "Zum Chatten verbinden",
       "waiting": "Warte auf die Antwort…",
       "readOnly": "Nur-Lese-Zugriff — nur Ansicht"
@@ -301,7 +308,8 @@
   "interaction": {
     "question": {
       "heading": "Der Agent benötigt Ihre Eingabe",
-      "customPlaceholder": "Oder geben Sie Ihre eigene Antwort ein…"
+      "customPlaceholder": "Oder geben Sie Ihre eigene Antwort ein…",
+      "other": "Etwas anderes…"
     },
     "permission": {
       "heading": "Der Agent bittet um Erlaubnis:"
@@ -363,6 +371,26 @@
       "revert": "Hierher zurücksetzen"
     }
   },
+  "historyRepair": {
+    "reason": {
+      "text-missing": "Eine gespeicherte Nachricht in dieser Unterhaltung hat keinen Text, wo das Format des Modells ihn verlangt — meist eine Antwort, die gleich zu Beginn abbrach.",
+      "tool-result-missing": "Einem gespeicherten {{tool}}-Schritt fehlt das Ergebnis, das er gemeldet hat.",
+      "tool-error-missing": "Ein gespeicherter {{tool}}-Schritt ist fehlgeschlagen, ohne den Grund festzuhalten.",
+      "tool-call-id-missing": "Einem gespeicherten Werkzeugschritt fehlt die ID, die ihn seinem Ergebnis zuordnet.",
+      "unknown": "Diese Unterhaltung lässt sich nicht mehr an das Modell senden, und wir konnten nicht feststellen, welche gespeicherte Nachricht dafür verantwortlich ist."
+    },
+    "someTool": "Werkzeug",
+    "offer_one": "Ein Rücksprung davor verwirft {{count}} Nachricht und behebt das Problem.",
+    "offer_other": "Ein Rücksprung davor verwirft {{count}} Nachrichten und behebt das Problem.",
+    "noTarget": "Es gibt keinen früheren Punkt zum Zurückspringen, daher lässt sich diese Unterhaltung nicht reparieren — bitte eine neue beginnen. Es wird nichts gelöscht; Lesen und Exportieren bleibt möglich.",
+    "action": "Unterhaltung reparieren",
+    "confirm": {
+      "title": "Vor die beschädigte Nachricht zurückspringen?",
+      "body_one": "Das verwirft {{count}} Nachricht und macht die Dateiänderungen dieses Zuges rückgängig. Deine Eingabe kehrt in das Eingabefeld zurück. Das lässt sich nicht widerrufen.",
+      "body_other": "Das verwirft {{count}} Nachrichten und macht die Dateiänderungen dieser Züge rückgängig. Deine Eingabe kehrt in das Eingabefeld zurück. Das lässt sich nicht widerrufen.",
+      "action": "Zurückspringen"
+    }
+  },
   "compaction": {
     "label": "Kontext verdichtet",
     "autoBody": "Die Laufzeit hat die früheren Züge zusammengefasst, um im Kontextfenster dieses Modells zu bleiben; die Unterhaltung ging hier weiter.",
@@ -370,6 +398,21 @@
     "overflowBody": "Auslöser war ein bereits vollgelaufener Kontext.",
     "at": "Zeitpunkt: {{time}}",
     "originalKept": "Die vollständige ursprüngliche Unterhaltung bleibt lokal gespeichert."
+  },
+  "meta": {
+    "context": "{{used}} / {{limit}} ({{percent}} %)",
+    "contextUnknown": "{{used}} Tokens",
+    "durationTitle": "Dauer dieser Antwort",
+    "costTitle": "Kosten dieses Zuges",
+    "tooltip": {
+      "input": "Eingabe: {{n}}",
+      "cacheRead": "Cache gelesen: {{n}}",
+      "cacheWrite": "Cache geschrieben: {{n}}",
+      "output": "Ausgabe: {{n}}",
+      "reasoning": "Schlussfolgern: {{n}}",
+      "context": "Belegter Kontext: {{used}} von {{limit}}",
+      "contextUnknown": "Belegter Kontext: {{used}} (Fenster unbekannt)"
+    }
   },
   "selection": {
     "aria": "Aktionen für den markierten Text",
@@ -386,11 +429,15 @@
     "closeAria": "Subagenten-Panel schließen",
     "count_one": "{{count}} Aufgabe",
     "count_other": "{{count}} Aufgaben",
-    "empty": "In dieser Unterhaltung gibt es noch keine Subagenten."
+    "empty": "In dieser Unterhaltung gibt es noch keine Subagenten.",
+    "noDetail": "Für diesen Subagenten wurden keine Schritte aufgezeichnet.",
+    "loadingDetail": "Wird geladen…",
+    "openRow": "Diesen Subagenten im Panel öffnen"
   },
-  "usage": {
-    "thisTurn": "diese Runde",
-    "total": "gesamt",
-    "tooltip": "↑ Eingabe-Tokens, ↓ Ausgabe-Tokens (diese Runde / Session gesamt)"
+  "splitDestination": {
+    "title": "Sitzung des neuen Bereichs wird angelegt in",
+    "continueIn": "In {{name}} fortfahren",
+    "newFolder": "Neuer Ordner",
+    "chooseOther": "Anderen Ordner wählen…"
   }
 }

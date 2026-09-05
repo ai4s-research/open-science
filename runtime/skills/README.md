@@ -44,6 +44,16 @@ each skill directory keeps its own `LICENSE.txt`). Same pipeline as above:
 `skills-office/` app resource, deployed by `deploy_bundled_skills`. Bump via
 `ANTHROPIC_SKILLS_COMMIT` in `fetch-skills.sh`.
 
+## Browser skill: official agent-browser core guide
+
+`scripts/dev/fetch-agent-browser.sh` fetches both the pinned sidecar and the
+official `skill-data/core` directory from the same agent-browser tag. The build
+adds only a small Open Science Desktop MCP/lifecycle adapter, bundles the result
+as `skills-agent-browser/`, and deploys it as `open-science-browser`. This keeps
+the browser workflow version-matched without copying an upstream guide into git.
+While the connector is configured, the runtime hides the unrelated legacy
+`browser-control` user skill so OpenCode cannot select the wrong transport.
+
 ## Third-party skills
 
 Do **not** enable large third-party collections (e.g. ~148 K-Dense skills) by

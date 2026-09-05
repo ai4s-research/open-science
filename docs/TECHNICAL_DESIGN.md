@@ -336,8 +336,17 @@ Developer account; a free account cannot notarize, so users may still see an
 
 ### 12.2 Windows
 
-Outputs: `AI4S-Workbench-Setup.exe`, `AI4S-Workbench.msi` (later). Prefer the NSIS
-`Setup.exe` in v1 for a familiar install experience. Unsigned apps run but may trigger
+Outputs: an NSIS `Setup.exe` installed per user (no admin prompt) as the default
+download, plus a WiX `.msi` for IT-managed deployment. Two installers for one app
+means two independent uninstall registrations, so they are labelled by audience
+and users are told to stay on one; the NSIS installer's WiX-migration path is
+fragile and best avoided rather than relied on. The uninstaller kills the bundled
+sidecars first via `src-tauri/nsis/hooks.nsh` — without that a surviving
+`opencode.exe` locks the install directory and the next upgrade fails with
+"Unable to uninstall!" (issue #113). `src-tauri/nsis/English.nsh` overrides the
+installer strings that decide whether a user keeps their data: the delete-app-data
+checkbox names what it erases, and the upgrade choice names the safe option.
+Unsigned apps run but may trigger
 SmartScreen; formal release needs a code-signing certificate (EV certs earn SmartScreen
 reputation faster). Early GitHub Release preview builds may be unsigned, but the README
 must say so.
