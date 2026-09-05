@@ -428,6 +428,96 @@ class Bioprocess(unittest.TestCase):
         )
         self.assertNotIn("bioprocess · rsm-first-order-fit", tags(src))
 
+    def test_cross_scale_fit_no_correction(self):
+        src = (
+            "from sklearn.ensemble import RandomForestRegressor\n"
+            "flask_titre = load_flask_runs()\n"
+            "model = RandomForestRegressor()\n"
+            "model.fit(flask_titre[['time', 'temp']], flask_titre['od600'])\n"
+            "bioreactor_pred = model.predict(bioreactor_features)\n"
+        )
+        self.assertIn("bioprocess · cross-scale-fit", tags(src))
+
+    def test_single_scale_fit_ok(self):
+        # Same file, but every reference is to the same scale (flask) -> the
+        # rule needs BOTH categories present, not just a model fit.
+        src = (
+            "from sklearn.ensemble import RandomForestRegressor\n"
+            "flask_titre = load_flask_runs()\n"
+            "model = RandomForestRegressor()\n"
+            "model.fit(flask_titre[['time', 'temp']], flask_titre['od600'])\n"
+            "pred = model.predict(other_flask_features)\n"
+        )
+        self.assertNotIn("bioprocess · cross-scale-fit", tags(src))
+
+    def test_both_scales_no_fit_call_ok(self):
+        # Both scale categories mentioned (e.g. a comparison plot), but no
+        # model is ever fit -> nothing to warn about transferring.
+        src = (
+            "import matplotlib.pyplot as plt\n"
+            "flask_od = [0.1, 0.5, 1.2]\n"
+            "bioreactor_od = [0.1, 0.6, 1.4]\n"
+            "plt.plot(flask_od, label='flask')\n"
+            "plt.plot(bioreactor_od, label='bioreactor')\n"
+        )
+        self.assertNotIn("bioprocess · cross-scale-fit", tags(src))
+
+    def test_cross_scale_fit_with_correction_term(self):
+        # A calibration/correction term is present -> still fires (confirming
+        # intent still matters), but with the correction-term message.
+        src = (
+            "from sklearn.linear_model import LinearRegression\n"
+            "# apply a scaling_factor calibration between flask and bioreactor\n"
+            "flask_data = load_flask()\n"
+            "model = LinearRegression()\n"
+            "model.fit(flask_data.X, flask_data.y)\n"
+            "pred = model.predict(bioreactor_data.X)\n"
+        )
+        findings_ = [f for f in findings(src) if f.tag == "bioprocess · cross-scale-fit"]
+        self.assertEqual(len(findings_), 1)
+        self.assertIn("calibration/correction term", findings_[0].title)
+        self.assertIn("scaling factor is appropriate", findings_[0].evidence)
+
+    def test_curve_fit_not_ml_library_ok(self):
+        # scipy.optimize.curve_fit mixes both scales, but it is not model
+        # training (no ML library imported, and it's never a `.fit()` method
+        # call) -> the guard this rule exists to enforce.
+        src = (
+            "from scipy.optimize import curve_fit\n"
+            "def model(x, a, b):\n"
+            "    return a * x + b\n"
+            "flask_x = [1, 2, 3]\n"
+            "bioreactor_y = [4, 5, 6]\n"
+            "popt, _ = curve_fit(model, flask_x, bioreactor_y)\n"
+        )
+        self.assertNotIn("bioprocess · cross-scale-fit", tags(src))
+
+    def test_random_forest_cross_scale_fit(self):
+        # RandomForestClassifier as its own dedicated case, distinct from the
+        # regressor above.
+        src = (
+            "from sklearn.ensemble import RandomForestClassifier\n"
+            "clf = RandomForestClassifier()\n"
+            "clf.fit(flask_X, flask_y)\n"
+            "pred = clf.predict(bioreactor_X)\n"
+        )
+        self.assertIn("bioprocess · cross-scale-fit", tags(src))
+
+    def test_flask_web_framework_not_lab_flask_ok(self):
+        # The Flask web framework shares its name with a lab flask. A script
+        # that happens to import Flask (for a dashboard, say) alongside an
+        # unrelated bioreactor mention and an ML fit must not be told its
+        # model crosses scales -- it never mentioned a lab flask at all.
+        src = (
+            "from flask import Flask\n"
+            "app = Flask(__name__)\n"
+            "bioreactor_status = get_status()\n"
+            "from sklearn.linear_model import LinearRegression\n"
+            "model = LinearRegression()\n"
+            "model.fit(X, y)\n"
+        )
+        self.assertNotIn("bioprocess · cross-scale-fit", tags(src))
+
 
 class Driver(unittest.TestCase):
     def test_run_emits_contract(self):
