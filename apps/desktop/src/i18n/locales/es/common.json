@@ -3,5 +3,12 @@
     "save": "Guardar",
     "cancel": "Cancelar",
     "remove": "Quitar"
+  },
+  "runtime": {
+    "compact": {
+      "busy": "Espera a que termine el turno actual antes de comprimir.",
+      "error": "No se pudo comprimir el contexto.",
+      "done": "Contexto comprimido. La siguiente respuesta usará la conversación comprimida."
+    }
   }
 }

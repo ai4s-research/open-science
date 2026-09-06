@@ -129,6 +129,10 @@
       "scanning": "Arbeitsbereich wird gelesen…",
       "chipTitle": "Diese Unterhaltung wird für den Agenten zitiert",
       "removeAria": "Verweis auf {{title}} entfernen"
+    },
+    "compact": {
+      "aria": "Kontext komprimieren",
+      "title": "Fasst frühere Turns zusammen; die nächste Antwort nutzt den komprimierten Kontext"
     }
   },
   "localCommand": {

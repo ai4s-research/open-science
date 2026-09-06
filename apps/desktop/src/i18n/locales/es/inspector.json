@@ -106,7 +106,8 @@
       "sampleIds": "ID de muestras"
     },
     "mobileNoPreview": "No se puede previsualizar este tipo de archivo aquí; descárgalo para verlo.",
-    "download": "Descargar"
+    "download": "Descargar",
+    "waitingWorkspace": "Esperando a que el espacio de trabajo cargue {{filename}}… (enfoque la sesión propietaria de este archivo)"
   },
   "office": {
     "rendering": "Renderizando…",

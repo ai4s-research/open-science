@@ -129,6 +129,10 @@
       "scanning": "Lecture de l’espace de travail…",
       "chipTitle": "Cette conversation sera citée pour l’agent",
       "removeAria": "Retirer la référence à {{title}}"
+    },
+    "compact": {
+      "aria": "Compresser le contexte",
+      "title": "Résume les tours précédents ; la prochaine réponse utilisera le contexte compressé"
     }
   },
   "localCommand": {

@@ -890,3 +890,62 @@ describe("image attachments (#88: a vision model must see the figure, not its na
     client.close();
   });
 });
+
+describe("manual compaction (#75)", () => {
+  /** Records every request, answers the summarize POST and the global config
+   *  read the model fallback needs. */
+  function mockSummarize(defaultModel?: string) {
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+      calls.push({ url, body });
+      if (url.endsWith("/global/config")) {
+        return new Response(JSON.stringify(defaultModel ? { model: defaultModel } : {}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    };
+    return { fetchImpl, calls };
+  }
+
+  it("summarizes with the session's own model, on the V1 endpoint", async () => {
+    // V1 `/session/:id/summarize`, not the V2 `/api/session/:id/compact` RPC,
+    // which answers 503 "Session compact is not available yet" on the pinned
+    // build. Measured against the bundled server, not assumed.
+    const { fetchImpl, calls } = mockSummarize();
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.compactSession("ses_1", "anthropic", "claude-sonnet-5");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("http://127.0.0.1:1/session/ses_1/summarize");
+    expect(calls[0]!.body).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-5" });
+  });
+
+  it("falls back to the default model when the session has not bound one", async () => {
+    // The endpoint REQUIRES both keys: an empty body comes back 400 "Missing
+    // key at [providerID]", so there is no server-side default to lean on.
+    const { fetchImpl, calls } = mockSummarize("openrouter/qwen/qwen3-coder");
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await client.compactSession("ses_1");
+
+    // Split on the FIRST slash: a model id may contain more of them.
+    expect(calls[calls.length - 1]!.body).toEqual({
+      providerID: "openrouter",
+      modelID: "qwen/qwen3-coder",
+    });
+  });
+
+  it("says what is missing when there is no model at all", async () => {
+    const { fetchImpl, calls } = mockSummarize();
+    const client = new OpenCodeClient({ baseUrl: "http://127.0.0.1:1", fetchImpl });
+
+    await expect(client.compactSession("ses_1")).rejects.toThrow(/model/i);
+    // And never posts a body the server would only reject.
+    expect(calls.some((c) => c.url.endsWith("/summarize"))).toBe(false);
+  });
+});

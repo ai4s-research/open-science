@@ -106,7 +106,8 @@
       "sampleIds": "Proben-IDs"
     },
     "mobileNoPreview": "Dieser Dateityp lässt sich hier nicht anzeigen – zum Ansehen herunterladen.",
-    "download": "Herunterladen"
+    "download": "Herunterladen",
+    "waitingWorkspace": "Warte auf das Laden des Arbeitsbereichs {{filename}}… (Fokussieren Sie die Sitzung, der diese Datei gehört)"
   },
   "office": {
     "rendering": "Wird gerendert…",

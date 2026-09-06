@@ -129,6 +129,10 @@
       "scanning": "작업 공간을 읽는 중…",
       "chipTitle": "이 대화를 에이전트에게 인용합니다",
       "removeAria": "{{title}} 참조 제거"
+    },
+    "compact": {
+      "aria": "컨텍스트 압축",
+      "title": "이전 턴을 요약하여 다음 답변이 제한된 컨텍스트에서 실행되도록 합니다"
     }
   },
   "localCommand": {

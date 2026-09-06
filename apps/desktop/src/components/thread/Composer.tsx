@@ -7,8 +7,10 @@ import {
   ClipboardList,
   Hammer,
   Hand,
+  Loader2,
   MessageSquare,
   Paperclip,
+  Shrink,
   Square,
   Terminal,
   X,
@@ -150,6 +152,8 @@ export function Composer({
   sessionDir,
   currentSessionId,
   onInteract,
+  onCompactContext,
+  compacting,
   acceptsHandoff = true,
   visible = true,
 }: {
@@ -197,6 +201,12 @@ export function Composer({
   /** Fired when the user edits the input — used to pin a tentative screen (#3)
    *  the moment they start typing, so it isn't reused/lost on the next click. */
   onInteract?: () => void;
+  /** When provided, shows the manual compress-context button left of the model
+   *  picker. The live session wires it to `compactContext`; static mock
+   *  sessions omit it. Disabled while a turn runs or a compaction is in
+   *  flight for this session. */
+  onCompactContext?: () => void;
+  compacting?: boolean;
   /** May this composer take an app-wide prepared draft (the provenance panel's
    *  "Reproduce")? Exactly one should: every pane of every screen is mounted,
    *  including hidden ones, and a draft claimed by any other lands where the
@@ -1054,6 +1064,21 @@ export function Composer({
         {/* Model picker + send kept together, pushed right (and wrapping as a
             unit) so the send button is always reachable on a narrow pane. */}
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
+          {onCompactContext && (
+            <button
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t("composer.compact.aria")}
+              title={t("composer.compact.title")}
+              onClick={onCompactContext}
+              disabled={compacting || working || disabled}
+            >
+              {compacting ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Shrink size={13} />
+              )}
+            </button>
+          )}
           {showModelPicker && <ModelPicker sessionId={modelSessionId} compact={compactToolbar} />}
           {configOptions && onConfigOption && (
             <AcpConfigPicker options={configOptions} onChange={onConfigOption} disabled={working} />

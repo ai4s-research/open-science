@@ -83,6 +83,11 @@ export interface AgentRuntime {
     files?: PromptFile[],
   ): Promise<void>;
   abortSession(sessionId: string): Promise<void>;
+  /** Compact a session's conversation: older turns are summarized by the
+   *  session's model into a "Context compacted" seam, so subsequent turns
+   *  run on a bounded context. V1 `/session/:id/summarize`; the session's
+   *  provider/model when known, else the server default. */
+  compactSession(sessionId: string, providerID?: string, modelID?: string): Promise<void>;
   /** Revert the session to (and including) `messageID`, dropping it and every
    *  message after it (and rolling back any files they changed). Used to edit a
    *  past user message: revert to it, then `sendPrompt` the corrected text.

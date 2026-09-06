@@ -84,6 +84,41 @@ describe("FilePreviewInspector — binary file behind a text preview", () => {
   });
 });
 
+describe("FilePreviewInspector — markdown via readArtifact (Files browser path)", () => {
+  it("renders a .md file that has no inline content by reading it from disk", async () => {
+    const read = vi.mocked(readArtifact);
+    read.mockResolvedValueOnce({
+      path: "notes/report.md",
+      mime: "text/markdown",
+      encoding: "utf8",
+      data: "# Disk-loaded\n\nRendered from readArtifact.",
+      size: 40,
+    });
+    render(
+      <FilePreviewInspector
+        data={{ variant: "file", path: "notes/report.md", filename: "report.md", artifact: "report" }}
+        onClose={() => {}}
+      />,
+    );
+    // The heading is real document markup fetched through readArtifact — the
+    // path the Files browser (no inline content) actually exercises.
+    expect(await screen.findByRole("heading", { name: "Disk-loaded" })).toBeInTheDocument();
+    expect(read).toHaveBeenCalledWith("notes/report.md", undefined);
+  });
+
+  it("falls back to the desktop-app note when the file cannot be read (browser dev)", async () => {
+    const read = vi.mocked(readArtifact);
+    read.mockResolvedValueOnce(null);
+    render(
+      <FilePreviewInspector
+        data={{ variant: "file", path: "notes/report.md", filename: "report.md", artifact: "report" }}
+        onClose={() => {}}
+      />,
+    );
+    expect(await screen.findByText(/desktop app/)).toBeInTheDocument();
+  });
+});
+
 describe("FilePreviewInspector — session workspace scope", () => {
   const deck: FilePreviewInspectorT = {
     variant: "file",
@@ -123,6 +158,50 @@ describe("FilePreviewInspector — session workspace scope", () => {
     });
     await Promise.resolve();
     expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a \\?\\-prefixed workspace path as the same folder (Windows canonicalize)", async () => {
+    // Tauri's canonicalize() returns \\?\C:\… on Windows; the persisted
+    // workspace file and a session's directory come from different sources, so
+    // without normalization the wait guard compares raw strings that never
+    // match and the preview spins on "loading" forever (the REPORT.md bug).
+    const read = vi.mocked(readArtifact);
+    read.mockClear();
+    act(() => {
+      useRuntimeStore.setState({ workspace: "\\\\?\\C:\\Users\\root\\Documents\\OpenScience\\2026-08-01-1420" });
+    });
+    render(
+      <FilePreviewInspector
+        data={deck}
+        workspaceDirectory="C:/Users/root/Documents/OpenScience/2026-08-01-1420"
+      />,
+    );
+    // Same folder (modulo prefix / slashes): the preview must load immediately,
+    // not park in the "waiting for workspace" state.
+    await waitFor(() => {
+      expect(read).toHaveBeenCalledWith(deck.path, undefined);
+    });
+    expect(screen.queryByText(/waiting for the workspace/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a waiting note instead of spinning forever while parked on another workspace", async () => {
+    const read = vi.mocked(readArtifact);
+    read.mockClear();
+    act(() => {
+      useRuntimeStore.setState({ workspace: "/workspaces/other-session" });
+    });
+    render(
+      <FilePreviewInspector
+        data={deck}
+        workspaceDirectory="/workspaces/luna-session"
+      />,
+    );
+    // Parked: no read, and the pane settles into an explicit wait note — the
+    // "loading…" spinner must not stay up indefinitely.
+    await waitFor(() => {
+      expect(screen.getByText(/waiting for the workspace/i)).toBeInTheDocument();
+    });
+    expect(read).not.toHaveBeenCalled();
   });
 });
 

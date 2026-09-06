@@ -105,7 +105,8 @@
       "sampleIds": "样本 ID"
     },
     "mobileNoPreview": "此文件类型无法在网页预览——下载后查看。",
-    "download": "下载"
+    "download": "下载",
+    "waitingWorkspace": "正在等待工作区加载 {{filename}}…（切换到该文件所属的会话即可预览）"
   },
   "office": {
     "rendering": "正在渲染…",

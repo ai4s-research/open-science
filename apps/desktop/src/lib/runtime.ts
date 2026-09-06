@@ -393,6 +393,11 @@ interface RuntimeState {
   /** Epoch ms the current sidecar started; 0 until known. Anything stored
    *  before it cannot be in flight now. */
   runtimeStartedAt: number;
+  /** Sessions a manual "compress context" was requested for. The POST admits
+   *  the request; the flag stays until the compaction part folds in
+   *  (`session.compacted`) or the session reports idle, and drives the spinner
+   *  on the composer's compact button. */
+  compactingSessions: Record<string, boolean>;
   /** Switch to an existing folder, or (with `dated`) create a new dated one.
    *  `key` is the draft slot the switch was made for — the folder becomes that
    *  draft's destination. Defaults to the global slot. */
@@ -428,6 +433,10 @@ interface RuntimeState {
   /** Interrupt a session's running turn (Stop button / Esc); the focused
    *  session when `sessionId` is omitted. */
   interrupt: (sessionId?: string) => Promise<void>;
+  /** Manually compact a session's context (composer button). Older turns are
+   *  summarized by the model into a "Context compacted" seam so subsequent
+   *  turns run on a bounded context. No-op on a draft. */
+  compactContext: (sessionId?: string) => Promise<void>;
   /** Edit a past user message: revert the session to (and including) that
    *  message — dropping it and everything after, rolling back the files those
    *  turns changed — then resend the corrected text as a new turn. Destructive:
@@ -2119,6 +2128,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   stepCounts: {},
   shellTurns: {},
   retryNotices: {},
+  compactingSessions: {},
   runtimeStartedAt: 0,
 
   // These write the CURRENT session's pane (DRAFT_KEY on a draft), keeping the
@@ -2794,6 +2804,22 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         });
       }
       if (event.type === "session.idle") clearLiveFolds(sid);
+      // A manual compaction finished: the "Context compacted" seam just folded
+      // in, so subsequent turns already run on the bounded context. Clear the
+      // composer spinner and confirm. Idle also clears, as a safety net: a
+      // compaction that ends without a visible part must not pin the flag and
+      // leave the button spinning forever.
+      if (
+        get().compactingSessions[sid] &&
+        (event.type === "session.compacted" || event.type === "session.idle")
+      ) {
+        set((s) => {
+          const compactingSessions = { ...s.compactingSessions };
+          delete compactingSessions[sid];
+          return { compactingSessions };
+        });
+        if (event.type === "session.compacted") toast.success(i18n.t("runtime.compact.done"));
+      }
       // Idle after a user interrupt: the thread already ends with "Interrupted"
       // — keep the locks clear and skip the fold. An abort can emit MORE than
       // one idle, so the guard must survive every trailing idle (`.has`, not
@@ -3732,6 +3758,36 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       sessionId,
       draftKey,
     );
+  },
+
+  compactContext: async (sessionId) => {
+    const sid = sessionId ?? get().currentId;
+    if (!sid || !client) return;
+    // Compacting while a turn streams would race the model loop (the endpoint
+    // refuses a busy session too). The composer disables the button while the
+    // session is working, so this guard is for programmatic callers.
+    if (get().runningSessions[sid]) {
+      toast.error(i18n.t("runtime.compact.busy"));
+      return;
+    }
+    // Summarize with the session's OWN provider/model. Never a global
+    // context-limit override: that config is shared, so squeezing this
+    // conversation would squeeze every other session on the same model.
+    const meta = get().sessions.find((s) => s.id === sid);
+    set((s) => ({ compactingSessions: { ...s.compactingSessions, [sid]: true } }));
+    try {
+      await client.compactSession(sid, meta?.model?.providerID, meta?.model?.id);
+    } catch (err) {
+      set((s) => {
+        const compactingSessions = { ...s.compactingSessions };
+        delete compactingSessions[sid];
+        return {
+          compactingSessions,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      });
+      toast.error(i18n.t("runtime.compact.error"));
+    }
   },
 
   interrupt: async (sessionId) => {

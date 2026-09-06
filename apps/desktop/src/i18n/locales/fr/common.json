@@ -3,5 +3,12 @@
     "save": "Enregistrer",
     "cancel": "Annuler",
     "remove": "Supprimer"
+  },
+  "runtime": {
+    "compact": {
+      "busy": "Attendez la fin du tour en cours avant de compresser.",
+      "error": "Impossible de compresser le contexte.",
+      "done": "Contexte compressé. La prochaine réponse utilisera la conversation compressée."
+    }
   }
 }

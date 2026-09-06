@@ -129,6 +129,10 @@
       "scanning": "正在读取工作区…",
       "chipTitle": "这段会话会作为引用提供给智能体",
       "removeAria": "移除对「{{title}}」的引用"
+    },
+    "compact": {
+      "aria": "压缩上下文",
+      "title": "把较早的对话总结掉，让下一条回复在受控的上下文上运行"
     }
   },
   "localCommand": {

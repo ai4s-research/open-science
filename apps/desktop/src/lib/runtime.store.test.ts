@@ -101,6 +101,9 @@ const mocks = vi.hoisted(() => ({
   adoptWorkspaceSkills: vi.fn(async (_known: string[]) => ["agent-skill"]),
   /** Constructor options every OpenCodeClient was created with. */
   clientOpts: [] as Record<string, unknown>[],
+  /** compactSession(sid, providerID, modelID) — resolves; set failCompact to reject. */
+  compactSessionSpy: vi.fn(),
+  failCompact: false,
   closedDirs: [] as string[],
 }));
 
@@ -170,6 +173,10 @@ vi.mock("@ai4s/sdk", () => {
     }
     async listSessions() {
       return mocks.sessionList;
+    }
+    async compactSession(sid: string, providerID?: string, modelID?: string) {
+      mocks.compactSessionSpy(sid, providerID, modelID);
+      if (mocks.failCompact) throw new Error("compact rejected");
     }
     async renameSession(id: string, title: string) {
       mocks.renameSessionSpy(id, title);
@@ -3105,5 +3112,76 @@ describe("background pane streams", () => {
     useRuntimeStore.setState({ workspace: "/ws/a" });
     sync(["/ws/a"]);
     expect(mocks.closedDirs).toContain("/ws/a");
+  });
+});
+
+describe("manual context compaction", () => {
+  beforeEach(async () => {
+    mocks.compactSessionSpy.mockClear();
+    mocks.failCompact = false;
+    useRuntimeStore.getState().disconnect();
+    await useRuntimeStore.getState().connect();
+    useRuntimeStore.setState({
+      sessions: [
+        { id: "ses_1", title: "s", model: { providerID: "deepseek", id: "deepseek-v4-flash" } },
+      ],
+    } as never);
+  });
+
+  it("summarizes with the session's own provider/model via the V1 endpoint", async () => {
+    await useRuntimeStore.getState().compactContext("ses_1");
+    expect(mocks.compactSessionSpy).toHaveBeenCalledWith(
+      "ses_1",
+      "deepseek",
+      "deepseek-v4-flash",
+    );
+    // The spinner is up while the summary runs (cleared by the compacted seam).
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBe(true);
+  });
+
+  it("clears the spinner and reports failure when the endpoint rejects", async () => {
+    mocks.failCompact = true;
+    await useRuntimeStore.getState().compactContext("ses_1");
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+    expect(useRuntimeStore.getState().error).toContain("compact rejected");
+  });
+
+  it("refuses to compact while a turn is streaming", async () => {
+    useRuntimeStore.setState({ runningSessions: { ses_1: true } } as never);
+    await useRuntimeStore.getState().compactContext("ses_1");
+    expect(mocks.compactSessionSpy).not.toHaveBeenCalled();
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+  });
+
+  it("clears the flag on the compacted seam and on idle (safety net)", async () => {
+    await useRuntimeStore.getState().compactContext("ses_1");
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBe(true);
+    mocks.fireEvent({ type: "session.compacted", sessionId: "ses_1" });
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+
+    await useRuntimeStore.getState().compactContext("ses_1");
+    mocks.fireEvent({ type: "session.idle", sessionId: "ses_1" });
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+  });
+
+  it("compacts two sessions concurrently without cross-talk", async () => {
+    useRuntimeStore.setState({
+      sessions: [
+        { id: "ses_1", title: "a", model: { providerID: "deepseek", id: "deepseek-v4-flash" } },
+        { id: "ses_2", title: "b", model: { providerID: "anthropic", id: "claude-sonnet-4" } },
+      ],
+    } as never);
+    await Promise.all([
+      useRuntimeStore.getState().compactContext("ses_1"),
+      useRuntimeStore.getState().compactContext("ses_2"),
+    ]);
+    expect(mocks.compactSessionSpy).toHaveBeenCalledWith("ses_1", "deepseek", "deepseek-v4-flash");
+    expect(mocks.compactSessionSpy).toHaveBeenCalledWith("ses_2", "anthropic", "claude-sonnet-4");
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBe(true);
+    expect(useRuntimeStore.getState().compactingSessions["ses_2"]).toBe(true);
+    // One session's seam clears only its own flag.
+    mocks.fireEvent({ type: "session.compacted", sessionId: "ses_1" });
+    expect(useRuntimeStore.getState().compactingSessions["ses_1"]).toBeUndefined();
+    expect(useRuntimeStore.getState().compactingSessions["ses_2"]).toBe(true);
   });
 });

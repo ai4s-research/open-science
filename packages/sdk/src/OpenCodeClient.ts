@@ -556,6 +556,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       parentID?: string | null;
       metadata?: Record<string, unknown>;
       time?: { created?: number; updated?: number };
+      model?: { id?: string; providerID?: string };
     }>;
     const sessions = arr.map((s) => {
       const mine = (s.metadata?.[META_NS] ?? {}) as { archived?: number };
@@ -567,6 +568,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         parentId: s.parentID ?? undefined,
         created: s.time?.created,
         updated: s.time?.updated,
+        ...(s.model ? { model: s.model } : {}),
         ...(typeof mine.archived === "number" ? { archived: mine.archived } : {}),
         ...(s.metadata ? { metadata: s.metadata } : {}),
       } satisfies SessionMeta;
@@ -772,6 +774,50 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       { method: "POST", headers: this.headers(true), body: "{}" },
     );
     if (!res.ok) throw await this.apiError(res, "Failed to interrupt the session");
+  }
+
+  /** Compact a session's conversation: OpenCode summarizes the older turns
+   *  with the session's own model and replaces them with a "Context compacted"
+   *  seam, so subsequent turns run on a bounded context (the fix for long
+   *  sessions that stall on giant prompts). Uses the supported V1
+   *  `/session/:id/summarize` endpoint with the session's provider/model — the
+   *  V2 `/api/session/:id/compact` RPC is a stub that returns
+   *  OperationUnavailable, and a global context-limit override would leak into
+   *  every other session on that model. `providerID`/`modelID` fall back to
+   *  the session's bound model (listSessions carries it); when the session
+   *  has none, the server uses its own default. */
+  async compactSession(
+    sessionId: string,
+    providerID?: string,
+    modelID?: string,
+  ): Promise<void> {
+    // The endpoint REQUIRES both keys: posting `{}` comes back 400 "Missing key
+    // at [providerID]", not a server-side default. A session that has not bound
+    // a model yet (none sent a turn) therefore falls back to the app's default,
+    // and only fails if there is no model at all — which is a state the composer
+    // could not have reached anyway.
+    let pid = providerID;
+    let mid = modelID;
+    if (!pid || !mid) {
+      const fallback = await this.getDefaultModel();
+      const slash = fallback ? fallback.indexOf("/") : -1;
+      if (slash > 0) {
+        pid = fallback!.slice(0, slash);
+        mid = fallback!.slice(slash + 1);
+      }
+    }
+    if (!pid || !mid) {
+      throw new Error("No model to compact with — pick one in the model picker first.");
+    }
+    const res = await this.fetchImpl(
+      `${this.baseUrl}/session/${encodeURIComponent(sessionId)}/summarize`,
+      {
+        method: "POST",
+        headers: this.headers(true),
+        body: JSON.stringify({ providerID: pid, modelID: mid }),
+      },
+    );
+    if (!res.ok) throw await this.apiError(res, "Failed to compact the session");
   }
 
   /** Every skill OpenCode has really loaded for this workspace: built-in,

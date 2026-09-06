@@ -106,7 +106,8 @@
       "sampleIds": "Identifiants d'échantillons"
     },
     "mobileNoPreview": "Impossible de prévisualiser ce type de fichier ici — téléchargez-le pour le consulter.",
-    "download": "Télécharger"
+    "download": "Télécharger",
+    "waitingWorkspace": "En attente du chargement de l'espace de travail {{filename}}… (concentrez-vous sur la session propriétaire de ce fichier)"
   },
   "office": {
     "rendering": "Rendu en cours…",

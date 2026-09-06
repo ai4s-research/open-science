@@ -129,6 +129,10 @@
       "scanning": "Reading the workspace…",
       "chipTitle": "This conversation will be quoted for the agent",
       "removeAria": "Remove the reference to {{title}}"
+    },
+    "compact": {
+      "aria": "Compress context",
+      "title": "Summarize the earlier turns so the next reply runs on a bounded context"
     }
   },
   "localCommand": {

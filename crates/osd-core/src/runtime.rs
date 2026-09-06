@@ -1915,7 +1915,12 @@ pub fn set_workspace(
 
     // Follow the active folder with the snapshot watcher so out-of-app edits
     // (external editor, detached process) in the new workspace are captured too.
-    crate::git_snapshot::watch_workspace(&canon);
+    // The NATIVE form, not `canon`: on Windows the watcher was the one caller
+    // still handed the `\\?\` verbatim path, which it then passes to git as a
+    // working directory. Every other consumer was given the plain form by #76;
+    // this one was missed, so snapshots were the last thing still fed a shape
+    // nothing else in the app produces.
+    crate::git_snapshot::watch_workspace(std::path::Path::new(&native));
 
     // No sidecar restart: OpenCode serves every folder from one process via
     // per-directory instances, and the frontend reconnects its event stream
