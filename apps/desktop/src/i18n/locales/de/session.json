@@ -439,5 +439,13 @@
     "continueIn": "In {{name}} fortfahren",
     "newFolder": "Neuer Ordner",
     "chooseOther": "Anderen Ordner wählen…"
+  },
+  "stall": {
+    "silentTitle": "Turn reagiert möglicherweise nicht mehr",
+    "silentLine": "Dieser Turn ist seit {{minutes}} Min. ohne Aktivität. Läuft er noch oder hängt er?",
+    "repeatTitle": "Turn wiederholt sich möglicherweise",
+    "repeatLine": "Dieser Turn hat denselben Aufruf {{count}}-mal mit identischen Ergebnissen ausgeführt. Arbeitet er noch oder dreht er sich im Kreis?",
+    "keepWaiting": "Weiter warten",
+    "stopTurn": "Turn stoppen"
   }
 }

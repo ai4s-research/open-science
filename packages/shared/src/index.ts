@@ -288,6 +288,11 @@ export interface StatusLineBlock {
   text: string; // e.g. "8 running · 16m 2s"
   tone?: "running" | "done" | "review" | "error";
   divider?: boolean;
+  /** Present on the stall-guard warning line (runtime.ts). When set, the
+   *  StatusLine renders two actions beside the text — Keep waiting (dismiss
+   *  the warning, re-arm the guard) and Stop turn (interrupt). Carries the
+   *  guard's verdict key so the UI can tell WHICH trip a click answers. */
+  stall?: { key: string };
 }
 
 // ---- Inspector (right pane) ----

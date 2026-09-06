@@ -85,6 +85,19 @@ import { isGoalInjectedPrompt } from "./goalPrompts";
 import { findHistoryDefects, repairTarget } from "./malformedHistory";
 import { runSync, syncDir } from "./syncRunner";
 import { notifyPermissionRequest, notifyTurnComplete } from "./systemNotification";
+import {
+  DEFAULT_STALL_GUARD_CONFIG,
+  applyStallEvent,
+  createStallSessionState,
+  markStallTurnIdle,
+  markStallTurnRunning,
+  resetStallAfterKeepWaiting,
+  stallVerdict,
+  verdictKey,
+  type StallGuardConfig,
+  type StallSessionState,
+  type StallVerdict,
+} from "./stallGuard";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { listProvidersWithAvailability, ZEN_PROVIDER_ID } from "./zenModels";
 import { toast } from "@/lib/toast";
@@ -141,6 +154,14 @@ function initialReasoningVariant(): string | null {
  *  user's call. Persisted in localStorage like its sibling AUTO_REVIEW_KEY. */
 const TURN_NOTIFY_KEY = "ai4s.turnNotify.v1";
 
+/** Settings key for the stall guard (#121): a safety net that NOTICES a turn
+ *  that looks stuck (silent for N minutes, or running the same tool call K
+ *  times with identical results) and offers Keep waiting / Stop — nothing is
+ *  ever auto-interrupted. Off by default. Persisted as one JSON record so the
+ *  master switch, silence minutes (Channel A) and repeat threshold (Channel B,
+ *  K) travel together. */
+const STALL_GUARD_KEY = "ai4s.stallGuard.v1";
+
 function initialAutoReview(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(AUTO_REVIEW_KEY) === "1";
@@ -149,6 +170,48 @@ function initialAutoReview(): boolean {
 function initialTurnNotify(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(TURN_NOTIFY_KEY) === "1";
+}
+
+/** The user's stall-guard configuration, or the defaults when unset or
+ *  malformed. Bounds are enforced here so a hand-edited value (or a hostile
+ *  localStorage write) cannot break the feature: a silence threshold of 0 or
+ *  negative would warn instantly, a nonsense huge one would never warn, and a
+ *  repeat threshold below the meaning of "repeat" would nag on a single call.
+ *  The channel switches default to OFF (A) / ON (B) — see
+ *  DEFAULT_STALL_GUARD_CONFIG for why. */
+function initialStallGuardConfig(): StallGuardConfig {
+  if (typeof window === "undefined") return { ...DEFAULT_STALL_GUARD_CONFIG };
+  const raw = window.localStorage.getItem(STALL_GUARD_KEY);
+  if (!raw) return { ...DEFAULT_STALL_GUARD_CONFIG };
+  try {
+    const parsed = JSON.parse(raw) as Partial<StallGuardConfig>;
+    return {
+      enabled: parsed.enabled === true,
+      channelAEnabled: parsed.channelAEnabled === true,
+      channelBEnabled: parsed.channelBEnabled !== false,
+      silenceMinutes:
+        typeof parsed.silenceMinutes === "number" &&
+        Number.isFinite(parsed.silenceMinutes) &&
+        parsed.silenceMinutes >= 1 &&
+        parsed.silenceMinutes <= 1440
+          ? Math.round(parsed.silenceMinutes)
+          : DEFAULT_STALL_GUARD_CONFIG.silenceMinutes,
+      repeatThreshold:
+        typeof parsed.repeatThreshold === "number" &&
+        Number.isFinite(parsed.repeatThreshold) &&
+        parsed.repeatThreshold >= 2 &&
+        parsed.repeatThreshold <= 100
+          ? Math.round(parsed.repeatThreshold)
+          : DEFAULT_STALL_GUARD_CONFIG.repeatThreshold,
+    };
+  } catch {
+    return { ...DEFAULT_STALL_GUARD_CONFIG };
+  }
+}
+
+function persistStallGuardConfig(config: StallGuardConfig): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STALL_GUARD_KEY, JSON.stringify(config));
 }
 
 export interface Thread {
@@ -236,6 +299,13 @@ interface RuntimeState {
    *  interrupted). Off by default; persisted locally like autoReview. */
   turnNotify: boolean;
   setTurnNotify: (enabled: boolean) => void;
+  /** Stall guard (#121): notice a turn that looks stuck and offer
+   *  Keep waiting / Stop — never auto-interrupt. Off by default. */
+  stallGuard: StallGuardConfig;
+  setStallGuard: (patch: Partial<StallGuardConfig>) => void;
+  /** Answer a stall warning on `sid`: keep waiting (dismiss + re-arm) or stop
+   *  (interrupt the session's turn). */
+  stallAction: (sid: string, stallKey: string, action: "keep-waiting" | "stop") => void;
   /** Non-blocking reviewer activity keyed by the foreground parent session. */
   backgroundReviews: Record<string, "queued" | "running">;
   cancelAutoReview: (sessionId: string) => void;
@@ -865,6 +935,274 @@ const erroredSessions = new Set<string>();
  *  outcome markers above. */
 const notifiedSettledSessions = new Set<string>();
 
+// ---- Stall guard (#121) ----
+// A per-session ledger mirroring sseLast's lifecycle (module-level, not in the
+// store): it is an event accounting detail, not UI state. The store holds only
+// the user's config; the ledger is fed and read by the event handler.
+
+/** Per-session stall ledger. Created on first use, dropped when the session's
+ *  turn settles and no new one starts — bounded by the sessions that actually
+ *  stream in this process. */
+const stallLedger = new Map<string, StallSessionState>();
+
+/** Stall warnings already shown (verdict keys). One reminder per trip: a
+ *  verdict must not re-fire on every later event until the ledger moves on.
+ *  `remember`-capped like the sibling dedup sets. */
+const stallWarnedKeys = new Set<string>();
+
+function stallStateFor(sid: string): StallSessionState {
+  let st = stallLedger.get(sid);
+  if (!st) {
+    st = createStallSessionState();
+    stallLedger.set(sid, st);
+  }
+  return st;
+}
+
+/** Drop every standing stall warning line from every thread. Called when the
+ *  guard is turned off — a warning that no longer matches the user's settings
+ *  is stale and would sit there forever. */
+function clearStallWarnings(): void {
+  useRuntimeStore.setState((s) => {
+    let changed = false;
+    const threads: Record<string, Thread> = {};
+    for (const [sid, cur] of Object.entries(s.threads)) {
+      const filtered = cur.blocks.filter((b) => !(b.kind === "status-line" && b.stall));
+      if (filtered.length !== cur.blocks.length) {
+        changed = true;
+        threads[sid] = { ...cur, blocks: filtered };
+      }
+    }
+    return changed ? { threads: { ...s.threads, ...threads } } : {};
+  });
+  stallWarnedKeys.clear();
+}
+
+/** Render one stall warning: a status line in the session's thread carrying
+ *  Keep waiting / Stop actions, plus (desktop only) a system notification.
+ *  Called once per trip — the caller has already checked stallWarnedKeys.
+ *
+ *  The thread line is appended on a MICROTASK, not synchronously: the guard
+ *  runs at the top of the event handler (where the ledger is fed), and the
+ *  SAME event's fold appends its own block after that. Appending the warning
+ *  synchronously would leave it stranded ABOVE the block the triggering event
+ *  just folded in. A microtask lands after the handler's synchronous work
+ *  (including the fold) but before any later event, so the warning reads as
+ *  the newest line in the turn. The dedup key and the notification are
+ *  synchronous — the microtask only defers the visual line. */
+function raiseStallWarning(sid: string, v: StallVerdict): void {
+  const channelText =
+    v.channel === "A"
+      ? i18n.t("session:stall.silentLine", { minutes: v.silenceMinutes })
+      : i18n.t("session:stall.repeatLine", { count: v.count });
+  // The armed key is scoped to the session: two sessions looping the same
+  // fingerprint are two separate trips and each deserves its own warning.
+  const key = `${sid}:${verdictKey(v)}`;
+  remember(stallWarnedKeys, key);
+  queueMicrotask(() => {
+    // The turn may have settled between the verdict and this microtask (an
+    // idle/error event arrived right after the trip) — a warning line has no
+    // place on a finished turn, and stallTurnSettled has already dropped it.
+    if (!stallLedger.get(sid)?.turnRunning) return;
+    useRuntimeStore.setState((s) => {
+      const cur = s.threads[sid] ?? emptyThread();
+      return {
+        threads: {
+          ...s.threads,
+          [sid]: {
+            ...cur,
+            loaded: true,
+            blocks: [
+              ...cur.blocks,
+              { kind: "status-line", text: channelText, tone: "error", stall: { key } },
+            ],
+          },
+        },
+      };
+    });
+  });
+  // Desktop only: the gateway web client has no native notifications.
+  if (isTauri) {
+    const body = sessionTitleFor(useRuntimeStore.getState, sid);
+    void notifyTurnComplete({
+      title:
+        v.channel === "A"
+          ? i18n.t("session:stall.silentTitle")
+          : i18n.t("session:stall.repeatTitle"),
+      body,
+    });
+  }
+  void logDebug(`stall guard: ${sid} → channel ${v.channel} (${key})`);
+}
+
+/** Feed one SSE event into the session's stall ledger, then check whether it
+ *  trips a channel. Call sites: the shared event handler (per event) — Channel
+ *  A trips on the FIRST event that arrives after N minutes of silence, which
+ *  is the honest zero-polling way to notice a stall. */
+function feedStallEvent(sid: string, event: OpenCodeEvent, now: number): void {
+  const cfg = useRuntimeStore.getState().stallGuard;
+  if (!cfg.enabled) return;
+  const st = stallStateFor(sid);
+  const before = st;
+  const after = applyStallEvent(st, event, now);
+  stallLedger.set(sid, after);
+  // An escape signal (new text/reasoning, a different call, a changed output,
+  // a new user instruction, a retry) moved the work on — the repetition being
+  // counted is over, so any earlier warning for this session is re-armable: if
+  // the SAME loop starts again later, it is a new trip worth one more warning.
+  // Detected as a change in what is being counted (fingerprint switched or the
+  // counter cleared).
+  if (
+    before.runFingerprint !== after.runFingerprint ||
+    (before.runCount > 0 && after.runCount === 0)
+  ) {
+    for (const k of [...stallWarnedKeys]) {
+      if (k.startsWith(`${sid}:`)) stallWarnedKeys.delete(k);
+    }
+  }
+  const verdict = stallVerdict(after, cfg, now);
+  if (verdict) {
+    const key = `${sid}:${verdictKey(verdict)}`;
+    if (!stallWarnedKeys.has(key)) raiseStallWarning(sid, verdict);
+  }
+}
+
+/** Mark a session's turn started in the stall ledger (call where the running
+ *  lock is armed after a send is accepted). */
+function stallTurnStarted(sid: string, now: number): void {
+  const st = stallStateFor(sid);
+  stallLedger.set(sid, markStallTurnRunning(st, now));
+  ensureStallTimer();
+}
+
+/** Mark a session's turn settled (call from onTurnIdle and the error path, the
+ *  two places the running lock clears). */
+function stallTurnSettled(sid: string): void {
+  const st = stallLedger.get(sid);
+  if (st) {
+    stallLedger.set(sid, markStallTurnIdle(st));
+  }
+  // A settled turn's warning line is stale — the user can now see the outcome
+  // (or the next turn starts fresh). Drop any warning that was still up.
+  useRuntimeStore.setState((s) => {
+    const cur = s.threads[sid];
+    if (!cur || !cur.blocks.some((b) => b.kind === "status-line" && b.stall)) return {};
+    return {
+      threads: {
+        ...s.threads,
+        [sid]: { ...cur, blocks: cur.blocks.filter((b) => !(b.kind === "status-line" && b.stall)) },
+      },
+    };
+  });
+  // Drop the session's ledger once its turn is over: a long-idle session must
+  // not hold state forever. It is recreated on the next turn or event.
+  stallLedger.delete(sid);
+  // No running turn may remain — let the silence timer stop itself.
+  maybeStopStallTimer(true);
+}
+
+// ---- Channel A's clock (silence is the ABSENCE of events) ----
+// Channel A cannot be driven by the event stream alone: a turn that went
+// silent and never emits again would never trip an event-driven check (this
+// was the v1 gap). It needs the wall clock. This timer is deliberately NOT a
+// global poller — it is an on-demand detector that only lives while a turn is
+// running AND Channel A is on, and stops itself the moment neither holds:
+//
+//   • armed from stallTurnStarted (a turn began) and setStallGuard,
+//   • self-stops when no session is in runningSessions (checked each tick and
+//     on every stallTurnSettled) or the guard/channel is switched off.
+//
+// A quiet interval is cheap precisely because it is idle most of the time;
+// the 30 s cadence bounds how late a silence warning can be (Channel A's
+// threshold is minutes, so 30 s is far finer than needed).
+
+const STALL_SILENCE_CHECK_MS = 30_000;
+let stallSilenceTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Whether the guard wants Channel A at all. Deliberately does NOT require a
+ *  running turn at ARM time: the timer is armed from places that run before
+ *  the running lock lands (a send arms the ledger, then sets runningSessions a
+ *  line later). The timer self-stops on the first tick that finds no running
+ *  turn, so an over-eager arm costs at most one idle 30 s tick. */
+function stallSilenceGuardOn(): boolean {
+  const g = useRuntimeStore.getState();
+  return g.stallGuard.enabled && g.stallGuard.channelAEnabled;
+}
+
+/** Stop the timer when it no longer has a reason to run: the guard/channel
+ *  turned off, or (when `forRunning` is set) no turn is running. */
+function maybeStopStallTimer(forRunning = false): void {
+  if (stallSilenceTimer === null) return;
+  const g = useRuntimeStore.getState();
+  const running = Object.keys(g.runningSessions).length > 0;
+  if (!g.stallGuard.enabled || !g.stallGuard.channelAEnabled || (forRunning && !running)) {
+    clearInterval(stallSilenceTimer);
+    stallSilenceTimer = null;
+  }
+}
+
+/** Arm the silence timer if the guard wants it and it is not already running. */
+function ensureStallTimer(): void {
+  if (stallSilenceTimer !== null) return;
+  if (!stallSilenceGuardOn()) return;
+  stallSilenceTimer = setInterval(() => {
+    // The guard may have been switched off, or every turn may have settled,
+    // since the last tick — stop rather than spin.
+    if (!stallSilenceGuardOn()) {
+      maybeStopStallTimer();
+      return;
+    }
+    const cfg = useRuntimeStore.getState().stallGuard;
+    const now = Date.now();
+    // Channel A only: silence for a RUNNING session. The ledger may be absent
+    // (a turn this app did not start, e.g. after a reload) — its lastActivity
+    // is then unknown, and stallStateFor would mint a fresh clock, so a
+    // session whose turn predates the ledger must not be nagged from nothing.
+    const running = Object.keys(useRuntimeStore.getState().runningSessions);
+    if (running.length === 0) {
+      maybeStopStallTimer(true);
+      return;
+    }
+    for (const sid of running) {
+      const st = stallLedger.get(sid);
+      if (!st) continue;
+      const verdict = stallVerdict(st, cfg, now);
+      if (verdict?.channel === "A") {
+        const key = `${sid}:${verdictKey(verdict)}`;
+        if (!stallWarnedKeys.has(key)) raiseStallWarning(sid, verdict);
+      }
+    }
+  }, STALL_SILENCE_CHECK_MS);
+}
+
+/** The UI action behind a stall warning's Keep waiting / Stop buttons. */
+function handleStallAction(sid: string, key: string, action: "keep-waiting" | "stop"): void {
+  if (action === "stop") {
+    void useRuntimeStore.getState().interrupt(sid);
+    return;
+  }
+  // Keep waiting: the user is watching and believes the turn is alive. Remove
+  // THIS warning line, and treat the click as activity — restart Channel A's
+  // silence clock and Channel B's counter, so the next warning needs a full
+  // fresh silence period / repetition run rather than firing on the next tick
+  // or next identical call ("remind me later" must not mean "every 30 s").
+  const ledgerState = stallLedger.get(sid);
+  if (ledgerState) {
+    stallLedger.set(sid, resetStallAfterKeepWaiting(ledgerState, Date.now()));
+  }
+  stallWarnedKeys.delete(key);
+  useRuntimeStore.setState((s) => {
+    const cur = s.threads[sid];
+    if (!cur || !cur.blocks.some((b) => b.kind === "status-line" && b.stall?.key === key)) return {};
+    return {
+      threads: {
+        ...s.threads,
+        [sid]: { ...cur, blocks: cur.blocks.filter((b) => !(b.kind === "status-line" && b.stall?.key === key)) },
+      },
+    };
+  });
+}
+
 // ---- Auto-review (#72) ----
 // Per-token review state stays outside Zustand so a background reviewer never
 // repaints the foreground pane. The store only receives queued/running
@@ -1358,7 +1696,16 @@ async function performTurn(
     interruptedSessions.delete(sid); // a fresh turn folds its events normally
     erroredSessions.delete(sid); // …and its outcome label starts clean
     notifiedSettledSessions.delete(sid); // …and its notification may fire again
+    // …and any stall warning THIS session was carrying is stale (a fresh turn).
+    // Scoped to the session: a concurrent session's loop is still its own trip.
+    for (const k of [...stallWarnedKeys]) {
+      if (k.startsWith(`${sid}:`)) stallWarnedKeys.delete(k);
+    }
     void logDebug(`turn → ${sid}`);
+    // Stall guard: a fresh turn starts a fresh ledger (Channel A's silence
+    // clock, Channel B's counter). Base the clock here — a turn that produces
+    // nothing from the moment it was sent is the case Channel A exists for.
+    stallTurnStarted(sid, Date.now());
     // A fresh turn restarts step counting (the SDK resets its own counter on idle).
     if (get().stepCounts[sid])
       set((s) => {
@@ -1754,6 +2101,9 @@ function onTurnIdle(set: StoreSet, get: StoreGet, sid: string, reviewable: boole
   // the end of this function meant sync never ran for those users at all.
   scheduleConversationSync(get);
   notifyTurnSettled(get, sid);
+  // The turn is over — the stall guard's silence clock and repetition counter
+  // have nothing left to watch, and a standing warning is stale.
+  stallTurnSettled(sid);
   if (finishAutoReview(set, get, sid, reviewable)) return;
   // This turn's own changes are settled either way, so clear them. A review the
   // session was already OWED is different: the files that earned it are on disk
@@ -2051,6 +2401,36 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     }
     set({ turnNotify: enabled });
   },
+  stallGuard: initialStallGuardConfig(),
+  setStallGuard: (patch) => {
+    // Clamp here as well as in the UI: a hostile or buggy caller must not be
+    // able to store a threshold that breaks the feature (0 → warn instantly,
+    // negative → nonsense, huge → never warn).
+    const merged = { ...get().stallGuard, ...patch };
+    const next: StallGuardConfig = {
+      ...merged,
+      silenceMinutes:
+        typeof merged.silenceMinutes === "number" &&
+        Number.isFinite(merged.silenceMinutes)
+          ? Math.max(1, Math.min(1440, Math.round(merged.silenceMinutes)))
+          : get().stallGuard.silenceMinutes,
+      repeatThreshold:
+        typeof merged.repeatThreshold === "number" &&
+        Number.isFinite(merged.repeatThreshold)
+          ? Math.max(2, Math.min(100, Math.round(merged.repeatThreshold)))
+          : get().stallGuard.repeatThreshold,
+    };
+    persistStallGuardConfig(next);
+    set({ stallGuard: next });
+    // Turning the guard off (or changing its thresholds) retires any standing
+    // warnings: a line that no longer matches the user's settings is stale.
+    if (!next.enabled) clearStallWarnings();
+    // Channel A's silence clock follows the config: armed when a turn is
+    // running and silence-watching is on, stopped when either ends.
+    if (next.enabled && next.channelAEnabled) ensureStallTimer();
+    else maybeStopStallTimer();
+  },
+  stallAction: (sid, key, action) => handleStallAction(sid, key, action),
   cancelAutoReview: (sessionId) => {
     const queuedAt = reviewQueue.indexOf(sessionId);
     if (queuedAt >= 0) reviewQueue.splice(queuedAt, 1);
@@ -2583,11 +2963,28 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         event.type === "text.updated" &&
         backgroundReviewResultParts.has(`${event.sessionId}:${event.partId}`);
       if ("sessionId" in event && event.sessionId) {
-        sseLast.set(event.sessionId, ++sseSeq);
+        const sid = event.sessionId;
+        sseLast.set(sid, ++sseSeq);
         while (sseLast.size > 500) {
           const oldest = sseLast.keys().next().value;
           if (oldest === undefined) break;
           sseLast.delete(oldest);
+        }
+        // Stall guard: feed the event into the session's ledger and check for a
+        // verdict. Excluded for a background review's own turn — its repetition
+        // is part of the parent turn the user is watching, and it is a hidden
+        // turn the user never sent. Subagent sessions are NOT excluded: a
+        // subagent stuck in a loop is exactly what the user wants to be told
+        // about (unlike a settlement notification, which would be noise). The
+        // interrupted flag is honoured: after the user hits Stop the abort's
+        // own trailing events must not raise a "stuck?" warning over a turn the
+        // user already chose to end.
+        if (
+          !backgroundReviewParent &&
+          !retiredBackgroundReviews.has(sid) &&
+          !interruptedSessions.has(sid)
+        ) {
+          feedStallEvent(sid, event, Date.now());
         }
         // First streamed token after a send → log latency (multi-pane probe).
         const posted = turnPostAt.get(event.sessionId);

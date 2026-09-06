@@ -439,5 +439,13 @@
     "continueIn": "Continuer dans {{name}}",
     "newFolder": "Nouveau dossier",
     "chooseOther": "Choisir un autre dossier…"
+  },
+  "stall": {
+    "silentTitle": "Le tour est peut-être bloqué",
+    "silentLine": "Ce tour est silencieux depuis {{minutes}} min. Toujours en cours, ou bloqué ?",
+    "repeatTitle": "Le tour boucle peut-être",
+    "repeatLine": "Ce tour a exécuté le même appel {{count}} fois avec des résultats identiques. Toujours en cours, ou en boucle ?",
+    "keepWaiting": "Continuer d'attendre",
+    "stopTurn": "Arrêter le tour"
   }
 }
