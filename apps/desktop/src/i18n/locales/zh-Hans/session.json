@@ -428,5 +428,13 @@
     "continueIn": "沿用 {{name}}",
     "newFolder": "新建文件夹",
     "chooseOther": "选择其他文件夹…"
+  },
+  "stall": {
+    "silentTitle": "回合可能已卡住",
+    "silentLine": "此回合已静默 {{minutes}} 分钟。仍在运行，还是卡住了？",
+    "repeatTitle": "回合可能在循环",
+    "repeatLine": "此回合已连续 {{count}} 次执行相同调用且结果相同。仍在工作，还是在循环？",
+    "keepWaiting": "继续等待",
+    "stopTurn": "停止回合"
   }
 }

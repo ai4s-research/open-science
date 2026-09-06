@@ -439,5 +439,13 @@
     "continueIn": "Continue in {{name}}",
     "newFolder": "New folder",
     "chooseOther": "Choose another folder…"
+  },
+  "stall": {
+    "silentTitle": "Turn may be stuck",
+    "silentLine": "This turn has been silent for {{minutes}} min. Still running, or stuck?",
+    "repeatTitle": "Turn may be looping",
+    "repeatLine": "This turn has run the same call {{count}} times with identical results. Still working, or looping?",
+    "keepWaiting": "Keep waiting",
+    "stopTurn": "Stop turn"
   }
 }

@@ -428,5 +428,13 @@
     "continueIn": "{{name}} を引き継ぐ",
     "newFolder": "新しいフォルダー",
     "chooseOther": "別のフォルダーを選択…"
+  },
+  "stall": {
+    "silentTitle": "ターンが停止している可能性があります",
+    "silentLine": "このターンは {{minutes}} 分間、無反応です。実行中ですか、それとも停止していますか？",
+    "repeatTitle": "ターンがループしている可能性があります",
+    "repeatLine": "このターンは同じ呼び出しを {{count}} 回、同じ結果で実行しています。処理中ですか、それともループしていますか？",
+    "keepWaiting": "待機を続ける",
+    "stopTurn": "ターンを停止"
   }
 }

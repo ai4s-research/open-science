@@ -232,6 +232,24 @@
     "turnCompleteTitle": "Notify when a turn finishes",
     "turnCompleteHint": "Sends one system notification when a turn settles — done, failed or interrupted — so you do not have to watch the status dot."
   },
+  "stall": {
+    "channelA": "Silence check",
+    "channelB": "Repetition check",
+    "custom": "Custom…",
+    "enableHint": "Only warns — you decide. A long legitimate task (a training run, a poll) is never interrupted.",
+    "enableTitle": "Watch for stuck turns",
+    "hint": "Notice a turn that looks stuck — silent too long, or running the same call over and over — and offer Keep waiting / Stop. Nothing is ever auto-interrupted.",
+    "hoursUnit": "h",
+    "repeatCustomHint": "Times (2–100)",
+    "repeatLabel": "Warn after the same call repeats",
+    "repeatUnit": "times",
+    "silenceCustomHint": "Minutes (1–1440)",
+    "silenceHint": "For when you want to be nudged if the agent goes quiet. If you regularly run tasks that stay silent for over an hour, raise this or leave this check off.",
+    "silenceLabel": "Warn after silence of",
+    "silenceUnit": "min",
+    "title": "Stall guard",
+    "webNote": "In the browser, the warning appears in the conversation only — no system notification."
+  },
   "sync": {
     "title": "Conversation sync",
     "hint": "Keep your conversations on more than one of your own machines. Point this at a folder your cloud drive syncs; each conversation is mirrored there as its own file. Off until you choose a folder.",

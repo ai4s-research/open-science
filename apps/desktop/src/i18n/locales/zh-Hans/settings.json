@@ -463,5 +463,23 @@
     "hint": "在你没有盯着屏幕时，用系统通知提醒你已完成的事情。",
     "turnCompleteTitle": "回合结束时通知我",
     "turnCompleteHint": "回合结束时（成功、失败或中断）发送一条系统通知，这样你无需一直盯着状态圆点。"
+  },
+  "stall": {
+    "channelA": "静默检测",
+    "channelB": "重复检测",
+    "custom": "自定义…",
+    "enableHint": "只提醒，由你决定。合法长任务（训练、轮询）永远不会被中断。",
+    "enableTitle": "监视疑似卡住的回合",
+    "hint": "当回合疑似卡住时提醒你——静默过久，或反复执行相同调用——并提供\"继续等待 / 停止回合\"。绝不会自动中断任何操作。",
+    "hoursUnit": "小时",
+    "repeatCustomHint": "次数（2–100）",
+    "repeatLabel": "相同调用重复几次后提醒",
+    "repeatUnit": "次",
+    "silenceCustomHint": "分钟（1–1440）",
+    "silenceHint": "适合你希望 AI 长时间没动静时被提醒的场景。如果你经常跑会静默超过一小时的任务，请调大此值，或保持此检测关闭。",
+    "silenceLabel": "静默多久后提醒",
+    "silenceUnit": "分钟",
+    "title": "防卡死监视",
+    "webNote": "在浏览器中，提醒只出现在对话内，不弹系统通知。"
   }
 }

@@ -439,5 +439,13 @@
     "continueIn": "Continuar en {{name}}",
     "newFolder": "Carpeta nueva",
     "chooseOther": "Elegir otra carpeta…"
+  },
+  "stall": {
+    "silentTitle": "Es posible que el turno esté bloqueado",
+    "silentLine": "Este turno lleva {{minutes}} min sin actividad. ¿Sigue en marcha o está bloqueado?",
+    "repeatTitle": "Es posible que el turno esté en un bucle",
+    "repeatLine": "Este turno ha ejecutado la misma llamada {{count}} veces con resultados idénticos. ¿Sigue trabajando o está en un bucle?",
+    "keepWaiting": "Seguir esperando",
+    "stopTurn": "Detener turno"
   }
 }

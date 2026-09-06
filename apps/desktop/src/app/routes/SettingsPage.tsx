@@ -21,6 +21,7 @@ import type {
 } from "@ai4s/sdk";
 import { OPENCODE_VERSION } from "@ai4s/sdk";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useParams } from "react-router-dom";
 import { useUiStore, ZOOM_MAX, ZOOM_MIN } from "@/lib/store";
 import { shippedLocales } from "@/i18n/config";
@@ -119,6 +120,8 @@ export function SettingsPage() {
   const setAutoReview = useRuntimeStore((s) => s.setAutoReview);
   const turnNotify = useRuntimeStore((s) => s.turnNotify);
   const setTurnNotify = useRuntimeStore((s) => s.setTurnNotify);
+  const stallGuard = useRuntimeStore((s) => s.stallGuard);
+  const setStallGuard = useRuntimeStore((s) => s.setStallGuard);
   const connected = status === "ready";
   const updateEnabled = useUpdateStore((s) => s.enabled);
   const setUpdateEnabled = useUpdateStore((s) => s.setEnabled);
@@ -1754,6 +1757,81 @@ export function SettingsPage() {
           </Section>
         )}
 
+        {/* ---- Stall guard (#121) ---- */}
+        {/* Watch for a turn that looks stuck — silent too long (Channel A) or
+            repeating the same tool call with identical results (Channel B) —
+            and offer Keep waiting / Stop. Never auto-interrupts. Available on
+            the web too (the warning is inline there; no system notification). */}
+        {section === "general" && runtimeKind !== "acp" && (
+          <Section
+            title={t("stall.title")}
+            hint={t("stall.hint") + (isGatewayWeb ? ` ${t("stall.webNote")}` : "")}
+            flush
+          >
+            <div className="divide-y divide-faint">
+              <Row
+                title={t("stall.enableTitle")}
+                hint={t("stall.enableHint")}
+                control={
+                  <Switch
+                    checked={stallGuard.enabled}
+                    onChange={(on) => setStallGuard({ enabled: on })}
+                    label={t("stall.enableTitle")}
+                  />
+                }
+              />
+              {stallGuard.enabled && (
+                <>
+                  {/* Channel A — silence. Presets in minutes; the value shown
+                      is whatever the user last chose, preset or custom. */}
+                  <Row
+                    title={t("stall.silenceLabel")}
+                    hint={t("stall.silenceHint")}
+                  >
+                    <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-muted">{t("stall.channelA")}</span>
+                        <Switch
+                          checked={stallGuard.channelAEnabled}
+                          onChange={(on) => setStallGuard({ channelAEnabled: on })}
+                          label={t("stall.channelA")}
+                        />
+                      </div>
+                      {stallGuard.channelAEnabled && (
+                        <SilenceThresholdControl
+                          minutes={stallGuard.silenceMinutes}
+                          onChange={(m) => setStallGuard({ silenceMinutes: m })}
+                          t={t}
+                        />
+                      )}
+                    </div>
+                  </Row>
+                  {/* Channel B — repetition */}
+                  <Row title={t("stall.repeatLabel")}>
+                    <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-muted">{t("stall.channelB")}</span>
+                        <Switch
+                          checked={stallGuard.channelBEnabled}
+                          onChange={(on) => setStallGuard({ channelBEnabled: on })}
+                          label={t("stall.channelB")}
+                        />
+                      </div>
+                      {stallGuard.channelBEnabled && (
+                        <RepeatThresholdControl
+                          threshold={stallGuard.repeatThreshold}
+                          onChange={(k) => setStallGuard({ repeatThreshold: k })}
+                          t={t}
+                        />
+                      )}
+                    </div>
+                  </Row>
+                </>
+              )}
+            </div>
+          </Section>
+        )}
+
         {/* ---- Conversation sync across the user's own machines (#124) ---- */}
         {/* Desktop only: it needs a folder on this machine and a local runtime
             to import into, so the gateway web client hides it rather than
@@ -2035,3 +2113,145 @@ const btnAccent = (extra = "") =>
     "text-accent-fg transition-colors hover:bg-accent/90 disabled:bg-accent/50",
     extra,
   );
+
+/** Preset silence thresholds (Channel A), in minutes. The dropdown offers the
+ *  common stops; anything else falls through to a free-form minute input. */
+const SILENCE_PRESET_MIN = [10, 30, 60, 180, 600] as const;
+
+/** Preset repetition counts (Channel B). */
+const REPEAT_PRESETS = [3, 5, 10, 30] as const;
+
+/** Render a minute value readably: whole hours as "n h", otherwise "n min". */
+function formatMinutes(minutes: number, t: TFunction<["settings", "common"]>): string {
+  if (minutes >= 60 && minutes % 60 === 0) {
+    return `${minutes / 60} ${t("stall.hoursUnit")}`;
+  }
+  return `${minutes} ${t("stall.silenceUnit")}`;
+}
+
+/** Channel A's threshold picker: preset dropdown + free-form minutes when the
+ *  user picks "Custom…" (or the stored value is not a preset). Input is
+ *  clamped to [1, 1440] minutes so a stray keystroke or hostile value cannot
+ *  break the feature (0 would warn instantly; a huge value would never warn).
+ *
+ *  "Custom…" is a real UI mode, not derived from the value alone: picking it
+ *  shows the free-form input even while the current value still matches a
+ *  preset (otherwise the select would snap back the instant it was opened).
+ *  Once in custom mode, typing a value that happens to equal a preset does NOT
+ *  kick you out — the user is mid-edit and the input must not vanish under
+ *  their cursor. Choosing an explicit preset option is what leaves custom mode. */
+function SilenceThresholdControl({
+  minutes,
+  onChange,
+  t,
+}: {
+  minutes: number;
+  onChange: (minutes: number) => void;
+  t: TFunction<["settings", "common"]>;
+}) {
+  const [customMode, setCustomMode] = useState(
+    !(SILENCE_PRESET_MIN as readonly number[]).includes(minutes),
+  );
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        className={selectCls("h-8 w-[130px]")}
+        value={customMode ? "custom" : String(minutes)}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "custom") setCustomMode(true);
+          else {
+            setCustomMode(false);
+            onChange(Number(v));
+          }
+        }}
+        aria-label={t("stall.silenceLabel")}
+      >
+        {SILENCE_PRESET_MIN.map((m) => (
+          <option key={m} value={m}>
+            {formatMinutes(m, t)}
+          </option>
+        ))}
+        <option value="custom">{t("stall.custom")}</option>
+      </select>
+      {customMode && (
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            value={minutes}
+            onChange={(e) => {
+              const raw = Number(e.target.value);
+              onChange(Number.isFinite(raw) ? Math.max(1, Math.min(1440, raw)) : 1);
+            }}
+            className={cn(inputCls("w-20 text-right"), "pr-2")}
+            aria-label={t("stall.silenceCustomHint")}
+            title={t("stall.silenceCustomHint")}
+          />
+          <span className="shrink-0 text-xs text-muted">{t("stall.silenceUnit")}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Channel B's threshold picker: preset dropdown + free-form count when the
+ *  user picks "Custom…". Clamped to [2, 100] — below 2 is not a "repeat", and
+ *  above 100 the guard would effectively never fire. Same custom-mode rules as
+ *  the silence picker above. */
+function RepeatThresholdControl({
+  threshold,
+  onChange,
+  t,
+}: {
+  threshold: number;
+  onChange: (threshold: number) => void;
+  t: TFunction<["settings", "common"]>;
+}) {
+  const [customMode, setCustomMode] = useState(
+    !(REPEAT_PRESETS as readonly number[]).includes(threshold),
+  );
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        className={selectCls("h-8 w-[110px]")}
+        value={customMode ? "custom" : String(threshold)}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "custom") setCustomMode(true);
+          else {
+            setCustomMode(false);
+            onChange(Number(v));
+          }
+        }}
+        aria-label={t("stall.repeatLabel")}
+      >
+        {REPEAT_PRESETS.map((k) => (
+          <option key={k} value={k}>
+            {k} {t("stall.repeatUnit")}
+          </option>
+        ))}
+        <option value="custom">{t("stall.custom")}</option>
+      </select>
+      {customMode && (
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            min={2}
+            max={100}
+            value={threshold}
+            onChange={(e) => {
+              const raw = Number(e.target.value);
+              onChange(Number.isFinite(raw) ? Math.max(2, Math.min(100, raw)) : 2);
+            }}
+            className={cn(inputCls("w-16 text-right"), "pr-2")}
+            aria-label={t("stall.repeatCustomHint")}
+            title={t("stall.repeatCustomHint")}
+          />
+          <span className="shrink-0 text-xs text-muted">{t("stall.repeatUnit")}</span>
+        </div>
+      )}
+    </div>
+  );
+}
