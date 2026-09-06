@@ -2636,7 +2636,11 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         if (sid && interruptedSessions.has(sid)) return;
         // A real failure (not an interrupt's own "aborted"): remember it so the
         // completion notification can say "failed" instead of "done".
-        if (sid) erroredSessions.add(sid);
+        // `remember`, not a bare add: this is only cleared when that same
+        // session starts another turn, so a session that errors and is never
+        // returned to would sit in the set for the life of the process. Every
+        // other marker here is capped for the same reason.
+        if (sid) remember(erroredSessions, sid);
         // The retry notice this session is carrying (about to be cleared below)
         // is the only place the CAUSE was ever named: the final error text says
         // what failed, the action said why the account could not make the call.
