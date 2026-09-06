@@ -35,6 +35,27 @@ describe("connectorConfig", () => {
     ]);
   });
 
+  it("launches GEOmcp as a console script and passes NCBI's required email", () => {
+    const c = byId("geo-mcp");
+    if (c.type === "remote") throw new Error("geo-mcp should be a local connector");
+    expect(c.apiKeyRequired).toBe(true); // NCBI E-utils rejects requests with none
+    const cfg = connectorConfig(c, "/env/bin/python", "me@example.org");
+    expect(cfg).toEqual({
+      type: "local",
+      command: ["/env/bin/geo-mcp"],
+      enabled: true,
+      environment: { GEOMCP_EMAIL: "me@example.org" },
+    });
+  });
+
+  it("does not mark a merely-optional key as required (materials-project, fred)", () => {
+    for (const id of ["materials-project", "fred"]) {
+      const c = byId(id);
+      if (c.type === "remote") throw new Error(`${id} should be a local connector`);
+      expect(c.apiKeyRequired).toBeFalsy();
+    }
+  });
+
   it("resolves the console script on Windows with .exe", () => {
     const cfg = connectorConfig(byId("fred"), "C:\\env\\Scripts\\python.exe", "KEY");
     expect(cfg.type === "local" && cfg.command).toEqual([
@@ -52,12 +73,30 @@ describe("connectorConfig", () => {
     expect(cfg.type === "local" && cfg.environment).toBeUndefined();
   });
 
-  it("every connector declares an id, discipline, package, and a launch path", () => {
+  it("every local connector declares an id, discipline, package, and a launch path", () => {
     for (const c of SCIENCE_CONNECTORS) {
+      if (c.type === "remote") continue;
       expect(c.id && c.discipline && c.pkg && c.source).toBeTruthy();
       expect(Boolean(c.bin) || Boolean(c.module)).toBe(true);
       if (c.apiKeyEnv) expect(c.apiKeyUrl).toBeTruthy(); // key-needing → tell users where to get one
     }
+  });
+
+  it("every remote connector declares an id, discipline, https url, and source", () => {
+    for (const c of SCIENCE_CONNECTORS) {
+      if (c.type !== "remote") continue;
+      expect(c.id && c.discipline && c.source).toBeTruthy();
+      expect(c.url.startsWith("https://")).toBe(true);
+      expect(c.auth).toBe("oauth");
+    }
+  });
+
+  it("registers Elicit as a remote, OAuth-authenticated connector", () => {
+    const c = byId("elicit");
+    if (c.type !== "remote") throw new Error("elicit should be a remote connector");
+    expect(c.url).toBe("https://elicit.com/api/mcp");
+    const cfg = connectorConfig(c);
+    expect(cfg).toEqual({ type: "remote", url: "https://elicit.com/api/mcp", enabled: true });
   });
 
   it("ships at least two non-bio disciplines (P1-2 breadth)", () => {
@@ -79,6 +118,7 @@ describe("connectorConfig", () => {
 
   it("launches Open-Meteo weather as a `-m module` connector (earth, no key)", () => {
     const c = byId("open-meteo");
+    if (c.type === "remote") throw new Error("open-meteo should be a local connector");
     expect(c.apiKeyEnv).toBeUndefined(); // Open-Meteo is free, no key
     const cfg = connectorConfig(c, "/env/bin/python");
     expect(cfg.type === "local" && cfg.command).toEqual([

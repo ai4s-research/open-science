@@ -18,6 +18,7 @@ import {
   closeAgentBrowser,
   getProxySetting,
   removeConfigEntry,
+  openExternal,
 } from "./tauri";
 import { SCIENCE_CONNECTORS, connectorConfig } from "./scienceConnectors";
 import { BROWSER_MCP_ID, buildBrowserMcpConfig } from "./browser";
@@ -52,6 +53,25 @@ interface SetupState {
   enableJupyter: () => Promise<void>;
   enableConnector: (id: string, apiKey?: string) => Promise<void>;
   enableBrowser: (opts: EnableBrowserOptions) => Promise<void>;
+}
+
+/** How long a remote connector's browser sign-in stays worth waiting for —
+ *  matches the provider-login window in SettingsPage's own OAuth flow. */
+const MCP_OAUTH_WAIT_MS = 5 * 60 * 1000;
+
+/** Poll `listMcpServers` (already-tested, already-polled-elsewhere) until
+ *  `name` reports connected, instead of holding one request open across the
+ *  whole login — see `startMcpOAuth`'s doc comment for why. */
+async function waitForMcpConnected(name: string): Promise<boolean> {
+  const deadline = Date.now() + MCP_OAUTH_WAIT_MS;
+  for (;;) {
+    const servers = await getClient()!.listMcpServers().catch(() => []);
+    const status = servers.find((s) => s.name === name)?.status;
+    if (status === "connected") return true;
+    if (status === "failed") return false;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
 }
 
 export const useSetupStore = create<SetupState>((set, get) => ({
@@ -92,9 +112,22 @@ export const useSetupStore = create<SetupState>((set, get) => ({
     if (!c) return;
     set({ connectorId: id, line: null });
     try {
-      toast.success(`Setting up ${c.label} — first run downloads a managed Python, please wait…`);
-      const python = await setupScienceMcp(c.pkg);
-      await getClient()!.addMcpServer(c.id, connectorConfig(c, python, apiKey));
+      if (c.type === "remote") {
+        // Nothing to install — register the vendor's URL, then send the user
+        // to their browser to sign in. `startMcpOAuth` returns immediately
+        // (see its own doc comment for why we don't hold the request open).
+        await getClient()!.addMcpServer(c.id, connectorConfig(c));
+        const { authorizationUrl } = await getClient()!.startMcpOAuth(c.id);
+        set({ line: "Waiting for browser sign-in…" });
+        await openExternal(authorizationUrl);
+        if (!(await waitForMcpConnected(c.id))) {
+          throw new Error("Sign-in did not complete in time");
+        }
+      } else {
+        toast.success(`Setting up ${c.label} — first run downloads a managed Python, please wait…`);
+        const python = await setupScienceMcp(c.pkg);
+        await getClient()!.addMcpServer(c.id, connectorConfig(c, python, apiKey));
+      }
       toast.success(`${c.label} enabled — the agent can now use it from chat.`);
       await useRuntimeStore.getState().loadCatalog();
     } catch (e) {
