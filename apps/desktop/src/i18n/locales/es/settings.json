@@ -465,5 +465,23 @@
     "hint": "Notificaciones nativas del sistema para cosas que terminan mientras no estás mirando.",
     "turnCompleteTitle": "Notificar cuando termine un turno",
     "turnCompleteHint": "Envía una notificación del sistema cuando un turno termina — completado, fallido o interrumpido — para que no tengas que vigilar el punto de estado."
+  },
+  "stall": {
+    "channelA": "Comprobación de silencio",
+    "channelB": "Comprobación de repetición",
+    "custom": "Personalizado…",
+    "enableHint": "Solo avisa — tú decides. Una tarea larga legítima (una sesión de entrenamiento, una consulta periódica) nunca se interrumpe.",
+    "enableTitle": "Vigilar turnos bloqueados",
+    "hint": "Detecta un turno que parece bloqueado — demasiado tiempo en silencio, o repitiendo la misma llamada una y otra vez — y ofrece \"Seguir esperando / Detener turno\". Nunca se interrumpe nada automáticamente.",
+    "hoursUnit": "h",
+    "repeatCustomHint": "Veces (2–100)",
+    "repeatLabel": "Avisar cuando la misma llamada se repita",
+    "repeatUnit": "veces",
+    "silenceCustomHint": "Minutos (1–1440)",
+    "silenceHint": "Para cuando quieras que te avise si el agente se queda en silencio. Si sueles ejecutar tareas que permanecen en silencio más de una hora, súbelo o deja esta comprobación desactivada.",
+    "silenceLabel": "Avisar tras silencio de",
+    "silenceUnit": "min",
+    "title": "Guardia anti-bloqueo",
+    "webNote": "En el navegador, el aviso aparece solo en la conversación — sin notificación del sistema."
   }
 }

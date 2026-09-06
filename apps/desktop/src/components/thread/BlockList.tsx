@@ -32,6 +32,10 @@ export interface BlockHandlers {
   /** Open the subagents panel on the subagent a task row spawned. Present only
    *  in the live session — a nested transcript has no panel of its own. */
   onOpenSubagent?: (childSessionId: string) => void;
+  /** Answer a stall-guard warning's action: "keep-waiting" dismisses it and
+   *  re-arms the guard; "stop" interrupts the turn. Present only in the live
+   *  session. */
+  onStallAction?: (stallKey: string, action: "keep-waiting" | "stop") => void;
 }
 
 export function renderBlock(
@@ -92,7 +96,13 @@ export function renderBlock(
       // which correctly leaves the diagnosis readable but not actionable.
       return <HistoryRepair key={i} block={block} onRevert={handlers?.onRevertMessage} />;
     case "status-line":
-      return <StatusLine key={i} block={block} />;
+      return (
+        <StatusLine
+          key={i}
+          block={block}
+          onStallAction={handlers?.onStallAction}
+        />
+      );
   }
 }
 

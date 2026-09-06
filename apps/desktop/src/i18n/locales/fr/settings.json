@@ -465,5 +465,23 @@
     "hint": "Notifications système natives pour ce qui se termine pendant que vous ne regardez pas.",
     "turnCompleteTitle": "Notifier quand un tour se termine",
     "turnCompleteHint": "Envoie une notification système quand un tour se termine — terminé, échoué ou interrompu — pour ne pas avoir à surveiller le point d'état."
+  },
+  "stall": {
+    "channelA": "Contrôle du silence",
+    "channelB": "Contrôle des répétitions",
+    "custom": "Personnalisé…",
+    "enableHint": "Prévient seulement — vous décidez. Une tâche longue légitime (un entraînement, une sonde) n'est jamais interrompue.",
+    "enableTitle": "Surveiller les tours bloqués",
+    "hint": "Détecte un tour qui semble bloqué — silencieux trop longtemps, ou répétant sans cesse le même appel — et propose « Continuer d'attendre / Arrêter le tour ». Rien n'est jamais interrompu automatiquement.",
+    "hoursUnit": "h",
+    "repeatCustomHint": "Fois (2–100)",
+    "repeatLabel": "Prévenir quand le même appel se répète",
+    "repeatUnit": "fois",
+    "silenceCustomHint": "Minutes (1–1440)",
+    "silenceHint": "Pour être prévenu si l'agent reste silencieux. Si vous lancez souvent des tâches qui restent silencieuses plus d'une heure, augmentez cette valeur ou laissez ce contrôle désactivé.",
+    "silenceLabel": "Prévenir après un silence de",
+    "silenceUnit": "min",
+    "title": "Garde anti-blocage",
+    "webNote": "Dans le navigateur, l'avertissement n'apparaît que dans la conversation — pas de notification système."
   }
 }

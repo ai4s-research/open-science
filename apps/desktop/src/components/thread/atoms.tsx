@@ -359,7 +359,15 @@ const TONE: Record<NonNullable<StatusLineBlock["tone"]>, string> = {
   error: "text-error",
 };
 
-export const StatusLine = memo(function StatusLine({ block }: { block: StatusLineBlock }) {
+export const StatusLine = memo(function StatusLine({
+  block,
+  onStallAction,
+}: {
+  block: StatusLineBlock;
+  /** Present only in the live session; powers the stall warning's two actions. */
+  onStallAction?: (stallKey: string, action: "keep-waiting" | "stop") => void;
+}) {
+  const { t } = useTranslation(["session", "common"]);
   return (
     <div className={cn(block.divider && "border-t border-border pt-4")}>
       <div className={cn("flex items-center gap-2 text-sm", TONE[block.tone ?? "review"])}>
@@ -367,7 +375,25 @@ export const StatusLine = memo(function StatusLine({ block }: { block: StatusLin
           size={14}
           className={cn(block.tone === "running" && "animate-spin", block.tone !== "running" && "hidden")}
         />
-        <span>{block.text}</span>
+        <span className="min-w-0 flex-1">{block.text}</span>
+        {block.stall && onStallAction && (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              className="rounded-input border border-border px-2.5 py-1 text-xs font-medium text-text hover:bg-surface-2"
+              onClick={() => onStallAction(block.stall!.key, "keep-waiting")}
+            >
+              {t("stall.keepWaiting")}
+            </button>
+            <button
+              type="button"
+              className="rounded-input bg-error px-2.5 py-1 text-xs font-medium text-white hover:opacity-90"
+              onClick={() => onStallAction(block.stall!.key, "stop")}
+            >
+              {t("stall.stopTurn")}
+            </button>
+          </span>
+        )}
       </div>
     </div>
   );

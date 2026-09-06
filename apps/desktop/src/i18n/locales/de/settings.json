@@ -465,5 +465,23 @@
     "hint": "Native Systembenachrichtigungen für Dinge, die fertig werden, während du nicht hinschaust.",
     "turnCompleteTitle": "Benachrichtigen, wenn ein Turn endet",
     "turnCompleteHint": "Sendet eine Systembenachrichtigung, wenn ein Turn endet — fertig, fehlgeschlagen oder unterbrochen — damit du nicht auf den Statuspunkt achten musst."
+  },
+  "stall": {
+    "channelA": "Stille-Prüfung",
+    "channelB": "Wiederholungs-Prüfung",
+    "custom": "Benutzerdefiniert…",
+    "enableHint": "Warnt nur — du entscheidest. Ein legitimer langer Auftrag (Training, Polling) wird nie unterbrochen.",
+    "enableTitle": "Auf hängende Turns achten",
+    "hint": "Erkennt einen Turn, der festzuhängen scheint — zu lange still, oder derselbe Aufruf in Dauerschleife — und bietet \"Weiter warten / Turn stoppen\". Es wird nie automatisch etwas unterbrochen.",
+    "hoursUnit": "h",
+    "repeatCustomHint": "Mal (2–100)",
+    "repeatLabel": "Warnen, wenn sich derselbe Aufruf wiederholt",
+    "repeatUnit": "Mal",
+    "silenceCustomHint": "Minuten (1–1440)",
+    "silenceHint": "Für den Fall, dass du benachrichtigt werden willst, wenn der Agent still wird. Wenn du regelmäßig Aufgaben ausführst, die länger als eine Stunde still sind, erhöhe den Wert oder lasse diese Prüfung deaktiviert.",
+    "silenceLabel": "Nach Stille warnen von",
+    "silenceUnit": "Min.",
+    "title": "Stall-Schutz",
+    "webNote": "Im Browser erscheint die Warnung nur im Gespräch — keine Systembenachrichtigung."
   }
 }

@@ -209,6 +209,7 @@ export function SessionView({
   const replyPermission = useRuntimeStore((s) => s.replyPermission);
   const interrupt = useRuntimeStore((s) => s.interrupt);
   const cancelAutoReview = useRuntimeStore((s) => s.cancelAutoReview);
+  const stallAction = useRuntimeStore((s) => s.stallAction);
   const editMessage = useRuntimeStore((s) => s.editMessage);
   const revertMessage = useRuntimeStore((s) => s.revertMessage);
   const setComposerDraft = useUiStore((s) => s.setComposerDraft);
@@ -307,6 +308,15 @@ export function SessionView({
         setShowAgents(true, sid ?? undefined);
         setSubagentFocus((prev) => ({ childSessionId, nonce: (prev?.nonce ?? 0) + 1 }));
       },
+      onStallAction: (stallKey, action) => {
+        if (!sid) return;
+        if (action === "stop") {
+          pinEphemeral();
+          void interrupt(sid);
+        } else {
+          stallAction(sid, stallKey, "keep-waiting");
+        }
+      },
     }),
     [
       openArtifact,
@@ -317,6 +327,8 @@ export function SessionView({
       sid,
       pinEphemeral,
       setShowAgents,
+      interrupt,
+      stallAction,
     ],
   );
   const onEvaluate = (expr: string) =>
