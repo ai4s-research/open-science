@@ -94,10 +94,11 @@ It prints exactly one ` ```review ` fenced JSON block on stdout.
   a file that imports scikit-learn, XGBoost, statsmodels, PyTorch,
   TensorFlow, or Keras — a plain `scipy.curve_fit` never counts) in a file
   that mentions both a small-scale (flask, bench-scale) and a large-scale
-  (bioreactor, batch, pilot-scale) process vocabulary, e.g. trained on flask
-  data and applied to a bioreactor. Advisory: still fires when a
-  calibration/scaling-factor/cross-validation term is present, since
-  confirming intent matters either way, but with a different message.
+  (bioreactor, fermenter, fed-batch, pilot-scale) process vocabulary, e.g.
+  trained on flask data and applied to a bioreactor. Advisory: a warn, not a
+  defect. Silent once a calibration / scaling-factor / cross-validation term is
+  in the file, and silent on `batch_size` and friends — bare `batch` matched the
+  training knobs of the very libraries this rule requires.
 
 Rules favour precision: an unrecognized unit, arithmetic with no discipline
 signal, a SMILES using bracket atoms (which carry their own valence/charge), a

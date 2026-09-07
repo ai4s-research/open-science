@@ -462,9 +462,10 @@ class Bioprocess(unittest.TestCase):
         )
         self.assertNotIn("bioprocess · cross-scale-fit", tags(src))
 
-    def test_cross_scale_fit_with_correction_term(self):
-        # A calibration/correction term is present -> still fires (confirming
-        # intent still matters), but with the correction-term message.
+    def test_cross_scale_fit_with_correction_term_ok(self):
+        # The correction is right there: asking anyway would teach the reader
+        # that this tag fires whatever they do, which is how a gate stops being
+        # read at all.
         src = (
             "from sklearn.linear_model import LinearRegression\n"
             "# apply a scaling_factor calibration between flask and bioreactor\n"
@@ -473,10 +474,28 @@ class Bioprocess(unittest.TestCase):
             "model.fit(flask_data.X, flask_data.y)\n"
             "pred = model.predict(bioreactor_data.X)\n"
         )
-        findings_ = [f for f in findings(src) if f.tag == "bioprocess · cross-scale-fit"]
-        self.assertEqual(len(findings_), 1)
-        self.assertIn("calibration/correction term", findings_[0].title)
-        self.assertIn("scaling factor is appropriate", findings_[0].evidence)
+        self.assertNotIn("bioprocess · cross-scale-fit", tags(src))
+
+    def test_minibatch_is_not_a_process_scale(self):
+        # Every file this rule can reach imports an ML library, and those are
+        # exactly the files that say batch_size. One scale here, not two.
+        src = (
+            "from sklearn.ensemble import RandomForestRegressor\n"
+            "flask_screen = load('flask.csv')\n"
+            "model = RandomForestRegressor()\n"
+            "model.fit(flask_screen.X, flask_screen.y)\n"
+            "batch_size = 32\n"
+        )
+        self.assertNotIn("bioprocess · cross-scale-fit", tags(src))
+
+    def test_fed_batch_is_a_process_scale(self):
+        src = (
+            "from sklearn.linear_model import Ridge\n"
+            "# flask screen, then a fed-batch run\n"
+            "model = Ridge()\n"
+            "model.fit(flask.X, flask.y)\n"
+        )
+        self.assertIn("bioprocess · cross-scale-fit", tags(src))
 
     def test_curve_fit_not_ml_library_ok(self):
         # scipy.optimize.curve_fit mixes both scales, but it is not model

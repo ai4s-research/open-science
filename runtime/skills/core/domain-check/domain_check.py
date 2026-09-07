@@ -671,11 +671,24 @@ _RSM_DESIGN_MARKERS = re.compile(
 # "bioreactor" as a substring; "flask" is handled separately below (it needs
 # a guard, not just a pattern — see _mentions_lab_flask).
 _BENCH_SCALE = re.compile(r"bench[_-]?scale", re.IGNORECASE)
-_LARGE_SCALE = re.compile(r"reactor|\bbatch|pilot[_-]?scale", re.IGNORECASE)
+# `batch` is deliberately NOT here on its own. Every file this rule can reach
+# imports an ML library, and `batch_size` / `batch_norm` / `minibatch` are what
+# those files call their training knobs — so a bare `batch` matched the one
+# vocabulary most likely to appear for reasons that have nothing to do with
+# process scale, and a single-scale flask screening script came back reported
+# as spanning two. Only the forms that actually name a mode of operation count.
+_LARGE_SCALE = re.compile(
+    r"reactor|ferment[eo]r|pilot[_-]?scale|fed[_-]?batch"
+    r"|\bbatch[_-]?(?:culture|fermentation|phase|mode|vessel)",
+    re.IGNORECASE,
+)
 
-# Terms marking a cross-scale fit as already accounted for. The rule still
-# fires when one of these is present — confirming intent still matters at
-# scale-up — but with a different message (see check_bioprocess rule 6).
+# Terms marking a cross-scale fit as already accounted for, which SILENCE the
+# rule. A gate that fires whether or not you did the thing it asks for teaches
+# people that its tag means nothing, and this file's stated stance is precision
+# over recall: an unrecognized unit, arithmetic with no discipline signal and a
+# bracket-atom SMILES are all passed over for the same reason. The prompt is
+# worth making once, to someone who has not answered it.
 _SCALE_CORRECTION = re.compile(
     r"calibrat|scaling[_-]?factor|cross[_-]?valid|correction[_-]?factor",
     re.IGNORECASE,
@@ -935,26 +948,15 @@ def check_bioprocess(ctx: Ctx) -> list[Finding]:
     if _mentions_small_scale(ctx.src) and _LARGE_SCALE.search(ctx.src) \
             and _has_ml_import(ctx.tree):
         fit_call = next((n for n in ast.walk(ctx.tree) if _is_fit_method_call(n)), None)
-        if fit_call is not None:
-            if _SCALE_CORRECTION.search(ctx.src):
-                title = "Cross-scale model fit alongside a calibration/correction term"
-                detail = (
-                    "Multiple process scales detected along with a "
-                    "calibration/correction term. Verify that the scaling "
-                    "factor is appropriate for this case."
-                )
-            else:
-                title = "Model fit spans multiple process scales, no correction found"
-                detail = (
-                    "Multiple process scales detected in this file (e.g. "
-                    "flask, bioreactor). A model trained at one scale may "
-                    "not transfer directly to another without "
-                    "cross-validation or a correction factor. Confirm if "
-                    "this is intentional."
-                )
+        if fit_call is not None and not _SCALE_CORRECTION.search(ctx.src):
             out.append(Finding(
-                "warn", "bioprocess · cross-scale-fit", title,
-                ctx.snippet(ctx.line_of(fit_call)) + "\n  " + detail,
+                "warn", "bioprocess · cross-scale-fit",
+                "Model fit spans multiple process scales, no correction found",
+                ctx.snippet(ctx.line_of(fit_call))
+                + "\n  Multiple process scales detected in this file (e.g. "
+                "flask, bioreactor). A model trained at one scale may not "
+                "transfer directly to another without cross-validation or a "
+                "correction factor. Confirm if this is intentional.",
             ))
     return out
 
