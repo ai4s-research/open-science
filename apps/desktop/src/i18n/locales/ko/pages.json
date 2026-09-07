@@ -102,5 +102,10 @@
     "title": "404 — 찾을 수 없음",
     "hint": "이 페이지는 존재하지 않습니다.",
     "backLink": "워크스페이스로 돌아가기"
+  },
+  "notify": {
+    "completeTitle": "턴 완료",
+    "failedTitle": "턴 실패",
+    "interruptedTitle": "턴 중단"
   }
 }

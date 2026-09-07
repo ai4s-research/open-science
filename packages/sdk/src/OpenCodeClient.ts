@@ -3,6 +3,7 @@ import type {
   CommandInfo,
   HistoryMessage,
   McpConfig,
+  McpOAuthStart,
   McpServer,
   OAuthAuthorization,
   OpenCodeClientOptions,
@@ -1067,6 +1068,18 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       body: JSON.stringify({ mcp: { [name]: config } }),
     });
     if (!res.ok) throw await this.apiError(res, "Failed to add the MCP server");
+  }
+
+  /** Start OAuth for an already-registered remote MCP server: open the
+   *  returned `authorizationUrl` in the user's browser, then poll
+   *  `listMcpServers` for `status === "connected"` — see `McpOAuthStart`. */
+  async startMcpOAuth(name: string): Promise<McpOAuthStart> {
+    const res = await this.fetchImpl(
+      `${this.baseUrl}/mcp/${encodeURIComponent(name)}/auth`,
+      { method: "POST", headers: this.headers() },
+    );
+    if (!res.ok) throw await this.apiError(res, "Failed to start MCP sign-in");
+    return (await res.json()) as McpOAuthStart;
   }
 
   /** The full provider catalog (~150 entries) and which ids are connected. */

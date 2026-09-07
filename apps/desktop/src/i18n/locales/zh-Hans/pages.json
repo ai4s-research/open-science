@@ -102,5 +102,10 @@
     "title": "404 — 未找到",
     "hint": "此页面不存在。",
     "backLink": "返回工作区"
+  },
+  "notify": {
+    "completeTitle": "回合已完成",
+    "failedTitle": "回合失败",
+    "interruptedTitle": "回合已中断"
   }
 }

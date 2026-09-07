@@ -102,5 +102,10 @@
     "title": "404 — Introuvable",
     "hint": "Cette page n'existe pas.",
     "backLink": "Retour à l'espace de travail"
+  },
+  "notify": {
+    "completeTitle": "Tour terminé",
+    "failedTitle": "Tour échoué",
+    "interruptedTitle": "Tour interrompu"
   }
 }
