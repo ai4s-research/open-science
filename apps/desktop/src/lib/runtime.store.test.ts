@@ -3347,6 +3347,44 @@ describe("stall guard integration", () => {
     }
   });
 
+  it("stops the silence timer when the turn ends and when the guard goes off", async () => {
+    // A 30 s interval in a desktop app that stays open for days is worth
+    // pinning: it must exist only while there is a running turn AND Channel A
+    // is on, and take itself down the moment either stops being true.
+    vi.useFakeTimers();
+    try {
+      expect(vi.getTimerCount()).toBe(0);
+      useRuntimeStore.getState().setStallGuard({
+        enabled: true,
+        channelAEnabled: true,
+        channelBEnabled: false,
+        silenceMinutes: 10,
+      });
+      const p = useRuntimeStore.getState().sendPrompt("run it");
+      await vi.advanceTimersByTimeAsync(0);
+      await p;
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      // The turn settles: nothing is left to watch.
+      endTurn();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(vi.getTimerCount()).toBe(0);
+
+      // And a turn running with the guard switched off mid-flight stops too.
+      const p2 = useRuntimeStore.getState().sendPrompt("again");
+      await vi.advanceTimersByTimeAsync(0);
+      await p2;
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      useRuntimeStore.getState().setStallGuard({ enabled: false });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+      useRuntimeStore.getState().setStallGuard({ enabled: false });
+      endTurn();
+    }
+  });
+
   it("does NOT fire Channel A when only Channel B is enabled", async () => {
     useRuntimeStore.getState().setStallGuard({
       enabled: true,
