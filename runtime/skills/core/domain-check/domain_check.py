@@ -667,6 +667,87 @@ _RSM_DESIGN_MARKERS = re.compile(
     re.IGNORECASE,
 )
 
+# Small- vs. large-scale process vocabulary. "reactor" alone already covers
+# "bioreactor" as a substring; "flask" is handled separately below (it needs
+# a guard, not just a pattern — see _mentions_lab_flask).
+_BENCH_SCALE = re.compile(r"bench[_-]?scale", re.IGNORECASE)
+# `batch` is deliberately NOT here on its own. Every file this rule can reach
+# imports an ML library, and `batch_size` / `batch_norm` / `minibatch` are what
+# those files call their training knobs — so a bare `batch` matched the one
+# vocabulary most likely to appear for reasons that have nothing to do with
+# process scale, and a single-scale flask screening script came back reported
+# as spanning two. Only the forms that actually name a mode of operation count.
+_LARGE_SCALE = re.compile(
+    r"reactor|ferment[eo]r|pilot[_-]?scale|fed[_-]?batch"
+    r"|\bbatch[_-]?(?:culture|fermentation|phase|mode|vessel)",
+    re.IGNORECASE,
+)
+
+# Terms marking a cross-scale fit as already accounted for, which SILENCE the
+# rule. A gate that fires whether or not you did the thing it asks for teaches
+# people that its tag means nothing, and this file's stated stance is precision
+# over recall: an unrecognized unit, arithmetic with no discipline signal and a
+# bracket-atom SMILES are all passed over for the same reason. The prompt is
+# worth making once, to someone who has not answered it.
+_SCALE_CORRECTION = re.compile(
+    r"calibrat|scaling[_-]?factor|cross[_-]?valid|correction[_-]?factor",
+    re.IGNORECASE,
+)
+
+# Only these mean "trained a model": gates check_bioprocess rule 6 off
+# scipy.optimize.curve_fit (not model training — see _KINETIC_PARAM_NAMES
+# above) and any other .fit()-shaped API that has nothing to do with ML.
+_ML_LIBRARIES = {"sklearn", "xgboost", "statsmodels", "torch", "tensorflow", "keras"}
+
+
+def _has_ml_import(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name.split(".")[0] in _ML_LIBRARIES for a in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module.split(".")[0] in _ML_LIBRARIES:
+                return True
+    return False
+
+
+# The Flask web framework's own idioms — import line, `Flask(` app
+# construction, `Blueprint(`. Deliberately case-SENSITIVE: the framework's
+# class names are conventionally capitalized, so this does not also exclude
+# a coincidental lowercase `flask(...)` call, which is far more likely to be
+# something else (or an actual lab flask helper) than the framework.
+_FLASK_FRAMEWORK_MARKERS = re.compile(
+    r"^\s*(import\s+flask\b|from\s+flask\b)|\bFlask\s*\(|\bBlueprint\s*\("
+)
+
+
+def _mentions_lab_flask(src: str) -> bool:
+    """True if "flask" appears on a line that isn't one of Flask-the-web-
+    framework's own idioms. It shares its name with a lab flask, and a
+    research script that imports it for a dashboard/API has nothing to do
+    with process scale — case-insensitive matching can't tell the two apart
+    by capitalization alone, so this checks line-by-line instead."""
+    for line in src.splitlines():
+        if _FLASK_FRAMEWORK_MARKERS.search(line):
+            continue
+        if re.search(r"flask", line, re.IGNORECASE):
+            return True
+    return False
+
+
+def _mentions_small_scale(src: str) -> bool:
+    return _mentions_lab_flask(src) or bool(_BENCH_SCALE.search(src))
+
+
+def _is_fit_method_call(node: ast.AST) -> bool:
+    """`x.fit(...)` specifically — not a bare `fit(...)`/`curve_fit(...)`
+    call, which the ML .fit() idiom never is."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "fit"
+    )
+
 
 def _ols_formula_literal(call: ast.Call) -> str | None:
     """The formula string of an `ols(...)` call, positional or `formula=`,
@@ -855,6 +936,28 @@ def check_bioprocess(ctx: Ctx) -> list[Finding]:
                     "curvature — a first-order model cannot estimate it or "
                     "locate an interior optimum.",
                 ))
+
+    # (6) A real model fit (gated to an actual ML library — see
+    #     _has_ml_import — so a plain scipy.curve_fit never counts; that is
+    #     covered by rule 1) in a file that mentions BOTH a small-scale and a
+    #     large-scale process vocabulary, e.g. trained on flask data and
+    #     applied to a bioreactor. Advisory only: this is a confirm-intent
+    #     prompt, not a defect — a deliberate, corrected scale-up is
+    #     completely legitimate, which is why it still fires (with a
+    #     different message) when a calibration/correction term is present.
+    if _mentions_small_scale(ctx.src) and _LARGE_SCALE.search(ctx.src) \
+            and _has_ml_import(ctx.tree):
+        fit_call = next((n for n in ast.walk(ctx.tree) if _is_fit_method_call(n)), None)
+        if fit_call is not None and not _SCALE_CORRECTION.search(ctx.src):
+            out.append(Finding(
+                "warn", "bioprocess · cross-scale-fit",
+                "Model fit spans multiple process scales, no correction found",
+                ctx.snippet(ctx.line_of(fit_call))
+                + "\n  Multiple process scales detected in this file (e.g. "
+                "flask, bioreactor). A model trained at one scale may not "
+                "transfer directly to another without cross-validation or a "
+                "correction factor. Confirm if this is intentional.",
+            ))
     return out
 
 

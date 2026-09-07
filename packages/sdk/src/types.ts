@@ -470,6 +470,16 @@ export interface McpServer {
   config?: McpConfig;
 }
 
+/** Result of starting an OAuth flow for a remote MCP server (`POST /mcp/{name}/auth`).
+ *  Open `authorizationUrl` in the user's browser; `listMcpServers` reports
+ *  "connected" once the callback lands — see `mcp.auth.authenticate` in the
+ *  OpenCode API, which this deliberately avoids (its single request stays open
+ *  until login completes, longer than a webview's own fetch idle timeout). */
+export interface McpOAuthStart {
+  authorizationUrl: string;
+  oauthState: string;
+}
+
 // ---- Raw OpenCode wire shapes (subset we consume) ----
 
 export interface OpenCodeRawEvent {
