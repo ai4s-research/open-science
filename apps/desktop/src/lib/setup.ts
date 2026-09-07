@@ -117,11 +117,21 @@ export const useSetupStore = create<SetupState>((set, get) => ({
         // to their browser to sign in. `startMcpOAuth` returns immediately
         // (see its own doc comment for why we don't hold the request open).
         await getClient()!.addMcpServer(c.id, connectorConfig(c));
-        const { authorizationUrl } = await getClient()!.startMcpOAuth(c.id);
-        set({ line: "Waiting for browser sign-in…" });
-        await openExternal(authorizationUrl);
-        if (!(await waitForMcpConnected(c.id))) {
-          throw new Error("Sign-in did not complete in time");
+        try {
+          const { authorizationUrl } = await getClient()!.startMcpOAuth(c.id);
+          set({ line: "Waiting for browser sign-in…" });
+          await openExternal(authorizationUrl);
+          if (!(await waitForMcpConnected(c.id))) {
+            throw new Error("Sign-in did not complete in time");
+          }
+        } catch (e) {
+          // Registration happens BEFORE the sign-in, because OAuth needs a
+          // server to authenticate. Leaving it behind on a failed or abandoned
+          // login would put a connector in the user's config that can never
+          // connect, retried on every sidecar start and shown as failed with
+          // no obvious way back. Undo it, then report the original failure.
+          await removeConfigEntry("mcp", c.id).catch(() => false);
+          throw e;
         }
       } else {
         toast.success(`Setting up ${c.label} — first run downloads a managed Python, please wait…`);

@@ -161,6 +161,10 @@ describe("setup store", () => {
       vi.useRealTimers();
     }
     expect(useSetupStore.getState().connectorId).toBeNull();
+    // And the half-registered server is gone: OAuth needs the entry to exist
+    // BEFORE the sign-in, so an abandoned login would otherwise leave behind a
+    // connector that can never connect, retried on every sidecar start.
+    expect(mocks.removeConfigEntry).toHaveBeenCalledWith("mcp", "elicit");
   });
 
   // The config PATCH deep-merges the nested `environment`, so a re-add can only

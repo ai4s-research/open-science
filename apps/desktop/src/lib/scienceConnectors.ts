@@ -1,12 +1,14 @@
-// Curated science MCP connectors (P1-2). Almost all of these are existing,
-// maintained open-source MCP servers that we one-click provision into a
-// shared isolated env (bundled uv) and register — we do not reimplement
-// literature/database access ourselves. Keep this list small and vetted.
+// Curated science MCP connectors (P1-2). Existing, maintained open-source MCP
+// servers that we one-click provision into a shared isolated env (bundled uv)
+// and register — we do not reimplement literature/database access ourselves.
+// Keep this list small and vetted.
 //
-// A `type: "remote"` entry is the one exception to "we host it": it points at
-// a vendor's own official hosted MCP server (OAuth-authenticated) instead of
-// a PyPI package, for cases where the vendor runs the only sanctioned
-// endpoint (e.g. Elicit) rather than publishing something installable.
+// ORDER IS THE POLICY: open source first. A `type: "remote"` entry points at a
+// vendor's own hosted server (OAuth, closed, often commercial) instead of a
+// package we install, and belongs at the END of this list — a user scanning it
+// should reach everything they can run and audit themselves before they reach
+// anything they can only rent. Remote entries are for capabilities with no
+// installable equivalent, not for saving a vendor the packaging work.
 import type { McpConfig } from "@ai4s/sdk";
 
 interface ScienceConnectorBase {
@@ -54,17 +56,6 @@ export interface RemoteScienceConnector extends ScienceConnectorBase {
 export type ScienceConnector = LocalScienceConnector | RemoteScienceConnector;
 
 export const SCIENCE_CONNECTORS: ScienceConnector[] = [
-  {
-    type: "remote",
-    id: "elicit",
-    label: "Elicit",
-    discipline: "all fields",
-    description:
-      "Semantic search over 138M+ papers, systematic reviews, and evidence reports — official Elicit connector, sign in with your Elicit account",
-    url: "https://elicit.com/api/mcp",
-    auth: "oauth",
-    source: "elicit.com (official, docs.elicit.com)",
-  },
   {
     id: "paper-search",
     label: "Literature search",
@@ -152,6 +143,17 @@ export const SCIENCE_CONNECTORS: ScienceConnector[] = [
     pkg: "usgs-mcp",
     bin: "usgs-mcp",
     source: "github.com/mansurjisan/ocean-mcp",
+  },
+  {
+    type: "remote",
+    id: "elicit",
+    label: "Elicit",
+    discipline: "all fields",
+    description:
+      "Semantic search over 138M+ papers, systematic reviews, and evidence reports — official Elicit connector, sign in with your Elicit account",
+    url: "https://elicit.com/api/mcp",
+    auth: "oauth",
+    source: "elicit.com (official, docs.elicit.com)",
   },
 ];
 
