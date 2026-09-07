@@ -102,5 +102,10 @@
     "title": "404 — No encontrado",
     "hint": "Esta página no existe.",
     "backLink": "Volver al espacio de trabajo"
+  },
+  "notify": {
+    "completeTitle": "Turno completado",
+    "failedTitle": "Turno fallido",
+    "interruptedTitle": "Turno interrumpido"
   }
 }

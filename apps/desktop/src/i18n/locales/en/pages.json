@@ -102,5 +102,10 @@
     "title": "404 — Not found",
     "hint": "This page does not exist.",
     "backLink": "Back to workspace"
+  },
+  "notify": {
+    "completeTitle": "Turn complete",
+    "failedTitle": "Turn failed",
+    "interruptedTitle": "Turn interrupted"
   }
 }
