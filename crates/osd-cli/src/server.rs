@@ -52,7 +52,10 @@ pub fn run(args: &Args) -> Result<(), String> {
                     "another gateway is running on port {live} (the desktop app, or another \
                      `osd server`) and this machine has one active workspace, currently {current}. \
                      Repointing it would move that gateway's workspace too. Quit it first, or \
-                     drive it instead: osd --gateway http://127.0.0.1:{live} …"
+                     drive it instead: osd --gateway http://127.0.0.1:{live} … Parallel work \
+                     does not need a second workspace: this server already runs many sessions \
+                     at once, each pinned to its own project folder (osd project new <name>, \
+                     then osd session new --project <name>)."
                 ));
             }
         }

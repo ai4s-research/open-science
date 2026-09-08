@@ -297,6 +297,27 @@ Remote Access says which file it touched. Nothing else on your shell is changed.
 loudly if it produced no reply. `--json` prints the API's own response for
 scripts.
 
+### Concurrency and per-project setup
+
+Parallel work does not need a second server, or a second workspace: one
+`osd server` already runs many sessions at once. The gateway is
+thread-per-connection and nothing on the session path holds a global lock —
+what keeps one session's work out of another's is the folder each one is pinned
+to. `osd session new --project NAME` runs a session in a per-project folder of
+the workspace (created with `osd project new NAME`), and
+`osd session new --directory DIR` pins one to any other folder.
+
+Per-project MCP follows the folder too: an MCP server declared in
+`<folder>/.opencode/opencode.json` applies only to sessions working in that
+folder, and every session shares the same sidecar. One caching rule makes the
+ordering matter: a folder's opencode configuration is read once, the first time
+the sidecar uses that folder, and cached from then on. Write a session's MCP
+configuration before its first turn in that folder — changing it later takes
+effect only after a server restart, and until then the session runs, reports
+success, and used the previous configuration.
+
+None of this needs a second installation of the workbench.
+
 ### Which model, and who approves what
 
 `osd model` shows the default, `osd model ls` lists what the runtime can
@@ -320,7 +341,10 @@ osd approval set full   # never ask — commands, deletions, installs, network
 
 `full` is a deliberate choice, not a default: the agent stays confined to the
 workspace, but nothing pauses for you. `osd approval set approve` puts every
-rule back.
+rule back. `osd approval set full` rewrites the runtime's own config on this
+machine, so it has to run on the machine itself — over SSH, not through
+`--gateway`: the gateway deliberately refuses config writes, and says so rather
+than silently doing nothing.
 
 ### As a service
 

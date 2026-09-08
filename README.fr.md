@@ -217,6 +217,29 @@ Rien d'autre dans votre shell n'est touché.
 
 `--wait` revient quand le tour est terminé, pas quand il a été accepté, et échoue explicitement s'il n'a rien produit. `--json` affiche la réponse de l'API elle-même, pour les scripts. Les approbations restent en vigueur — l'agent demande avant d'exécuter des commandes, et `osd permission ls` / `osd permission allow <id>` sert à répondre sans fenêtre.
 
+### Concurrence et configuration par projet
+
+Le travail en parallèle n'exige ni un second serveur ni un second workspace : un
+seul `osd server` exécute déjà plusieurs sessions à la fois. La passerelle
+fonctionne avec un fil par connexion et rien sur le chemin d'une session ne
+retient de verrou global — ce qui sépare le travail d'une session de celui d'une
+autre, c'est le dossier auquel chacune est épinglée. `osd session new --project
+NAME` lance une session dans un dossier de projet du workspace (créé avec
+`osd project new NAME`), et `osd session new --directory DIR` l'épingle à
+n'importe quel autre dossier.
+
+Le MCP par projet suit le dossier : un serveur MCP déclaré dans
+`<dossier>/.opencode/opencode.json` ne s'applique qu'aux sessions qui travaillent
+dans ce dossier, et toutes les sessions partagent le même sidecar. Une règle de
+cache rend l'ordre important : la configuration opencode d'un dossier est lue une
+seule fois — la première fois que le sidecar utilise ce dossier — puis mise en
+cache. Écrivez la configuration MCP d'une session avant son premier tour dans ce
+dossier ; la modifier ensuite ne prend effet qu'après un redémarrage du serveur,
+et jusqu'alors la session s'exécute, signale un succès et a utilisé la
+configuration précédente.
+
+Rien de tout cela n'exige une seconde installation de l'atelier.
+
 ### Quel modèle, et qui approuve
 
 `osd model` affiche le modèle par défaut, `osd model ls` liste ce que le runtime
@@ -241,7 +264,10 @@ osd approval set full   # ne jamais demander : commandes, suppressions, installa
 
 `full` est un choix délibéré, pas un défaut : l'agent reste confiné au workspace,
 mais plus rien ne s'arrête pour vous. `osd approval set approve` remet toutes les
-règles.
+règles. `osd approval set full` réécrit la configuration du runtime sur cette
+machine et doit donc être exécuté sur la machine elle-même — en SSH, pas via
+`--gateway` : la passerelle refuse délibérément les écritures de configuration,
+et le dit plutôt que de ne rien faire en silence.
 
 ### En tant que service
 
