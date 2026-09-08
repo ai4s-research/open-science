@@ -363,7 +363,7 @@ pnpm lint
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.5.2},
-  doi     = {10.5281/zenodo.22004919},
+  doi     = {10.5281/zenodo.22656009},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }
