@@ -2408,9 +2408,14 @@ mod tests {
             .collect();
         assert_eq!(aside.len(), 1, "{aside:?}");
         assert_eq!(fs::read_to_string(&aside[0]).unwrap(), broken);
+        // Compare as paths, not strings: `aside` was built from the mixed
+        // separator spelling above (`runtime/xdg-config/…`), while the notice
+        // records the production code's native join spelling. On Windows the
+        // two strings differ but name the same file — `Path` equality compares
+        // by component, so `/` and `\` no longer matter.
         assert_eq!(
-            super::take_config_quarantine_notice(&env).as_deref(),
-            Some(aside[0].to_string_lossy().as_ref()),
+            super::take_config_quarantine_notice(&env).map(std::path::PathBuf::from),
+            Some(aside[0].clone()),
             "the user is told, with the path"
         );
 
