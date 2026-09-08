@@ -45,11 +45,25 @@ impl Env {
         }))
     }
 
-    /// The headless layout: the platform data dir Tauri would have chosen, and
-    /// resources next to the executable. `osd` ships as a directory —
-    /// `osd`, `opencode`, `resources/` — so a compute node needs no installer.
-    pub fn headless(resource_dir: Option<PathBuf>, version: String) -> Result<Self, String> {
-        let data_dir = platform_data_dir()?;
+    /// The headless layout: the platform data dir Tauri would have chosen — or
+    /// an isolated one named on the command line — and resources next to the
+    /// executable. `osd` ships as a directory — `osd`, `opencode`,
+    /// `resources/` — so a compute node needs no installer.
+    ///
+    /// `state_dir` lets one machine run genuinely independent installs side by
+    /// side (an unattended shard next to the desktop app, a benchmark cluster):
+    /// `--state-dir DIR` (or `OSD_STATE_DIR`) moves EVERYTHING this instance
+    /// writes — session database, sidecar config, workspace record, logs — under
+    /// DIR instead of the platform data dir. Nothing else changes: the default
+    /// workspace still resolves to the real Documents folder (that path comes
+    /// from `document_dir`, which this override does not touch).
+    pub fn headless(
+        resource_dir: Option<PathBuf>,
+        state_dir: Option<PathBuf>,
+        version: String,
+    ) -> Result<Self, String> {
+        let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+        let data_dir = resolve_data_dir(state_dir, std::env::var("OSD_STATE_DIR").ok(), &cwd)?;
         let resource_dir = match resource_dir {
             Some(d) => d,
             None => default_resource_dir()?,
@@ -108,6 +122,49 @@ fn platform_data_dir() -> Result<PathBuf, String> {
         }
     };
     Ok(base.join(IDENTIFIER))
+}
+
+/// The state dir a headless instance was asked to keep its state in, if any:
+/// the explicit `--state-dir` argument first, then the `OSD_STATE_DIR`
+/// environment variable. An empty value counts as unset. A relative path
+/// resolves against the current directory. `None` means "no override — use the
+/// platform data dir", which is how `osd server` tells a genuinely separate
+/// install from a default-root one (only the former gets the credential
+/// warning, since a default-root first-time user has the desktop's own
+/// onboarding).
+pub fn state_dir_override(flag: Option<PathBuf>) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::new());
+    requested_state_dir(flag, std::env::var("OSD_STATE_DIR").ok()).map(|dir| absolutize(dir, &cwd))
+}
+
+/// The raw override, in precedence order: the explicit argument first, then the
+/// environment variable (empty counts as unset). Shared by `state_dir_override`
+/// and `resolve_data_dir`, so the precedence lives in exactly one place.
+fn requested_state_dir(flag: Option<PathBuf>, env_var: Option<String>) -> Option<PathBuf> {
+    flag.or_else(|| env_var.filter(|v| !v.is_empty()).map(PathBuf::from))
+}
+
+/// A path relative to `cwd` becomes absolute; an absolute one stays as it is.
+fn absolutize(path: PathBuf, cwd: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        cwd.join(path)
+    }
+}
+
+/// The data dir for a headless instance: the state override when one is in
+/// effect, else the platform data dir. Pure, so the precedence is unit-testable
+/// without racing the process environment (the tests pass their env var in).
+fn resolve_data_dir(
+    state_dir: Option<PathBuf>,
+    env_var: Option<String>,
+    cwd: &Path,
+) -> Result<PathBuf, String> {
+    Ok(match requested_state_dir(state_dir, env_var) {
+        Some(dir) => absolutize(dir, cwd),
+        None => platform_data_dir()?,
+    })
 }
 
 fn platform_document_dir() -> Option<PathBuf> {
@@ -338,6 +395,52 @@ mod tests {
     fn data_dir_is_identifier_scoped() {
         let dir = platform_data_dir().expect("a home directory in the test env");
         assert!(dir.ends_with(IDENTIFIER), "{dir:?} must be the app's own directory");
+    }
+
+    #[test]
+    fn a_state_dir_override_beats_the_environment_variable() {
+        let flag = PathBuf::from("D:/one/state");
+        let from_env = PathBuf::from("D:/two/state");
+        let cwd = Path::new("D:/cwd");
+        assert_eq!(
+            resolve_data_dir(Some(flag.clone()), Some(from_env.to_string_lossy().into_owned()), cwd)
+                .unwrap(),
+            flag
+        );
+    }
+
+    #[test]
+    fn the_environment_variable_is_used_when_no_flag_is_given() {
+        let from_env = PathBuf::from("D:/env/state");
+        assert_eq!(
+            resolve_data_dir(None, Some(from_env.to_string_lossy().into_owned()), Path::new("D:/cwd"))
+                .unwrap(),
+            from_env
+        );
+    }
+
+    #[test]
+    fn an_empty_state_dir_environment_variable_falls_back_to_the_platform_default() {
+        // `OSD_STATE_DIR=` must behave exactly like it being unset — an empty
+        // string silently becoming "the empty path as a state dir" would park
+        // every write in the current directory.
+        assert_eq!(
+            resolve_data_dir(None, Some(String::new()), Path::new("D:/cwd")).unwrap(),
+            platform_data_dir().unwrap()
+        );
+    }
+
+    #[test]
+    fn a_relative_state_dir_resolves_against_the_given_cwd() {
+        let cwd = Path::new("D:/cwd");
+        assert_eq!(
+            resolve_data_dir(Some(PathBuf::from("state/one")), None, cwd).unwrap(),
+            cwd.join("state/one")
+        );
+        assert_eq!(
+            resolve_data_dir(None, Some("state/two".to_string()), cwd).unwrap(),
+            cwd.join("state/two")
+        );
     }
 
     #[test]

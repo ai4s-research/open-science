@@ -180,7 +180,7 @@ fn env_var(name: &str) -> Option<String> {
 /// discovery protocol is needed — and nothing is guessed: an absent port means
 /// nothing is listening.
 fn local_gateway() -> Option<(String, String)> {
-    let env = osd_core::Env::headless(None, env!("CARGO_PKG_VERSION").to_string()).ok()?;
+    let env = osd_core::Env::headless(None, None, env!("CARGO_PKG_VERSION").to_string()).ok()?;
     let p = osd_core::gateway::read_persisted(&env);
     let port = p.port?;
     if p.token.is_empty() {

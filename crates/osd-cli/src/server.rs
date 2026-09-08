@@ -110,6 +110,36 @@ pub fn run(args: &Args) -> Result<(), String> {
         );
     }
 
+    // An isolated state dir starts with no credentials of its own — that is the
+    // point of isolating it. Keys are never copied from another install
+    // (AGENTS.md: credentials live on the machine they were set on and never
+    // travel), so say plainly what HAS to happen instead: this root's first
+    // credential is set against this root, or the sidecar inherits a provider's
+    // own environment variable. Only when an override is in effect — a
+    // default-root first-time user has the desktop's own onboarding and does
+    // not need this note.
+    if let Some(state_dir) =
+        osd_core::env::state_dir_override(args.value("state-dir").map(PathBuf::from))
+    {
+        // Reads both stores the runtime honors — the app-private config (`osd
+        // auth set` writes there) and OpenCode's own auth.json (browser logins,
+        // an imported CLI login) — so the note disappears the moment the
+        // one-liner below has been run, instead of nagging forever.
+        let has_credentials = runtime::configured_providers(&env)
+            .map(|providers| !providers.is_empty())
+            .unwrap_or(false);
+        if !has_credentials {
+            eprintln!(
+                "note: the isolated state dir {} has no credentials yet. Give it its own key: \
+                 OSD_STATE_DIR={} osd auth set <provider> --key <api-key> — or just export the \
+                 provider's own variable (ANTHROPIC_API_KEY=…) before starting; the sidecar \
+                 inherits it. Nothing is copied from the desktop install.",
+                state_dir.display(),
+                state_dir.display()
+            );
+        }
+    }
+
     // Watch the active folder for changes made outside this process — which,
     // headless, is nearly all of them: the agent's own writes go through
     // OpenCode's tools, not ours. Without this the workspace gets no git

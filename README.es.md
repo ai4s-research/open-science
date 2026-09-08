@@ -241,6 +241,26 @@ informa de éxito y ha usado la configuración anterior.
 
 Nada de esto necesita una segunda instalación del banco de trabajo.
 
+### Directorios de estado aislados (--state-dir)
+
+`osd server --state-dir DIR` — o `OSD_STATE_DIR=DIR` — guarda todo lo que una
+instancia escribe (base de datos de sesiones, configuración del sidecar,
+registro del workspace, logs) bajo DIR en lugar del directorio de datos de la
+plataforma. Nada más cambia: el workspace por defecto sigue resolviéndose a tu
+carpeta real de Documents, y la app de escritorio no se ve afectada porque
+nunca pasa por la anulación headless.
+
+Esto NO es una forma de obtener más concurrencia — un solo servidor ya ejecuta
+muchas sesiones a la vez (arriba). Es para instalaciones genuinamente separadas
+en una misma máquina: una shard desatendida junto a la app de escritorio, un
+clúster de benchmarks.
+
+Las credenciales son por instancia y nunca se copian: un DIR nuevo no tiene
+ninguna, así que el primer servidor que arranca allí imprime una advertencia y
+la línea que añade una — `OSD_STATE_DIR=DIR osd auth set <provider> --key …` —
+o exportas la variable propia del proveedor (`ANTHROPIC_API_KEY=…`) antes de
+iniciar y el sidecar la hereda.
+
 ### Qué modelo, y quién aprueba
 
 `osd model` muestra el modelo por defecto, `osd model ls` lista lo que el runtime
