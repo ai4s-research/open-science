@@ -36,6 +36,9 @@ export interface BlockHandlers {
    *  re-arms the guard; "stop" interrupts the turn. Present only in the live
    *  session. */
   onStallAction?: (stallKey: string, action: "keep-waiting" | "stop") => void;
+  /** Reload a session whose history failed to load — the error line's Retry
+   *  action (#139). Present only in the live session. */
+  onRetryHistory?: () => void;
 }
 
 export function renderBlock(
@@ -101,6 +104,7 @@ export function renderBlock(
           key={i}
           block={block}
           onStallAction={handlers?.onStallAction}
+          onRetry={handlers?.onRetryHistory}
         />
       );
   }

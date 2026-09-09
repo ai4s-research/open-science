@@ -218,6 +218,14 @@ export interface Thread {
   blocks: ThreadBlock[];
   index: Record<string, number>;
   loaded: boolean;
+  /** Set when loading this session's history failed (openSession's catch).
+   *  `loaded` alone cannot carry that: a failure must still stop the loading
+   *  skeleton (the thread renders an error line instead), but it must NOT
+   *  satisfy the "already loaded" gate — before this flag every later open hit
+   *  that gate's early return and the session showed "Failed to load messages"
+   *  for the rest of the app run (#139). A successful reload replaces the
+   *  thread, which drops the flag. */
+  historyError?: string;
 }
 
 /** Outcome of installSkill: the skill is already installed, or an agent session
@@ -482,7 +490,9 @@ interface RuntimeState {
   openSession: (id: string) => Promise<void>;
   /** Load a session's history into its thread WITHOUT switching the foreground
    *  folder/stream — for background split panes so they show their conversation
-   *  on launch instead of a skeleton until focused. No-op if already loaded. */
+   *  on launch instead of a skeleton until focused. No-op once loaded fine; a
+   *  failed load (historyError) is retried, so this also backs the error line's
+   *  Retry action (#139). */
   loadHistory: (id: string) => Promise<void>;
   /** `draftKey` (a `draft:<leafId>` slot) is the per-pane draft this send may
    *  lazily create a session from — passed by tiled panes so each unbound pane
@@ -3984,7 +3994,15 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         if (seq !== openSessionSeq) return;
         await kernelReset().catch(() => {});
         if (seq !== openSessionSeq) return;
-        await get().connectRetry();
+        const reconnected = await get().connectRetry();
+        if (seq !== openSessionSeq) return;
+        // A reconnect window that ran out of patience means the runtime is not
+        // there. Nothing below — pending-request recovery, the history fetch —
+        // can work against a dead sidecar, so stop and leave the session
+        // unloaded: the next successful connect re-runs this open. (Fetching
+        // anyway used to plant a failed "history load" error line that the
+        // loaded-gate then cached for the whole run; #139.)
+        if (!reconnected) return;
       } finally {
         // Only the still-current open clears `switching`; a superseded one must
         // not flip it off while the winner is mid-reconnect.
@@ -4018,7 +4036,34 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     })();
     // A session reopened while "Working…" may have finished behind our back.
     void get().reconcileRunning();
-    if (get().threads[id]?.loaded) return;
+    // A FAILED load must not count as "already loaded": the session would show
+    // its error line for the rest of the run, because every later open hit this
+    // early return and never refetched (#139). Only a load that succeeded (or
+    // one still pending) closes the door — `historyError` reopens it.
+    if (get().threads[id]?.loaded && !get().threads[id]?.historyError) return;
+    // Never fetch history from a runtime that is not serving yet. A restored
+    // session can reach this point while the sidecar is still booting — the
+    // event stream to the shared instance is up while the session's own folder
+    // instance is still initializing — and a fetch inside that window fails at
+    // the network level (WebKit surfaces it as "Load failed"). Wait for ready:
+    // join an in-flight retry window (launch, a folder or model switch) rather
+    // than starting a dueling loop that tears down its event stream; if the
+    // window runs out, stay out — the offline screen is showing and the next
+    // successful connect re-runs this open.
+    if (get().status !== "ready") {
+      let ready: boolean;
+      if (connectRetryDepth > 0) {
+        while (connectRetryDepth > 0) {
+          await sleep(100);
+          const st = get().status;
+          if (st === "ready" || st === "error") break;
+        }
+        ready = get().status === "ready";
+      } else {
+        ready = await get().connectRetry();
+      }
+      if (!ready || seq !== openSessionSeq || get().currentId !== id) return;
+    }
     try {
       const messages = await client.getMessages(id);
       // The command templates are what turn a stored expansion back into the
@@ -4052,13 +4097,26 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       const msg = err instanceof Error ? err.message : String(err);
       if (seq !== openSessionSeq || get().currentId !== id) return;
       set((s) => ({
-        error: msg,
         threads: {
           ...s.threads,
           [id]: {
             ...emptyThread(),
             loaded: true,
-            blocks: [{ kind: "status-line", text: `Failed to load messages: ${msg}`, tone: "error" }],
+            historyError: msg,
+            // The thread renders a retryable error line: `historyError` keeps
+            // the next open/Retry from being swallowed by the loaded-gate, so
+            // this failure is the end of ONE attempt, not of the session. The
+            // error is deliberately NOT mirrored into the global `error` (no
+            // stale banner): it is a session-level problem with a session-level
+            // way out (#139).
+            blocks: [
+              {
+                kind: "status-line",
+                text: `Failed to load messages: ${msg}`,
+                tone: "error",
+                retry: true,
+              },
+            ],
           },
         },
       }));
@@ -4067,7 +4125,13 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
   loadHistory: async (id) => {
     const c = client;
-    if (!c || get().threads[id]?.loaded) return;
+    if (!c) return;
+    const cur = get().threads[id];
+    // Loaded-and-fine threads are done; everything else — never tried, or tried
+    // and failed (historyError) — is fetched. The failure case is what makes a
+    // background pane self-heal on the next pass, and what powers the error
+    // line's Retry action (#139).
+    if (cur?.loaded && !cur?.historyError) return;
     try {
       // getMessages is session-scoped (server routes by the session's folder),
       // so any connected client works — no folder switch, unlike openSession.
@@ -4075,7 +4139,12 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // Same reason as openSession: without the command templates a stored
       // slash-command expansion renders raw.
       if (catalogInFlight && get().commands.length === 0) await catalogInFlight;
-      if (get().threads[id]?.loaded) return; // a live fold beat us to it
+      // Only skip when a REAL load landed meanwhile. A live fold sets `loaded`
+      // but cannot clear a prior `historyError`, so it must not swallow our
+      // reload — the fold's partial content would leave the stale error line
+      // and marker in place.
+      const latest = get().threads[id];
+      if (latest?.loaded && !latest?.historyError) return;
       set((s) => ({
         threads: { ...s.threads, [id]: { ...historyToThread(messages, s.commands), loaded: true } },
         sessionAgents: { ...s.sessionAgents, [id]: lastAgentMode(messages) },
@@ -4086,7 +4155,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           : {}),
       }));
     } catch {
-      /* best-effort; the pane keeps its skeleton and loads on focus */
+      /* best-effort: a never-loaded pane keeps its skeleton; a thread that had
+       * already failed keeps its retryable error line. Either way a later
+       * load — focus via openSession, another pass here, or the Retry button —
+       * tries again. */
     }
   },
 

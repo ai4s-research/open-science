@@ -391,6 +391,7 @@
       "action": "Revenir"
     }
   },
+  "historyRetry": "Réessayer",
   "compaction": {
     "label": "Contexte compacté",
     "autoBody": "L’exécution a résumé les tours précédents pour rester dans la fenêtre de contexte du modèle, et la conversation a continué ici.",

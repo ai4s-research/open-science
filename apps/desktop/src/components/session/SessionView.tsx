@@ -210,6 +210,7 @@ export function SessionView({
   const interrupt = useRuntimeStore((s) => s.interrupt);
   const cancelAutoReview = useRuntimeStore((s) => s.cancelAutoReview);
   const stallAction = useRuntimeStore((s) => s.stallAction);
+  const loadHistory = useRuntimeStore((s) => s.loadHistory);
   const editMessage = useRuntimeStore((s) => s.editMessage);
   const revertMessage = useRuntimeStore((s) => s.revertMessage);
   const setComposerDraft = useUiStore((s) => s.setComposerDraft);
@@ -317,6 +318,13 @@ export function SessionView({
           stallAction(sid, stallKey, "keep-waiting");
         }
       },
+      // Reload a session whose history failed to load (#139). loadHistory
+      // refetches without moving the foreground folder/stream, so Retry never
+      // yanks the focus out of the pane the user is reading.
+      onRetryHistory: () => {
+        if (!eid) return;
+        void loadHistory(eid);
+      },
     }),
     [
       openArtifact,
@@ -329,6 +337,8 @@ export function SessionView({
       setShowAgents,
       interrupt,
       stallAction,
+      eid,
+      loadHistory,
     ],
   );
   const onEvaluate = (expr: string) =>

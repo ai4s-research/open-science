@@ -1110,9 +1110,65 @@ describe("per-session workspace folders", () => {
 
     const thread = useRuntimeStore.getState().threads.ses_bad;
     expect(thread.loaded).toBe(true);
+    // `loaded` stops the skeleton, but `historyError` keeps the failure from
+    // satisfying the "already loaded" gate — see the retry tests below (#139).
+    expect(thread.historyError).toBe("history hung");
     expect(thread.blocks).toEqual([
-      { kind: "status-line", text: "Failed to load messages: history hung", tone: "error" },
+      {
+        kind: "status-line",
+        text: "Failed to load messages: history hung",
+        tone: "error",
+        retry: true,
+      },
     ]);
+  });
+
+  it("openSession refetches a session whose history failed to load when reopened", async () => {
+    mocks.failMessages = true;
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_bad", title: "Bad session", directory: "/ws/base" }],
+      currentId: null,
+      threads: {},
+    });
+    await useRuntimeStore.getState().openSession("ses_bad");
+    expect(useRuntimeStore.getState().threads.ses_bad.historyError).toBe("history hung");
+
+    // The runtime is serving again — the next open must refetch instead of
+    // treating the cached failure as a loaded thread (the session used to show
+    // "Failed to load messages" for the rest of the app run; #139).
+    mocks.failMessages = false;
+    mocks.messages = [{ role: "user", agent: "build", parts: [{ type: "text", text: "hi" }] }];
+    await useRuntimeStore.getState().openSession("ses_bad");
+
+    const thread = useRuntimeStore.getState().threads.ses_bad;
+    expect(thread.loaded).toBe(true);
+    expect(thread.historyError).toBeUndefined();
+    expect(thread.blocks.some((b) => b.kind === "user" && b.text === "hi")).toBe(true);
+    expect(mocks.getMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it("loadHistory refetches a failed history load without switching focus (Retry path)", async () => {
+    mocks.failMessages = true;
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_bad", title: "Bad session", directory: "/ws/base" }],
+      currentId: null,
+      threads: {},
+    });
+    await useRuntimeStore.getState().openSession("ses_bad");
+    expect(useRuntimeStore.getState().threads.ses_bad.historyError).toBe("history hung");
+
+    // The error line's Retry action calls loadHistory — the session stays where
+    // it is while the history is reloaded in place.
+    mocks.failMessages = false;
+    mocks.messages = [{ role: "user", agent: "build", parts: [{ type: "text", text: "hi" }] }];
+    useRuntimeStore.setState({ currentId: "ses_other" });
+    await useRuntimeStore.getState().loadHistory("ses_bad");
+
+    const thread = useRuntimeStore.getState().threads.ses_bad;
+    expect(thread.loaded).toBe(true);
+    expect(thread.historyError).toBeUndefined();
+    expect(thread.blocks.some((b) => b.kind === "user" && b.text === "hi")).toBe(true);
+    expect(useRuntimeStore.getState().currentId).toBe("ses_other");
   });
 
   it("switchWorkspace pins the chosen folder; startDraft un-pins it", async () => {
