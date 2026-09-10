@@ -216,6 +216,32 @@ sie angefasst hat. An deiner Shell wird sonst nichts geändert.
 
 `--wait` kehrt zurück, wenn der Zug fertig ist, nicht wenn er angenommen wurde, und schlägt deutlich fehl, wenn keine Antwort entstand. `--json` gibt die Antwort der API selbst aus, für Skripte. Freigaben gelten weiterhin — der Agent fragt vor Kommandos, und `osd permission ls` / `osd permission allow <id>` ist die Antwort ohne Fenster.
 
+### Nebenläufigkeit und projektspezifische Einrichtung
+
+Paralleles Arbeiten braucht weder einen zweiten Server noch einen zweiten
+Workspace: ein einzelner `osd server` führt schon jetzt viele Sessions
+gleichzeitig aus. Das Gateway arbeitet mit einem Thread pro Verbindung, und
+nichts auf dem Pfad einer Session hält eine globale Sperre — was die Arbeit
+zweier Sessions auseinanderhält, ist der Ordner, an den jede einzelne gebunden
+ist. `osd session new --project NAME` startet eine Session in einem
+Projektordner des Workspace (mit `osd project new NAME` angelegt), und
+`osd session new --directory DIR` bindet sie an einen beliebigen anderen Ordner.
+
+Die projektbezogene MCP-Konfiguration folgt dem Ordner: ein in
+`<Ordner>/.opencode/opencode.json` deklarierter MCP-Server gilt nur für
+Sessions, die in diesem Ordner arbeiten, und alle Sessions teilen sich denselben
+Sidecar. Eine Cache-Regel macht die Reihenfolge entscheidend: die
+opencode-Konfiguration eines Ordners wird genau einmal gelesen — beim ersten
+Zugriff des Sidecars auf diesen Ordner — und von da an gecacht. Schreibe diese
+Konfiguration, bevor überhaupt eine Session auf den Ordner gerichtet wird:
+`osd session new --project NAME` (oder `--directory DIR`) liest und cacht sie
+bereits, bevor ein einziger Zug gelaufen ist — „vor dem ersten Zug“ ist also
+schon zu spät. Eine spätere Änderung greift erst nach einem Neustart des
+Servers, und bis dahin läuft die Session, meldet Erfolg und hat die vorherige
+Konfiguration benutzt.
+
+Keines davon braucht eine zweite Installation der Workbench.
+
 ### Welches Modell, und wer genehmigt
 
 `osd model` zeigt das Standardmodell, `osd model ls` listet, was die Laufzeit
@@ -240,7 +266,11 @@ osd approval set full   # nie fragen: Befehle, Löschen, Installationen, Netz
 
 `full` ist eine bewusste Wahl, kein Standard: der Agent bleibt auf den Workspace
 beschränkt, aber nichts hält mehr für dich an. `osd approval set approve` holt
-jede Regel zurück.
+jede Regel zurück. `osd approval set full` schreibt die Konfiguration der
+Laufzeit auf dieser Maschine selbst um und muss daher auf der Maschine selbst
+laufen — per SSH, nicht über `--gateway`: das Gateway verweigert
+Konfigurations-Schreibzugriffe bewusst und sagt das, statt stillschweigend nichts
+zu tun.
 
 ### Als Dienst
 

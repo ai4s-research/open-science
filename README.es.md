@@ -216,6 +216,31 @@ cambia.
 
 `--wait` vuelve cuando el turno ha terminado, no cuando fue aceptado, y falla de forma explícita si no produjo respuesta. `--json` imprime la respuesta de la propia API, para scripts. Las aprobaciones siguen vigentes — el agente pregunta antes de ejecutar comandos, y `osd permission ls` / `osd permission allow <id>` es cómo se responde sin ventana.
 
+### Concurrencia y configuración por proyecto
+
+El trabajo en paralelo no necesita un segundo servidor ni un segundo workspace:
+un solo `osd server` ya ejecuta muchas sesiones a la vez. La puerta de enlace
+(gateway) usa un hilo por conexión y nada en el camino de una sesión mantiene un
+bloqueo global — lo que separa el trabajo de una sesión del de otra es la
+carpeta a la que cada una está anclada. `osd session new --project NAME` ejecuta
+una sesión en una carpeta de proyecto dentro del workspace (creada con
+`osd project new NAME`), y `osd session new --directory DIR` la ancla a
+cualquier otra carpeta.
+
+El MCP por proyecto sigue a la carpeta: un servidor MCP declarado en
+`<carpeta>/.opencode/opencode.json` solo se aplica a las sesiones que trabajan
+en esa carpeta, y todas las sesiones comparten el mismo sidecar. Una regla de
+caché hace que el orden importe: la configuración de opencode de una carpeta se
+lee una sola vez — la primera vez que el sidecar usa esa carpeta — y queda en
+caché a partir de entonces. Escribe esa configuración antes de apuntar ninguna
+sesión a la carpeta: `osd session new --project NAME` (o `--directory DIR`) ya
+la lee y la cachea, antes de que se haya ejecutado un solo turno, así que
+«antes del primer turno» ya es demasiado tarde. Cambiarla después solo surte
+efecto tras un reinicio del servidor, y mientras tanto la sesión se ejecuta,
+informa de éxito y ha usado la configuración anterior.
+
+Nada de esto necesita una segunda instalación del banco de trabajo.
+
 ### Qué modelo, y quién aprueba
 
 `osd model` muestra el modelo por defecto, `osd model ls` lista lo que el runtime
@@ -240,7 +265,11 @@ osd approval set full   # no preguntar nunca: comandos, borrados, instalaciones,
 
 `full` es una decisión deliberada, no un valor por defecto: el agente sigue
 confinado al workspace, pero nada se detiene a esperarte.
-`osd approval set approve` devuelve todas las reglas.
+`osd approval set approve` devuelve todas las reglas. `osd approval set full`
+reescribe la configuración propia del runtime de esta máquina, así que hay que
+ejecutarlo en la propia máquina — por SSH, no a través de `--gateway`: la puerta
+de enlace rechaza deliberadamente las escrituras de configuración, y lo dice en
+lugar de no hacer nada en silencio.
 
 ### Como servicio
 

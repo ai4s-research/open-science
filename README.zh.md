@@ -239,6 +239,14 @@ osd session send $id "Fit the 2015-2024 bleaching trend and write report.md" --w
 
 `--wait` 在这一轮真正跑完时才返回，而不是在被接受时；如果这一轮什么都没答，它会明确报错。`--json` 输出接口原样的响应，供脚本解析。
 
+### 并发与按项目配置
+
+并行工作不需要第二台服务器，也不需要第二个工作区：一个 `osd server` 本来就可以同时运行多个会话。网关是每连接一线程，会话处理路径上没有任何全局锁——把不同会话的工作隔开的，是它们各自钉住的那个目录。`osd session new --project NAME` 在工作区的项目目录里运行会话（目录用 `osd project new NAME` 创建），`osd session new --directory DIR` 则把会话钉到任意其他目录。
+
+按项目配置的 MCP 同样跟着目录走：声明在 `<目录>/.opencode/opencode.json` 里的 MCP 服务器只对在该目录里工作的会话生效，而所有会话共享同一个 sidecar。这里有一条缓存规则决定了先后顺序：一个目录的 opencode 配置只在 sidecar 第一次使用该目录时读取一次，之后一直缓存。所以这份配置必须在**把任何会话指向该目录之前**写好：`osd session new --project NAME`（或 `--directory DIR`）本身就已经把它读进来并缓存了，此时一轮都还没跑——也就是说，「第一轮开始前」已经太晚。之后再改，要等服务器重启才会生效；在那之前，会话照常运行、报告成功，用的却是旧配置。
+
+这一切都不需要再装第二份工作台。
+
 ### 用哪个模型，谁来批准
 
 `osd model` 显示当前默认模型，`osd model ls` 列出运行时**真正能服务**的模型（也就是这台机器有凭据的那些提供商，当前那个带星号），`osd model set <provider/model>` 修改它——走网关，所以对远程服务器同样有效。任何单轮都可以用 `osd session send --model … --agent … --effort …` 覆盖。
@@ -252,7 +260,7 @@ osd approval            # 现在哪些动作需要询问
 osd approval set full   # 一律不问：命令、删除、装依赖、访问网络
 ```
 
-`full` 是一个明确的选择，不是默认值：智能体仍被限制在工作区内，但不会再为你暂停。`osd approval set approve` 把所有规则放回去。
+`full` 是一个明确的选择，不是默认值：智能体仍被限制在工作区内，但不会再为你暂停。`osd approval set approve` 把所有规则放回去。`osd approval set full` 改写的是这台机器上运行时自己的配置，所以必须在机器本身上执行——通过 SSH，而不是经 `--gateway`：网关会刻意拒绝配置写入，并直接说明，而不是悄悄什么都不做。
 
 ### 作为系统服务运行
 
