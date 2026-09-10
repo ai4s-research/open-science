@@ -59,6 +59,8 @@ Server options
   --mode MODE       full (default) or read-only
   --workspace DIR   open on this folder
   --resources DIR   where the bundled skills/plugins live (default: next to osd)
+  --state-dir DIR   keep this instance's state (sessions, sidecar, workspace
+                    record) under DIR (also: OSD_STATE_DIR)
 
 Common options
   --gateway URL     the gateway to talk to (else OSD_GATEWAY, the stored login,
@@ -96,6 +98,7 @@ fn main() {
 pub fn env(args: &Args) -> Result<osd_core::Env, String> {
     osd_core::Env::headless(
         args.value("resources").map(std::path::PathBuf::from),
+        args.value("state-dir").map(std::path::PathBuf::from),
         env!("CARGO_PKG_VERSION").to_string(),
     )
 }

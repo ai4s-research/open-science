@@ -242,6 +242,26 @@ Konfiguration benutzt.
 
 Keines davon braucht eine zweite Installation der Workbench.
 
+### Isolierte Zustandsverzeichnisse (--state-dir)
+
+`osd server --state-dir DIR` — oder `OSD_STATE_DIR=DIR` — legt alles, was eine
+Instanz schreibt (Session-Datenbank, Sidecar-Konfiguration, Workspace-Eintrag,
+Logs), unter DIR ab statt im Datenverzeichnis der Plattform. Sonst ändert sich
+nichts: Der Standard-Workspace bleibt in deinem echten Documents-Ordner, und
+die Desktop-App ist nicht betroffen, weil sie die Headless-Übersteuerung nie
+durchläuft.
+
+Das ist KEIN Weg zu mehr Nebenläufigkeit — ein Server führt schon jetzt viele
+Sessions gleichzeitig aus (siehe oben). Es ist für wirklich getrennte
+Installationen auf einer Maschine: eine unbeaufsichtigte Shard-Instanz neben
+der Desktop-App, ein Benchmark-Cluster.
+
+Zugangsdaten bleiben pro Instanz und werden nie kopiert: Ein frisches DIR hat
+keine, also druckt der erste dort gestartete Server einen Hinweis samt dem
+Einzeiler, der eine hinzufügt — `OSD_STATE_DIR=DIR osd auth set <provider>
+--key …` — oder du exportierst die eigene Variable des Anbieters
+(`ANTHROPIC_API_KEY=…`) vor dem Start, und der Sidecar erbt sie.
+
 ### Welches Modell, und wer genehmigt
 
 `osd model` zeigt das Standardmodell, `osd model ls` listet, was die Laufzeit

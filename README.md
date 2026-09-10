@@ -320,6 +320,24 @@ reports success, and used the previous configuration.
 
 None of this needs a second installation of the workbench.
 
+### Isolated state directories (--state-dir)
+
+`osd server --state-dir DIR` — or `OSD_STATE_DIR=DIR` — keeps everything one
+instance writes (session database, sidecar config, workspace record, logs)
+under DIR instead of the platform data directory. Nothing else changes: the
+default workspace still resolves to your real Documents folder, and the desktop
+app is unaffected, because it never goes through the headless override.
+
+This is NOT a way to get more concurrency — one server already runs many
+sessions at once (above). It is for genuinely separate installations on one
+machine: an unattended shard next to the desktop app, a benchmark cluster.
+
+Credentials stay per instance and are never copied: a fresh DIR has none, so
+the first server started there prints a note and the one-liner that adds
+one — `OSD_STATE_DIR=DIR osd auth set <provider> --key …` — or you export the
+provider's own variable (`ANTHROPIC_API_KEY=…`) before starting and the sidecar
+inherits it.
+
 ### Which model, and who approves what
 
 `osd model` shows the default, `osd model ls` lists what the runtime can

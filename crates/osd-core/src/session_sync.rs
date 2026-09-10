@@ -422,7 +422,7 @@ mod tests {
         // fail. Asserted without the bundled binary on purpose: gating on
         // `runtime_cli` would make this pass vacuously wherever the sidecar has
         // not been fetched, which is most CI jobs.
-        let Ok(env) = crate::env::Env::headless(None, "test".into()) else {
+        let Ok(env) = crate::env::Env::headless(None, None, "test".into()) else {
             return;
         };
         let root = runtime_root(&env).unwrap();
@@ -445,7 +445,7 @@ mod tests {
         // The id becomes a file name inside the chosen folder, so a traversal
         // here would reach outside it. Refused before the path is built.
         let dir = std::env::temp_dir();
-        let env = crate::env::Env::headless(None, "test".into());
+        let env = crate::env::Env::headless(None, None, "test".into());
         if let Ok(env) = env {
             for bad in ["../../etc/passwd", "ses_a/../../x", "not-an-id"] {
                 assert!(import_session(&env, &dir, bad).is_err(), "should refuse {bad}");

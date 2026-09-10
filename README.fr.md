@@ -242,6 +242,26 @@ et a utilisé la configuration précédente.
 
 Rien de tout cela n'exige une seconde installation de l'atelier.
 
+### Répertoires d'état isolés (--state-dir)
+
+`osd server --state-dir DIR` — ou `OSD_STATE_DIR=DIR` — range tout ce qu'une
+instance écrit (base de sessions, configuration du sidecar, enregistrement du
+workspace, journaux) sous DIR au lieu du répertoire de données de la
+plateforme. Rien d'autre ne change : le workspace par défaut reste votre vrai
+dossier Documents, et l'app de bureau n'est pas affectée, car elle ne passe
+jamais par la dérogation headless.
+
+Ce n'est PAS un moyen d'obtenir plus de concurrence — un seul serveur exécute
+déjà plusieurs sessions à la fois (ci-dessus). C'est pour des installations
+vraiment séparées sur une même machine : une shard sans surveillance à côté de
+l'app de bureau, un cluster de benchmarks.
+
+Les identifiants restent par instance et ne sont jamais copiés : un DIR neuf
+n'en a aucun, donc le premier serveur démarré là affiche une note et la
+commande d'une ligne qui en ajoute un — `OSD_STATE_DIR=DIR osd auth set
+<provider> --key …` — ou vous exportez la variable du fournisseur lui-même
+(`ANTHROPIC_API_KEY=…`) avant de lancer, et le sidecar l'hérite.
+
 ### Quel modèle, et qui approuve
 
 `osd model` affiche le modèle par défaut, `osd model ls` liste ce que le runtime

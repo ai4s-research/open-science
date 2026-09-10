@@ -247,6 +247,14 @@ osd session send $id "Fit the 2015-2024 bleaching trend and write report.md" --w
 
 这一切都不需要再装第二份工作台。
 
+### 隔离的状态目录(--state-dir)
+
+`osd server --state-dir DIR`（或 `OSD_STATE_DIR=DIR`）把该实例写出的所有内容——session 数据库、sidecar 配置、workspace 记录、日志——放在 DIR 下，而不是平台数据目录。除此之外一概不变：默认 workspace 仍然解析到真实的 Documents 目录，桌面应用也不受影响，因为它从不走 headless 覆盖。
+
+这**不是**获得更高并发的方法——一个 server 本来就能同时跑多个 session（见上一小节）。它只服务于"同一台机器上真正独立的安装"：桌面应用旁边无人值守的分片、基准测试集群。
+
+凭据按实例隔离、绝不复制：全新的 DIR 里没有任何凭据，所以第一个在那里启动的 server 会打印一条提示和一行指路命令——`OSD_STATE_DIR=DIR osd auth set <provider> --key …`——或者启动前 export 提供商自己的环境变量（如 `ANTHROPIC_API_KEY=…`），sidecar 会继承它。
+
 ### 用哪个模型，谁来批准
 
 `osd model` 显示当前默认模型，`osd model ls` 列出运行时**真正能服务**的模型（也就是这台机器有凭据的那些提供商，当前那个带星号），`osd model set <provider/model>` 修改它——走网关，所以对远程服务器同样有效。任何单轮都可以用 `osd session send --model … --agent … --effort …` 覆盖。
