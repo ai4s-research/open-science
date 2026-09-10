@@ -233,10 +233,12 @@ Le MCP par projet suit le dossier : un serveur MCP déclaré dans
 dans ce dossier, et toutes les sessions partagent le même sidecar. Une règle de
 cache rend l'ordre important : la configuration opencode d'un dossier est lue une
 seule fois — la première fois que le sidecar utilise ce dossier — puis mise en
-cache. Écrivez la configuration MCP d'une session avant son premier tour dans ce
-dossier ; la modifier ensuite ne prend effet qu'après un redémarrage du serveur,
-et jusqu'alors la session s'exécute, signale un succès et a utilisé la
-configuration précédente.
+cache. Écrivez cette configuration avant de diriger la moindre session vers ce
+dossier : `osd session new --project NAME` (ou `--directory DIR`) la lit et la
+met déjà en cache, avant qu'un seul tour n'ait été exécuté — « avant le premier
+tour » est donc déjà trop tard. La modifier ensuite ne prend effet qu'après un
+redémarrage du serveur, et jusqu'alors la session s'exécute, signale un succès
+et a utilisé la configuration précédente.
 
 Rien de tout cela n'exige une seconde installation de l'atelier.
 

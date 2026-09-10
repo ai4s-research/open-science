@@ -232,10 +232,12 @@ El MCP por proyecto sigue a la carpeta: un servidor MCP declarado en
 en esa carpeta, y todas las sesiones comparten el mismo sidecar. Una regla de
 caché hace que el orden importe: la configuración de opencode de una carpeta se
 lee una sola vez — la primera vez que el sidecar usa esa carpeta — y queda en
-caché a partir de entonces. Escribe la configuración MCP de una sesión antes de
-su primer turno en esa carpeta; cambiarla después solo surte efecto tras un
-reinicio del servidor, y mientras tanto la sesión se ejecuta, informa de éxito y
-ha usado la configuración anterior.
+caché a partir de entonces. Escribe esa configuración antes de apuntar ninguna
+sesión a la carpeta: `osd session new --project NAME` (o `--directory DIR`) ya
+la lee y la cachea, antes de que se haya ejecutado un solo turno, así que
+«antes del primer turno» ya es demasiado tarde. Cambiarla después solo surte
+efecto tras un reinicio del servidor, y mientras tanto la sesión se ejecuta,
+informa de éxito y ha usado la configuración anterior.
 
 Nada de esto necesita una segunda instalación del banco de trabajo.
 

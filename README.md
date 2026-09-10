@@ -311,10 +311,12 @@ Per-project MCP follows the folder too: an MCP server declared in
 `<folder>/.opencode/opencode.json` applies only to sessions working in that
 folder, and every session shares the same sidecar. One caching rule makes the
 ordering matter: a folder's opencode configuration is read once, the first time
-the sidecar uses that folder, and cached from then on. Write a session's MCP
-configuration before its first turn in that folder — changing it later takes
-effect only after a server restart, and until then the session runs, reports
-success, and used the previous configuration.
+the sidecar uses that folder, and cached from then on. Write that configuration
+before any session is pointed at the folder: `osd session new --project NAME`
+(or `--directory DIR`) already reads and caches it, before a single turn has
+run, so "before the first turn" is already too late. Changing it afterwards
+takes effect only after a server restart, and until then the session runs,
+reports success, and used the previous configuration.
 
 None of this needs a second installation of the workbench.
 

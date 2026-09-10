@@ -232,10 +232,13 @@ Die projektbezogene MCP-Konfiguration folgt dem Ordner: ein in
 Sessions, die in diesem Ordner arbeiten, und alle Sessions teilen sich denselben
 Sidecar. Eine Cache-Regel macht die Reihenfolge entscheidend: die
 opencode-Konfiguration eines Ordners wird genau einmal gelesen — beim ersten
-Zugriff des Sidecars auf diesen Ordner — und von da an gecacht. Schreibe die
-MCP-Konfiguration einer Session, bevor ihr erster Zug in diesem Ordner läuft;
-eine spätere Änderung greift erst nach einem Neustart des Servers, und bis dahin
-läuft die Session, meldet Erfolg und hat die vorherige Konfiguration benutzt.
+Zugriff des Sidecars auf diesen Ordner — und von da an gecacht. Schreibe diese
+Konfiguration, bevor überhaupt eine Session auf den Ordner gerichtet wird:
+`osd session new --project NAME` (oder `--directory DIR`) liest und cacht sie
+bereits, bevor ein einziger Zug gelaufen ist — „vor dem ersten Zug“ ist also
+schon zu spät. Eine spätere Änderung greift erst nach einem Neustart des
+Servers, und bis dahin läuft die Session, meldet Erfolg und hat die vorherige
+Konfiguration benutzt.
 
 Keines davon braucht eine zweite Installation der Workbench.
 
