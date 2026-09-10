@@ -353,9 +353,16 @@ mod tests {
 
         let mirror = root.join("mirror");
         std::fs::create_dir_all(&mirror).unwrap();
+        // The mirror file is a real `opencode export`'s JSON. Building the
+        // fixture by hand with `format!` put a Windows path (backslashes) into
+        // the JSON, where `\U`, `\b`, `\s`… are illegal escapes — so the export
+        // parsed as nothing and every case silently fell back to the base
+        // folder. Build it with serde instead, exactly like the runtime does,
+        // and the escaping is right on every platform.
         let write = |name: &str, dir: &str| {
             let f = mirror.join(name);
-            std::fs::write(&f, format!(r#"{{"info":{{"directory":"{dir}"}},"messages":[]}}"#)).unwrap();
+            let text = serde_json::json!({ "info": { "directory": dir }, "messages": [] }).to_string();
+            std::fs::write(&f, text).unwrap();
             f
         };
 
