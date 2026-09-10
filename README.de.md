@@ -257,7 +257,7 @@ Installationen auf einer Maschine: eine unbeaufsichtigte Shard-Instanz neben
 der Desktop-App, ein Benchmark-Cluster.
 
 Zugangsdaten bleiben pro Instanz und werden nie kopiert: Ein frisches DIR hat
-keine, also druckt der erste dort gestartete Server eine Warnung samt dem
+keine, also druckt der erste dort gestartete Server einen Hinweis samt dem
 Einzeiler, der eine hinzufügt — `OSD_STATE_DIR=DIR osd auth set <provider>
 --key …` — oder du exportierst die eigene Variable des Anbieters
 (`ANTHROPIC_API_KEY=…`) vor dem Start, und der Sidecar erbt sie.

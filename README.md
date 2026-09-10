@@ -333,7 +333,7 @@ sessions at once (above). It is for genuinely separate installations on one
 machine: an unattended shard next to the desktop app, a benchmark cluster.
 
 Credentials stay per instance and are never copied: a fresh DIR has none, so
-the first server started there prints a warning and the one-liner that adds
+the first server started there prints a note and the one-liner that adds
 one — `OSD_STATE_DIR=DIR osd auth set <provider> --key …` — or you export the
 provider's own variable (`ANTHROPIC_API_KEY=…`) before starting and the sidecar
 inherits it.

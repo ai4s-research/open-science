@@ -256,7 +256,7 @@ en una misma máquina: una shard desatendida junto a la app de escritorio, un
 clúster de benchmarks.
 
 Las credenciales son por instancia y nunca se copian: un DIR nuevo no tiene
-ninguna, así que el primer servidor que arranca allí imprime una advertencia y
+ninguna, así que el primer servidor que arranca allí imprime una nota y
 la línea que añade una — `OSD_STATE_DIR=DIR osd auth set <provider> --key …` —
 o exportas la variable propia del proveedor (`ANTHROPIC_API_KEY=…`) antes de
 iniciar y el sidecar la hereda.

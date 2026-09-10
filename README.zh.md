@@ -253,7 +253,7 @@ osd session send $id "Fit the 2015-2024 bleaching trend and write report.md" --w
 
 这**不是**获得更高并发的方法——一个 server 本来就能同时跑多个 session（见上一小节）。它只服务于"同一台机器上真正独立的安装"：桌面应用旁边无人值守的分片、基准测试集群。
 
-凭据按实例隔离、绝不复制：全新的 DIR 里没有任何凭据，所以第一个在那里启动的 server 会打印警告和一行指路命令——`OSD_STATE_DIR=DIR osd auth set <provider> --key …`——或者启动前 export 提供商自己的环境变量（如 `ANTHROPIC_API_KEY=…`），sidecar 会继承它。
+凭据按实例隔离、绝不复制：全新的 DIR 里没有任何凭据，所以第一个在那里启动的 server 会打印一条提示和一行指路命令——`OSD_STATE_DIR=DIR osd auth set <provider> --key …`——或者启动前 export 提供商自己的环境变量（如 `ANTHROPIC_API_KEY=…`），sidecar 会继承它。
 
 ### 用哪个模型，谁来批准
 

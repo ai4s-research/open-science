@@ -257,7 +257,7 @@ vraiment séparées sur une même machine : une shard sans surveillance à côt�
 l'app de bureau, un cluster de benchmarks.
 
 Les identifiants restent par instance et ne sont jamais copiés : un DIR neuf
-n'en a aucun, donc le premier serveur démarré là affiche un avertissement et la
+n'en a aucun, donc le premier serveur démarré là affiche une note et la
 commande d'une ligne qui en ajoute un — `OSD_STATE_DIR=DIR osd auth set
 <provider> --key …` — ou vous exportez la variable du fournisseur lui-même
 (`ANTHROPIC_API_KEY=…`) avant de lancer, et le sidecar l'hérite.

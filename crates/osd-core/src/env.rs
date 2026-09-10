@@ -397,23 +397,42 @@ mod tests {
         assert!(dir.ends_with(IDENTIFIER), "{dir:?} must be the app's own directory");
     }
 
+    /// An absolute path in the host's OWN spelling. `is_absolute` is decided by
+    /// the platform, not by the string: `D:/one` is absolute on Windows and
+    /// relative everywhere else (where `absolutize` would join it onto the cwd),
+    /// and `/one` is the other way round. A literal in either spelling therefore
+    /// tests the resolver on one platform and something else on the other.
+    fn abs(tail: &str) -> PathBuf {
+        let p = PathBuf::from(if cfg!(windows) {
+            format!("D:/{tail}")
+        } else {
+            format!("/{tail}")
+        });
+        assert!(p.is_absolute(), "{p:?} must be absolute for this test to mean anything");
+        p
+    }
+
     #[test]
     fn a_state_dir_override_beats_the_environment_variable() {
-        let flag = PathBuf::from("D:/one/state");
-        let from_env = PathBuf::from("D:/two/state");
-        let cwd = Path::new("D:/cwd");
+        let flag = abs("one/state");
+        let from_env = abs("two/state");
+        let cwd = abs("cwd");
         assert_eq!(
-            resolve_data_dir(Some(flag.clone()), Some(from_env.to_string_lossy().into_owned()), cwd)
-                .unwrap(),
+            resolve_data_dir(
+                Some(flag.clone()),
+                Some(from_env.to_string_lossy().into_owned()),
+                &cwd
+            )
+            .unwrap(),
             flag
         );
     }
 
     #[test]
     fn the_environment_variable_is_used_when_no_flag_is_given() {
-        let from_env = PathBuf::from("D:/env/state");
+        let from_env = abs("env/state");
         assert_eq!(
-            resolve_data_dir(None, Some(from_env.to_string_lossy().into_owned()), Path::new("D:/cwd"))
+            resolve_data_dir(None, Some(from_env.to_string_lossy().into_owned()), &abs("cwd"))
                 .unwrap(),
             from_env
         );
@@ -425,20 +444,20 @@ mod tests {
         // string silently becoming "the empty path as a state dir" would park
         // every write in the current directory.
         assert_eq!(
-            resolve_data_dir(None, Some(String::new()), Path::new("D:/cwd")).unwrap(),
+            resolve_data_dir(None, Some(String::new()), &abs("cwd")).unwrap(),
             platform_data_dir().unwrap()
         );
     }
 
     #[test]
     fn a_relative_state_dir_resolves_against_the_given_cwd() {
-        let cwd = Path::new("D:/cwd");
+        let cwd = abs("cwd");
         assert_eq!(
-            resolve_data_dir(Some(PathBuf::from("state/one")), None, cwd).unwrap(),
+            resolve_data_dir(Some(PathBuf::from("state/one")), None, &cwd).unwrap(),
             cwd.join("state/one")
         );
         assert_eq!(
-            resolve_data_dir(None, Some("state/two".to_string()), cwd).unwrap(),
+            resolve_data_dir(None, Some("state/two".to_string()), &cwd).unwrap(),
             cwd.join("state/two")
         );
     }

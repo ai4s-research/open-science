@@ -163,7 +163,7 @@ fn resolve(args: &Args) -> Result<(String, String, String), String> {
     if let Some((base, token)) = stored() {
         return Ok((check_url(&base)?, token, format!("{}", config_file().display())));
     }
-    if let Some((base, token)) = local_gateway() {
+    if let Some((base, token)) = local_gateway(args) {
         return Ok((base, token, "a gateway running on this machine".into()));
     }
     Err("no gateway found. Start one with `osd server`, or point at one with \
@@ -179,8 +179,20 @@ fn env_var(name: &str) -> Option<String> {
 /// record their live port and token under the shared runtime root, so no
 /// discovery protocol is needed — and nothing is guessed: an absent port means
 /// nothing is listening.
-fn local_gateway() -> Option<(String, String)> {
-    let env = osd_core::Env::headless(None, None, env!("CARGO_PKG_VERSION").to_string()).ok()?;
+///
+/// `--state-dir` has to be threaded through: the record is read out of the
+/// runtime root, so an isolated instance's port and token live under ITS root.
+/// Resolving the default root here instead would silently hand the caller the
+/// desktop install's gateway — driving the wrong server, with no error, which
+/// is the exact confusion `--state-dir` exists to prevent. (`OSD_STATE_DIR` is
+/// read inside `headless` and so was never affected.)
+fn local_gateway(args: &Args) -> Option<(String, String)> {
+    let env = osd_core::Env::headless(
+        None,
+        args.value("state-dir").map(PathBuf::from),
+        env!("CARGO_PKG_VERSION").to_string(),
+    )
+    .ok()?;
     let p = osd_core::gateway::read_persisted(&env);
     let port = p.port?;
     if p.token.is_empty() {

@@ -241,7 +241,7 @@ osd session send $id "Fit the 2015-2024 bleaching trend and write report.md" --w
 無人シャード、ベンチマーククラスターなどです。
 
 資格情報はインスタンスごとに残り、決してコピーされません。新しい DIR には
-何もないため、そこで最初に起動したサーバーが警告と、追加する 1 行コマンドを
+何もないため、そこで最初に起動したサーバーが注記と、追加する 1 行コマンドを
 表示します — `OSD_STATE_DIR=DIR osd auth set <provider> --key …`。または
 起動前にプロバイダー自身の環境変数（`ANTHROPIC_API_KEY=…`）を export すれば、
 サイドカーがそれを引き継ぎます。
