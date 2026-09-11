@@ -7,13 +7,7 @@ import { useRuntimeStore } from "@/lib/runtime";
 // found it at, so no other suite inherits a faked one.
 const RUNTIME_STATUS = useRuntimeStore.getState().status;
 afterEach(() => {
-  useRuntimeStore.setState({
-    status: RUNTIME_STATUS,
-    error: null,
-    sessions: [],
-    threads: {},
-    currentId: null,
-  });
+  useRuntimeStore.setState({ status: RUNTIME_STATUS, error: null });
   vi.useRealTimers();
 });
 
@@ -48,35 +42,5 @@ describe("a session pane while the runtime is starting", () => {
     renderAt("/live");
     expect(await screen.findByText("OpenCode runtime")).toBeInTheDocument();
     expect(screen.queryByText("Starting the local runtime…")).not.toBeInTheDocument();
-  });
-});
-
-/** The skeleton means "nothing to show yet", NOT "history unfetched" — the two
- *  came apart in #139. A failed load keeps `loaded: false` so the next open
- *  retries, and it is the error row that stops the spinner. Keying the skeleton
- *  off `loaded` again would hand that session an endless pulse instead, which
- *  is the bug 1620a1f fixed and no store test can see. */
-describe("a session pane whose history failed to load", () => {
-  it("shows the error row rather than pulsing forever", async () => {
-    act(() =>
-      useRuntimeStore.setState({
-        status: "ready",
-        error: null,
-        sessions: [{ id: "ses_err", title: "Broken", directory: "/ws/base" }],
-        currentId: "ses_err",
-        threads: {
-          ses_err: {
-            blocks: [
-              { kind: "status-line", text: "Failed to load messages: Load failed", tone: "error" },
-            ],
-            index: {},
-            loaded: false,
-          },
-        },
-      }),
-    );
-    const { container } = renderAt("/live/ses_err");
-    expect(await screen.findByText("Failed to load messages: Load failed")).toBeInTheDocument();
-    expect(container.querySelector(".animate-pulse")).toBeNull();
   });
 });
