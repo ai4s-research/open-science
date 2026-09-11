@@ -391,6 +391,7 @@
       "action": "Zurückspringen"
     }
   },
+  "historyRetry": "Erneut versuchen",
   "compaction": {
     "label": "Kontext verdichtet",
     "autoBody": "Die Laufzeit hat die früheren Züge zusammengefasst, um im Kontextfenster dieses Modells zu bleiben; die Unterhaltung ging hier weiter.",

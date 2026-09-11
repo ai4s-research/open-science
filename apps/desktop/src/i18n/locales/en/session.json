@@ -391,6 +391,7 @@
       "action": "Roll back"
     }
   },
+  "historyRetry": "Retry",
   "compaction": {
     "label": "Context compacted",
     "autoBody": "The runtime summarized the earlier turns to stay inside this model's context window, and the conversation continued here.",

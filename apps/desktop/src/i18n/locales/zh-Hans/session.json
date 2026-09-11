@@ -381,6 +381,7 @@
       "action": "回滚"
     }
   },
+  "historyRetry": "重试",
   "compaction": {
     "label": "上下文已压缩",
     "autoBody": "为了不超出该模型的上下文窗口，运行时已把更早的对话摘要化，对话从这里继续。",

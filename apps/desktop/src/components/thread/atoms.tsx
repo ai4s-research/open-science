@@ -362,10 +362,14 @@ const TONE: Record<NonNullable<StatusLineBlock["tone"]>, string> = {
 export const StatusLine = memo(function StatusLine({
   block,
   onStallAction,
+  onRetry,
 }: {
   block: StatusLineBlock;
   /** Present only in the live session; powers the stall warning's two actions. */
   onStallAction?: (stallKey: string, action: "keep-waiting" | "stop") => void;
+  /** Present only in the live session; powers the failed history-load error
+   *  line's Retry action (#139). */
+  onRetry?: () => void;
 }) {
   const { t } = useTranslation(["session", "common"]);
   return (
@@ -391,6 +395,17 @@ export const StatusLine = memo(function StatusLine({
               onClick={() => onStallAction(block.stall!.key, "stop")}
             >
               {t("stall.stopTurn")}
+            </button>
+          </span>
+        )}
+        {block.retry && onRetry && (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              className="rounded-input border border-border px-2.5 py-1 text-xs font-medium text-text hover:bg-surface-2"
+              onClick={onRetry}
+            >
+              {t("historyRetry")}
             </button>
           </span>
         )}

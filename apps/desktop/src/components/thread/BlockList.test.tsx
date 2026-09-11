@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BlockList } from "./BlockList";
 import { useRuntimeStore } from "@/lib/runtime";
 
@@ -35,5 +36,41 @@ describe("BlockList", () => {
     render(<BlockList blocks={[{ kind: "tool-call", title: "ls -la", status: "running" }]} />);
     expect(screen.getByText("ls -la")).toBeInTheDocument();
     expect(document.querySelector("[data-subagent-activity]")).toBeNull();
+  });
+
+  it("offers a Retry action on a failed history-load line in the live session", async () => {
+    const onRetryHistory = vi.fn();
+    render(
+      <BlockList
+        blocks={[
+          {
+            kind: "status-line",
+            text: "Failed to load messages: Load failed",
+            tone: "error",
+            retry: true,
+          },
+        ]}
+        handlers={{ onRetryHistory }}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(onRetryHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the failed history-load line without a Retry action outside the live session", () => {
+    render(
+      <BlockList
+        blocks={[
+          {
+            kind: "status-line",
+            text: "Failed to load messages: Load failed",
+            tone: "error",
+            retry: true,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Failed to load messages/)).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

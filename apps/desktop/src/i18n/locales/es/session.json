@@ -391,6 +391,7 @@
       "action": "Volver"
     }
   },
+  "historyRetry": "Reintentar",
   "compaction": {
     "label": "Contexto compactado",
     "autoBody": "El entorno resumió los turnos anteriores para no salirse de la ventana de contexto del modelo, y la conversación siguió aquí.",
