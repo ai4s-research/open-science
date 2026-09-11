@@ -1010,8 +1010,8 @@ function raiseStallWarning(sid: string, v: StallVerdict): void {
         threads: {
           ...s.threads,
           [sid]: {
+            // `loaded` inherited, not asserted: a status line is not history (#139).
             ...cur,
-            loaded: true,
             blocks: [
               ...cur.blocks,
               { kind: "status-line", text: channelText, tone: "error", stall: { key } },
@@ -1569,8 +1569,15 @@ async function performTurn(
       threads: {
         ...s.threads,
         [echoKey]: {
+          // `loaded` is inherited, never asserted: echoing a message says
+          // nothing about whether this session's earlier history was ever
+          // fetched. Claiming it here stranded that history permanently —
+          // sending into a session whose load had failed (#139 leaves the
+          // composer live) left the thread holding the echo alone, with every
+          // later open short-circuiting. A brand-new session is the one case
+          // where the draft conversation IS the whole history, and the graft
+          // below says so where it is actually true.
           ...cur,
-          loaded: true,
           blocks: showEcho ? [...cur.blocks, { kind: "user", text: echo }] : cur.blocks,
         },
       },
@@ -1635,8 +1642,15 @@ async function performTurn(
       id = await withRetry(() => client!.createSession());
       set((s) => {
         // Graft this pane's draft conversation (and its pane state) from its own
-        // slot (`draftSrc`) onto the real session id.
-        const threads = { ...s.threads, [id!]: s.threads[draftSrc] ?? emptyThread() };
+        // slot (`draftSrc`) onto the real session id. `loaded` is set HERE, the
+        // one place it is true by construction: the session was created a line
+        // ago, so the draft conversation is its entire history and there is
+        // nothing on the server to fetch. Every other write of this flag either
+        // fetched the history or must leave it alone.
+        const threads = {
+          ...s.threads,
+          [id!]: { ...(s.threads[draftSrc] ?? emptyThread()), loaded: true },
+        };
         delete threads[draftSrc];
         const panes = { ...s.panes };
         if (panes[draftSrc]) {
@@ -1777,8 +1791,8 @@ async function performTurn(
         threads: {
           ...s.threads,
           [key]: {
+            // `loaded` inherited, not asserted: a status line is not history (#139).
             ...cur,
-            loaded: true,
             blocks: [...cur.blocks, { kind: "status-line", text: `Send failed: ${msg}`, tone: "error" }],
           },
         },
@@ -1884,10 +1898,11 @@ function finishAutoReview(
       );
       index[`review:${partId}`] = insertAt;
       threads[job.parentId] = {
+        // `loaded` inherited, not asserted: splicing a review result in says
+        // nothing about whether the parent's own history was ever fetched (#139).
         ...parent,
         blocks,
         index,
-        loaded: true,
       };
     }
     return {
@@ -3066,8 +3081,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
               threads: {
                 ...s.threads,
                 [sid]: {
+                  // `loaded` inherited, not asserted: a status line is not history (#139).
                   ...cur,
-                  loaded: true,
                   blocks: [...cur.blocks, { kind: "status-line", text: message, tone: "error" }],
                 },
               },
@@ -4051,13 +4066,24 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (seq !== openSessionSeq || get().currentId !== id) return;
+      // Show the failure, but do NOT claim the history is loaded. `loaded` is
+      // exactly what the early return above consults, so marking it here cached
+      // a TRANSIENT failure forever: a sidecar still accepting connections
+      // refuses this fetch, and the session then read "Failed to load messages"
+      // for the rest of the app run — reopening it, switching Screens, and
+      // navigating away and back all short-circuited on the cached thread
+      // (#139). Leaving it unloaded lets the next open retry, which the focus
+      // effect already performs when `connected` flips.
+      //
+      // The error block is what stops the skeleton now: SessionView renders one
+      // only while there is nothing at all to show, so the endless skeleton
+      // 1620a1f fixed stays fixed without this lie about the history.
       set((s) => ({
         error: msg,
         threads: {
           ...s.threads,
           [id]: {
             ...emptyThread(),
-            loaded: true,
             blocks: [{ kind: "status-line", text: `Failed to load messages: ${msg}`, tone: "error" }],
           },
         },
@@ -4266,8 +4292,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           ...s.threads,
           ...settled,
           [sid]: {
+            // `loaded` inherited, not asserted: a status line is not history (#139).
             ...(settled[sid] ?? cur),
-            loaded: true,
             blocks: [
               ...(settled[sid] ?? cur).blocks,
               { kind: "status-line", text: "Interrupted", tone: "error" },

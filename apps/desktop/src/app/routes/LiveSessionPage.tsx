@@ -161,6 +161,13 @@ export function LiveSessionPage() {
   // /clear thread (currentId is already null then).
   useEffect(() => {
     if (focusedSid) {
+      // Wait for the runtime, exactly as the background-pane effect above
+      // already does. A restored tab used to fire this the moment it mounted,
+      // racing a sidecar that can take seconds to accept connections — the
+      // fetch failed at the network level and the session showed "Failed to
+      // load messages" (#139). `connected` is a dependency, so this re-runs and
+      // opens the session the moment the runtime is up.
+      if (!connected) return;
       void openSession(focusedSid);
     } else if (useRuntimeStore.getState().currentId) {
       // View-only reset: re-blanking a pane must not reroute the next session

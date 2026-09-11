@@ -1098,7 +1098,11 @@ describe("per-session workspace folders", () => {
     expect(mocks.clientOpts.length).toBeGreaterThan(connectsBeforeNextTurn);
   });
 
-  it("openSession stops the loading skeleton when history fails to load", async () => {
+  // 1620a1f's contract: a failed history load renders an error row rather than
+  // an endless skeleton. SessionView stops the skeleton on "there is something
+  // to show", so the error block is what satisfies it — the thread must NOT
+  // claim to be loaded, which is the rest of this trio.
+  it("openSession renders an error row, not an endless skeleton, when history fails", async () => {
     mocks.failMessages = true;
     useRuntimeStore.setState({
       sessions: [{ id: "ses_bad", title: "Bad session", directory: "/ws/base" }],
@@ -1109,10 +1113,62 @@ describe("per-session workspace folders", () => {
     await useRuntimeStore.getState().openSession("ses_bad");
 
     const thread = useRuntimeStore.getState().threads.ses_bad;
-    expect(thread.loaded).toBe(true);
     expect(thread.blocks).toEqual([
       { kind: "status-line", text: "Failed to load messages: history hung", tone: "error" },
     ]);
+    // Something to show, so no skeleton — and still unfetched, so the next open
+    // retries instead of short-circuiting.
+    expect(thread.blocks.length).toBeGreaterThan(0);
+    expect(thread.loaded).toBe(false);
+  });
+
+  // #139: the sidecar can take seconds to accept connections, so the first open
+  // of a restored tab loses the race. Caching that as loaded left the session
+  // reading "Failed to load messages" for the entire app run — reopening it,
+  // switching Screens, and navigating away and back all returned early.
+  it("openSession retries the history once the runtime comes up", async () => {
+    mocks.failMessages = true;
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_late", title: "Late", directory: "/ws/base" }],
+      currentId: null,
+      threads: {},
+    });
+    await useRuntimeStore.getState().openSession("ses_late");
+    expect(useRuntimeStore.getState().threads.ses_late.loaded).toBe(false);
+
+    // The sidecar is up; the focus effect re-runs on `connected`.
+    mocks.failMessages = false;
+    mocks.messages = [{ role: "user", parts: [{ type: "text", text: "earlier turn" }] }];
+    await useRuntimeStore.getState().openSession("ses_late");
+
+    const thread = useRuntimeStore.getState().threads.ses_late;
+    expect(thread.loaded).toBe(true);
+    expect(thread.blocks).toEqual([{ kind: "user", text: "earlier turn" }]);
+  });
+
+  // The composer stays live behind that error row, so the failure above must not
+  // be compounded by the echo: marking the thread loaded on send stranded the
+  // real history permanently, with nothing on screen but the message just typed.
+  it("sending into a session whose history never loaded does not strand it", async () => {
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_send", title: "Send", directory: "/ws/base" }],
+      currentId: "ses_send",
+      workspace: "/ws/base",
+      threads: {},
+    });
+
+    await useRuntimeStore.getState().sendPrompt("hello", "ses_send");
+    expect(useRuntimeStore.getState().threads.ses_send.loaded).toBe(false);
+
+    mocks.messages = [
+      { role: "user", parts: [{ type: "text", text: "earlier turn" }] },
+      { role: "assistant", parts: [{ type: "text", text: "earlier reply" }] },
+    ];
+    await useRuntimeStore.getState().openSession("ses_send");
+
+    const thread = useRuntimeStore.getState().threads.ses_send;
+    expect(thread.loaded).toBe(true);
+    expect(thread.blocks.map((b) => b.kind)).toEqual(["user", "agent"]);
   });
 
   it("switchWorkspace pins the chosen folder; startDraft un-pins it", async () => {

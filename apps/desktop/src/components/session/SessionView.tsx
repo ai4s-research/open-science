@@ -336,7 +336,13 @@ export function SessionView({
 
   // This session's thread, selected on its own so only its own folds repaint.
   const thread = useRuntimeStore((s) => s.threads[key]);
-  const historyLoading = connected && !!eid && !thread?.loaded;
+  // The skeleton means "still waiting, with nothing at all to show" — NOT
+  // "history unfetched". Those came apart in #139: a failed load has an error
+  // row to render and must still count as unfetched, so the next open retries
+  // instead of short-circuiting on it. Keying the skeleton off `loaded` alone
+  // forced the catch to lie about the history to stop the spinner (1620a1f),
+  // which is what cached the failure for the whole app run.
+  const historyLoading = connected && !!eid && !thread?.loaded && !thread?.blocks.length;
   const title = sessions.find((s) => s.id === eid)?.title;
   const isEmpty = !thread || thread.blocks.length === 0;
   const working = sending || running;
