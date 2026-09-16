@@ -28,7 +28,8 @@ import { useRuntimeStore } from "@/lib/runtime";
 import { parseTableFile } from "@/lib/csv";
 import { formatNumber } from "@/i18n/format";
 import { CodeViewer } from "@/components/code-viewer/CodeViewer";
-import { CodeEditor, editorLanguage, type CodeEditorHandle } from "@/components/code-editor/CodeEditor";
+import type { CodeEditorHandle } from "@/components/code-editor/CodeEditor";
+import { FileEditor } from "@/components/code-editor/FileEditor";
 import { MarkdownToolbar } from "@/components/code-editor/MarkdownToolbar";
 import { recordProvenance } from "@/lib/provenance";
 import { MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
@@ -796,17 +797,15 @@ function SourceView({
   const handle = useRef<CodeEditorHandle | null>(null);
   if (draft === null) return <CodeViewer code={text} language={language} />;
   const editor = (
-    <CodeEditor
+    <FileEditor
       handleRef={handle}
       value={draft}
       onChange={onDraftChange}
-      language={editorLanguage(language ?? extensionLanguage(filename))}
-      lineNumbers={!prose}
-      placeholder={prose ? t("filePreview.markdownPlaceholder") : undefined}
-      // eslint-disable-next-line i18next/no-literal-string -- CodeMirror key binding, not UI copy
-      commands={[{ key: "Mod-s", run: onSave }]}
+      onSave={onSave}
+      language={language ?? extensionLanguage(filename)}
+      prose={prose}
       ariaLabel={t("filePreview.editorAria", { filename })}
-      className={prose ? "h-full rounded-none border-0" : undefined}
+      className={prose ? undefined : "rounded-input border border-border"}
     />
   );
   if (!prose) return editor;

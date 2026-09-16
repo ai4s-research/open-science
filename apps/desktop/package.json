@@ -49,6 +49,7 @@
     "jszip": "^3.10.1",
     "katex": "^0.17.0",
     "lucide-react": "^0.454.0",
+    "monaco-editor": "^0.56.0",
     "openchemlib": "^9.24.0",
     "pptx-preview": "^1.0.7",
     "react": "^18.3.1",

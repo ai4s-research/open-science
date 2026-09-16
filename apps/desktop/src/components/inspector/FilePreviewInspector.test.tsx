@@ -26,6 +26,11 @@ vi.mock("@/lib/artifactFile", async (importOriginal) => {
   };
 });
 
+// Monaco needs a real layout engine; jsdom has none. These tests are about the
+// INSPECTOR — dirty state, autosave, discard — so the editor is a textarea with
+// the same contract. See `test/monacoStub`.
+vi.mock("@/components/code-editor/monacoSetup", () => import("@/test/monacoStub"));
+
 // Editing is desktop-only, so the editing tests need the app to believe it is
 // running under Tauri.
 const writeWorkspaceFile = vi.fn(async (_path: string, _content: string, _root?: unknown) => {});
@@ -398,11 +403,16 @@ describe("FilePreviewInspector — an editor pane", () => {
     const editor = await screen.findByRole("textbox", { name: "Editing report.md" });
 
     await userEvent.click(editor);
+    // On the heading line: the marker applies to the line the caret is on, and
+    // a click lands the caret at the end of the text.
+    (editor as HTMLTextAreaElement).setSelectionRange(0, 0);
     await userEvent.click(screen.getByRole("button", { name: "Quote" }));
 
     // The heading BECOMES a quote rather than being quoted as a heading —
     // one marker per line, the way Orca's toolbar behaves.
-    await waitFor(() => expect(editor.textContent).toContain("> Findings"));
+    await waitFor(() =>
+      expect((editor as HTMLTextAreaElement).value).toContain("> Findings"),
+    );
   });
 
   it("saves on its own, and says which state it is in", async () => {
