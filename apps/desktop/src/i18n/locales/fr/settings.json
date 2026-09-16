@@ -522,5 +522,13 @@
     "accessibilityHint": "Obligatoire. Permet à l'assistant de lire l'interface d'une application et d'agir dessus. L'autorisation est accordée à Open Science Computer Use — un assistant distinct — et non à tout l'atelier.",
     "screenshots": "Enregistrement de l'écran",
     "screenshotsHint": "Facultatif, et accordé à Open Science lui-même plutôt qu'à l'assistant — macOS attribue la capture d'écran à l'application à l'origine de la demande. Utile seulement lorsque l'agent doit regarder une fenêtre qu'il ne peut pas lire sous forme de texte, comme un graphique ou un canevas."
+  },
+  "userBrowser": {
+    "title": "Un navigateur que vous avez installé",
+    "hint": "Open Science a trouvé sur ce Mac un navigateur que son agent peut piloter depuis le shell. Rien à configurer : c'est ici pour que vous sachiez qu'il est atteignable.",
+    "name": "ego lite",
+    "reachable": "Installé et atteignable. L'agent demandera votre accord avant la première utilisation de chaque conversation.",
+    "notReachable": "Installé, mais son outil en ligne de commande est absent de cette machine, donc l'agent ne peut pas l'atteindre. Lancez la configuration propre à ego lite pour l'ajouter.",
+    "tradeoff": "Ce n'est pas le connecteur de navigateur ci-dessus. Celui-là pilote un navigateur distinct que cette application possède, avec un profil isolé. Celui-ci est votre navigateur de tous les jours et porte vos sessions réellement connectées — ce qui fait son intérêt, et pourquoi il demande d'abord. macOS uniquement."
   }
 }

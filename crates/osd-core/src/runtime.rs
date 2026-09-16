@@ -1488,6 +1488,11 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     if let Some(migrated) = crate::opencode_config::migrate_computer_permission(&existing) {
         write_atomic(&cfg_file, &migrated)?;
     }
+    // Same shape once more for bash tokens added after a mode was chosen.
+    let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+    if let Some(migrated) = crate::opencode_config::migrate_dangerous_bash(&existing) {
+        write_atomic(&cfg_file, &migrated)?;
+    }
     // Rename the legacy browser MCP id, then hide the incompatible user skill
     // with that old name while the official connector is configured.
     let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();

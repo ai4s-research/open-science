@@ -522,5 +522,13 @@
     "accessibilityHint": "Required. Lets the helper read an app's interface and act on it. Granted to Open Science Computer Use — a separate helper — not to the whole workbench.",
     "screenshots": "Screen Recording",
     "screenshotsHint": "Optional, and granted to Open Science itself rather than to the helper — macOS attributes screen capture to the app that started the request. Only needed when the agent has to look at a window it cannot read as text, such as a plot or a canvas."
+  },
+  "userBrowser": {
+    "title": "A browser you installed",
+    "hint": "Open Science found a browser on this Mac that its agent can drive from the shell. Nothing to configure — this is here so you know it can be reached.",
+    "name": "ego lite",
+    "reachable": "Installed and reachable. The agent will ask before the first use in a conversation.",
+    "notReachable": "Installed, but its command-line tool is not on this machine, so the agent cannot reach it. Run ego lite's own setup to add it.",
+    "tradeoff": "This is not the browser connector above. That one drives a separate browser this app owns, with an isolated profile. This one is your everyday browser and carries your real logged-in sessions — which is what makes it useful, and why it asks first. macOS only."
   }
 }

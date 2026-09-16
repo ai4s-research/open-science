@@ -357,6 +357,20 @@ export async function getCliShimStatus(): Promise<CliShimStatus | null> {
   return await invoke<CliShimStatus>("cli_shim_status");
 }
 
+/** A browser the user installed themselves that the agent can reach from the
+ *  shell — as opposed to the one this app bundles and owns. */
+export type UserBrowser = {
+  appPath: string;
+  /** The command the agent would run; null when the app is there but its CLI is not. */
+  command: string | null;
+};
+
+export async function detectUserBrowser(): Promise<UserBrowser | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<UserBrowser | null>("detect_user_browser");
+}
+
 /** What computer use can do on this machine, and — on macOS — whether the two
  *  permissions its helper needs have been granted. */
 export type ComputerUseStatus = {

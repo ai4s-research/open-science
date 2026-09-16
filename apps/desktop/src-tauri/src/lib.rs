@@ -205,6 +205,7 @@ pub fn run() {
             browser::agent_browser_profiles,
             browser::close_agent_browser,
             browser::detect_chrome,
+            browser::detect_user_browser,
             browser::setup_browser_chrome,
             computer::computer_use_status,
             computer::open_computer_use_permissions,

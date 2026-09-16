@@ -47,6 +47,12 @@ const DANGEROUS_BASH: &[&str] = &[
     // remote / outward
     "ssh", "scp", "sftp", "rsync", "curl", "wget", "nc", "git push", "modal",
     "sbatch",
+    // A browser the user installed themselves, driven from the shell. It is
+    // gated for the same reason the bundled one is, and more so: the bundled
+    // browser runs an isolated profile this app owns, while this one carries the
+    // user's real logged-in sessions. Leaving it out meant the sandboxed browser
+    // asked and the one with the user's mail and bank open did not.
+    "ego-browser",
 ];
 
 /// Add `path` and the other spellings it can legitimately arrive as. macOS
@@ -201,6 +207,28 @@ pub fn migrate_browser_permission(existing: &str) -> Option<String> {
     }
     permission.insert(key, json!("ask"));
     serde_json::to_string_pretty(&root).ok()
+}
+
+/// Back-fill bash ask rules added after an install chose "approve" — a chosen
+/// mode is never re-seeded, so a token added to `DANGEROUS_BASH` later would
+/// never reach the people already running that mode. Additive and idempotent:
+/// only missing globs are inserted, and a rule the user relaxed is left alone.
+pub fn migrate_dangerous_bash(existing: &str) -> Option<String> {
+    if permission_mode_of(existing)? != MODE_APPROVE {
+        return None;
+    }
+    let mut root: Value = read_config(existing)?;
+    let bash = root.get_mut("permission")?.get_mut("bash")?.as_object_mut()?;
+    let mut changed = false;
+    for token in DANGEROUS_BASH {
+        for glob in [format!("{token} *"), format!("* {token} *")] {
+            if !bash.contains_key(&glob) {
+                bash.insert(glob, json!("ask"));
+                changed = true;
+            }
+        }
+    }
+    changed.then(|| serde_json::to_string_pretty(&root).ok())?
 }
 
 /// Back-fill the computer-use ask rule for installs that chose "approve" before
@@ -1300,6 +1328,39 @@ mod tests {
         assert!(migrate_browser_permission(&full).is_none());
         // First run has no mode yet; seeding owns that path.
         assert!(migrate_browser_permission("{}").is_none());
+    }
+
+    #[test]
+    fn a_user_installed_browser_is_gated_like_the_bundled_one() {
+        // The bundled browser drives an isolated profile this app owns; a browser
+        // the user installed carries their real sessions. Gating the first and not
+        // the second put the prompt on the cheaper one.
+        let approved = set_permission_mode("", MODE_APPROVE).unwrap();
+        let v: Value = serde_json::from_str(&approved).unwrap();
+        assert_eq!(v["permission"]["bash"]["ego-browser *"], "ask");
+        assert_eq!(v["permission"]["bash"]["* ego-browser *"], "ask");
+    }
+
+    #[test]
+    fn bash_tokens_added_later_reach_installs_that_already_chose_approve() {
+        // A chosen mode is never re-seeded, so without this a token added to the
+        // list would only ever apply to fresh installs.
+        let stale = r#"{"permission":{"bash":{"rm *":"ask"},"webfetch":"ask"}}"#;
+        let out = migrate_dangerous_bash(stale).expect("approve config is back-filled");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["permission"]["bash"]["ego-browser *"], "ask");
+        assert_eq!(v["permission"]["bash"]["rm *"], "ask");
+        // Idempotent, and a rule the user relaxed keeps their choice.
+        assert!(migrate_dangerous_bash(&out).is_none());
+        let relaxed: Value = serde_json::from_str(&out).unwrap();
+        let mut relaxed = relaxed;
+        relaxed["permission"]["bash"]["ego-browser *"] = json!("allow");
+        let relaxed = serde_json::to_string(&relaxed).unwrap();
+        assert!(migrate_dangerous_bash(&relaxed).is_none());
+        // Full mode means no approvals at all, and first run belongs to seeding.
+        let full = set_permission_mode("", MODE_FULL).unwrap();
+        assert!(migrate_dangerous_bash(&full).is_none());
+        assert!(migrate_dangerous_bash("{}").is_none());
     }
 
     #[test]

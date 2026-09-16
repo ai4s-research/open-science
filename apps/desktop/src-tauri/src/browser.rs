@@ -135,6 +135,46 @@ pub async fn agent_browser_profiles(app: AppHandle) -> Result<Vec<BrowserProfile
     }
 }
 
+/// A browser the user installed themselves that the agent can drive from the
+/// shell, rather than one this app bundles and owns.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserBrowser {
+    /// Where the application is, so the user can see which one we mean.
+    app_path: String,
+    /// The command the agent would run. Present only when it is installed.
+    command: Option<String>,
+}
+
+/// Detect ego lite (github.com/citrolabs/ego-lite), if the user has it.
+///
+/// Why this is reported rather than configured: the agent reaches it through
+/// `bash`, not through a connector this app registers, so there is nothing here
+/// to wire up — but a browser carrying the user's own logged-in sessions is not
+/// something to leave unsaid. It is gated like any other outward command, so the
+/// first use in a conversation asks.
+///
+/// macOS only, because ego lite is macOS only today.
+#[tauri::command]
+pub fn detect_user_browser() -> Option<UserBrowser> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let app = ["/Applications/ego lite.app", &format!("{home}/Applications/ego lite.app")]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_dir())?;
+    // The CLI is what the agent actually runs; without it the app is installed
+    // but not reachable, and saying "installed" would be misleading.
+    let command = [format!("{home}/.local/bin/ego-browser"), "/usr/local/bin/ego-browser".into()]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_file())
+        .map(|p| p.to_string_lossy().to_string());
+    Some(UserBrowser { app_path: app.to_string_lossy().to_string(), command })
+}
+
 /// First installed Chromium-family browser found in the platform's standard
 /// locations, or None. Used to set AGENT_BROWSER_EXECUTABLE_PATH so we reuse
 /// the user's Chrome instead of downloading one.

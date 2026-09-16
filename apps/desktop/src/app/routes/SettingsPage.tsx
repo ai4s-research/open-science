@@ -71,6 +71,7 @@ import { AcpAgentsCard } from "@/components/settings/AcpAgentsCard";
 import { ModalCard } from "@/components/settings/ModalCard";
 import { DataFlowCard } from "@/components/settings/DataFlowCard";
 import { ComputerUseCard } from "@/components/settings/ComputerUseCard";
+import { UserBrowserCard } from "@/components/settings/UserBrowserCard";
 import { ModelBrowser } from "@/components/settings/ModelBrowser";
 import { fallbackDefaultModel, flattenModelOptions } from "@/components/settings/modelCatalog";
 import { ProviderManagerCard } from "@/components/settings/ProviderManagerCard";
@@ -2016,6 +2017,9 @@ export function SettingsPage() {
             <ModalCard />
           </>
         )}
+
+        {/* A browser the user installed themselves, reachable from the shell. */}
+        {section === "browser" && <UserBrowserCard />}
 
         {/* ---- Computer use (the agent driving apps on this machine) ---- */}
         {section === "computer" && <ComputerUseCard />}
