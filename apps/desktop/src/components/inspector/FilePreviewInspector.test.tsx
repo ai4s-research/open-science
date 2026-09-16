@@ -466,3 +466,40 @@ describe("FilePreviewInspector — the editor fills its pane", () => {
     });
   });
 });
+
+describe("FilePreviewInspector — editing any file the app can read as text", () => {
+  const csv: FilePreviewInspectorT = {
+    variant: "file",
+    path: "demo/dose_response_data.csv",
+    filename: "dose_response_data.csv",
+    artifact: "table",
+    content: "dose_M,rep1\n0,5.09\n",
+  };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it("the pencil opens the text, even for a file that renders as a table", async () => {
+    render(<FilePreviewInspector data={csv} onClose={() => {}} />);
+    await screen.findByText("dose_M");
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit this file" }));
+
+    // The pencil used to do nothing visible here: the table view had no idea an
+    // edit had begun and kept drawing the table. Editing means you see the
+    // TEXT, whatever the file usually renders as.
+    expect(
+      await screen.findByRole("textbox", { name: "Editing dose_response_data.csv" }),
+    ).toBeInTheDocument();
+  });
+
+  it("goes back to the table when the edit is put away", async () => {
+    render(<FilePreviewInspector data={csv} onClose={() => {}} />);
+    await screen.findByText("dose_M");
+    await userEvent.click(screen.getByRole("button", { name: "Edit this file" }));
+    await screen.findByRole("textbox", { name: "Editing dose_response_data.csv" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(await screen.findByText("dose_M")).toBeInTheDocument();
+  });
+});

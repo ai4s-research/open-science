@@ -24,7 +24,7 @@ import { baseName } from "@/components/thread/WorkspaceChip";
 import { NotebookEditor } from "@/components/notebook/NotebookEditor";
 import { FilePreviewInspector } from "@/components/inspector/FilePreviewInspector";
 import { FileContextMenu } from "@/components/files/FileContextMenu";
-import { PaneTitlebarInset } from "@/components/inspector/RightPane";
+import { PaneTitlebarInset, PANE_HEADER } from "@/components/inspector/RightPane";
 import { cn } from "@/lib/cn";
 
 const EXT_LANG: Record<string, string> = {
@@ -359,13 +359,18 @@ export function SessionFilesPane({
   const crumbs = dir ? dir.split("/") : [];
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 select-none items-center gap-2 border-b border-border px-4">
+      <div className={PANE_HEADER}>
         <PaneTitlebarInset />
         <Folder size={14} strokeWidth={1.5} className="shrink-0 text-text" />
-        <span className="truncate text-sm font-medium text-text" title={sessionDir ?? workspace ?? undefined}>
+        <span
+          className="min-w-0 truncate text-[13px] font-medium text-text"
+          title={sessionDir ?? workspace ?? undefined}
+        >
           {baseName(sessionDir ?? workspace)}
         </span>
-        <span className="text-xs text-muted">{t("files.pane.subtitle")}</span>
+        <span className="shrink-0 truncate text-[11px] text-muted">
+          {t("files.pane.subtitle")}
+        </span>
         <div className="flex-1" />
         {controls}
         <button className="text-text hover:opacity-60" aria-label={t("files.pane.closeAria")} onClick={onClose}>

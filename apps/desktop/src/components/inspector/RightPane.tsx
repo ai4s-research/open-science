@@ -88,6 +88,17 @@ export function RightPane({
  *  macOS its header becomes the window's top row, so this clears the native
  *  traffic lights (keeping everything on one line) and lets them drag the
  *  window. Renders nothing otherwise. */
+/**
+ * One height for every pane header.
+ *
+ * A pane beside a conversation has to line up with that conversation's own
+ * header, or the two read as different planes of the app; they used to be 48px
+ * against 32px, and the seam was visible across the whole window. 32px is also
+ * what the Screen strip above them uses, so the three agree.
+ */
+export const PANE_HEADER =
+  "flex h-8 shrink-0 select-none items-center gap-1.5 border-b border-border px-2.5";
+
 export function PaneTitlebarInset() {
   const inspectorMaximized = useUiStore((s) => s.inspectorMaximized);
   const overlayTitlebar = useOverlayTitlebar();

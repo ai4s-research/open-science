@@ -427,11 +427,11 @@ export function NotebookEditor({
   return (
     <div className="flex h-full flex-col">
       <div
+        // 32px either way: a notebook beside a conversation has to line up
+        // with that conversation's header. See `PANE_HEADER`.
         className={cn(
-          "flex shrink-0 select-none items-center border-b",
-          compactHeader
-            ? "h-8 gap-1 border-faint px-2.5"
-            : "h-12 gap-2 border-border px-4",
+          "flex h-8 shrink-0 select-none items-center gap-1.5 border-b px-2.5",
+          compactHeader ? "border-faint" : "border-border",
         )}
       >
         <PaneTitlebarInset />
@@ -445,7 +445,7 @@ export function NotebookEditor({
           </button>
         )}
         <NotebookPen size={14} strokeWidth={1.5} className="shrink-0 text-text" />
-        <h1 className="truncate text-[13px] font-medium text-text">{path}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{path}</h1>
         <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
           {language === "r" ? t("notebooks.editor.languageR") : t("notebooks.editor.languagePython")}
         </span>
@@ -460,10 +460,9 @@ export function NotebookEditor({
             {pyInfo.label}
           </span>
         )}
-        <span className="shrink-0 text-xs text-muted">
+        <span className="shrink-0 whitespace-nowrap text-[11px] text-muted">
           {saved ? t("notebooks.editor.saved") : t("notebooks.editor.unsaved")}
         </span>
-        <div className="flex-1" />
         {isTauri && jupyterInstalled && (
           <button
             className="flex items-center gap-1 text-text hover:opacity-60 disabled:opacity-40"

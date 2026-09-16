@@ -4,7 +4,7 @@ import { Bot, CheckCircle2, ChevronRight, CircleDashed, X, XCircle } from "lucid
 import type { ToolCallStatus } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
 import { subagentActivity, useRuntimeStore } from "@/lib/runtime";
-import { PaneTitlebarInset } from "@/components/inspector/RightPane";
+import { PaneTitlebarInset, PANE_HEADER } from "@/components/inspector/RightPane";
 import { BlockList } from "./BlockList";
 import { RunningDot } from "./RunningDot";
 
@@ -72,7 +72,7 @@ export function SubagentPane({
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-surface">
-      <div className="flex h-12 shrink-0 select-none items-center gap-2 border-b border-border px-4">
+      <div className={PANE_HEADER}>
         <PaneTitlebarInset />
         <Bot size={14} strokeWidth={1.5} className="shrink-0 text-text" />
         <span className="text-sm font-medium text-text">{t("subagents.title")}</span>

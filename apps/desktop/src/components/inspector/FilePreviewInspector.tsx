@@ -337,9 +337,10 @@ export function FilePreviewInspector({
           "flex shrink-0 select-none items-center border-b",
           embedded
             ? "h-10 gap-2 border-border px-3"
-            : compactHeader
-              ? "h-8 gap-1 border-faint px-2.5"
-              : "h-12 gap-2 border-border px-4",
+            : // Tiled pane and right-hand inspector are both 32px: a pane beside
+              // a conversation has to line up with that conversation's header.
+              // See `PANE_HEADER`.
+              cn("h-8 gap-1.5 px-2.5", compactHeader ? "border-faint" : "border-border"),
         )}
       >
         <PaneTitlebarInset />
@@ -358,7 +359,7 @@ export function FilePreviewInspector({
             produced it. On a file the user opened themselves it is noise —
             a note they just wrote does not need labelling "report". */}
         {!startEditing && (
-          <span className={cn("shrink-0 whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 text-muted", compactHeader ? "text-[10px]" : "text-xs")}>
+          <span className="shrink-0 whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">
             {t(`filePreview.artifactKind.${data.artifact}`)}
           </span>
         )}
@@ -538,6 +539,27 @@ function Body({
   language?: string;
 }) {
   const { t } = useTranslation(["inspector", "common"]);
+  // Editing means you see the TEXT, whatever the file usually renders as.
+  //
+  // One rule rather than a branch per kind: the pencil on a CSV used to do
+  // nothing visible, because the table view had no idea an edit had begun and
+  // kept drawing the table. Anything the app can open as text can be edited as
+  // text, and a rule here cannot be forgotten by the next viewer that is added.
+  if (draft !== null && text !== null) {
+    return (
+      <SourceView
+        text={text}
+        draft={draft}
+        onDraftChange={onDraftChange}
+        onSave={onSave}
+        language={language}
+        filename={filename}
+        // Markdown is prose wherever it is edited: wrapped lines, no minimap,
+        // and the formatting toolbar above it.
+        prose={kind === "markdown"}
+      />
+    );
+  }
   if (kind === "docx" || kind === "xlsx" || kind === "pptx") {
     // Office views scroll internally (the outer pane never does), so they
     // carry their own scroll memory, keyed apart from the outer container's.
@@ -651,8 +673,6 @@ function Body({
         />
       );
       return text !== null ? (
-        // Editing fills the pane so the toolbar sits at its top edge; reading
-        // keeps the padded box the other source views use.
         source
       ) : (
         <Note text={t("filePreview.sourceDesktopOnly")} />
