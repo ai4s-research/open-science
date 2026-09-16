@@ -27,12 +27,15 @@ import { getTerminal, markTerminalUsed, putTerminal } from "@/lib/terminalSessio
 export function TerminalPane({
   leafId,
   cwd,
+  command,
   onSplit,
   onRename,
   onClose,
 }: {
   leafId: string;
   cwd?: string;
+  /** Typed into the shell once, when this terminal is first opened. */
+  command?: string;
   /** Right-click → Split. `kind` is what the NEW pane holds: another terminal,
    *  or a conversation about what this one just printed. */
   onSplit?: (dir: "row" | "col", kind: "terminal" | "session") => void;
@@ -127,6 +130,13 @@ export function TerminalPane({
       });
       observer.observe(container);
 
+      // Sent once, on the pane's FIRST open — never on a remount, which would
+      // re-run it over whatever the user is doing in that shell.
+      if (command) {
+        markTerminalUsed(leafId);
+        void invoke("terminal_write", { id: leafId, data: `${command}\n` });
+      }
+
       putTerminal(leafId, {
         term,
         fit,
@@ -147,6 +157,9 @@ export function TerminalPane({
       disposed = true;
       getTerminal(leafId)?.container.remove();
     };
+    // `command` belongs to the pane's first open; a change to it must not
+    // rebuild a live terminal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leafId, cwd, t]);
 
   /** Right-click, modelled on Orca's terminal menu (`TerminalContextMenu.tsx`):

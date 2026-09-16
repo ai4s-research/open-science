@@ -146,7 +146,7 @@
     },
     "hosts": {
       "title": "远程主机",
-      "empty": "~/.ssh/config 里没有配置主机。",
+      "empty": "~/.ssh/config 里没有可登录的机器。",
       "count": "{{count}} 台",
       "count_other": "{{count}} 台",
       "status": {
@@ -156,7 +156,12 @@
         "failed": "失败",
         "disconnected": "未连接"
       },
-      "connect": "连接"
+      "connect": "连接",
+      "hint": "点击打开终端",
+      "openShell": "在 {{host}} 上打开终端",
+      "unreachable": "连不上",
+      "cores": "{{n}} 核",
+      "disk": "磁盘 {{free}} / {{total}}"
     }
   },
   "commandPalette": {

@@ -104,7 +104,11 @@
         "user": "utilisateur"
       }
     },
-    "disconnected": "Connectez le runtime pour lister les compétences et agents qu'il a chargés."
+    "disconnected": "Connectez le runtime pour lister les compétences et agents qu'il a chargés.",
+    "search": "Rechercher skills et agents",
+    "filter": "Type",
+    "all": "Tous ({{count}})",
+    "noMatch": "Rien ne correspond à « {{query}} »."
   },
   "notFound": {
     "title": "404 — Introuvable",

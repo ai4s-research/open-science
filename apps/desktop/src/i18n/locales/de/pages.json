@@ -104,7 +104,11 @@
         "user": "Benutzer"
       }
     },
-    "disconnected": "Verbinden Sie die Runtime, um die geladenen Skills und Agenten aufzulisten."
+    "disconnected": "Verbinden Sie die Runtime, um die geladenen Skills und Agenten aufzulisten.",
+    "search": "Skills und Agents durchsuchen",
+    "filter": "Art",
+    "all": "Alle ({{count}})",
+    "noMatch": "Nichts passt zu „{{query}}“."
   },
   "notFound": {
     "title": "404 — Nicht gefunden",

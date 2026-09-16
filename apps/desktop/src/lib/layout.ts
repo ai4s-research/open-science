@@ -34,7 +34,11 @@ export type PaneContent =
   /** `name`: what the user called this terminal. A workbench ends up with
    *  several, and "Terminal" three times over says nothing about which is the
    *  build and which is the server. */
-  | { kind: "terminal"; cwd?: string; name?: string }
+  /** `command`: typed into the shell once, when the pane opens. It is SENT to
+   *  the shell rather than exec'd in its place, so the user can see what ran,
+   *  edit it, and still have a shell when it exits — which is what you want
+   *  when the command is `ssh some-host`. */
+  | { kind: "terminal"; cwd?: string; name?: string; command?: string }
   | { kind: "files"; path?: string }
   | { kind: "notebook"; path: string; root?: FileRoot }
   | { kind: "editor"; path: string; root?: FileRoot };
@@ -344,7 +348,8 @@ export function isPaneContent(v: unknown): v is PaneContent {
   if (c.kind === "terminal") {
     return (
       (c.cwd === undefined || typeof c.cwd === "string") &&
-      (c.name === undefined || typeof c.name === "string")
+      (c.name === undefined || typeof c.name === "string") &&
+      (c.command === undefined || typeof c.command === "string")
     );
   }
   if (c.kind === "files") return c.path === undefined || typeof c.path === "string";

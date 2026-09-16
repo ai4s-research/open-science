@@ -104,7 +104,11 @@
         "user": "用户"
       }
     },
-    "disconnected": "连接运行时以列出其已加载的技能和代理。"
+    "disconnected": "连接运行时以列出其已加载的技能和代理。",
+    "search": "搜索技能和代理",
+    "filter": "类型",
+    "all": "全部（{{count}}）",
+    "noMatch": "没有匹配“{{query}}”的结果。"
   },
   "notFound": {
     "title": "404 — 未找到",

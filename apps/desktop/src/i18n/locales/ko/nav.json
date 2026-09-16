@@ -146,7 +146,7 @@
     },
     "hosts": {
       "title": "호스트",
-      "empty": "~/.ssh/config에 호스트가 없습니다.",
+      "empty": "~/.ssh/config에 접속할 수 있는 머신이 없습니다.",
       "count": "{{count}}대",
       "count_other": "{{count}}대",
       "status": {
@@ -156,7 +156,12 @@
         "failed": "실패",
         "disconnected": "연결 안 됨"
       },
-      "connect": "연결"
+      "connect": "연결",
+      "hint": "클릭하면 셸이 열립니다",
+      "openShell": "{{host}}에서 셸 열기",
+      "unreachable": "연결할 수 없음",
+      "cores": "{{n}} 코어",
+      "disk": "디스크 {{free}} / {{total}}"
     }
   },
   "commandPalette": {

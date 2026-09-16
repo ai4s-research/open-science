@@ -65,12 +65,14 @@ describe("SkillsPage strings (i18n)", () => {
     });
     renderAt("/skills");
 
-    const jupyter = (await screen.findByText("Jupyter")).closest("div")!;
-    expect(jupyter).toHaveTextContent("jupyter 4.4.1");
+    // One chip per tool: the version is shortened (the chip already names the
+    // tool), and the full string is its tooltip.
+    const jupyter = (await screen.findByText("Jupyter")).closest("span")!;
+    expect(jupyter).toHaveTextContent("4.4.1");
     expect(jupyter).toHaveTextContent("app-managed");
 
-    const python = screen.getByText("Python").closest("div")!;
-    expect(python).toHaveTextContent("Python 3.12.2");
+    const python = screen.getByText("Python").closest("span")!;
+    expect(python).toHaveTextContent("3.12.2");
     expect(python).not.toHaveTextContent("app-managed");
 
     // A genuinely absent tool still reports honestly.

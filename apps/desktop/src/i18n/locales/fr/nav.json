@@ -148,7 +148,7 @@
     },
     "hosts": {
       "title": "Hôtes",
-      "empty": "Aucun hôte SSH dans ~/.ssh/config.",
+      "empty": "Aucune machine dans votre ~/.ssh/config.",
       "count": "{{count}} hôte",
       "count_other": "{{count}} hôtes",
       "status": {
@@ -158,7 +158,12 @@
         "failed": "échec",
         "disconnected": "non connecté"
       },
-      "connect": "Se connecter"
+      "connect": "Se connecter",
+      "hint": "cliquer pour ouvrir un terminal",
+      "openShell": "Ouvrir un terminal sur {{host}}",
+      "unreachable": "injoignable",
+      "cores": "{{n}} cœurs",
+      "disk": "{{free}} libres sur {{total}}"
     }
   },
   "commandPalette": {

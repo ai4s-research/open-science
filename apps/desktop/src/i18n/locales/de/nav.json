@@ -148,7 +148,7 @@
     },
     "hosts": {
       "title": "Hosts",
-      "empty": "Keine SSH-Hosts in ~/.ssh/config.",
+      "empty": "Keine Maschinen in ~/.ssh/config.",
       "count": "{{count}} Host",
       "count_other": "{{count}} Hosts",
       "status": {
@@ -158,7 +158,12 @@
         "failed": "fehlgeschlagen",
         "disconnected": "nicht verbunden"
       },
-      "connect": "Verbinden"
+      "connect": "Verbinden",
+      "hint": "klicken für eine Shell",
+      "openShell": "Shell auf {{host}} öffnen",
+      "unreachable": "nicht erreichbar",
+      "cores": "{{n}} Kerne",
+      "disk": "{{free}} frei von {{total}}"
     }
   },
   "commandPalette": {

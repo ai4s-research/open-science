@@ -6,6 +6,7 @@ import {
   Coffee,
   MemoryStick,
   NotebookPen,
+  Loader2,
   Plug,
   Server,
   Terminal as TerminalIcon,
@@ -27,11 +28,12 @@ import {
   type ResourceUsage,
 } from "@/lib/systemStatus";
 import {
+  computeProbe,
   isTauri,
   listSshHosts,
   openExternal,
-  sshConnect,
   sshSessions,
+  type ComputeProbe,
   type SshSession,
 } from "@/lib/tauri";
 import { useRuntimeStore } from "@/lib/runtime";
@@ -328,34 +330,54 @@ export function PortsSegment() {
 
 export function HostsSegment() {
   const { t } = useTranslation("nav");
-  // Every host the machine KNOWS (~/.ssh/config), not only the ones with a live
-  // session — as Orca does, which lists its whole target roster and marks each
-  // one's state. A segment that only counts live connections is blank exactly
-  // when you want to open one.
+  // Every machine the config knows, not only the ones with a live session —
+  // as Orca does, which lists its whole target roster. A segment that counts
+  // only live connections is blank exactly when you want to open one.
   const [known, refreshHosts] = usePolled<string[]>(listSshHosts, []);
   const [live, refreshSessions] = usePolled<SshSession[]>(sshSessions, []);
-  /** Typed rather than a dynamic key: the four states are the only four, and a
-   *  status the config grew tomorrow should not render as a missing string. */
-  const statusLabel = (status: string) => {
-    switch (status) {
-      case "connected":
-        return t("status.hosts.status.connected");
-      case "connecting":
-        return t("status.hosts.status.connecting");
-      case "prompt":
-        return t("status.hosts.status.prompt");
-      case "failed":
-        return t("status.hosts.status.failed");
-      default:
-        return t("status.hosts.status.disconnected");
-    }
-  };
+  const openContentPane = useLayoutStore((s) => s.openContentPane);
+  /** What each machine turned out to be, once asked. Kept for the session: a
+   *  probe is an ssh round trip, and a machine's cores do not change. */
+  const [probes, setProbes] = useState<Record<string, ComputeProbe | "asking">>({});
+
   const statusOf = (host: string) => live.find((s) => s.host === host)?.status ?? "disconnected";
   const hosts = [...known]
     .map((host) => ({ host, status: statusOf(host) }))
     // Connected first: what you can reach right now is the useful half.
     .sort((a, b) => Number(b.status === "connected") - Number(a.status === "connected"));
   const connected = hosts.filter((h) => h.status === "connected").length;
+
+  /** Machines already asked. A ref, not the state above: hovering a row fires
+   *  several events in a row and the state a handler closed over is a render
+   *  behind, so the state guard let three ssh round trips out per hover. */
+  const asked = useRef(new Set<string>());
+
+  /** Ask a machine what it is — on hover, once. */
+  const probe = (host: string) => {
+    if (asked.current.has(host)) return;
+    asked.current.add(host);
+    setProbes((p) => ({ ...p, [host]: "asking" }));
+    void computeProbe(host)
+      .then((result) => setProbes((p) => ({ ...p, [host]: result })))
+      .catch(() => setProbes((p) => ({ ...p, [host]: { ...UNREACHABLE } })));
+  };
+
+  /** A shell on that machine, in a pane of its own.
+   *
+   *  `ssh <host>` typed into a real terminal rather than a connection opened
+   *  invisibly: the user's own keys, their own agent, and any password or
+   *  one-time code prompt lands somewhere they can answer it. Clicking a host
+   *  used to start a shared connection with nothing on screen to show for it,
+   *  which is why it looked like nothing had happened. */
+  const openShell = (host: string) => {
+    openContentPane({
+      // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
+      kind: "terminal",
+      name: host,
+      command: `ssh ${host}`,
+    });
+  };
+
   if (!isTauri) return null;
 
   return (
@@ -369,45 +391,123 @@ export function HostsSegment() {
       <SegmentButton label={t("status.hosts.title")}>
         <Server size={12} strokeWidth={1.5} className={cn(connected > 0 && "text-ok")} />
         <span className="text-[11px] tabular-nums">
-          {t("status.hosts.count", { count: connected })}
+          {t("status.hosts.count", { count: hosts.length })}
         </span>
       </SegmentButton>
       <Panel>
-        <PanelTitle title={t("status.hosts.title")} />
+        <PanelTitle title={t("status.hosts.title")} note={t("status.hosts.hint")} />
         {hosts.length === 0 ? (
           <Empty text={t("status.hosts.empty")} />
         ) : (
-          <div className="pb-1">
-            {hosts.map((host) => (
-              <button
-                key={host.host}
-                // A disconnected host is a thing you want to connect, so the
-                // row does it. An already-connected one has nothing to do here.
-                disabled={host.status !== "disconnected"}
-                onClick={() => void sshConnect(host.host).catch(() => {})}
-                title={host.status === "disconnected" ? t("status.hosts.connect") : undefined}
-                className="flex w-full items-center gap-2 px-3.5 py-2 text-left enabled:hover:bg-surface-2"
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "h-1.5 w-1.5 shrink-0 rounded-full",
-                    host.status === "connected"
-                      ? "bg-ok"
-                      : host.status === "failed"
-                        ? "bg-error"
-                        : "bg-muted/50",
-                  )}
-                />
-                <span className="min-w-0 flex-1 truncate text-[13px]">{host.host}</span>
-                <span className="shrink-0 text-[11px] text-muted">
-                  {statusLabel(host.status)}
-                </span>
-              </button>
+          <div className="max-h-[22rem] overflow-y-auto pb-1">
+            {hosts.map(({ host, status }) => (
+              <HostRow
+                key={host}
+                host={host}
+                status={status}
+                probe={probes[host]}
+                onHover={() => probe(host)}
+                onOpen={() => openShell(host)}
+              />
             ))}
           </div>
         )}
       </Panel>
     </Popover.Root>
   );
+}
+
+const UNREACHABLE: ComputeProbe = {
+  reachable: false,
+  message: null,
+  needs_sign_in: false,
+  os: null,
+  cores: null,
+  load1: null,
+  mem_total_bytes: null,
+  mem_avail_bytes: null,
+  disk_total_bytes: null,
+  disk_free_bytes: null,
+  gpus: [],
+  slurm: null,
+};
+
+/** One machine: its name, and — once hovered — what it actually is. */
+function HostRow({
+  host,
+  status,
+  probe,
+  onHover,
+  onOpen,
+}: {
+  host: string;
+  status: string;
+  probe: ComputeProbe | "asking" | undefined;
+  onHover: () => void;
+  onOpen: () => void;
+}) {
+  const { t } = useTranslation("nav");
+  const asking = probe === "asking";
+  const known = probe && probe !== "asking" ? probe : null;
+  const reachable = known?.reachable ?? (status === "connected" ? true : null);
+
+  return (
+    <button
+      onMouseEnter={onHover}
+      onFocus={onHover}
+      onClick={onOpen}
+      title={t("status.hosts.openShell", { host })}
+      className="flex w-full flex-col gap-0.5 px-3.5 py-2 text-left hover:bg-surface-2"
+    >
+      <span className="flex w-full items-center gap-2">
+        <span
+          aria-hidden
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            reachable === true ? "bg-ok" : reachable === false ? "bg-error" : "bg-muted/50",
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate text-[13px]">{host}</span>
+        {asking && <Loader2 size={11} className="shrink-0 animate-spin text-muted" />}
+      </span>
+      {/* What the machine IS, under its name. The question a roster of hosts
+          has to answer is "which one has the GPU", and a column of
+          "not connected" answered nothing. */}
+      {known && (
+        <span className="pl-3.5 text-[11px] text-muted">
+          {known.reachable
+            ? describeMachine(known, {
+                cores: (n) => t("status.hosts.cores", { n }),
+                disk: (free, total) => t("status.hosts.disk", { free, total }),
+              })
+            : (known.message ?? t("status.hosts.unreachable"))}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** Cores, memory, disk and GPUs on one line — in that order, because that is
+ *  the order the question is usually asked in. */
+function describeMachine(
+  probe: ComputeProbe,
+  say: { cores: (n: number) => string; disk: (free: string, total: string) => string },
+): string {
+  const parts: string[] = [];
+  if (probe.cores) parts.push(say.cores(probe.cores));
+  if (probe.mem_total_bytes) {
+    parts.push(
+      probe.mem_avail_bytes
+        ? `${formatBytes(probe.mem_avail_bytes)} / ${formatBytes(probe.mem_total_bytes)}`
+        : formatBytes(probe.mem_total_bytes),
+    );
+  }
+  if (probe.disk_free_bytes && probe.disk_total_bytes) {
+    parts.push(say.disk(formatBytes(probe.disk_free_bytes), formatBytes(probe.disk_total_bytes)));
+  }
+  for (const gpu of probe.gpus) {
+    parts.push(gpu.mem_total_mib ? `${gpu.name} ${gpu.util_pct}%` : gpu.name);
+  }
+  if (probe.slurm) parts.push(probe.slurm);
+  return parts.join(" · ");
 }

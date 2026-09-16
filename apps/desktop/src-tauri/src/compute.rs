@@ -119,31 +119,77 @@ fn is_safe_job_id(id: &str) -> bool {
 }
 
 /// Host aliases from an ssh config, in file order, wildcard patterns skipped.
+/// Hosts that serve git and nothing else. Connecting to one gets you
+/// "Hi <user>! You've successfully authenticated, but GitHub does not provide
+/// shell access." — so they are aliases for a key, not machines.
+const CODE_HOSTS: [&str; 8] = [
+    "github.com",
+    "ssh.github.com",
+    "gitlab.com",
+    "altssh.gitlab.com",
+    "bitbucket.org",
+    "altssh.bitbucket.org",
+    "ssh.dev.azure.com",
+    "codeberg.org",
+];
+
+/// Machines the user could open a shell on, from `~/.ssh/config`.
+///
+/// A `Host` block is skipped when it is plainly not a machine:
+///
+/// - its `HostName` is a code-hosting service, or
+/// - its `User` is `git`, which is how every git-only account is spelled
+///   (including self-hosted Gitea and GitLab, which no list could enumerate).
+///
+/// A developer's config is mostly these — one alias per repository account —
+/// and listing them as "remote hosts" filled the panel with rows that can
+/// never connect.
 fn parse_ssh_hosts(text: &str) -> Vec<String> {
-    let mut hosts = Vec::new();
-    for line in text.lines() {
-        let line = line.trim();
-        let mut words = line.split_whitespace();
-        if !words.next().is_some_and(|w| w.eq_ignore_ascii_case("host")) {
-            continue;
+    let mut hosts: Vec<String> = Vec::new();
+    // Aliases of the block being read, until its keys say what it is.
+    let mut block: Vec<String> = Vec::new();
+    let mut is_machine = true;
+
+    let mut flush = |block: &mut Vec<String>, is_machine: &mut bool| {
+        if *is_machine {
+            for alias in block.drain(..) {
+                if !hosts.contains(&alias) {
+                    hosts.push(alias);
+                }
+            }
         }
-        for alias in words {
-            if alias.starts_with('#') {
-                break; // rest of the line is a comment
+        block.clear();
+        *is_machine = true;
+    };
+
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let mut words = line.split_whitespace();
+        let Some(key) = words.next() else { continue };
+        if key.eq_ignore_ascii_case("host") {
+            flush(&mut block, &mut is_machine);
+            for alias in words {
+                if alias.contains(['*', '?', '!']) {
+                    continue;
+                }
+                // Never suggest an alias the connect path would reject.
+                if is_safe_host(alias) {
+                    block.push(alias.to_string());
+                }
             }
-            if alias.contains(['*', '?', '!']) {
-                continue;
+        } else if key.eq_ignore_ascii_case("hostname") {
+            if let Some(name) = words.next() {
+                if CODE_HOSTS.iter().any(|h| name.eq_ignore_ascii_case(h)) {
+                    is_machine = false;
+                }
             }
-            // Never suggest an alias the connect path would reject.
-            if !is_safe_host(alias) {
-                continue;
-            }
-            let alias = alias.to_string();
-            if !hosts.contains(&alias) {
-                hosts.push(alias);
-            }
+        } else if key.eq_ignore_ascii_case("user")
+            && words.next().is_some_and(|u| u.eq_ignore_ascii_case("git"))
+        {
+            is_machine = false;
         }
     }
+    flush(&mut block, &mut is_machine);
     hosts
 }
 
@@ -540,6 +586,36 @@ Host gpu+login \"quoted alias\"
     #[test]
     fn dedupes_repeated_aliases() {
         assert_eq!(parse_ssh_hosts("Host a\nHost a b"), vec!["a", "b"]);
+    }
+
+    // A developer's ssh config is mostly git accounts — one alias per identity.
+    // Listing them as remote hosts filled the panel with rows that can never
+    // connect: GitHub answers the key and then refuses a shell.
+    #[test]
+    fn leaves_out_aliases_that_are_git_accounts_not_machines() {
+        let cfg = "
+Host github-noah
+    HostName ssh.github.com   # a comment about ports
+    Port 443
+    User git
+
+Host home-3090
+    HostName 10.0.0.9
+    User asq
+
+Host gitea-self-hosted
+    HostName git.example.org
+    User git
+";
+        // The self-hosted one is caught by `User git`, which no list of
+        // hostnames could have covered.
+        assert_eq!(parse_ssh_hosts(cfg), vec!["home-3090"]);
+    }
+
+    #[test]
+    fn a_machine_whose_user_merely_starts_with_git_is_still_a_machine() {
+        let cfg = "Host build-box\n    HostName 10.0.0.5\n    User gitlab-runner\n";
+        assert_eq!(parse_ssh_hosts(cfg), vec!["build-box"]);
     }
 
     #[test]

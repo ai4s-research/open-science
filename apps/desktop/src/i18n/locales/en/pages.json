@@ -104,7 +104,11 @@
         "user": "user"
       }
     },
-    "disconnected": "Connect the runtime to list the skills and agents it has loaded."
+    "disconnected": "Connect the runtime to list the skills and agents it has loaded.",
+    "search": "Search skills and agents",
+    "filter": "Kind",
+    "all": "All ({{count}})",
+    "noMatch": "Nothing matches “{{query}}”."
   },
   "notFound": {
     "title": "404 — Not found",

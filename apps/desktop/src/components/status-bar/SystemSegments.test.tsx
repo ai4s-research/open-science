@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { useRuntimeStore } from "@/lib/runtime";
+import { useLayoutStore } from "@/lib/layout";
 import { formatBytes, shouldHoldAwake } from "@/lib/systemStatus";
 import { AwakeSegment, HostsSegment, PortsSegment, ResourceSegment } from "./SystemSegments";
 
@@ -12,14 +13,14 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(
 const openExternal = vi.fn();
 const sshSessions = vi.fn(async () => [] as unknown[]);
 const listSshHosts = vi.fn(async () => [] as string[]);
-const sshConnect = vi.fn(async (_host: string) => {});
+const computeProbe = vi.fn(async (_host: string): Promise<unknown> => ({}));
 vi.mock("@/lib/tauri", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tauri")>()),
   isTauri: true,
   openExternal: (url: string) => openExternal(url),
   sshSessions: () => sshSessions(),
   listSshHosts: () => listSshHosts(),
-  sshConnect: (host: string) => sshConnect(host),
+  computeProbe: (host: string) => computeProbe(host),
 }));
 
 describe("keeping the machine awake", () => {
@@ -160,31 +161,69 @@ describe("remote hosts", () => {
     await i18n.changeLanguage("en");
     invoke.mockReset();
     invoke.mockResolvedValue(undefined);
+    // Counted per test: the probe guard is about how many round trips ONE
+    // hover makes.
+    computeProbe.mockClear();
   });
 
-  it("lists every host the machine knows, not only the live ones", async () => {
+  it("lists every machine the config knows", async () => {
     listSshHosts.mockResolvedValue(["home-3090", "tc-silicon", "tc-shanghai"]);
-    sshSessions.mockResolvedValue([{ host: "home-3090", status: "connected" }]);
+    sshSessions.mockResolvedValue([]);
     render(<HostsSegment />);
 
-    // The count is what you can reach right now…
-    expect(await screen.findByText("1 host")).toBeInTheDocument();
+    expect(await screen.findByText("3 hosts")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Hosts" }));
     const panel = within(await screen.findByRole("dialog"));
-    // …but the panel is the whole roster, or it would be blank exactly when you
-    // want to open a connection.
     expect(panel.getByText("tc-shanghai")).toBeInTheDocument();
-    expect(panel.getAllByText("not connected")).toHaveLength(2);
   });
 
-  it("connects a host from its row", async () => {
+  it("opens a shell on the machine, in a pane you can see", async () => {
     listSshHosts.mockResolvedValue(["home-3090"]);
     sshSessions.mockResolvedValue([]);
+    useLayoutStore.setState({ groups: [], activeGroupId: "", tree: null, focusedLeafId: null });
+    useLayoutStore.getState().addGroup();
     render(<HostsSegment />);
     await userEvent.click(screen.getByRole("button", { name: "Hosts" }));
 
     await userEvent.click(await screen.findByText("home-3090"));
 
-    expect(sshConnect).toHaveBeenCalledWith("home-3090");
+    // Clicking a host used to open a shared connection with nothing on screen
+    // to show for it, which is why it looked like nothing had happened. A
+    // terminal running `ssh` puts the machine — and any password prompt —
+    // somewhere the user can actually see and answer.
+    const tree = useLayoutStore.getState().tree;
+    expect(tree).toMatchObject({
+      kind: "leaf",
+      content: { kind: "terminal", name: "home-3090", command: "ssh home-3090" },
+    });
+  });
+
+  it("says what the machine is once you hover it", async () => {
+    listSshHosts.mockResolvedValue(["home-3090"]);
+    sshSessions.mockResolvedValue([]);
+    computeProbe.mockResolvedValue({
+      reachable: true,
+      message: null,
+      needs_sign_in: false,
+      os: "Linux",
+      cores: 24,
+      load1: 0.2,
+      mem_total_bytes: 67_186_249_728,
+      mem_avail_bytes: 40_000_000_000,
+      disk_total_bytes: 2_000_000_000_000,
+      disk_free_bytes: 900_000_000_000,
+      gpus: [{ name: "RTX 3090", mem_total_mib: 24576, mem_used_mib: 1024, util_pct: 7 }],
+      slurm: null,
+    });
+    render(<HostsSegment />);
+    await userEvent.click(screen.getByRole("button", { name: "Hosts" }));
+
+    await userEvent.hover(await screen.findByText("home-3090"));
+
+    // "Which one has the GPU" is the question a roster of machines has to
+    // answer; a column of "not connected" answered nothing.
+    expect(await screen.findByText(/24 cores/)).toBeInTheDocument();
+    expect(screen.getByText(/RTX 3090/)).toBeInTheDocument();
+    expect(computeProbe).toHaveBeenCalledTimes(1);
   });
 });

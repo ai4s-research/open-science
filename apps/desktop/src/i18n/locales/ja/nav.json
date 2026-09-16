@@ -146,7 +146,7 @@
     },
     "hosts": {
       "title": "ホスト",
-      "empty": "~/.ssh/config にホストがありません。",
+      "empty": "~/.ssh/config にログインできるマシンがありません。",
       "count": "{{count}} 台",
       "count_other": "{{count}} 台",
       "status": {
@@ -156,7 +156,12 @@
         "failed": "失敗",
         "disconnected": "未接続"
       },
-      "connect": "接続"
+      "connect": "接続",
+      "hint": "クリックでシェルを開く",
+      "openShell": "{{host}} でシェルを開く",
+      "unreachable": "接続できません",
+      "cores": "{{n}} コア",
+      "disk": "ディスク {{free}} / {{total}}"
     }
   },
   "commandPalette": {

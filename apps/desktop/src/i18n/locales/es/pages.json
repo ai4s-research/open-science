@@ -104,7 +104,11 @@
         "user": "usuario"
       }
     },
-    "disconnected": "Conecta el entorno de ejecución para listar las habilidades y agentes que ha cargado."
+    "disconnected": "Conecta el entorno de ejecución para listar las habilidades y agentes que ha cargado.",
+    "search": "Buscar skills y agentes",
+    "filter": "Tipo",
+    "all": "Todos ({{count}})",
+    "noMatch": "Nada coincide con «{{query}}»."
   },
   "notFound": {
     "title": "404 — No encontrado",
