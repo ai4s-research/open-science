@@ -431,3 +431,38 @@ describe("FilePreviewInspector — an editor pane", () => {
     expect(await screen.findByRole("status", { name: "Saved" })).toBeInTheDocument();
   });
 });
+
+describe("FilePreviewInspector — the editor fills its pane", () => {
+  const py: FilePreviewInspectorT = {
+    variant: "file",
+    path: "analysis/fit.py",
+    filename: "fit.py",
+    artifact: "report",
+    content: "import numpy as np\n",
+  };
+
+  it("gives the editor a full-height box, not a padded one", async () => {
+    render(<FilePreviewInspector data={py} onClose={() => {}} startEditing />);
+    const editor = await screen.findByRole("textbox", { name: "Editing fit.py" });
+
+    // Monaco lays itself out against a DEFINITE height. In the padded,
+    // auto-height box the read-only view uses it collapsed to a ~30px strip
+    // showing nothing but its own scrollbar.
+    const box = editor.closest(".flex-1");
+    expect(box?.className).toContain("min-h-0");
+    expect(editor.closest(".p-3")).toBeNull();
+  });
+
+  it("keeps the read-only view in its padded block", async () => {
+    render(<FilePreviewInspector data={py} onClose={() => {}} />);
+
+    // A file being READ grows with its content inside the scrolling body —
+    // that box was right all along, and only the editor needed a real height.
+    // (Highlighting splits the source across spans, so the assertion is on the
+    // block, not on a text node.)
+    await waitFor(() => {
+      const padded = document.querySelector(".p-3");
+      expect(padded?.textContent).toContain("import numpy");
+    });
+  });
+});

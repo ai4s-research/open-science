@@ -358,7 +358,7 @@ export function FilePreviewInspector({
             produced it. On a file the user opened themselves it is noise —
             a note they just wrote does not need labelling "report". */}
         {!startEditing && (
-          <span className={cn("rounded bg-surface-2 px-1.5 py-0.5 text-muted", compactHeader ? "text-[10px]" : "text-xs")}>
+          <span className={cn("shrink-0 whitespace-nowrap rounded bg-surface-2 px-1.5 py-0.5 text-muted", compactHeader ? "text-[10px]" : "text-xs")}>
             {t(`filePreview.artifactKind.${data.artifact}`)}
           </span>
         )}
@@ -374,7 +374,6 @@ export function FilePreviewInspector({
             </ToggleBtn>
           </div>
         )}
-        <div className="flex-1" />
         {/* What the file is doing, in one word. Orca keeps this beside the path
             (`editor-content-dirty-state`); without it autosave is invisible and
             the reader cannot tell a saved file from a losing one. */}
@@ -395,7 +394,7 @@ export function FilePreviewInspector({
               setText(null);
               setLoading(true);
             }}
-            className="shrink-0 rounded-input bg-warn/15 px-2 py-0.5 text-xs text-warn"
+            className="shrink-0 whitespace-nowrap rounded-input bg-warn/15 px-2 py-0.5 text-xs text-warn"
             title={t("filePreview.changedOnDiskTitle")}
           >
             {t("filePreview.changedOnDisk")}
@@ -403,7 +402,7 @@ export function FilePreviewInspector({
         )}
         {canEdit && !editing && (
           <button
-            className="text-text hover:opacity-60"
+            className="shrink-0 text-text hover:opacity-60"
             aria-label={t("filePreview.editAria")}
             title={t("filePreview.editTitle")}
             onClick={() => setDraft(text ?? "")}
@@ -411,17 +410,20 @@ export function FilePreviewInspector({
             <Pencil size={14} strokeWidth={1.5} />
           </button>
         )}
-        {editing && (
+        {/* Not while autosaving: a Save button beside a light that already says
+            "Saved" is two answers to one question, and in a narrow pane it was
+            that pair which crushed the row. */}
+        {editing && !autoSave && (
           <>
             <button
-              className="rounded-input px-1.5 py-0.5 text-xs text-accent hover:bg-surface-2 disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap rounded-input px-1.5 py-0.5 text-xs text-accent hover:bg-surface-2 disabled:opacity-40"
               onClick={() => void save()}
               disabled={!dirty || saving}
             >
               {saving ? t("filePreview.saving") : t("filePreview.save")}
             </button>
             <button
-              className="rounded-input px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2"
+              className="shrink-0 whitespace-nowrap rounded-input px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2"
               onClick={() => setDraft(null)}
             >
               {dirty ? t("filePreview.discard") : t("filePreview.doneEditing")}
@@ -429,7 +431,7 @@ export function FilePreviewInspector({
           </>
         )}
         <button
-          className={cn(showHistory ? "text-accent" : "text-text hover:opacity-60")}
+          className={cn("shrink-0", showHistory ? "text-accent" : "text-text hover:opacity-60")}
           aria-label={t("filePreview.historyAria")}
           title={t("filePreview.historyTitle")}
           aria-pressed={showHistory}
@@ -438,7 +440,7 @@ export function FilePreviewInspector({
           <History size={14} strokeWidth={1.5} />
         </button>
         <button
-          className="text-text hover:opacity-60 disabled:cursor-wait disabled:opacity-40"
+          className="shrink-0 text-text hover:opacity-60 disabled:cursor-wait disabled:opacity-40"
           aria-label={isGatewayWeb ? t("filePreview.download") : t("filePreview.openExternally")}
           title={isGatewayWeb ? t("filePreview.download") : t("filePreview.openExternallyTitle")}
           onClick={openOrDownload}
@@ -448,7 +450,7 @@ export function FilePreviewInspector({
         </button>
         {controls}
         {onClose && (
-          <button className="text-text hover:opacity-60" aria-label={t("shell.closeInspector")} onClick={onClose}>
+          <button className="shrink-0 text-text hover:opacity-60" aria-label={t("shell.closeInspector")} onClick={onClose}>
             <X size={14} strokeWidth={1.5} />
           </button>
         )}
@@ -596,16 +598,14 @@ function Body({
   if (kind === "molecule") {
     if (showCode) {
       return text !== null ? (
-        <div className="p-3">
-          <SourceView
-            text={text}
-            draft={draft}
-            onDraftChange={onDraftChange}
-            onSave={onSave}
-            language={language}
-            filename={filename}
-          />
-        </div>
+        <SourceView
+          text={text}
+          draft={draft}
+          onDraftChange={onDraftChange}
+          onSave={onSave}
+          language={language}
+          filename={filename}
+        />
       ) : (
         <Note text={t("filePreview.sourceDesktopOnly")} />
       );
@@ -619,16 +619,14 @@ function Body({
   if (kind === "genome") {
     if (showCode) {
       return text !== null ? (
-        <div className="p-3">
-          <SourceView
-            text={text}
-            draft={draft}
-            onDraftChange={onDraftChange}
-            onSave={onSave}
-            language={language}
-            filename={filename}
-          />
-        </div>
+        <SourceView
+          text={text}
+          draft={draft}
+          onDraftChange={onDraftChange}
+          onSave={onSave}
+          language={language}
+          filename={filename}
+        />
       ) : (
         <Note text={t("filePreview.sourceDesktopOnly")} />
       );
@@ -655,7 +653,7 @@ function Body({
       return text !== null ? (
         // Editing fills the pane so the toolbar sits at its top edge; reading
         // keeps the padded box the other source views use.
-        draft !== null ? source : <div className="p-3">{source}</div>
+        source
       ) : (
         <Note text={t("filePreview.sourceDesktopOnly")} />
       );
@@ -677,16 +675,14 @@ function Body({
   }
   if (kind === "html" && showCode) {
     return text !== null ? (
-      <div className="p-3">
-          <SourceView
-          text={text}
-          draft={draft}
-          onDraftChange={onDraftChange}
-          onSave={onSave}
-          language="html"
-          filename={filename}
-        />
-      </div>
+      <SourceView
+        text={text}
+        draft={draft}
+        onDraftChange={onDraftChange}
+        onSave={onSave}
+        language="html"
+        filename={filename}
+      />
     ) : (
       <Note text={t("filePreview.sourceDesktopOnly")} />
     );
@@ -755,16 +751,14 @@ function Body({
     );
   }
   return text !== null ? (
-    <div className="p-3">
-      <SourceView
-        text={text}
-        draft={draft}
-        onDraftChange={onDraftChange}
-        onSave={onSave}
-        language={language}
-        filename={filename}
-      />
-    </div>
+    <SourceView
+      text={text}
+      draft={draft}
+      onDraftChange={onDraftChange}
+      onSave={onSave}
+      language={language}
+      filename={filename}
+    />
   ) : (
     <Note text={t("filePreview.desktopOnly")} />
   );
@@ -795,7 +789,14 @@ function SourceView({
 }) {
   const { t } = useTranslation(["inspector", "common"]);
   const handle = useRef<CodeEditorHandle | null>(null);
-  if (draft === null) return <CodeViewer code={text} language={language} />;
+  // Read-only: a block that grows with the file, inside the scrolling body.
+  if (draft === null) {
+    return (
+      <div className="p-3">
+        <CodeViewer code={text} language={language} />
+      </div>
+    );
+  }
   const editor = (
     <FileEditor
       handleRef={handle}
@@ -808,11 +809,13 @@ function SourceView({
       className={prose ? undefined : "rounded-input border border-border"}
     />
   );
-  if (!prose) return editor;
+  // Editing fills the pane. Monaco lays itself out against a DEFINITE height:
+  // in the padded, auto-height box the read-only view uses, it collapsed to a
+  // 30px strip showing nothing but its own scrollbar.
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <MarkdownToolbar editor={() => handle.current} />
-      <div className="min-h-0 flex-1 overflow-auto">{editor}</div>
+      {prose && <MarkdownToolbar editor={() => handle.current} />}
+      <div className="min-h-0 flex-1">{editor}</div>
     </div>
   );
 }
