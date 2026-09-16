@@ -99,6 +99,17 @@ fn browser_tools_key() -> String {
     format!("{BROWSER_MCP_ID}_agent_browser_*")
 }
 
+/// Permission key for the `computer` tool — reading and driving the apps on the
+/// user's own screen. Named after the tool file (`runtime/tools/computer.ts`),
+/// which is how OpenCode names a custom tool.
+///
+/// Gated whole rather than per-verb: even the read-only verbs capture what is on
+/// screen, which is the user's mail, messages and documents, and a rule here has
+/// to beat OpenCode's builtin `"*": "allow"` or nothing prompts at all. As with
+/// the browser, OpenCode's "allow always" saves the rule for the project, so this
+/// is one prompt and not one per step.
+const COMPUTER_TOOL_KEY: &str = "computer";
+
 fn approve_permission() -> Value {
     let mut bash = serde_json::Map::new();
     for t in DANGEROUS_BASH {
@@ -119,10 +130,9 @@ fn approve_permission() -> Value {
     // one that interrupts and the expensive one the one that does not — exactly
     // backwards. `always: ["*"]` on OpenCode's side means "allow always" saves a
     // rule for the project, so this is one prompt, not one per browser step.
-    permission
-        .as_object_mut()
-        .unwrap()
-        .insert(browser_tools_key(), json!("ask"));
+    let permission_map = permission.as_object_mut().unwrap();
+    permission_map.insert(browser_tools_key(), json!("ask"));
+    permission_map.insert(COMPUTER_TOOL_KEY.to_string(), json!("ask"));
     permission
 }
 
@@ -190,6 +200,22 @@ pub fn migrate_browser_permission(existing: &str) -> Option<String> {
         return None;
     }
     permission.insert(key, json!("ask"));
+    serde_json::to_string_pretty(&root).ok()
+}
+
+/// Back-fill the computer-use ask rule for installs that chose "approve" before
+/// the tool existed. Same shape as the browser back-fill: approve mode only, and
+/// never touched once the key is present, whatever it holds.
+pub fn migrate_computer_permission(existing: &str) -> Option<String> {
+    if permission_mode_of(existing)? != MODE_APPROVE {
+        return None;
+    }
+    let mut root: Value = read_config(existing)?;
+    let permission = root.get_mut("permission")?.as_object_mut()?;
+    if permission.contains_key(COMPUTER_TOOL_KEY) {
+        return None;
+    }
+    permission.insert(COMPUTER_TOOL_KEY.to_string(), json!("ask"));
     serde_json::to_string_pretty(&root).ok()
 }
 
@@ -1274,6 +1300,30 @@ mod tests {
         assert!(migrate_browser_permission(&full).is_none());
         // First run has no mode yet; seeding owns that path.
         assert!(migrate_browser_permission("{}").is_none());
+    }
+
+    #[test]
+    fn computer_use_asks_in_approve_mode_and_is_backfilled_once() {
+        // Driving the user's own apps is gated the same way the browser is, and
+        // for the same reason: without a rule here, a custom tool matches the
+        // builtin "*": "allow" and reads the user's screen with no prompt.
+        let approved = set_permission_mode("", MODE_APPROVE).unwrap();
+        let v: Value = serde_json::from_str(&approved).unwrap();
+        assert_eq!(v["permission"]["computer"], "ask");
+
+        // Approve-mode config written before computer use existed.
+        let stale = r#"{"permission":{"bash":{"rm *":"ask"},"webfetch":"ask"}}"#;
+        let out = migrate_computer_permission(stale).expect("approve config is back-filled");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["permission"]["computer"], "ask");
+        // Idempotent, and a user who relaxed the rule keeps their choice.
+        assert!(migrate_computer_permission(&out).is_none());
+        let relaxed = r#"{"permission":{"bash":{"rm *":"ask"},"computer":"allow"}}"#;
+        assert!(migrate_computer_permission(relaxed).is_none());
+        // Full mode means no approvals at all, and first run belongs to seeding.
+        let full = set_permission_mode("", MODE_FULL).unwrap();
+        assert!(migrate_computer_permission(&full).is_none());
+        assert!(migrate_computer_permission("{}").is_none());
     }
 
     #[test]

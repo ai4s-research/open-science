@@ -46,4 +46,17 @@ for sidecar in opencode uv agent-browser; do
   verify_developer_id "$sidecar_path" "$app_team"
 done
 
+# The computer-use helper is a nested app bundle, not a sidecar binary, and it is
+# the one component that holds Accessibility and Screen Recording. A TCC grant
+# follows the signature, so an unsigned or wrongly-signed helper means the user
+# grants the permission once and loses it on the next launch.
+helper_path="$app_path/Contents/Resources/computer-use/Open Science Computer Use.app"
+if [[ -d "$helper_path" ]]; then
+  /usr/bin/codesign --verify --deep --strict --verbose=2 "$helper_path"
+  verify_developer_id "$helper_path" "$app_team"
+else
+  echo "missing computer-use helper: $helper_path" >&2
+  exit 1
+fi
+
 /usr/sbin/spctl --assess --type execute --verbose=2 "$app_path"

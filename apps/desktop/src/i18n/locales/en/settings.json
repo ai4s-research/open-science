@@ -9,6 +9,7 @@
     "compute": "Compute",
     "privacy": "Privacy",
     "browser": "Browser",
+    "computer": "Computer Use",
     "remote": "Remote Access",
     "memory": "Memory",
     "desktopOnly": "This section is available in the desktop app."
@@ -503,5 +504,23 @@
     "reveal": "Show what you typed",
     "hide": "Hide what you typed",
     "privacy": "Sent only to ssh on this machine. Never stored, logged, or written to provenance."
+  },
+  "computer": {
+    "title": "Computer Use",
+    "hint": "Let the agent read and drive apps on this computer, through the platform's accessibility API. It acts on named interface elements rather than guessing at pixels, and reports whether each action could actually be verified. You are asked to approve the first use in every conversation.",
+    "checking": "Checking…",
+    "state": "Availability",
+    "ready": "Ready. The agent can use apps on this computer when you ask it to.",
+    "unavailable": "Not available on this machine.",
+    "setup": "Open setup",
+    "recheck": "Re-check",
+    "grant": "Grant…",
+    "granted": "Granted",
+    "opened": "Opened the permission setup window.",
+    "error": "Computer Use",
+    "accessibility": "Accessibility",
+    "accessibilityHint": "Required. Lets the helper read an app's interface and act on it. Granted to Open Science Computer Use — a separate helper — not to the whole workbench.",
+    "screenshots": "Screen Recording",
+    "screenshotsHint": "Optional, and granted to Open Science itself rather than to the helper — macOS attributes screen capture to the app that started the request. Only needed when the agent has to look at a window it cannot read as text, such as a plot or a canvas."
   }
 }

@@ -9,6 +9,7 @@
     "compute": "Rechenleistung",
     "privacy": "Datenschutz",
     "browser": "Browser",
+    "computer": "Computersteuerung",
     "remote": "Fernzugriff",
     "memory": "Gedächtnis",
     "desktopOnly": "Dieser Bereich ist in der Desktop-App verfügbar."
@@ -503,5 +504,23 @@
     "silenceUnit": "Min.",
     "title": "Stall-Schutz",
     "webNote": "Im Browser erscheint die Warnung nur im Gespräch — keine Systembenachrichtigung."
+  },
+  "computer": {
+    "title": "Computersteuerung",
+    "hint": "Lässt den Agenten Apps auf diesem Computer über die Bedienungshilfen-API des Systems lesen und steuern. Er arbeitet mit benannten Oberflächenelementen statt mit geratenen Pixelpositionen und meldet, ob sich jede Aktion tatsächlich überprüfen ließ. In jeder Unterhaltung wird die erste Nutzung zur Freigabe vorgelegt.",
+    "checking": "Wird geprüft…",
+    "state": "Verfügbarkeit",
+    "ready": "Bereit. Der Agent kann auf Wunsch Apps auf diesem Computer bedienen.",
+    "unavailable": "Auf diesem Rechner nicht verfügbar.",
+    "setup": "Einrichtung öffnen",
+    "recheck": "Erneut prüfen",
+    "grant": "Erteilen…",
+    "granted": "Erteilt",
+    "opened": "Fenster für die Berechtigungen geöffnet.",
+    "error": "Computersteuerung",
+    "accessibility": "Bedienungshilfen",
+    "accessibilityHint": "Erforderlich. Erlaubt dem Helfer, die Oberfläche einer App zu lesen und zu bedienen. Die Berechtigung erhält Open Science Computer Use — ein eigenständiger Helfer — und nicht die gesamte Workbench.",
+    "screenshots": "Bildschirmaufnahme",
+    "screenshotsHint": "Optional, und sie wird Open Science selbst erteilt, nicht dem Helfer — macOS rechnet die Bildschirmaufnahme der App zu, welche die Anfrage gestartet hat. Nur nötig, wenn der Agent ein Fenster ansehen muss, das er nicht als Text lesen kann, etwa ein Diagramm oder eine Zeichenfläche."
   }
 }

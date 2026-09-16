@@ -2,6 +2,7 @@
 // bundled OpenCode sidecar (isolated config/data + dedicated port; killed on exit).
 mod artifact_file;
 mod browser;
+mod computer;
 mod cli_shim;
 mod debug_log;
 mod examples;
@@ -205,6 +206,8 @@ pub fn run() {
             browser::close_agent_browser,
             browser::detect_chrome,
             browser::setup_browser_chrome,
+            computer::computer_use_status,
+            computer::open_computer_use_permissions,
             kernel::kernel_execute,
             kernel::kernel_reset,
             kernel::python_interpreter,

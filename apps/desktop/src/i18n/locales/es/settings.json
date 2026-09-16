@@ -9,6 +9,7 @@
     "compute": "Cómputo",
     "privacy": "Privacidad",
     "browser": "Navegador",
+    "computer": "Uso del equipo",
     "remote": "Acceso remoto",
     "memory": "Memoria",
     "desktopOnly": "Esta sección está disponible en la app de escritorio."
@@ -503,5 +504,23 @@
     "silenceUnit": "min",
     "title": "Guardia anti-bloqueo",
     "webNote": "En el navegador, el aviso aparece solo en la conversación — sin notificación del sistema."
+  },
+  "computer": {
+    "title": "Uso del equipo",
+    "hint": "Permite que el agente lea y controle aplicaciones de este equipo a través de la API de accesibilidad del sistema. Actúa sobre elementos de la interfaz con nombre en lugar de adivinar píxeles, e informa de si cada acción pudo verificarse realmente. Se te pedirá aprobación la primera vez en cada conversación.",
+    "checking": "Comprobando…",
+    "state": "Disponibilidad",
+    "ready": "Listo. El agente puede usar aplicaciones de este equipo cuando se lo pidas.",
+    "unavailable": "No disponible en esta máquina.",
+    "setup": "Abrir configuración",
+    "recheck": "Volver a comprobar",
+    "grant": "Conceder…",
+    "granted": "Concedido",
+    "opened": "Se abrió la ventana de permisos.",
+    "error": "Uso del equipo",
+    "accessibility": "Accesibilidad",
+    "accessibilityHint": "Obligatorio. Permite al asistente leer la interfaz de una aplicación y actuar sobre ella. Se concede a Open Science Computer Use — un asistente independiente — y no a todo el banco de trabajo.",
+    "screenshots": "Grabación de pantalla",
+    "screenshotsHint": "Opcional, y se concede a Open Science en sí, no al asistente — macOS atribuye la captura de pantalla a la aplicación que inició la petición. Solo hace falta cuando el agente tiene que mirar una ventana que no puede leer como texto, como un gráfico o un lienzo."
   }
 }

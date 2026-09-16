@@ -357,6 +357,31 @@ export async function getCliShimStatus(): Promise<CliShimStatus | null> {
   return await invoke<CliShimStatus>("cli_shim_status");
 }
 
+/** What computer use can do on this machine, and — on macOS — whether the two
+ *  permissions its helper needs have been granted. */
+export type ComputerUseStatus = {
+  available: boolean;
+  platform: string;
+  helperAppPath: string | null;
+  accessibility: "granted" | "not-granted" | "unsupported";
+  screenshots: "granted" | "not-granted" | "unsupported";
+  reason: string | null;
+};
+
+export async function getComputerUseStatus(): Promise<ComputerUseStatus | null> {
+  if (!isTauri) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<ComputerUseStatus>("computer_use_status");
+}
+
+/** Open the helper's own setup window. The permission is granted to the helper,
+ *  by the user, in System Settings — nothing here can grant it for them. */
+export async function openComputerUsePermissions(permission?: "accessibility" | "screenshots") {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("open_computer_use_permissions", { permission: permission ?? null });
+}
+
 /** Redo the install — for an app that moved, or a launch that failed. */
 export async function installCliShim(): Promise<CliShimStatus | null> {
   if (!isTauri) return null;

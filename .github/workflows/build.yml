@@ -109,6 +109,10 @@ jobs:
             runtime/goal-plugin/goal-plugin.server.js \
             runtime/browser-plugin/browser-guard.ts \
             runtime/history-plugin/history-guard.ts \
+            runtime/computer/index.ts \
+            runtime/tools/computer.ts \
+            native/computer-use-linux/runtime.py \
+            native/computer-use-windows/runtime.ps1 \
             "apps/desktop/src-tauri/binaries/opencode-${{ matrix.target }}$ext" \
             "apps/desktop/src-tauri/binaries/uv-${{ matrix.target }}$ext" \
             "apps/desktop/src-tauri/binaries/agent-browser-${{ matrix.target }}$ext"; do

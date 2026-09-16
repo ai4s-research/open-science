@@ -9,6 +9,7 @@
     "compute": "Calcul",
     "privacy": "Confidentialité",
     "browser": "Navigateur",
+    "computer": "Contrôle de l'ordinateur",
     "remote": "Accès distant",
     "memory": "Mémoire",
     "desktopOnly": "Cette section est disponible dans l'application de bureau."
@@ -503,5 +504,23 @@
     "silenceUnit": "min",
     "title": "Garde anti-blocage",
     "webNote": "Dans le navigateur, l'avertissement n'apparaît que dans la conversation — pas de notification système."
+  },
+  "computer": {
+    "title": "Contrôle de l'ordinateur",
+    "hint": "Permet à l'agent de lire et de piloter les applications de cet ordinateur via l'API d'accessibilité du système. Il agit sur des éléments d'interface nommés plutôt que de deviner des pixels, et indique si chaque action a réellement pu être vérifiée. Une approbation vous est demandée à la première utilisation de chaque conversation.",
+    "checking": "Vérification…",
+    "state": "Disponibilité",
+    "ready": "Prêt. L'agent peut utiliser les applications de cet ordinateur lorsque vous le lui demandez.",
+    "unavailable": "Indisponible sur cette machine.",
+    "setup": "Ouvrir la configuration",
+    "recheck": "Revérifier",
+    "grant": "Autoriser…",
+    "granted": "Autorisé",
+    "opened": "Fenêtre des autorisations ouverte.",
+    "error": "Contrôle de l'ordinateur",
+    "accessibility": "Accessibilité",
+    "accessibilityHint": "Obligatoire. Permet à l'assistant de lire l'interface d'une application et d'agir dessus. L'autorisation est accordée à Open Science Computer Use — un assistant distinct — et non à tout l'atelier.",
+    "screenshots": "Enregistrement de l'écran",
+    "screenshotsHint": "Facultatif, et accordé à Open Science lui-même plutôt qu'à l'assistant — macOS attribue la capture d'écran à l'application à l'origine de la demande. Utile seulement lorsque l'agent doit regarder une fenêtre qu'il ne peut pas lire sous forme de texte, comme un graphique ou un canevas."
   }
 }

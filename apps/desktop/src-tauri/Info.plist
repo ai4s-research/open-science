@@ -12,6 +12,8 @@
   <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
   <key>NSRemovableVolumesUsageDescription</key>
   <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Open Science Desktop needs Screen Recording permission to capture app windows when you ask its agent to look at one. macOS attributes screen capture to this app even though the window is read by the separate Open Science Computer Use helper.</string>
   <key>NSFileProviderDomainUsageDescription</key>
   <string>Open Science Desktop needs access to the project folder you selected so its local agent can read and update your research files.</string>
 </dict>

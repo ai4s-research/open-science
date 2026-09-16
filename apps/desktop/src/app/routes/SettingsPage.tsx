@@ -70,6 +70,7 @@ import { ConversationSyncCard } from "@/components/settings/ConversationSyncCard
 import { AcpAgentsCard } from "@/components/settings/AcpAgentsCard";
 import { ModalCard } from "@/components/settings/ModalCard";
 import { DataFlowCard } from "@/components/settings/DataFlowCard";
+import { ComputerUseCard } from "@/components/settings/ComputerUseCard";
 import { ModelBrowser } from "@/components/settings/ModelBrowser";
 import { fallbackDefaultModel, flattenModelOptions } from "@/components/settings/modelCatalog";
 import { ProviderManagerCard } from "@/components/settings/ProviderManagerCard";
@@ -2015,6 +2016,9 @@ export function SettingsPage() {
             <ModalCard />
           </>
         )}
+
+        {/* ---- Computer use (the agent driving apps on this machine) ---- */}
+        {section === "computer" && <ComputerUseCard />}
 
         {/* ---- Remote access (API gateway: CLI / LAN web / tunnel) ---- */}
         {section === "remote" && (

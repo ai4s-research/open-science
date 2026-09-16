@@ -714,6 +714,52 @@ fn deploy_workbench_tools(env: &Env) {
     }
 }
 
+/// Ship the computer-use host layer next to the tools that import it.
+///
+/// `tools/computer.ts` reaches it as `../computer/index`, so this has to land as
+/// a sibling of the tools directory rather than inside it — `deploy_workbench_tools`
+/// deliberately copies files only, and a directory dropped in there would be
+/// loaded as a tool and fail.
+fn deploy_computer_runtime(env: &Env) {
+    let Some(src) = env.resource("computer").filter(|p| p.is_dir()) else {
+        return; // a build without the bundled resources
+    };
+    let Ok(config_home) = xdg_config_home(env) else {
+        return;
+    };
+    let dst = config_home.join("opencode").join("computer");
+    if let Err(e) = std::fs::create_dir_all(&dst) {
+        eprintln!("failed to create computer runtime directory: {e}");
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(&src) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        if let Err(e) = std::fs::copy(&path, dst.join(name)) {
+            eprintln!("failed to deploy computer runtime {}: {e}", path.display());
+        }
+    }
+}
+
+/// The bundled native computer-use providers, when this build carries them.
+///
+/// Three files, one per platform, staged into one directory by
+/// `scripts/dev/build-computer-use.sh`. The macOS one is a separate signed app
+/// bundle: Accessibility and Screen Recording are granted per bundle identifier,
+/// so the helper holds those two grants under its own identity instead of the
+/// whole workbench asking for them.
+pub fn computer_use_provider_dir(env: &Env) -> Option<PathBuf> {
+    env.resource("computer-use").filter(|p| p.is_dir())
+}
+
 /// App-owned prompt files deployed into the OpenCode profile: the `reviewer`
 /// agent and the commands that invoke it (#72). `(resource dir, profile dir)`.
 const PROFILE_PROMPTS: &[(&str, &str)] =
@@ -1406,6 +1452,8 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     // Host presentation tools are global to the app-owned OpenCode profile and
     // available in every session workspace.
     deploy_workbench_tools(env);
+    // …and the computer-use host layer one of them imports.
+    deploy_computer_runtime(env);
     // The reviewer agent and its commands, same profile, same refresh-on-start.
     deploy_profile_prompts(env);
     // A config neither side can read stops the runtime from starting at all, so
@@ -1433,6 +1481,11 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     // after these installs picked their mode.
     let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
     if let Some(migrated) = crate::opencode_config::migrate_browser_permission(&existing) {
+        write_atomic(&cfg_file, &migrated)?;
+    }
+    // And again for computer use, which arrived later still.
+    let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+    if let Some(migrated) = crate::opencode_config::migrate_computer_permission(&existing) {
         write_atomic(&cfg_file, &migrated)?;
     }
     // Rename the legacy browser MCP id, then hide the incompatible user skill
@@ -1561,6 +1614,12 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     // skill and the ssh_connect tool both pass `-F "$OPENSCIENCE_SSH_CONFIG"`.
     if let Some(ssh_config) = ssh_config_path(env) {
         cmd.env("OPENSCIENCE_SSH_CONFIG", ssh_config.to_string_lossy().to_string());
+    }
+    // Where the `computer` tool finds the native provider for this platform.
+    // Unset — a build without them — leaves computer use simply unavailable,
+    // which the tool reports as such rather than failing obscurely.
+    if let Some(dir) = computer_use_provider_dir(env) {
+        cmd.env("OPENSCIENCE_COMPUTER_USE_DIR", dir.to_string_lossy().to_string());
     }
     // Apply the network-proxy setting so provider logins and API calls work
     // where direct connections are blocked (see resolve_proxy_env).

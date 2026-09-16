@@ -30,7 +30,11 @@ local workspace + SQLite + JSONL provenance.
 
 - `apps/desktop/` — Tauri + React desktop shell (`src/` frontend, `src-tauri/` Rust).
 - `packages/` — `ui`, `shared`, `sdk` (the `OpenCodeClient` wrapper).
-- `runtime/` — `manager`, `opencode-profile`, `mcp`, `skills`.
+- `runtime/` — `manager`, `opencode-profile`, `mcp`, `skills`, the OpenCode
+  guard plugins and custom tools, and `computer/` (the computer-use host layer).
+- `native/` — the per-platform computer-use providers (macOS Swift helper app,
+  Linux AT-SPI script, Windows UI Automation script), ported from Orca (MIT).
+  Staged into the bundle by `scripts/dev/build-computer-use.mjs`.
 - `docs/` — product and technical specs.
 - `examples/bci-trends/` — the built-in demo project.
 - `scripts/` — release and dev scripts.

@@ -3,6 +3,7 @@ import {
   Cloud,
   Cpu,
   Globe,
+  MonitorCog,
   Palette,
   Plug,
   Radio,
@@ -25,6 +26,9 @@ export const SETTINGS_SECTIONS = [
   { key: "runtime", icon: Cpu, desktopOnly: true },
   { key: "connectors", icon: Plug, desktopOnly: true },
   { key: "browser", icon: Globe, desktopOnly: true },
+  // Driving the apps on THIS machine: native permission state and a
+  // helper window, neither of which the gateway can reach.
+  { key: "computer", icon: MonitorCog, desktopOnly: true },
   { key: "compute", icon: Cloud, desktopOnly: true },
   { key: "remote", icon: Radio, desktopOnly: true },
   { key: "privacy", icon: ShieldCheck },

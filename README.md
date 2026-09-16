@@ -182,6 +182,7 @@ office/document skills below.
 | Remote access | Token-authenticated gateway that serves the real UI to a CLI, a LAN web browser, or your phone (loopback by default, LAN opt-in); read-only vs full access modes; copy a link with the token embedded to connect in one tap. API keys never cross the wire. |
 | Editor interop (ACP) | Speaks the Agent Client Protocol in both directions: run any ACP agent (Codex, Gemini CLI, Claude Code, …) as the runtime behind the ordinary UI, with its own model and reasoning selectors, history replay, and this app's MCP connectors; or let an external editor (Zed, JetBrains, Neovim, …) drive Open Science, reusing the gateway token. |
 | Browser control | The agent drives your own Chrome — profile and login state preserved — reading pages through the accessibility tree, or an isolated/private browser on demand. |
+| Computer use | The agent reads and drives apps on your own screen through the platform's accessibility API — native research software included — acting on named elements rather than guessing at pixels, and reporting whether each action could actually be verified. On macOS the Accessibility permission is held by a separate helper, not by the whole app; Screen Recording, which only optional screenshots need, is granted to Open Science itself because macOS attributes screen capture to the app that started the request. |
 | Notebooks | Real `.ipynb` files, Python and R notebook creation, local kernel execution, managed Jupyter environment via bundled `uv`, and an Open JupyterLab action. |
 | Runs | Append-only run logs, global SQLite run index, search/facets/pagination, local/remote surfaces, output links, logs, and reproduce prompts. |
 | Provenance | `.openscience/provenance.jsonl` tracks file versions and links produced artifacts back to the run or edit that created them. |
@@ -510,6 +511,8 @@ GitHub's **"Cite this repository"** button (top of the repo page, generated from
 ## License
 
 [MIT](./LICENSE). Bundled third-party skills and connectors keep their own licenses.
+
+Computer use is a port of the design and native providers from [Orca](https://github.com/stablyai/orca) (MIT) — an accessibility-tree-first approach, with an explicit verified/unverified result on every action, that is simply the right way to build this. Our thanks to that team for doing it well and giving it away.
 
 > Open Science Desktop is beta research tooling. Treat outputs as drafts: verify numbers,
 > citations, code, and conclusions before publication or decision-making.

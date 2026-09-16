@@ -9,6 +9,7 @@
     "compute": "计算",
     "privacy": "隐私",
     "browser": "浏览器",
+    "computer": "电脑操作",
     "remote": "远程访问",
     "memory": "记忆",
     "desktopOnly": "该部分在桌面应用中可用。"
@@ -501,5 +502,23 @@
     "silenceUnit": "分钟",
     "title": "防卡死监视",
     "webNote": "在浏览器中，提醒只出现在对话内，不弹系统通知。"
+  },
+  "computer": {
+    "title": "电脑操作",
+    "hint": "让智能体通过系统的无障碍接口读取并操作这台电脑上的应用。它针对界面中有名称的元素进行操作，而不是猜测像素位置，并会报告每一步是否真的得到了验证。每个会话首次使用时都会请求你确认。",
+    "checking": "检查中…",
+    "state": "可用状态",
+    "ready": "已就绪。你提出要求时，智能体可以操作这台电脑上的应用。",
+    "unavailable": "此设备上不可用。",
+    "setup": "打开设置",
+    "recheck": "重新检查",
+    "grant": "去授权…",
+    "granted": "已授权",
+    "opened": "已打开权限设置窗口。",
+    "error": "电脑操作",
+    "accessibility": "辅助功能",
+    "accessibilityHint": "必需。让助手能读取应用界面并进行操作。权限授予的是 Open Science Computer Use 这个独立助手，而不是整个工作台。",
+    "screenshots": "屏幕录制",
+    "screenshotsHint": "可选，且授予的是 Open Science 本身而不是那个独立助手——macOS 把屏幕捕获算在发起请求的应用头上。仅当智能体需要查看无法以文本读取的窗口内容（例如图表或画布）时才需要。"
   }
 }
