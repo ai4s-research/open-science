@@ -87,16 +87,30 @@ describe("connectorConfig", () => {
       if (c.type !== "remote") continue;
       expect(c.id && c.discipline && c.source).toBeTruthy();
       expect(c.url.startsWith("https://")).toBe(true);
-      expect(c.auth).toBe("oauth");
+      expect(["oauth", "none"]).toContain(c.auth);
     }
   });
 
   it("registers Elicit as a remote, OAuth-authenticated connector", () => {
     const c = byId("elicit");
     if (c.type !== "remote") throw new Error("elicit should be a remote connector");
+    expect(c.auth).toBe("oauth");
     expect(c.url).toBe("https://elicit.com/api/mcp");
     const cfg = connectorConfig(c);
     expect(cfg).toEqual({ type: "remote", url: "https://elicit.com/api/mcp", enabled: true });
+  });
+
+  it("registers You.com web search as a remote, keyless connector", () => {
+    const c = byId("you-web");
+    if (c.type !== "remote") throw new Error("you-web should be a remote connector");
+    expect(c.auth).toBe("none"); // keyless free profile — no browser sign-in
+    expect(c.url).toBe("https://api.you.com/mcp?profile=free");
+    const cfg = connectorConfig(c);
+    expect(cfg).toEqual({
+      type: "remote",
+      url: "https://api.you.com/mcp?profile=free",
+      enabled: true,
+    });
   });
 
   it("ships at least two non-bio disciplines (P1-2 breadth)", () => {

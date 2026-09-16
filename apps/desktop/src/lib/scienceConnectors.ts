@@ -49,8 +49,10 @@ export interface RemoteScienceConnector extends ScienceConnectorBase {
   type: "remote";
   /** The vendor's own hosted MCP endpoint — nothing installed locally. */
   url: string;
-  /** How OpenCode authenticates to `url`. Only "oauth" exists today. */
-  auth: "oauth";
+  /** How the app reaches `url`. "oauth" opens a browser sign-in;
+   *  "none" registers the URL and waits for it to connect by itself
+   *  (a keyless hosted endpoint). */
+  auth: "oauth" | "none";
 }
 
 export type ScienceConnector = LocalScienceConnector | RemoteScienceConnector;
@@ -154,6 +156,17 @@ export const SCIENCE_CONNECTORS: ScienceConnector[] = [
     url: "https://elicit.com/api/mcp",
     auth: "oauth",
     source: "elicit.com (official, docs.elicit.com)",
+  },
+  {
+    type: "remote",
+    id: "you-web",
+    label: "Web search (You.com)",
+    discipline: "all fields",
+    description:
+      "Live web search and page reading beyond the paper databases — docs, news, primary sources, and anything off-arXiv — keyless, no account",
+    url: "https://api.you.com/mcp?profile=free",
+    auth: "none",
+    source: "you.com (official, you.com/docs)",
   },
 ];
 

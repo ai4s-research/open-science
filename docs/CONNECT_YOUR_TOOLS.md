@@ -26,6 +26,9 @@ managed Python — your system is untouched) and registers it. Today:
   ([mcp-weather-server](https://github.com/isdaniel/mcp_weather_server); no key).
 - **USGS water data** (earth) — streamflow, flood stages, peak events, sites
   ([usgs-mcp](https://github.com/mansurjisan/ocean-mcp); no key).
+- **Web search** (all fields) — live web sources beyond the paper databases:
+  docs, news, primary sources ([You.com hosted MCP](https://you.com/docs);
+  keyless — no account, no key, nothing installed).
 
 Literature and database results carry real identifiers (DOI / PMID / arXiv id),
 so the `traceability-review` skill can audit them afterward.

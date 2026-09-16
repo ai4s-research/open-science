@@ -113,23 +113,38 @@ export const useSetupStore = create<SetupState>((set, get) => ({
     set({ connectorId: id, line: null });
     try {
       if (c.type === "remote") {
-        // Nothing to install — register the vendor's URL, then send the user
-        // to their browser to sign in. `startMcpOAuth` returns immediately
-        // (see its own doc comment for why we don't hold the request open).
+        // Nothing to install — register the vendor's URL, then (for an OAuth
+        // connector) send the user to their browser to sign in. `startMcpOAuth`
+        // returns immediately (see its own doc comment for why we don't hold
+        // the request open). A keyless (`auth: "none"`) endpoint skips the
+        // sign-in: it connects on its own once registered.
         await getClient()!.addMcpServer(c.id, connectorConfig(c));
+        if (c.auth === "oauth") {
+          try {
+            const { authorizationUrl } = await getClient()!.startMcpOAuth(c.id);
+            set({ line: "Waiting for browser sign-in…" });
+            await openExternal(authorizationUrl);
+          } catch (e) {
+            // Registration happens BEFORE the sign-in, because OAuth needs a
+            // server to authenticate. Leaving it behind on a failed or abandoned
+            // login would put a connector in the user's config that can never
+            // connect, retried on every sidecar start and shown as failed with
+            // no obvious way back. Undo it, then report the original failure.
+            await removeConfigEntry("mcp", c.id).catch(() => false);
+            throw e;
+          }
+        }
         try {
-          const { authorizationUrl } = await getClient()!.startMcpOAuth(c.id);
-          set({ line: "Waiting for browser sign-in…" });
-          await openExternal(authorizationUrl);
           if (!(await waitForMcpConnected(c.id))) {
-            throw new Error("Sign-in did not complete in time");
+            throw new Error(
+              c.auth === "oauth"
+                ? "Sign-in did not complete in time"
+                : "The server did not connect in time",
+            );
           }
         } catch (e) {
-          // Registration happens BEFORE the sign-in, because OAuth needs a
-          // server to authenticate. Leaving it behind on a failed or abandoned
-          // login would put a connector in the user's config that can never
-          // connect, retried on every sidecar start and shown as failed with
-          // no obvious way back. Undo it, then report the original failure.
+          // Same reasoning as above: a timed-out or failed connector is not
+          // usable as it stands, and the same card re-enables it in one click.
           await removeConfigEntry("mcp", c.id).catch(() => false);
           throw e;
         }

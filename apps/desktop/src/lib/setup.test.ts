@@ -70,6 +70,13 @@ vi.mock("./scienceConnectors", () => ({
       url: "https://elicit.com/api/mcp",
       auth: "oauth",
     },
+    {
+      id: "keyless",
+      label: "Keyless",
+      type: "remote",
+      url: "https://keyless.example/mcp",
+      auth: "none",
+    },
   ],
   connectorConfig: (c: { type?: string; url?: string }) =>
     c.type === "remote"
@@ -165,6 +172,37 @@ describe("setup store", () => {
     // BEFORE the sign-in, so an abandoned login would otherwise leave behind a
     // connector that can never connect, retried on every sidecar start.
     expect(mocks.removeConfigEntry).toHaveBeenCalledWith("mcp", "elicit");
+  });
+
+  // A keyless remote connector skips the OAuth dance entirely: register the
+  // URL, no browser, no sign-in wait — just poll until it connects.
+  it("registers a keyless remote connector without any browser sign-in", async () => {
+    mocks.listMcpServers.mockResolvedValue([{ name: "keyless", status: "connected" }]);
+    const run = useSetupStore.getState().enableConnector("keyless");
+    expect(useSetupStore.getState().connectorId).toBe("keyless");
+    await run;
+
+    expect(mocks.addMcpServer).toHaveBeenCalledWith("keyless", {
+      type: "remote",
+      url: "https://keyless.example/mcp",
+      enabled: true,
+    });
+    expect(mocks.startMcpOAuth).not.toHaveBeenCalled();
+    expect(mocks.openExternal).not.toHaveBeenCalled();
+    expect(mocks.setupScienceMcp).not.toHaveBeenCalled(); // nothing to pip-install
+    expect(mocks.removeConfigEntry).not.toHaveBeenCalled(); // connected — entry kept
+    const s = useSetupStore.getState();
+    expect(s.connectorId).toBeNull();
+    expect(s.line).toBeNull();
+  });
+
+  it("removes a keyless remote connector again when it never connects", async () => {
+    mocks.listMcpServers.mockResolvedValue([{ name: "keyless", status: "failed" }]);
+    await useSetupStore.getState().enableConnector("keyless");
+    expect(useSetupStore.getState().connectorId).toBeNull();
+    // A failed entry would retry on every sidecar start and show as failed
+    // with no way back — same cleanup the abandoned-OAuth path does.
+    expect(mocks.removeConfigEntry).toHaveBeenCalledWith("mcp", "keyless");
   });
 
   // The config PATCH deep-merges the nested `environment`, so a re-add can only
