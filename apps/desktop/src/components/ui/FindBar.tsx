@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { CaseSensitive, ChevronDown, ChevronUp, Regex, X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { clearFind, findRanges, paintHighlights, revealRange } from "@/lib/findInPage";
+import {
+  claimFind,
+  findRanges,
+  ownsFind,
+  paintHighlights,
+  releaseFind,
+  revealRange,
+} from "@/lib/findInPage";
 
 /**
  * Find in rendered content — ⌘F / Ctrl+F.
@@ -43,9 +50,27 @@ export function FindBar({
   // A shorter result list must not leave the cursor past its end.
   const current = ranges.length === 0 ? 0 : Math.min(index, ranges.length - 1);
 
+  // This bar's claim on the document's highlights, held for as long as it is
+  // open. Identity is the whole point of it, so it is created once.
+  const token = useRef({}).current;
+  // Bumped when this bar takes the highlights, so that taking them repaints —
+  // otherwise the bar that just won them would sit there showing a count over
+  // text with nothing lit.
+  const [claims, setClaims] = useState(0);
+  const claim = () => {
+    if (ownsFind(token)) return;
+    claimFind(token);
+    setClaims((c) => c + 1);
+  };
+
   useEffect(() => {
-    paintHighlights(ranges, ranges[current] ?? null);
-  }, [ranges, current]);
+    claimFind(token);
+    setClaims((c) => c + 1);
+  }, [token]);
+
+  useEffect(() => {
+    paintHighlights(ranges, ranges[current] ?? null, scope.current, token);
+  }, [scope, ranges, current, token, claims]);
 
   // Only on a deliberate step, never on every keystroke: scrolling the
   // conversation while the word is still being typed loses the reader's place.
@@ -61,16 +86,38 @@ export function FindBar({
   // the caller may keep the bar mounted for an animation.
   useEffect(() => {
     const root = scope.current;
-    return () => clearFind(root);
-  }, [scope]);
+    return () => releaseFind(token, root);
+  }, [scope, token]);
+
+  const closeRef = useRef(() => {});
 
   const close = () => {
-    clearFind(scope.current);
+    releaseFind(token, scope.current);
     onClose();
   };
 
+  // Escape closes the bar from anywhere in the window, not only while the
+  // caret is still in its input: the reader clicks into the conversation to
+  // look at a match, and Escape there has to be what closes the search — a bar
+  // that can only be dismissed by aiming at its ✕ is a bar that stays open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // A dialog or menu on top owns Escape first; it closes, the bar stays.
+      if (document.querySelector("[role='dialog'], [role='menu']")) return;
+      closeRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  closeRef.current = close;
+
   return (
     <div
+      // Touching this bar hands it the highlights: with two panes searching at
+      // once, the one being used is the one that paints.
+      onFocusCapture={claim}
       onKeyDown={(e) => {
         e.stopPropagation();
         if (e.key === "Escape") close();

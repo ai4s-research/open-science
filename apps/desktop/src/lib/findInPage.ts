@@ -77,18 +77,58 @@ function escapeRegex(text: string): string {
 
 /** Paint `ranges`, with `current` marked apart. Safe to call when the browser
  *  has no Highlight API — it simply paints nothing. */
-export function paintHighlights(ranges: Range[], current: Range | null): void {
+export function paintHighlights(
+  ranges: Range[],
+  current: Range | null,
+  scope?: Element | null,
+  token?: object,
+): void {
+  // Not the live search: a bar left open in another pane must not paint its
+  // matches back over the registry the visible one just cleared.
+  if (token && owner !== token) return;
   const highlights = highlightRegistry();
   if (!highlights) return;
   highlights.set(ALL, new Highlight(...ranges));
   highlights.set(CURRENT, new Highlight(...(current ? [current] : [])));
+  repaint(scope);
 }
 
-export function clearHighlights(): void {
+export function clearHighlights(scope?: Element | null): void {
   const highlights = highlightRegistry();
   if (!highlights) return;
   highlights.delete(ALL);
   highlights.delete(CURRENT);
+  repaint(scope);
+}
+
+/**
+ * Make the engine paint `scope` again.
+ *
+ * Changing the highlight registry does not reliably invalidate the area that
+ * was painted with the OLD highlights. On WKWebView — the engine the desktop
+ * app runs — the matches stay lit on screen after the registry has dropped
+ * them, until something else happens to repaint that region (a scroll, a new
+ * message, a hover). That is exactly the report: closing the search does not
+ * clear the highlights *immediately*, and a previous query's matches stay lit
+ * next to the current one's. The registry is right; the pixels are stale.
+ *
+ * A compositing-only property forces the subtree to be rastered again. Opacity
+ * a thousandth below 1 is imperceptible and moves nothing, so there is no
+ * flicker and no reflow; it is put back on the second frame, because restoring
+ * it within the same frame would coalesce into no change at all — and no
+ * change is no repaint.
+ */
+function repaint(scope: Element | null | undefined): void {
+  if (!(scope instanceof HTMLElement)) return;
+  const view = scope.ownerDocument.defaultView;
+  if (!view || typeof view.requestAnimationFrame !== "function") return;
+  const previous = scope.style.opacity;
+  scope.style.opacity = "0.999";
+  view.requestAnimationFrame(() => {
+    view.requestAnimationFrame(() => {
+      scope.style.opacity = previous;
+    });
+  });
 }
 
 function highlightRegistry(): HighlightRegistry | null {
@@ -121,8 +161,36 @@ export function revealRange(range: Range): void {
  * selection the user made somewhere else is theirs, and closing a find bar is
  * no reason to take it.
  */
+/**
+ * One search owns the highlights at a time.
+ *
+ * The registry is the document's, not a component's: two panes each hold a
+ * conversation, each can have a find bar open, and both write the same two
+ * names. Without an owner the bar left open in the background repaints its
+ * matches the moment its conversation streams another block — over the pane
+ * the reader is looking at, after that pane's search was closed. The last bar
+ * to open owns them; the others go quiet.
+ */
+let owner: object | null = null;
+
+export function claimFind(token: object): void {
+  owner = token;
+}
+
+export function ownsFind(token: object): boolean {
+  return owner === token;
+}
+
+/** Give up ownership and take the highlights with it. A release by a bar that
+ *  no longer owns them leaves the current owner's highlights alone. */
+export function releaseFind(token: object, scope: Element | null): void {
+  if (owner !== token) return;
+  owner = null;
+  clearFind(scope);
+}
+
 export function clearFind(scope: Element | null): void {
-  clearHighlights();
+  clearHighlights(scope);
   const view = scope?.ownerDocument?.defaultView ?? (typeof window === "undefined" ? null : window);
   const selection = view?.getSelection();
   if (!scope || !selection || selection.rangeCount === 0) return;

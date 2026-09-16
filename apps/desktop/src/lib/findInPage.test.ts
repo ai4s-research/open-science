@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { clearFind, findRanges, MAX_MATCHES, revealRange } from "./findInPage";
+import {
+  claimFind,
+  clearFind,
+  findRanges,
+  MAX_MATCHES,
+  ownsFind,
+  releaseFind,
+  revealRange,
+} from "./findInPage";
 
 function content(html: string): HTMLElement {
   const root = document.createElement("div");
@@ -96,5 +104,50 @@ describe("leaving a find", () => {
 
     // Closing a find bar is no reason to take a selection that was never ours.
     expect(window.getSelection()?.rangeCount).toBe(1);
+  });
+});
+
+describe("who owns the highlights", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    window.getSelection()?.removeAllRanges();
+  });
+
+  it("gives them to the bar that opened last", () => {
+    const background = {};
+    const foreground = {};
+    claimFind(background);
+    claimFind(foreground);
+
+    // Two panes, two conversations, one document-wide highlight registry: the
+    // bar left open in the background must not paint over the visible one.
+    expect(ownsFind(background)).toBe(false);
+    expect(ownsFind(foreground)).toBe(true);
+  });
+
+  it("keeps the live search when a background bar closes", () => {
+    const root = content("<p>alpha beta</p>");
+    const background = {};
+    const foreground = {};
+    claimFind(background);
+    claimFind(foreground);
+    revealRange(findRanges(root, "beta", PLAIN)[0]!);
+
+    releaseFind(background, root);
+
+    expect(window.getSelection()?.rangeCount).toBe(1);
+    expect(ownsFind(foreground)).toBe(true);
+  });
+
+  it("clears everything when the live search closes", () => {
+    const root = content("<p>alpha beta</p>");
+    const foreground = {};
+    claimFind(foreground);
+    revealRange(findRanges(root, "beta", PLAIN)[0]!);
+
+    releaseFind(foreground, root);
+
+    expect(window.getSelection()?.rangeCount ?? 0).toBe(0);
+    expect(ownsFind(foreground)).toBe(false);
   });
 });
