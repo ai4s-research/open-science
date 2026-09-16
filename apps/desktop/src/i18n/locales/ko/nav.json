@@ -97,14 +97,66 @@
     "hideAction": "숨기기"
   },
   "status": {
-    "runtime": "런타임",
-    "model": "모델",
-    "modelNotSet": "설정 안 됨",
-    "values": {
-      "ready": "준비됨",
-      "connecting": "연결 중",
-      "error": "오류",
-      "offline": "오프라인"
+    "usage": {
+      "title": "사용량",
+      "refresh": "새로 고침",
+      "tokens": "토큰",
+      "today": "오늘",
+      "days7": "7일",
+      "workbench": "OSD",
+      "cliNote": "직접 쓰는 터미널에서 실행된 작업입니다. 여기에는 사용량만 기록됩니다.",
+      "allAgents": "모든 에이전트",
+      "detailed": "자세히",
+      "compact": "간단히",
+      "detailedHint": "모든 기간을 막대와 백분율로 표시",
+      "compactHint": "한도에 가장 가까운 기간만",
+      "detailAria": "사용량 표시 밀도",
+      "resetsIn": "{{duration}} 후 초기화"
+    },
+    "awake": {
+      "title": "절전 방지",
+      "active": "활성",
+      "inactive": "비활성",
+      "mode": {
+        "on": "켜짐",
+        "auto": "자동",
+        "off": "꺼짐"
+      },
+      "hint": {
+        "on": "컴퓨터를 항상 깨어 있게 유지",
+        "auto": "에이전트가 작업하는 동안 유지",
+        "off": "평소대로 절전 모드로"
+      }
+    },
+    "resources": {
+      "title": "리소스",
+      "memory": "메모리",
+      "processes": "프로세스",
+      "note": "이 앱과 이 앱이 시작한 프로세스만.",
+      "cpu": "CPU {{n}}%",
+      "terminal": "터미널",
+      "app": "워크벤치 본체",
+      "kernel": "커널"
+    },
+    "ports": {
+      "title": "포트",
+      "empty": "이 앱이 여는 포트가 없습니다.",
+      "public": "외부 공개",
+      "openTitle": "{{url}} 열기"
+    },
+    "hosts": {
+      "title": "호스트",
+      "empty": "~/.ssh/config에 호스트가 없습니다.",
+      "count": "{{count}}대",
+      "count_other": "{{count}}대",
+      "status": {
+        "connected": "연결됨",
+        "connecting": "연결 중",
+        "prompt": "확인 대기",
+        "failed": "실패",
+        "disconnected": "연결 안 됨"
+      },
+      "connect": "연결"
     }
   },
   "commandPalette": {

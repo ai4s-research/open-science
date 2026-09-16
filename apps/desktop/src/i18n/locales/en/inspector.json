@@ -107,7 +107,19 @@
     },
     "mobileNoPreview": "Can't preview this file type here — download it to view.",
     "download": "Download",
-    "waitingWorkspace": "Waiting for the workspace to load {{filename}}… (focus the session that owns this file to preview)"
+    "waitingWorkspace": "Waiting for the workspace to load {{filename}}… (focus the session that owns this file to preview)",
+    "editAria": "Edit this file",
+    "editTitle": "Edit this file",
+    "editorAria": "Editing {{filename}}",
+    "save": "Save",
+    "saving": "Saving…",
+    "discard": "Discard",
+    "doneEditing": "Done",
+    "saved": "Saved",
+    "changedOnDisk": "Changed on disk — reload",
+    "changedOnDiskTitle": "Something else wrote this file. Reload to take its version.",
+    "unsaved": "Unsaved",
+    "markdownPlaceholder": "Write markdown…"
   },
   "office": {
     "rendering": "Rendering…",
@@ -271,5 +283,21 @@
     },
     "selectSeriesHint": "select a series to plot",
     "noNumericColumns": "No numeric columns to chart."
+  },
+  "markdownToolbar": {
+    "label": "Formatting",
+    "paragraph": "Paragraph",
+    "heading1": "Heading 1",
+    "heading2": "Heading 2",
+    "heading3": "Heading 3",
+    "bold": "Bold",
+    "italic": "Italic",
+    "strikethrough": "Strikethrough",
+    "bulletList": "Bulleted list",
+    "numberedList": "Numbered list",
+    "checklist": "Checklist",
+    "quote": "Quote",
+    "link": "Link",
+    "code": "Code"
   }
 }

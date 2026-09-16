@@ -99,14 +99,66 @@
     "hideAction": "Masquer"
   },
   "status": {
-    "runtime": "Runtime",
-    "model": "Modèle",
-    "modelNotSet": "non défini",
-    "values": {
-      "ready": "prêt",
-      "connecting": "connexion…",
-      "error": "erreur",
-      "offline": "hors ligne"
+    "usage": {
+      "title": "Utilisation",
+      "refresh": "Actualiser",
+      "tokens": "jetons",
+      "today": "auj.",
+      "days7": "7 j",
+      "workbench": "OSD",
+      "cliNote": "Exécuté dans votre propre terminal — seule la consommation est enregistrée ici.",
+      "allAgents": "tous les agents",
+      "detailed": "Détaillé",
+      "compact": "Compact",
+      "detailedHint": "Toutes les fenêtres, avec barres et pourcentages",
+      "compactHint": "Seulement la fenêtre la plus proche de sa limite",
+      "detailAria": "Niveau de détail de l'usage",
+      "resetsIn": "Réinitialisation dans {{duration}}"
+    },
+    "awake": {
+      "title": "Garder éveillé",
+      "active": "Actif",
+      "inactive": "Inactif",
+      "mode": {
+        "on": "Activé",
+        "auto": "Auto",
+        "off": "Désactivé"
+      },
+      "hint": {
+        "on": "Empêcher la mise en veille en permanence",
+        "auto": "Rester éveillé pendant qu'un agent travaille",
+        "off": "Laisser la veille normale"
+      }
+    },
+    "resources": {
+      "title": "Ressources",
+      "memory": "Mémoire",
+      "processes": "Processus",
+      "note": "Cette app et tout ce qu'elle a lancé.",
+      "cpu": "{{n}} % CPU",
+      "terminal": "Terminal",
+      "app": "L'app elle-même",
+      "kernel": "Noyau"
+    },
+    "ports": {
+      "title": "Ports",
+      "empty": "Rien de cette app n'écoute sur un port.",
+      "public": "public",
+      "openTitle": "Ouvrir {{url}}"
+    },
+    "hosts": {
+      "title": "Hôtes",
+      "empty": "Aucun hôte SSH dans ~/.ssh/config.",
+      "count": "{{count}} hôte",
+      "count_other": "{{count}} hôtes",
+      "status": {
+        "connected": "connecté",
+        "connecting": "connexion",
+        "prompt": "en attente",
+        "failed": "échec",
+        "disconnected": "non connecté"
+      },
+      "connect": "Se connecter"
     }
   },
   "commandPalette": {

@@ -486,6 +486,17 @@ fn exec_on(k: &mut KernelIo, code: &str) -> Result<ExecResult, String> {
     })
 }
 
+/// Each live kernel's process id, keyed as the map keys it (`python:<path>`).
+/// Lets the status bar attribute memory to the notebook that is holding it.
+pub fn pids(state: &KernelState) -> std::collections::HashMap<String, u32> {
+    let Ok(map) = state.0.lock() else {
+        return std::collections::HashMap::new();
+    };
+    map.iter()
+        .filter_map(|(key, kernel)| Some((key.clone(), kernel.child.lock().ok()?.id())))
+        .collect()
+}
+
 /// Kill a kernel's process and reap it — killed children must be `wait()`ed
 /// or they linger as zombies. Takes only the `child` lock, which no cell ever
 /// holds, so this always proceeds even while a cell is blocked mid-read.

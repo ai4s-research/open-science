@@ -99,7 +99,7 @@
   },
   "model": {
     "title": "모델",
-    "hint": "아래 제공자가 여기서 선택할 수 있는 모델을 제공합니다",
+    "hint": "새 대화가 기본으로 사용하는 모델. 선택 범위는 아래 Providers가 정합니다.",
     "connectPrompt": "모델을 구성하려면 런타임을 연결하세요.",
     "notSet": "설정 안 됨 — 기본 모델을 선택하세요",
     "providersDivider": "제공자",
@@ -117,13 +117,14 @@
     "catalogUnavailable": "모델 카탈로그를 현재 사용할 수 없습니다.",
     "catalogLoading": "모델 카탈로그를 불러오는 중…",
     "noModels": "사용 가능한 모델이 없습니다.",
-    "manageProviders": "공급자 관리",
     "emptyFavorites": "즐겨찾기 모델이 여기에 표시됩니다.",
     "emptyRecent": "성공적으로 선택한 모델이 여기에 표시됩니다.",
     "noResults": "“{{query}}”와 일치하는 모델이 없습니다.",
     "clearSearch": "검색 지우기",
     "addFavorite": "{{model}}을 즐겨찾기에 추가",
-    "removeFavorite": "{{model}}을 즐겨찾기에서 제거"
+    "removeFavorite": "{{model}}을 즐겨찾기에서 제거",
+    "change": "변경",
+    "noProvidersHint": "아래에서 제공자를 연결하세요."
   },
   "providers": {
     "title": "공급자",
@@ -148,18 +149,25 @@
     "pasteCode": "브라우저에서 코드를 붙여넣으세요",
     "customEndpoint": "사용자 지정 엔드포인트",
     "customEndpointHint": "자체 호스팅 · 로컬 Ollama · OpenAI/Anthropic 호환",
-    "customNamePlaceholder": "이름 — 예: Ollama, My DeepSeek gateway",
+    "customNamePlaceholder": "예: Ollama, 내 DeepSeek 게이트웨이",
     "openaiCompatible": "OpenAI 호환",
     "anthropicCompatible": "Anthropic 호환",
-    "customUrlPlaceholder": "기본 URL — Ollama: http://127.0.0.1:11434/v1",
-    "customKeyPlaceholder": "API 키 — 선택 사항, Ollama는 필요 없음",
-    "customModelsPlaceholder": "모델 ID, 쉼표로 구분",
-    "customContextPlaceholder": "컨텍스트 창 — 선택 사항, 기본 128k",
+    "customUrlPlaceholder": "http://127.0.0.1:11434/v1",
+    "customKeyPlaceholder": "선택 사항 — Ollama는 필요 없음",
+    "customModelsPlaceholder": "모델 id, 쉼표로 구분",
+    "customContextPlaceholder": "선택 사항 — 기본 128k",
     "fetchModels": "모델 가져오기",
     "fetchingModels": "가져오는 중…",
     "noModelsFound": "엔드포인트에서 모델을 반환하지 않았습니다.",
     "addEndpoint": "엔드포인트 추가",
-    "importLogin": "이미 OpenCode CLI를 사용 중이신가요? 로그인 정보 가져오기"
+    "importLogin": "이미 OpenCode CLI를 사용 중이신가요? 로그인 정보 가져오기",
+    "addTitle": "제공자 추가",
+    "fieldName": "이름",
+    "fieldApiStyle": "API 방식",
+    "fieldBaseUrl": "Base URL",
+    "fieldApiKey": "API 키",
+    "fieldModels": "모델",
+    "fieldContext": "컨텍스트 창"
   },
   "mcp": {
     "title": "MCP 서버",
@@ -442,13 +450,22 @@
     "title": "에이전트별 모델과 추론 강도",
     "hint": "메인 에이전트가 강력한 모델로 추론하는 동안 검토·탐색 에이전트는 빠른 모델로 실행하고, 각자 얼마나 깊이 생각할지도 고정하세요.",
     "noModels": "모델을 고르려면 공급자를 연결하세요.",
-    "followDefault": "기본 모델",
-    "followDefaultNamed": "기본값 ({{model}})",
+    "followDefault": "기본값 따르기",
     "modelFor": "{{agent}}의 모델",
     "defaultEffort": "기본 강도",
     "effortFor": "{{agent}}의 추론 강도",
     "retiredOption": "{{model}} — 제공 중단",
-    "primaryHint": "build와 plan은 보낸 메시지를 실행합니다. 여기서 설정한 모델이 적용되며, 대화 안에서 모델을 고르면 그 대화에서만 우선합니다."
+    "primaryHint": "build와 plan은 보낸 메시지를 실행합니다. 여기서 설정한 모델이 적용되며, 대화 안에서 모델을 고르면 그 대화에서만 우선합니다.",
+    "group": {
+      "conversation": "직접 대화하는 에이전트",
+      "utility": "워크벤치가 내부적으로 쓰는 것"
+    },
+    "utilityHint": "런타임이 스스로 처리하는 짧고 기계적인 작업 — 여기서는 빠른 모델이 무조건 이득입니다.",
+    "about": {
+      "title": "첫 메시지로 세션 이름을 짓습니다.",
+      "summary": "대화의 짧은 요약을 씁니다.",
+      "compaction": "긴 대화를 컨텍스트 창에 맞게 다시 씁니다."
+    }
   },
   "ssh": {
     "title": "{{host}}에 로그인",

@@ -33,7 +33,15 @@
       "stopCellTitle": "停止 — 重启此笔记本的内核（变量将被重置）",
       "stopLabel": "停止",
       "runLabel": "运行",
-      "addCellLabel": "添加单元格"
+      "addCellLabel": "添加单元格",
+      "askAgent": "就这个 cell 问 Agent",
+      "askAgentAria": "就第 {{n}} 个 cell 问 Agent",
+      "askAgentIntro": "关于 `{{file}}` 的第 [{{n}}] 个 cell：",
+      "askAgentOutput": "它的输出是：",
+      "askAgentSent": "已放入输入框",
+      "countTitle": "执行序号 —— 运行中为 [*]，运行过为 [n]",
+      "interrupted": "已中断 —— 内核已重启，变量已清空。",
+      "desktopOnlyKernel": "本地内核只能在桌面应用中使用。"
     }
   },
   "files": {

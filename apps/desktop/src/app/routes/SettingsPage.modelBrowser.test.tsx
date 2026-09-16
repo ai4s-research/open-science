@@ -59,6 +59,13 @@ async function renderSettings() {
   return view;
 }
 
+/** Open the catalog. The Models section names the model in force at rest and
+ *  keeps the 40-odd alternatives behind "Change", so a test that asserts on the
+ *  list has to open it the way a user does. */
+async function openModelBrowser() {
+  await userEvent.click(await screen.findByRole("button", { name: "Change" }));
+}
+
 describe("Settings model browser integration", () => {
   const initialRuntime = useRuntimeStore.getState();
   const initialSetup = useSetupStore.getState();
@@ -102,6 +109,7 @@ describe("Settings model browser integration", () => {
     });
     useRuntimeStore.setState({ setDefaultModel: deadSwitch });
     await renderSettings();
+    await openModelBrowser();
     await screen.findByRole("button", { name: /^o3/ });
 
     await userEvent.click(screen.getByRole("button", { name: /^o3/ }));
@@ -131,6 +139,7 @@ describe("Settings model browser integration", () => {
     expect(screen.queryByText(/Configured model unavailable/)).not.toBeInTheDocument();
     expect(screen.queryByText("No models available.")).not.toBeInTheDocument();
     await act(async () => resolveProviders(providers));
+    await openModelBrowser();
     expect(await screen.findByRole("button", { name: /^o3/ })).toBeInTheDocument();
   });
 
@@ -142,6 +151,7 @@ describe("Settings model browser integration", () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(client);
 
     await renderSettings();
+    await openModelBrowser();
 
     expect(await screen.findByRole("button", { name: /^o3/ })).toBeInTheDocument();
     expect(screen.queryByText("The model catalog is currently unavailable.")).not.toBeInTheDocument();
@@ -159,7 +169,6 @@ describe("Settings model browser integration", () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(client);
     await renderSettings();
 
-    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
     await userEvent.type(
       screen.getByPlaceholderText(/Connect a provider/),
       "amazon-bedrock",
@@ -194,14 +203,14 @@ describe("Settings model browser integration", () => {
     const client = catalogClient();
     vi.spyOn(runtime, "getClient").mockReturnValue(client);
     await renderSettings();
+    await openModelBrowser();
     await screen.findByRole("button", { name: /^o3/ });
 
-    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
     await userEvent.click(screen.getByRole("button", { name: /Custom endpoint/ }));
     const displayName = "\u97f3\u4e91";
-    await userEvent.type(screen.getByPlaceholderText(/Name/), displayName);
-    await userEvent.type(screen.getByPlaceholderText(/Base URL/), "https://example.test/v1");
-    await userEvent.type(screen.getByPlaceholderText(/Model ids/), "gpt-5.6-luna");
+    await userEvent.type(screen.getByLabelText("Name"), displayName);
+    await userEvent.type(screen.getByLabelText("Base URL"), "https://example.test/v1");
+    await userEvent.type(screen.getByLabelText("Models"), "gpt-5.6-luna");
     await userEvent.click(screen.getByRole("button", { name: "Add endpoint" }));
 
     // The config key stays ASCII (customProviderId covers how it is derived);
@@ -222,6 +231,7 @@ describe("Settings model browser integration", () => {
   it("drops the cached catalog when the server URL changes (no stale models from the old runtime)", async () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
     await renderSettings();
+    await openModelBrowser();
     expect(await screen.findByRole("button", { name: /^o3/ })).toBeInTheDocument();
 
     act(() => useRuntimeStore.getState().setServerUrl("http://127.0.0.1:9999"));
@@ -229,21 +239,19 @@ describe("Settings model browser integration", () => {
     expect(screen.queryByRole("button", { name: /^o3/ })).not.toBeInTheDocument();
   });
 
-  it("an expanded Providers card stays collapsible and shows a prompt after a disconnect", async () => {
+  it("the Providers card shows a prompt after a disconnect, with nothing to un-collapse", async () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
     await renderSettings();
+    await openModelBrowser();
     await screen.findByRole("button", { name: /^o3/ });
-    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
 
     act(() => useRuntimeStore.setState({ status: "offline", switching: false }));
 
-    // The old wiring disabled the toggle and rendered an empty body — a
-    // stuck-open blank panel the user could not close until reconnect.
+    // An older wiring disabled the toggle and rendered an empty body — a
+    // stuck-open blank panel the user could not close until reconnect. There is
+    // no toggle now, so the card simply says what is wrong.
     expect(screen.getByText("Connect the runtime to manage providers.")).toBeInTheDocument();
-    const collapse = screen.getByRole("button", { name: "Collapse" });
-    expect(collapse).toBeEnabled();
-    await userEvent.click(collapse);
-    expect(screen.queryByText("Connect the runtime to manage providers.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Manage|Collapse/ })).not.toBeInTheDocument();
   });
 
   it("shows a localized unavailable state when the initial provider refresh fails", async () => {
@@ -263,6 +271,7 @@ describe("Settings model browser integration", () => {
       .mockRejectedValueOnce(new Error("catalog offline"));
     vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient(listProviders));
     await renderSettings();
+    await openModelBrowser();
     expect(await screen.findByRole("button", { name: /^o3/ })).toBeInTheDocument();
 
     await act(async () => useSetupStore.setState({ generation: 1 }));
@@ -275,6 +284,7 @@ describe("Settings model browser integration", () => {
   it("hides a cached model snapshot after an ordinary runtime disconnect", async () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(catalogClient());
     await renderSettings();
+    await openModelBrowser();
     expect(await screen.findByRole("searchbox", { name: "Search models" })).toBeInTheDocument();
 
     act(() => useRuntimeStore.setState({ status: "offline", switching: false }));
@@ -308,6 +318,7 @@ describe("Settings model browser integration", () => {
     }));
     useRuntimeStore.setState({ setDefaultModel: reconnectFailure });
     await renderSettings();
+    await openModelBrowser();
     const targetRow = await screen.findByRole("button", { name: /^o3/ });
 
     await userEvent.click(targetRow);

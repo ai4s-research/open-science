@@ -28,7 +28,12 @@
       "newSession": "Neue Sitzung"
     },
     "rename": "Screen umbenennen",
-    "tabMenu": "Screen-Aktionen"
+    "tabMenu": "Screen-Aktionen",
+    "runAgent": "Agent starten",
+    "newNotebook": "Neues Notebook",
+    "newMarkdown": "Neues Markdown",
+    "splitRightShort": "Rechts teilen",
+    "splitDownShort": "Unten teilen"
   },
   "composer": {
     "placeholder": {
@@ -132,7 +137,10 @@
     },
     "compact": {
       "aria": "Kontext komprimieren",
-      "title": "Fasst frühere Turns zusammen; die nächste Antwort nutzt den komprimierten Kontext"
+      "title": "Fasst frühere Turns zusammen; die nächste Antwort nutzt den komprimierten Kontext",
+      "confirmTitle": "Kontext verdichten?",
+      "confirmBody": "Die bisherigen Züge werden durch eine Zusammenfassung ersetzt, damit die nächste Antwort in einem begrenzten Kontext läuft. Das vollständige Originalgespräch bleibt lokal gespeichert.",
+      "confirmAction": "Verdichten"
     }
   },
   "localCommand": {
@@ -180,7 +188,10 @@
     "subagentFallback": "ein Subagent",
     "header": {
       "expandSidebarAria": "Seitenleiste ausklappen",
-      "expandSidebarTitle": "Seitenleiste ausklappen ({{shortcut}})"
+      "expandSidebarTitle": "Seitenleiste ausklappen ({{shortcut}})",
+      "rename": "Sitzung umbenennen…",
+      "untitled": "Unbenannte Sitzung",
+      "paneMenu": "Sitzungsaktionen"
     },
     "filesToggle": {
       "default": "Dateien",
@@ -439,7 +450,8 @@
     "title": "Sitzung des neuen Bereichs wird angelegt in",
     "continueIn": "In {{name}} fortfahren",
     "newFolder": "Neuer Ordner",
-    "chooseOther": "Anderen Ordner wählen…"
+    "chooseOther": "Anderen Ordner wählen…",
+    "terminal": "Terminal in diesem Ordner"
   },
   "stall": {
     "silentTitle": "Turn reagiert möglicherweise nicht mehr",
@@ -448,5 +460,28 @@
     "repeatLine": "Dieser Turn hat denselben Aufruf {{count}}-mal mit identischen Ergebnissen ausgeführt. Arbeitet er noch oder dreht er sich im Kreis?",
     "keepWaiting": "Weiter warten",
     "stopTurn": "Turn stoppen"
+  },
+  "terminal": {
+    "title": "Terminal",
+    "exited": "[Prozess beendet]",
+    "desktopOnly": "Ein Terminal braucht die Desktop-App.",
+    "new": "Terminal",
+    "menu": {
+      "label": "Terminal-Menü",
+      "copy": "Kopieren",
+      "paste": "Einfügen",
+      "selectAll": "Alles auswählen",
+      "clear": "Bildschirm leeren",
+      "revealCwd": "Arbeitsordner anzeigen"
+    },
+    "rename": "Terminal umbenennen…",
+    "confirmClose": {
+      "title": "Dieses Terminal schließen?",
+      "body": "Die Shell und alles, was noch darin läuft, wird beendet. Der Verlauf bleibt nicht erhalten.",
+      "action": "Terminal schließen"
+    }
+  },
+  "splitInto": {
+    "session": "Sitzung"
   }
 }

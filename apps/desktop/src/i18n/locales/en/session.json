@@ -28,7 +28,12 @@
       "newSession": "New session"
     },
     "rename": "Rename screen",
-    "tabMenu": "Screen actions"
+    "tabMenu": "Screen actions",
+    "runAgent": "Run an agent",
+    "newNotebook": "New Notebook",
+    "newMarkdown": "New Markdown",
+    "splitRightShort": "Split right",
+    "splitDownShort": "Split down"
   },
   "composer": {
     "placeholder": {
@@ -132,7 +137,10 @@
     },
     "compact": {
       "aria": "Compress context",
-      "title": "Summarize the earlier turns so the next reply runs on a bounded context"
+      "title": "Summarize the earlier turns so the next reply runs on a bounded context",
+      "confirmTitle": "Compact the context?",
+      "confirmBody": "The earlier turns are replaced with a summary so the next reply runs on a bounded context. The full original conversation is still stored locally.",
+      "confirmAction": "Compact"
     }
   },
   "localCommand": {
@@ -180,7 +188,10 @@
     "subagentFallback": "a subagent",
     "header": {
       "expandSidebarAria": "Expand sidebar",
-      "expandSidebarTitle": "Expand sidebar ({{shortcut}})"
+      "expandSidebarTitle": "Expand sidebar ({{shortcut}})",
+      "rename": "Rename session…",
+      "untitled": "Untitled session",
+      "paneMenu": "Session actions"
     },
     "filesToggle": {
       "default": "Files",
@@ -439,7 +450,8 @@
     "title": "The new pane's session will be created in",
     "continueIn": "Continue in {{name}}",
     "newFolder": "New folder",
-    "chooseOther": "Choose another folder…"
+    "chooseOther": "Choose another folder…",
+    "terminal": "Terminal in this folder"
   },
   "stall": {
     "silentTitle": "Turn may be stuck",
@@ -448,5 +460,28 @@
     "repeatLine": "This turn has run the same call {{count}} times with identical results. Still working, or looping?",
     "keepWaiting": "Keep waiting",
     "stopTurn": "Stop turn"
+  },
+  "terminal": {
+    "title": "Terminal",
+    "exited": "[process exited]",
+    "desktopOnly": "A terminal needs the desktop app.",
+    "new": "Terminal",
+    "menu": {
+      "label": "Terminal menu",
+      "copy": "Copy",
+      "paste": "Paste",
+      "selectAll": "Select All",
+      "clear": "Clear",
+      "revealCwd": "Reveal working folder"
+    },
+    "rename": "Rename terminal…",
+    "confirmClose": {
+      "title": "Close this terminal?",
+      "body": "The shell and anything still running in it will stop. Scrollback is not kept.",
+      "action": "Close terminal"
+    }
+  },
+  "splitInto": {
+    "session": "Session"
   }
 }

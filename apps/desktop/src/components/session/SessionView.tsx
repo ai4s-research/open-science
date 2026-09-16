@@ -44,6 +44,13 @@ import { GOAL_RESUME_NUDGE } from "@/lib/goalPrompts";
 import { baseName } from "@/components/thread/WorkspaceChip";
 import { WorkflowStarters } from "@/components/thread/WorkflowStarters";
 import { SplitMenu } from "@/components/session/SplitMenu";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+} from "@/components/ui/ContextMenu";
+import { InlineName } from "@/components/ui/InlineName";
 import { InteractionPrompt } from "@/components/thread/InteractionPrompt";
 import { InspectorShell } from "@/components/inspector/InspectorShell";
 import { MaximizePaneButton, RightPane } from "@/components/inspector/RightPane";
@@ -221,7 +228,10 @@ export function SessionView({
   const setAgentMode = useRuntimeStore((s) => s.setAgentMode);
   const bindSession = useLayoutStore((s) => s.bindSession);
   const aimDraft = useRuntimeStore((s) => s.aimDraft);
+  const renameSession = useRuntimeStore((s) => s.renameSession);
   const dockSession = useLayoutStore((s) => s.dockSession);
+  const openContentPane = useLayoutStore((s) => s.openContentPane);
+  const [renaming, setRenaming] = useState(false);
   const setLeafZoom = useLayoutStore((s) => s.setLeafZoom);
   // Any real interaction with a tentative (preview) screen pins it (#3).
   const pinEphemeral = useLayoutStore((s) => s.pinEphemeral);
@@ -527,6 +537,9 @@ export function SessionView({
       onClose={() => closeArtifact(sid ?? undefined)}
       onEvaluate={onEvaluate}
       controls={<MaximizePaneButton />}
+      // Same 32px as the session header beside it — a 48px inspector header
+      // next to a 32px one reads as two misaligned windows.
+      compactHeader
     />
   ) : showRuns ? (
     <RunsPane sessionId={eid!} onClose={() => setShowRuns(false, sid ?? undefined)} controls={<MaximizePaneButton />} />
@@ -547,7 +560,61 @@ export function SessionView({
     />
   ) : null;
 
+  /** Right-click, the same panel the terminal has: what you came to this pane
+   *  to do, then what to do with the pane itself.
+   *
+   *  A conversation's own actions are the name it is filed under and the folder
+   *  it works in — the two things you reach for without opening a menu of the
+   *  whole app — and then the layout actions the header buttons also carry, so
+   *  the gesture works anywhere in the pane rather than only on its 32px strip. */
+  const paneMenu = (
+    <>
+      <ContextMenuItem disabled={!eid} onSelect={() => setRenaming(true)}>
+        {t("live.header.rename")}
+      </ContextMenuItem>
+      {sessionDir && (
+        <ContextMenuItem onSelect={() => void revealSessionFolder(sessionDir)}>
+          {t("terminal.menu.revealCwd")}
+        </ContextMenuItem>
+      )}
+      {canSplit && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuSub label={t("group.splitRightShort")}>
+            {/* eslint-disable i18next/no-literal-string -- DockEdge and pane kind, not UI copy */}
+            <ContextMenuItem onSelect={() => onSplit("right", splitFolder)}>
+              {t("splitInto.session")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => openContentPane({ kind: "terminal", cwd: sessionDir ?? undefined }, "row")}
+            >
+              {t("terminal.title")}
+            </ContextMenuItem>
+          </ContextMenuSub>
+          <ContextMenuSub label={t("group.splitDownShort")}>
+            <ContextMenuItem onSelect={() => onSplit("bottom", splitFolder)}>
+              {t("splitInto.session")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => openContentPane({ kind: "terminal", cwd: sessionDir ?? undefined }, "col")}
+            >
+              {t("terminal.title")}
+            </ContextMenuItem>
+            {/* eslint-enable i18next/no-literal-string */}
+          </ContextMenuSub>
+        </>
+      )}
+      {onClose && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={onClose}>{t("group.closePane")}</ContextMenuItem>
+        </>
+      )}
+    </>
+  );
+
   return (
+    <ContextMenu items={paneMenu} label={t("live.header.paneMenu")}>
     <div className="flex h-full min-w-0">
       {/* `relative` anchors the floating composer (absolute, below). */}
       <div className="relative flex h-full min-w-0 flex-1 flex-col">
@@ -559,11 +626,12 @@ export function SessionView({
             // `select-none`: this row is chrome (title, zoom, panel toggles) —
             // dragging across it used to leave stray highlight behind.
             "flex shrink-0 select-none items-center border-faint",
-            // Tiled panes get a compact header — h-12 wastes vertical space in
-            // a small pane. Solo/web keeps the full-height titlebar row.
+            // Solo keeps the roomier horizontal rhythm; the HEIGHT is the same
+            // 32px either way. A 48px header under the 48px Screen strip spent
+            // 96px of every window on chrome before a single message.
             solo ? "gap-2 px-6" : "gap-1 px-2.5",
             eid && "border-b",
-            !(sidebarCollapsed && asTitlebar) && (solo ? "h-12" : "h-8"),
+            !(sidebarCollapsed && asTitlebar) && "h-8",
           )}
         >
           {showSidebarExpand && (
@@ -576,22 +644,40 @@ export function SessionView({
               <PanelLeft size={14} strokeWidth={1.5} />
             </button>
           )}
-          {eid && (
-            // The title doubles as a drag handle to re-dock this pane. Opt it
-            // out of the macOS window-drag region so grabbing it moves the pane,
-            // not the window.
-            <h1
-              draggable={false}
-              onDragStart={(e) => e.preventDefault()}
-              // eslint-disable-next-line i18next/no-literal-string -- DragSource kind, not UI copy
-              onPointerDown={(e) => startPaneDrag(e, { kind: "pane", leafId, sessionId: eid }, title ?? "")}
-              // `select-none` stops the title text from being selected while
-              // dragging (the reason a header drag looked like a text selection).
-              className="min-w-0 shrink cursor-grab select-none truncate text-[13px] font-medium text-text active:cursor-grabbing"
-            >
-              {title ?? ""}
-            </h1>
-          )}
+          {eid &&
+            (renaming ? (
+              <InlineName
+                initial={title ?? ""}
+                placeholder={t("live.header.untitled")}
+                ariaLabel={t("live.header.rename")}
+                className="w-40"
+                onCommit={(name) => {
+                  setRenaming(false);
+                  const trimmed = name.trim();
+                  if (trimmed && trimmed !== title) void renameSession(eid, trimmed);
+                }}
+                onCancel={() => setRenaming(false)}
+              />
+            ) : (
+              // The title doubles as a drag handle to re-dock this pane. Opt it
+              // out of the macOS window-drag region so grabbing it moves the pane,
+              // not the window.
+              <h1
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
+                // eslint-disable-next-line i18next/no-literal-string -- DragSource kind, not UI copy
+                onPointerDown={(e) => startPaneDrag(e, { kind: "pane", leafId, sessionId: eid }, title ?? "")}
+                // A name is renamed where it is shown — the same double-click
+                // that renames a Screen tab and a terminal.
+                onDoubleClick={() => setRenaming(true)}
+                title={t("group.renameHint")}
+                // `select-none` stops the title text from being selected while
+                // dragging (the reason a header drag looked like a text selection).
+                className="min-w-0 max-w-[15rem] shrink cursor-grab select-none truncate text-[13px] font-medium text-text active:cursor-grabbing"
+              >
+                {title ?? ""}
+              </h1>
+            ))}
           {/* Only while on display: the pill polls the plugin's state file every
               few seconds, and its popover lives in a body portal — a hidden
               screen would keep polling and could leave that popover floating
@@ -670,20 +756,26 @@ export function SessionView({
               <ZoomMenu zoom={zoom} onPick={(z) => setLeafZoom(leafId, z)} />
               {/* Each split button asks where the new pane's work goes before
                   creating it — see SplitMenu. */}
+              {/* eslint-disable i18next/no-literal-string -- DockEdge, split axis and pane kind, not UI copy */}
               <SplitMenu
                 sourceFolder={splitFolder}
-                // eslint-disable-next-line i18next/no-literal-string -- DockEdge enum, not UI copy
                 onSplit={(folder) => onSplit("right", folder)}
+                onSplitTerminal={() =>
+                  openContentPane({ kind: "terminal", cwd: sessionDir ?? undefined }, "row")
+                }
                 icon={<PanelRight size={13} strokeWidth={1.5} />}
                 label={t("group.splitRight")}
               />
               <SplitMenu
                 sourceFolder={splitFolder}
-                // eslint-disable-next-line i18next/no-literal-string -- DockEdge enum, not UI copy
                 onSplit={(folder) => onSplit("bottom", folder)}
+                onSplitTerminal={() =>
+                  openContentPane({ kind: "terminal", cwd: sessionDir ?? undefined }, "col")
+                }
                 icon={<PanelBottom size={13} strokeWidth={1.5} />}
                 label={t("group.splitDown")}
               />
+              {/* eslint-enable i18next/no-literal-string */}
               {onClose && (
                 <button
                   onClick={onClose}
@@ -803,6 +895,10 @@ export function SessionView({
             // The conversation is document content, so it keeps the WebView's
             // own menu (Copy, Look Up, Translate) — see lib/nativeMenu.
             data-native-menu
+            // …which means the PANE's right-click menu must not reach it. The
+            // pane menu is for the pane; a right-click on a sentence is for
+            // copying that sentence.
+            onContextMenu={(e) => e.stopPropagation()}
             style={zoom !== 1 ? { zoom } : undefined}
             className="mx-auto flex max-w-[760px] flex-col gap-4 px-8 pt-6"
           >
@@ -1002,14 +1098,16 @@ export function SessionView({
             }}
           />
           {/* Zoomed with the chat so the input scales down in a small/zoomed
-              pane; width is a proportion of the pane, centered. `relative` keeps
-              it above the frost layer. */}
+              pane. `relative` keeps it above the frost layer.
+
+              Same column as the messages above it (`max-w-[760px] px-8`), which
+              is the point: the composer used to be capped only when solo and a
+              flat 94% of the pane otherwise, so it ran long on a wide screen,
+              sat edge-to-edge on a narrow one, and lined up with the
+              conversation at no width at all. */}
           <div
             style={zoom !== 1 ? { zoom } : undefined}
-            className={cn(
-              "pointer-events-auto relative mx-auto space-y-3",
-              solo ? "max-w-[760px]" : "w-[94%]",
-            )}
+            className="pointer-events-auto relative mx-auto w-full max-w-[760px] space-y-3 px-8"
           >
             {activeRequest && (
               <InteractionPrompt
@@ -1097,6 +1195,7 @@ export function SessionView({
         </RightPane>
       )}
     </div>
+    </ContextMenu>
   );
 }
 
@@ -1166,6 +1265,14 @@ function ThreadSkeleton() {
       </div>
     </div>
   );
+}
+
+/** Show the session's folder in the OS file manager — the same action the
+ *  terminal's menu carries, for the same reason: the folder is what the work
+ *  actually lives in. */
+async function revealSessionFolder(path: string): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("reveal_path", { path, root: null });
 }
 
 function ConnBadge({ status }: { status: RuntimeStatus }) {

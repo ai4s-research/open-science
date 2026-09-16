@@ -20,7 +20,7 @@ describe("ModelBrowser", () => {
 
   it("filters by provider and searches the active filter", async () => {
     render(<ModelBrowser providers={providers} defaultModel={null} busy={false}
-      onSelect={vi.fn()} onManageProviders={vi.fn()} />);
+      onSelect={vi.fn()} />);
     const filters = screen.getByRole("navigation", { name: "Model filters" });
     await userEvent.click(within(filters).getByRole("button", { name: /Ollama Cloud/ }));
     expect(screen.getByRole("button", { name: /^Qwen3 Coder/ })).toBeInTheDocument();
@@ -32,7 +32,7 @@ describe("ModelBrowser", () => {
   it("favorites without selecting and persists the result", async () => {
     const onSelect = vi.fn<(model: string) => Promise<boolean>>();
     render(<ModelBrowser providers={providers} defaultModel={null} busy={false}
-      onSelect={onSelect} onManageProviders={vi.fn()} />);
+      onSelect={onSelect} />);
     await userEvent.click(screen.getByRole("button", { name: "Add o3 to favorites" }));
     expect(onSelect).not.toHaveBeenCalled();
     expect(loadModelPreferences().favorites).toEqual(["openai/o3"]);
@@ -43,7 +43,7 @@ describe("ModelBrowser", () => {
   it("supports keyboard activation for filters, favorites, and model rows", async () => {
     const onSelect = vi.fn().mockResolvedValue(true);
     render(<ModelBrowser providers={providers} defaultModel={null} busy={false}
-      onSelect={onSelect} onManageProviders={vi.fn()} />);
+      onSelect={onSelect} />);
 
     const filters = screen.getByRole("navigation", { name: "Model filters" });
     const providerFilter = within(filters).getByRole("button", { name: /Ollama Cloud/ });
@@ -66,7 +66,7 @@ describe("ModelBrowser", () => {
     let resolveSelection!: (value: boolean) => void;
     const onSelect = vi.fn(() => new Promise<boolean>((resolve) => { resolveSelection = resolve; }));
     render(<ModelBrowser providers={providers} defaultModel="openai/gpt-5.2" busy={false}
-      onSelect={onSelect} onManageProviders={vi.fn()} />);
+      onSelect={onSelect} />);
     await userEvent.click(screen.getByRole("button", { name: /^o3/ }));
     expect(screen.getByText("Switching…")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /^Qwen3 Coder/ }));
@@ -78,7 +78,7 @@ describe("ModelBrowser", () => {
   it("does not update recent history when selection fails", async () => {
     const onSelect = vi.fn().mockResolvedValue(false);
     render(<ModelBrowser providers={providers} defaultModel="openai/gpt-5.2" busy={false}
-      onSelect={onSelect} onManageProviders={vi.fn()} />);
+      onSelect={onSelect} />);
     await userEvent.click(screen.getByRole("button", { name: /^o3/ }));
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("openai/o3"));
     expect(loadModelPreferences().recent).toEqual([]);
@@ -87,7 +87,7 @@ describe("ModelBrowser", () => {
   it("contains rejected selections as failed attempts", async () => {
     const onSelect = vi.fn().mockRejectedValue(new Error("selection failed"));
     render(<ModelBrowser providers={providers} defaultModel="openai/gpt-5.2" busy={false}
-      onSelect={onSelect} onManageProviders={vi.fn()} />);
+      onSelect={onSelect} />);
 
     const modelRow = screen.getByRole("button", { name: /^o3/ });
     const favoriteButton = screen.getByRole("button", { name: "Add o3 to favorites" });
@@ -99,22 +99,23 @@ describe("ModelBrowser", () => {
     expect(loadModelPreferences().recent).toEqual([]);
   });
 
-  it("shows an unavailable configured default and exposes provider management when empty", () => {
-    const onManageProviders = vi.fn();
+  it("shows an unavailable configured default and says where models come from when empty", () => {
     const { rerender } = render(<ModelBrowser providers={providers} defaultModel="gone/model" busy={false}
-      onSelect={vi.fn()} onManageProviders={onManageProviders} />);
+      onSelect={vi.fn()} />);
     expect(screen.getByText(/Configured model unavailable: gone\/model/)).toBeInTheDocument();
     rerender(<ModelBrowser providers={[]} defaultModel="gone/model" busy={false}
-      onSelect={vi.fn()} onManageProviders={onManageProviders} />);
+      onSelect={vi.fn()} />);
     expect(screen.getByText(/Configured model unavailable: gone\/model/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Manage providers" })).toBeInTheDocument();
+    // The Providers card is always open below, so the empty state points at it
+    // rather than offering to open a panel that is no longer collapsed.
+    expect(screen.getByText("Connect a provider below.")).toBeInTheDocument();
   });
 
   it("keeps focus on the clicked row through the pending switch (no drop to body)", async () => {
     let resolveSelection!: (value: boolean) => void;
     const onSelect = vi.fn(() => new Promise<boolean>((resolve) => { resolveSelection = resolve; }));
     render(<ModelBrowser providers={providers} defaultModel="openai/gpt-5.2" busy={false}
-      onSelect={onSelect} onManageProviders={vi.fn()} />);
+      onSelect={onSelect} />);
 
     const row = screen.getByRole("button", { name: /^o3/ });
     row.focus();
@@ -133,7 +134,7 @@ describe("ModelBrowser", () => {
 
   it("signals when no default model is configured", () => {
     render(<ModelBrowser providers={providers} defaultModel={null} busy={false}
-      onSelect={vi.fn()} onManageProviders={vi.fn()} />);
+      onSelect={vi.fn()} />);
     expect(screen.getByText("Not set — pick a default model")).toBeInTheDocument();
   });
 
@@ -148,7 +149,7 @@ describe("ModelBrowser", () => {
       ] },
     ];
     render(<ModelBrowser providers={withRetired} defaultModel="opencode/glm-5-free" busy={false}
-      onSelect={vi.fn()} onManageProviders={vi.fn()} />);
+      onSelect={vi.fn()} />);
     expect(screen.getByRole("button", { name: /^HY3/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^GLM-5/ })).not.toBeInTheDocument();
     expect(screen.getByText(/Retired by its provider/)).toBeInTheDocument();
@@ -160,7 +161,7 @@ describe("ModelBrowser", () => {
   it("keeps the current model row keyboard-focusable without selecting it again", async () => {
     const onSelect = vi.fn().mockResolvedValue(true);
     render(<ModelBrowser providers={providers} defaultModel="openai/o3" busy={false}
-      onSelect={onSelect} onManageProviders={vi.fn()} />);
+      onSelect={onSelect} />);
 
     const currentRow = screen.getByRole("button", { name: /^o3/ });
     expect(currentRow).toHaveAttribute("aria-current", "true");

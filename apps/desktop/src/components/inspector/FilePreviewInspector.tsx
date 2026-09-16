@@ -1,5 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { Code2, Download, Eye, ExternalLink, FileSearch, History, Loader2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Code2,
+  Download,
+  Eye,
+  ExternalLink,
+  FileSearch,
+  History,
+  Loader2,
+  Pencil,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { FilePreviewInspector as FilePreviewInspectorT, FileRoot } from "@ai4s/shared";
 import { previewKindForName, type PreviewKind } from "@/lib/artifacts";
@@ -9,13 +19,18 @@ import {
   previewUrl,
   probeLargeFile,
   readArtifact,
+  writeWorkspaceFile,
   type LargeFilePointer,
 } from "@/lib/artifactFile";
 import { isGatewayWeb } from "@/lib/webMode";
+import { isTauri } from "@/lib/tauri";
 import { useRuntimeStore } from "@/lib/runtime";
 import { parseTableFile } from "@/lib/csv";
 import { formatNumber } from "@/i18n/format";
 import { CodeViewer } from "@/components/code-viewer/CodeViewer";
+import { CodeEditor, editorLanguage, type CodeEditorHandle } from "@/components/code-editor/CodeEditor";
+import { MarkdownToolbar } from "@/components/code-editor/MarkdownToolbar";
+import { recordProvenance } from "@/lib/provenance";
 import { MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
 import { ProvenancePanel } from "./ProvenancePanel";
 import { TablePreview } from "./TablePreview";
@@ -51,6 +66,7 @@ export function FilePreviewInspector({
   controls,
   embedded = false,
   compactHeader = false,
+  startEditing = false,
   title,
   onTitlePointerDown,
 }: {
@@ -65,6 +81,9 @@ export function FilePreviewInspector({
   embedded?: boolean;
   /** Match the 32px header used by tiled Session panes. */
   compactHeader?: boolean;
+  /** Open straight into edit mode. An editor PANE is not a preview with a
+   *  pencil hidden in the corner — asking to open a file means editing it. */
+  startEditing?: boolean;
   /** Optional presentation title; the underlying filename remains unchanged. */
   title?: string;
   /** Dedicated panes use the title as their drag handle. */
@@ -100,8 +119,24 @@ export function FilePreviewInspector({
   const [dl, setDl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"preview" | "code">(kind === "text" ? "code" : "preview");
+  // Opening a file to EDIT it lands on the text. Arriving on a rendered
+  // preview, with the editor one unexplained toggle away, is not what "open
+  // this markdown file" means.
+  const [tab, setTab] = useState<"preview" | "code">(
+    kind === "text" || startEditing ? "code" : "preview",
+  );
   const [showHistory, setShowHistory] = useState(false);
+  // An edit in progress (#33). Null means "not editing" — distinct from an
+  // empty draft, which is a file the user has just emptied.
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  /** The text this pane last wrote, so a reload can tell OUR write from an
+   *  agent's. Borrowed from Orca's `editor-changed-on-disk-mark`. */
+  const savedRef = useRef<string | null>(null);
+  /** Someone else wrote the file while it was open here. In this app that is
+   *  routine — the agent edits the files you are reading — so the editor says
+   *  so and refuses to overwrite silently. */
+  const [changedOnDisk, setChangedOnDisk] = useState(false);
 
   // Clear the previous file even when this pane is currently in the background
   // and must wait for its workspace to become active before loading the next
@@ -110,6 +145,9 @@ export function FilePreviewInspector({
     setError(null);
     setLoading(true);
     setText(data.content ?? null);
+    // A draft belongs to the file it was typed into; carrying it to the next
+    // file would offer to save one file's text over another's.
+    setDraft(null);
     setUrl(null);
     setBytes(null);
     setDl(null);
@@ -203,6 +241,69 @@ export function FilePreviewInspector({
     workspaceDirectory,
   ]);
 
+  // An editor pane starts editing the moment its text has loaded. Guarded on
+  // `draft === null` so a later re-render never discards what the user typed.
+  useEffect(() => {
+    if (!startEditing || text === null || !isTauri || isGatewayWeb) return;
+    setDraft((current) => (current === null ? text : current));
+  }, [startEditing, text]);
+
+  // Editing is a desktop, local-file affair: the web client has no path to
+  // write back, and a file with no text was never opened as text.
+  const canEdit = isTauri && !isGatewayWeb && text !== null && !showHistory;
+  const editing = draft !== null;
+  const dirty = editing && draft !== text;
+
+  // Autosave is the editor-pane behaviour; a preview keeps its explicit Save.
+  const autoSave = startEditing;
+
+  const save = useCallback(async () => {
+    if (draft === null || saving) return;
+    setSaving(true);
+    try {
+      await writeWorkspaceFile(data.path, draft, data.root);
+      setText(draft);
+      savedRef.current = draft;
+      if (!autoSave) setDraft(null);
+      // The same trail an agent's write leaves. This is the whole reason to
+      // edit in here rather than in an external editor: a file's history stays
+      // one list, and a hand edit is not a silent gap in it.
+      await recordProvenance(
+        { path: data.path, tool: MANUAL_EDIT_TOOL, content: draft, log: MANUAL_EDIT_TOOL },
+        undefined,
+        null,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, saving, autoSave, data.path, data.root]);
+
+  /** Autosave, as Orca does (`editor-autosave.ts`) rather than making the user
+   *  find a Save button. Debounced so a keystroke is not a disk write, and
+   *  suspended while the file has changed underneath us. */
+  useEffect(() => {
+    if (!autoSave || draft === null || draft === text || changedOnDisk || saving) return;
+    const timer = setTimeout(() => void save(), AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [autoSave, draft, text, changedOnDisk, saving, save]);
+
+  /** The agent writes the files you are reading. Watch for it: a save that
+   *  blindly wrote the buffer would erase the agent's work with no trace. */
+  useEffect(() => {
+    if (!autoSave || !isTauri || isGatewayWeb) return;
+    const timer = setInterval(() => {
+      void readArtifact(data.path, data.root).then((file) => {
+        if (!file || file.encoding !== "utf8") return;
+        // Ours, or unchanged: nothing to report.
+        if (file.data === savedRef.current || file.data === text) return;
+        setChangedOnDisk(true);
+      });
+    }, DISK_WATCH_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [autoSave, data.path, data.root, text]);
+
   // Open in the OS app on desktop; open/download via the browser in web.
   const openOrDownload = () => {
     if (waitingForWorkspace) return;
@@ -252,9 +353,14 @@ export function FilePreviewInspector({
         >
           {title ?? data.path ?? data.filename}
         </span>
-        <span className={cn("rounded bg-surface-2 px-1.5 py-0.5 text-muted", compactHeader ? "text-[10px]" : "text-xs")}>
-          {t(`filePreview.artifactKind.${data.artifact}`)}
-        </span>
+        {/* An artifact's kind is worth a badge next to a conversation that
+            produced it. On a file the user opened themselves it is noise —
+            a note they just wrote does not need labelling "report". */}
+        {!startEditing && (
+          <span className={cn("rounded bg-surface-2 px-1.5 py-0.5 text-muted", compactHeader ? "text-[10px]" : "text-xs")}>
+            {t(`filePreview.artifactKind.${data.artifact}`)}
+          </span>
+        )}
         {canToggle && (
           <div className="ml-2 flex items-center gap-1 rounded-input bg-surface-2 p-0.5">
             {/* eslint-disable-next-line i18next/no-literal-string -- "preview" is an internal tab id, not display text (the visible label is t("filePreview.tabs.preview")) */}
@@ -268,6 +374,59 @@ export function FilePreviewInspector({
           </div>
         )}
         <div className="flex-1" />
+        {/* What the file is doing, in one word. Orca keeps this beside the path
+            (`editor-content-dirty-state`); without it autosave is invisible and
+            the reader cannot tell a saved file from a losing one. */}
+        {/* A light, not a word. "Saving…/Saved" sat directly against the
+            buttons and read as part of them; a dot says the same thing in the
+            corner of the eye, and hovering it spells the state out. */}
+        {autoSave && editing && !changedOnDisk && (
+          /* eslint-disable-next-line i18next/no-literal-string -- save state ids, not UI copy (the visible text is the dot's own label) */
+          <SaveLight state={saving ? "saving" : dirty ? "unsaved" : "saved"} />
+        )}
+        {changedOnDisk && (
+          <button
+            onClick={() => {
+              // Take what is on disk. The agent's version wins because it is the
+              // one every other tool now sees; the user's is one undo away.
+              setChangedOnDisk(false);
+              setDraft(null);
+              setText(null);
+              setLoading(true);
+            }}
+            className="shrink-0 rounded-input bg-warn/15 px-2 py-0.5 text-xs text-warn"
+            title={t("filePreview.changedOnDiskTitle")}
+          >
+            {t("filePreview.changedOnDisk")}
+          </button>
+        )}
+        {canEdit && !editing && (
+          <button
+            className="text-text hover:opacity-60"
+            aria-label={t("filePreview.editAria")}
+            title={t("filePreview.editTitle")}
+            onClick={() => setDraft(text ?? "")}
+          >
+            <Pencil size={14} strokeWidth={1.5} />
+          </button>
+        )}
+        {editing && (
+          <>
+            <button
+              className="rounded-input px-1.5 py-0.5 text-xs text-accent hover:bg-surface-2 disabled:opacity-40"
+              onClick={() => void save()}
+              disabled={!dirty || saving}
+            >
+              {saving ? t("filePreview.saving") : t("filePreview.save")}
+            </button>
+            <button
+              className="rounded-input px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2"
+              onClick={() => setDraft(null)}
+            >
+              {dirty ? t("filePreview.discard") : t("filePreview.doneEditing")}
+            </button>
+          </>
+        )}
         <button
           className={cn(showHistory ? "text-accent" : "text-text hover:opacity-60")}
           aria-label={t("filePreview.historyAria")}
@@ -321,6 +480,9 @@ export function FilePreviewInspector({
             kind={kind}
             url={url}
             text={text}
+            draft={draft}
+            onDraftChange={setDraft}
+            onSave={() => void save()}
             bytes={bytes}
             showCode={tab === "code"}
             filename={data.filename}
@@ -333,10 +495,26 @@ export function FilePreviewInspector({
   );
 }
 
+/** How a hand edit signs the provenance trail. A stable id, not UI copy: the
+ *  history panel groups by it exactly as it groups an agent's tool name. */
+const MANUAL_EDIT_TOOL = "manual-edit";
+
+/** Long enough that typing is not a stream of disk writes, short enough that
+ *  the file on disk is never far behind what is on screen. */
+const AUTOSAVE_DELAY_MS = 600;
+
+/** How often an open editor checks whether something else rewrote its file.
+ *  A poll rather than a watcher: the write can come from the agent's sandbox,
+ *  an external editor, or a git checkout, and only the bytes settle it. */
+const DISK_WATCH_INTERVAL_MS = 2000;
+
 function Body({
   kind,
   url,
   text,
+  draft,
+  onDraftChange,
+  onSave,
   bytes,
   showCode,
   filename,
@@ -346,6 +524,10 @@ function Body({
   kind: PreviewKind;
   url: string | null;
   text: string | null;
+  /** The edit in progress, or null when this file is only being read. */
+  draft: string | null;
+  onDraftChange: (value: string) => void;
+  onSave: () => void;
   bytes: ArrayBuffer | null;
   showCode: boolean;
   filename: string;
@@ -414,7 +596,14 @@ function Body({
     if (showCode) {
       return text !== null ? (
         <div className="p-3">
-          <CodeViewer code={text} language={language} />
+          <SourceView
+            text={text}
+            draft={draft}
+            onDraftChange={onDraftChange}
+            onSave={onSave}
+            language={language}
+            filename={filename}
+          />
         </div>
       ) : (
         <Note text={t("filePreview.sourceDesktopOnly")} />
@@ -430,7 +619,14 @@ function Body({
     if (showCode) {
       return text !== null ? (
         <div className="p-3">
-          <CodeViewer code={text} language={language} />
+          <SourceView
+            text={text}
+            draft={draft}
+            onDraftChange={onDraftChange}
+            onSave={onSave}
+            language={language}
+            filename={filename}
+          />
         </div>
       ) : (
         <Note text={t("filePreview.sourceDesktopOnly")} />
@@ -444,10 +640,21 @@ function Body({
   }
   if (kind === "markdown") {
     if (showCode) {
+      const source = (
+        <SourceView
+          text={text ?? ""}
+          draft={draft}
+          onDraftChange={onDraftChange}
+          onSave={onSave}
+          language="markdown"
+          filename={filename}
+          prose
+        />
+      );
       return text !== null ? (
-        <div className="p-3">
-          <CodeViewer code={text} language="markdown" />
-        </div>
+        // Editing fills the pane so the toolbar sits at its top edge; reading
+        // keeps the padded box the other source views use.
+        draft !== null ? source : <div className="p-3">{source}</div>
       ) : (
         <Note text={t("filePreview.sourceDesktopOnly")} />
       );
@@ -455,8 +662,11 @@ function Body({
     // A document reads as a page: white paper, black text, whatever the app
     // theme — the same document-neutral canvas the Office previews use.
     return text !== null ? (
-      <div className="min-h-full px-6 py-8">
-        <div className="mx-auto max-w-[760px] rounded-sm bg-white px-12 py-11 shadow-[0_1px_4px_rgba(0,0,0,.25)] max-sm:px-6 max-sm:py-7">
+      // `flex` + `flex-1` so the paper fills the pane's height: a three-word
+      // note rendered as a thin white strip floating in grey, which reads as a
+      // broken box rather than as a page.
+      <div className="flex min-h-full flex-col px-6 py-8">
+        <div className="mx-auto w-full max-w-[760px] flex-1 rounded-sm bg-white px-12 py-11 shadow-[0_1px_4px_rgba(0,0,0,.25)] max-sm:px-6 max-sm:py-7">
           <MarkdownViewer variant="document">{text}</MarkdownViewer>
         </div>
       </div>
@@ -467,7 +677,14 @@ function Body({
   if (kind === "html" && showCode) {
     return text !== null ? (
       <div className="p-3">
-        <CodeViewer code={text} language="html" />
+          <SourceView
+          text={text}
+          draft={draft}
+          onDraftChange={onDraftChange}
+          onSave={onSave}
+          language="html"
+          filename={filename}
+        />
       </div>
     ) : (
       <Note text={t("filePreview.sourceDesktopOnly")} />
@@ -538,10 +755,96 @@ function Body({
   }
   return text !== null ? (
     <div className="p-3">
-      <CodeViewer code={text} language={language} />
+      <SourceView
+        text={text}
+        draft={draft}
+        onDraftChange={onDraftChange}
+        onSave={onSave}
+        language={language}
+        filename={filename}
+      />
     </div>
   ) : (
     <Note text={t("filePreview.desktopOnly")} />
+  );
+}
+
+/** A file's source: read-only through highlight.js, or a real editor once the
+ *  user has asked to edit it. Two renderers on purpose — a thread full of code
+ *  blocks must not each carry an editor (see `CodeEditor`), and here only one
+ *  file is ever on screen. */
+function SourceView({
+  text,
+  draft,
+  onDraftChange,
+  onSave,
+  language,
+  filename,
+  prose = false,
+}: {
+  text: string;
+  draft: string | null;
+  onDraftChange: (value: string) => void;
+  onSave: () => void;
+  language?: string;
+  filename: string;
+  /** Markdown: a formatting toolbar, a placeholder, and no line numbers —
+   *  this is prose, and it is edited the way Orca edits it. */
+  prose?: boolean;
+}) {
+  const { t } = useTranslation(["inspector", "common"]);
+  const handle = useRef<CodeEditorHandle | null>(null);
+  if (draft === null) return <CodeViewer code={text} language={language} />;
+  const editor = (
+    <CodeEditor
+      handleRef={handle}
+      value={draft}
+      onChange={onDraftChange}
+      language={editorLanguage(language ?? extensionLanguage(filename))}
+      lineNumbers={!prose}
+      placeholder={prose ? t("filePreview.markdownPlaceholder") : undefined}
+      // eslint-disable-next-line i18next/no-literal-string -- CodeMirror key binding, not UI copy
+      commands={[{ key: "Mod-s", run: onSave }]}
+      ariaLabel={t("filePreview.editorAria", { filename })}
+      className={prose ? "h-full rounded-none border-0" : undefined}
+    />
+  );
+  if (!prose) return editor;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <MarkdownToolbar editor={() => handle.current} />
+      <div className="min-h-0 flex-1 overflow-auto">{editor}</div>
+    </div>
+  );
+}
+
+/** A language name from the filename, for files the caller did not label. */
+function extensionLanguage(filename: string): string | undefined {
+  return filename.split(".").pop()?.toLowerCase();
+}
+
+/** Autosave, as one dot: amber while a write is in flight, warn while there
+ *  are changes that have not reached disk, quiet green once they have. */
+function SaveLight({ state }: { state: "saving" | "unsaved" | "saved" }) {
+  const { t } = useTranslation("inspector");
+  const label =
+    state === "saving"
+      ? t("filePreview.saving")
+      : state === "unsaved"
+        ? t("filePreview.unsaved")
+        : t("filePreview.saved");
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className={cn(
+        "h-2 w-2 shrink-0 rounded-full",
+        state === "saving" && "animate-pulse bg-warn",
+        state === "unsaved" && "bg-warn/60",
+        state === "saved" && "bg-ok/70",
+      )}
+    />
   );
 }
 

@@ -28,7 +28,12 @@
       "newSession": "新しいセッション"
     },
     "rename": "スクリーン名を変更",
-    "tabMenu": "スクリーンの操作"
+    "tabMenu": "スクリーンの操作",
+    "runAgent": "エージェントを起動",
+    "newNotebook": "新規 Notebook",
+    "newMarkdown": "新規 Markdown",
+    "splitRightShort": "右に分割",
+    "splitDownShort": "下に分割"
   },
   "composer": {
     "placeholder": {
@@ -132,7 +137,10 @@
     },
     "compact": {
       "aria": "コンテキストを圧縮",
-      "title": "過去のターンを要約し、次の返信を制御されたコンテキストで実行します"
+      "title": "過去のターンを要約し、次の返信を制御されたコンテキストで実行します",
+      "confirmTitle": "コンテキストを圧縮しますか？",
+      "confirmBody": "これまでのやり取りは要約に置き換えられ、次の応答は限られたコンテキストで実行されます。元の会話全体はローカルに保存されたままです。",
+      "confirmAction": "圧縮"
     }
   },
   "localCommand": {
@@ -180,7 +188,10 @@
     "subagentFallback": "サブエージェント",
     "header": {
       "expandSidebarAria": "サイドバーを展開する",
-      "expandSidebarTitle": "サイドバーを展開する（{{shortcut}}）"
+      "expandSidebarTitle": "サイドバーを展開する（{{shortcut}}）",
+      "rename": "セッション名を変更…",
+      "untitled": "名称未設定のセッション",
+      "paneMenu": "セッションの操作"
     },
     "filesToggle": {
       "default": "ファイル",
@@ -428,7 +439,8 @@
     "title": "新しいペインのセッションの作成先",
     "continueIn": "{{name}} を引き継ぐ",
     "newFolder": "新しいフォルダー",
-    "chooseOther": "別のフォルダーを選択…"
+    "chooseOther": "別のフォルダーを選択…",
+    "terminal": "このフォルダーでターミナル"
   },
   "stall": {
     "silentTitle": "ターンが停止している可能性があります",
@@ -437,5 +449,28 @@
     "repeatLine": "このターンは同じ呼び出しを {{count}} 回、同じ結果で実行しています。処理中ですか、それともループしていますか？",
     "keepWaiting": "待機を続ける",
     "stopTurn": "ターンを停止"
+  },
+  "terminal": {
+    "title": "ターミナル",
+    "exited": "[プロセスは終了しました]",
+    "desktopOnly": "ターミナルはデスクトップアプリでのみ使えます。",
+    "new": "ターミナル",
+    "menu": {
+      "label": "ターミナルメニュー",
+      "copy": "コピー",
+      "paste": "貼り付け",
+      "selectAll": "すべて選択",
+      "clear": "画面をクリア",
+      "revealCwd": "作業フォルダを表示"
+    },
+    "rename": "ターミナル名を変更…",
+    "confirmClose": {
+      "title": "このターミナルを閉じますか？",
+      "body": "シェルと実行中のプログラムは停止します。スクロールバックは残りません。",
+      "action": "ターミナルを閉じる"
+    }
+  },
+  "splitInto": {
+    "session": "セッション"
   }
 }

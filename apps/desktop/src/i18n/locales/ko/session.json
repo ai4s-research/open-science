@@ -28,7 +28,12 @@
       "newSession": "새 세션"
     },
     "rename": "화면 이름 변경",
-    "tabMenu": "화면 작업"
+    "tabMenu": "화면 작업",
+    "runAgent": "에이전트 실행",
+    "newNotebook": "새 Notebook",
+    "newMarkdown": "새 Markdown",
+    "splitRightShort": "오른쪽으로 분할",
+    "splitDownShort": "아래로 분할"
   },
   "composer": {
     "placeholder": {
@@ -132,7 +137,10 @@
     },
     "compact": {
       "aria": "컨텍스트 압축",
-      "title": "이전 턴을 요약하여 다음 답변이 제한된 컨텍스트에서 실행되도록 합니다"
+      "title": "이전 턴을 요약하여 다음 답변이 제한된 컨텍스트에서 실행되도록 합니다",
+      "confirmTitle": "컨텍스트를 압축할까요?",
+      "confirmBody": "이전 대화는 요약으로 대체되어 다음 응답이 제한된 컨텍스트에서 실행됩니다. 전체 원본 대화는 로컬에 그대로 저장됩니다.",
+      "confirmAction": "압축"
     }
   },
   "localCommand": {
@@ -180,7 +188,10 @@
     "subagentFallback": "서브 에이전트",
     "header": {
       "expandSidebarAria": "사이드바 펼치기",
-      "expandSidebarTitle": "사이드바 펼치기 ({{shortcut}})"
+      "expandSidebarTitle": "사이드바 펼치기 ({{shortcut}})",
+      "rename": "세션 이름 변경…",
+      "untitled": "이름 없는 세션",
+      "paneMenu": "세션 작업"
     },
     "filesToggle": {
       "default": "파일",
@@ -428,7 +439,8 @@
     "title": "새 창의 세션이 생성될 위치",
     "continueIn": "{{name}} 계속 사용",
     "newFolder": "새 폴더",
-    "chooseOther": "다른 폴더 선택…"
+    "chooseOther": "다른 폴더 선택…",
+    "terminal": "이 폴더에서 터미널"
   },
   "stall": {
     "silentTitle": "턴이 멈춘 것 같습니다",
@@ -437,5 +449,28 @@
     "repeatLine": "이 턴이 동일한 호출을 {{count}}번 동일한 결과로 실행했습니다. 아직 작업 중인가요, 아니면 반복 중인가요?",
     "keepWaiting": "계속 기다리기",
     "stopTurn": "턴 중지"
+  },
+  "terminal": {
+    "title": "터미널",
+    "exited": "[프로세스 종료됨]",
+    "desktopOnly": "터미널은 데스크톱 앱에서만 사용할 수 있습니다.",
+    "new": "터미널",
+    "menu": {
+      "label": "터미널 메뉴",
+      "copy": "복사",
+      "paste": "붙여넣기",
+      "selectAll": "전체 선택",
+      "clear": "화면 지우기",
+      "revealCwd": "작업 폴더 열기"
+    },
+    "rename": "터미널 이름 변경…",
+    "confirmClose": {
+      "title": "이 터미널을 닫을까요?",
+      "body": "셸과 실행 중인 프로그램이 모두 중지됩니다. 스크롤백은 남지 않습니다.",
+      "action": "터미널 닫기"
+    }
+  },
+  "splitInto": {
+    "session": "세션"
   }
 }

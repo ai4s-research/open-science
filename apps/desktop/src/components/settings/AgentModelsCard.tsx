@@ -4,13 +4,19 @@ import { Loader2 } from "lucide-react";
 import type { ProviderInfo } from "@ai4s/sdk";
 import { useRuntimeStore } from "@/lib/runtime";
 import { getAgentModels, getAgentVariants, setAgentModel, setAgentVariant } from "@/lib/tauri";
-import { flattenModelOptions, selectableModelOptions } from "./modelCatalog";
-import { Section } from "./Section";
+import { flattenModelOptions, selectableModelOptions, type ModelOption } from "./modelCatalog";
+import { Row, Section } from "./Section";
+import { chipCls } from "./inputCls";
+import { cn } from "@/lib/cn";
 
 /** Utility agents the runtime runs on its own behalf — titling a session,
  *  summarizing, compacting context. They do short mechanical work, so a fast
  *  model here is a pure win; they are listed separately from the agents the
- *  user talks to because they never appear in the composer. */
+ *  user talks to because they never appear in the composer.
+ *
+ *  Unlike those, they carry no description from the runtime, so the copy for
+ *  what each one does lives here — a row labelled only `compaction` tells a
+ *  reader nothing, however expert. */
 const UTILITY_AGENTS = ["title", "summary", "compaction"] as const;
 
 /** Reasoning-effort variant names are provider tokens (the same in every
@@ -53,15 +59,20 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
 
   const options = useMemo(() => flattenModelOptions(providers), [providers]);
   const selectable = useMemo(() => selectableModelOptions(options), [options]);
-  // A row offers what can be picked — plus, when this agent is pinned to a model
-  // the provider has retired, that model itself. Dropping it would leave the
-  // select with no matching value, so the browser would show the first option
-  // ("follow the default") while the config still pins the dead model.
-  const optionsFor = (agent: string) => {
-    const pinned = overrides[agent];
-    const current = pinned ? options.find((o) => o.key === pinned) : undefined;
-    return current && !current.available ? [current, ...selectable] : selectable;
-  };
+  // The catalog, grouped by provider. A native <select> shows the chosen
+  // OPTION's text, so the option text is what has to be short: listing the full
+  // `provider/model` key is what made every row read
+  // "Default (kimi-for-coding/kimi-for-coding-hi…" with the answer cut off.
+  // The provider moves into the <optgroup> label, where it is said once.
+  const byProvider = useMemo(() => {
+    const map = new Map<string, { name: string; models: ModelOption[] }>();
+    for (const option of selectable) {
+      const group = map.get(option.providerID) ?? { name: option.providerName, models: [] };
+      group.models.push(option);
+      map.set(option.providerID, group);
+    }
+    return [...map.values()];
+  }, [selectable]);
   // Effort levels each model exposes — the vocabulary differs per model, so a
   // row's choices follow whichever model that agent actually runs.
   const variantsByKey = useMemo(() => {
@@ -71,12 +82,21 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
     }
     return map;
   }, [providers]);
-  // Agents the user can address, plus the runtime's own utility agents. The
-  // list is deduped: a runtime may already expose "summary" as an agent.
-  const rows = useMemo(() => {
+  // Agents the user can address, plus the runtime's own utility agents, kept
+  // as two GROUPS rather than one flat list: which of these answer your
+  // messages and which run behind your back is the first thing a reader needs,
+  // and a single column of ids never said it. The list is deduped — a runtime
+  // may already expose "summary" as an agent, in which case its own
+  // description wins and it stays in the group it was announced in.
+  const groups = useMemo(() => {
     const named = agents.map((a) => a.name);
-    const extra = UTILITY_AGENTS.filter((u) => !named.includes(u));
-    return [...named, ...extra];
+    return {
+      conversation: agents.map((a) => ({ name: a.name, description: a.description })),
+      utility: UTILITY_AGENTS.filter((u) => !named.includes(u)).map((name) => ({
+        name,
+        description: "",
+      })),
+    };
   }, [agents]);
 
   const variantsFor = (agent: string) =>
@@ -149,66 +169,126 @@ export function AgentModelsCard({ providers }: { providers: ProviderInfo[] }) {
     setBusyAgent(null);
   };
 
-  return (
-    <Section title={t("agentModels.title")} hint={t("agentModels.hint")}>
-      {selectable.length === 0 ? (
-        <p className="text-[13px] text-muted">{t("agentModels.noModels")}</p>
-      ) : (
-        <div className="divide-y divide-faint">
-          {/* Which of these rows affect the messages the user actually sends,
-              and how a conversation's own pick relates to them (#85, #96). */}
-          <p className="pb-2 text-[12px] leading-relaxed text-muted">
-            {t("agentModels.primaryHint")}
-          </p>
-          {rows.map((name) => {
-            const variants = variantsFor(name);
-            return (
-              <div key={name} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-                <span className="min-w-0 flex-1 truncate text-[13px] text-text">{name}</span>
-                {busyAgent === name && (
-                  <Loader2 size={13} className="shrink-0 animate-spin text-muted" />
-                )}
-                <select
-                  value={overrides[name] ?? ""}
-                  disabled={busyAgent !== null}
-                  onChange={(e) => void choose(name, e.target.value)}
-                  aria-label={t("agentModels.modelFor", { agent: name })}
-                  className="max-w-[16rem] shrink-0 rounded-input border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus:border-accent disabled:opacity-50"
-                >
-                  <option value="">
-                    {defaultModel
-                      ? t("agentModels.followDefaultNamed", { model: defaultModel })
-                      : t("agentModels.followDefault")}
-                  </option>
-                  {optionsFor(name).map((o) => (
+  const anyBusy = busyAgent !== null;
+
+  /** One agent: what it is on the left, what it runs on the right. */
+  const agentRow = (agent: { name: string; description: string }, utility: boolean) => {
+    const variants = variantsFor(agent.name);
+    const pinned = overrides[agent.name];
+    const retired = pinned ? options.find((o) => o.key === pinned && !o.available) : undefined;
+    return (
+      <Row
+        key={agent.name}
+        title={agent.name}
+        hint={agent.description || (utility ? utilityHint(t, agent.name) : undefined)}
+        control={
+          <div className="flex shrink-0 items-center gap-1">
+            {busyAgent === agent.name && <Loader2 size={13} className="animate-spin text-muted" />}
+            <select
+              value={pinned ?? ""}
+              disabled={anyBusy}
+              onChange={(e) => void choose(agent.name, e.target.value)}
+              aria-label={t("agentModels.modelFor", { agent: agent.name })}
+              className={chipCls("max-w-[13rem] pr-1 disabled:opacity-50")}
+            >
+              {/* Just "the default" — the Model section above already names it,
+                  and repeating a long model name in every row is what pushed
+                  the chosen value past the control's width in the first place. */}
+              <option value="">{t("agentModels.followDefault")}</option>
+              {/* A model this agent is pinned to but the provider has retired.
+                  Dropping it would leave the select with no matching value, so
+                  the row would claim "follow the default" while the config
+                  still pins a dead model. */}
+              {retired && (
+                <option value={retired.key}>
+                  {t("agentModels.retiredOption", { model: retired.modelName })}
+                </option>
+              )}
+              {byProvider.map((group) => (
+                <optgroup key={group.name} label={group.name}>
+                  {group.models.map((o) => (
                     <option key={o.key} value={o.key}>
-                      {o.available ? o.key : t("agentModels.retiredOption", { model: o.key })}
+                      {o.modelName}
                     </option>
                   ))}
-                </select>
-                {/* Effort only exists for models that expose reasoning levels;
-                    for the rest there is nothing to choose, so nothing shows. */}
-                {variants.length > 0 && (
-                  <select
-                    value={efforts[name] ?? ""}
-                    disabled={busyAgent !== null}
-                    onChange={(e) => void chooseEffort(name, e.target.value)}
-                    aria-label={t("agentModels.effortFor", { agent: name })}
-                    className="w-[7.5rem] shrink-0 rounded-input border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus:border-accent disabled:opacity-50"
-                  >
-                    <option value="">{t("agentModels.defaultEffort")}</option>
-                    {variants.map((v) => (
-                      <option key={v} value={v}>
-                        {labelVariant(v)}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                </optgroup>
+              ))}
+            </select>
+            {/* Effort only exists for models that expose reasoning levels; for
+                the rest there is nothing to choose, so nothing shows. */}
+            {variants.length > 0 && (
+              <select
+                value={efforts[agent.name] ?? ""}
+                disabled={anyBusy}
+                onChange={(e) => void chooseEffort(agent.name, e.target.value)}
+                aria-label={t("agentModels.effortFor", { agent: agent.name })}
+                className={chipCls("pr-1 text-muted disabled:opacity-50")}
+              >
+                <option value="">{t("agentModels.defaultEffort")}</option>
+                {variants.map((v) => (
+                  <option key={v} value={v}>
+                    {labelVariant(v)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        }
+      />
+    );
+  };
+
+  return (
+    <Section title={t("agentModels.title")} hint={t("agentModels.hint")} flush>
+      {selectable.length === 0 ? (
+        <p className="px-4 py-3 text-[13px] text-muted">{t("agentModels.noModels")}</p>
+      ) : (
+        <>
+          <GroupHeader
+            title={t("agentModels.group.conversation")}
+            hint={t("agentModels.primaryHint")}
+            first
+          />
+          <div className="divide-y divide-faint">
+            {groups.conversation.map((agent) => agentRow(agent, false))}
+          </div>
+          {groups.utility.length > 0 && (
+            <>
+              <GroupHeader
+                title={t("agentModels.group.utility")}
+                hint={t("agentModels.utilityHint")}
+              />
+              <div className="divide-y divide-faint">
+                {groups.utility.map((agent) => agentRow(agent, true))}
               </div>
-            );
-          })}
-        </div>
+            </>
+          )}
+        </>
       )}
     </Section>
+  );
+}
+
+/** What a utility agent does. These carry no description from the runtime, and
+ *  the three are named explicitly rather than by a built key so a missing one
+ *  is a type error rather than a blank row. */
+function utilityHint(
+  t: ReturnType<typeof useTranslation<["settings", "common"]>>["t"],
+  name: string,
+): string | undefined {
+  if (name === "title") return t("agentModels.about.title");
+  if (name === "summary") return t("agentModels.about.summary");
+  if (name === "compaction") return t("agentModels.about.compaction");
+  return undefined;
+}
+
+/** A band that says what the rows under it have in common. Without it the two
+ *  kinds of agent read as one undifferentiated column of ids. */
+function GroupHeader({ title, hint, first }: { title: string; hint: string; first?: boolean }) {
+  return (
+    <div className={cn("bg-surface-2/50 px-4 py-2", !first && "border-t border-faint")}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{title}</div>
+      <p className="mt-0.5 text-xs leading-relaxed text-muted">{hint}</p>
+    </div>
   );
 }

@@ -29,7 +29,13 @@ export function ContextMenu({
   label: string;
 }) {
   return (
-    <Primitive.Root>
+    // `modal={false}`, as Orca sets on its own menus. A modal Radix menu mounts
+    // a scroll lock over the whole document while it is open — fine for a
+    // dialog, wrong for a right-click menu that sits on top of a scrollable
+    // conversation, and a menu dismissed in an unexpected way can leave the
+    // lock behind with nothing on screen to explain why the page stopped
+    // scrolling.
+    <Primitive.Root modal={false}>
       <Primitive.Trigger asChild>{children}</Primitive.Trigger>
       <Primitive.Portal>
         <Primitive.Content aria-label={label} className={PANEL}>

@@ -97,14 +97,66 @@
     "hideAction": "隐藏"
   },
   "status": {
-    "runtime": "运行时",
-    "model": "模型",
-    "modelNotSet": "未设置",
-    "values": {
-      "ready": "就绪",
-      "connecting": "连接中",
-      "error": "错误",
-      "offline": "离线"
+    "usage": {
+      "title": "用量",
+      "refresh": "刷新",
+      "tokens": "tokens",
+      "today": "今日",
+      "days7": "7 天",
+      "workbench": "OSD",
+      "cliNote": "在你自己的终端里跑的，这里只记录消耗。",
+      "allAgents": "全部 agent",
+      "detailed": "详细",
+      "compact": "精简",
+      "detailedHint": "显示每个窗口，含进度条与百分比",
+      "compactHint": "只显示最接近上限的那个窗口",
+      "detailAria": "用量显示密度",
+      "resetsIn": "{{duration}} 后重置"
+    },
+    "awake": {
+      "title": "保持唤醒",
+      "active": "生效中",
+      "inactive": "未生效",
+      "mode": {
+        "on": "开启",
+        "auto": "自动",
+        "off": "关闭"
+      },
+      "hint": {
+        "on": "始终不让电脑睡眠",
+        "auto": "Agent 工作期间保持唤醒",
+        "off": "按系统设置正常睡眠"
+      }
+    },
+    "resources": {
+      "title": "资源占用",
+      "memory": "内存",
+      "processes": "进程数",
+      "note": "只统计本应用及其启动的进程。",
+      "cpu": "{{n}}% CPU",
+      "terminal": "终端",
+      "app": "工作台本体",
+      "kernel": "内核"
+    },
+    "ports": {
+      "title": "端口",
+      "empty": "本应用启动的进程没有在监听端口。",
+      "public": "对外",
+      "openTitle": "打开 {{url}}"
+    },
+    "hosts": {
+      "title": "远程主机",
+      "empty": "~/.ssh/config 里没有配置主机。",
+      "count": "{{count}} 台",
+      "count_other": "{{count}} 台",
+      "status": {
+        "connected": "已连接",
+        "connecting": "连接中",
+        "prompt": "等待你确认",
+        "failed": "失败",
+        "disconnected": "未连接"
+      },
+      "connect": "连接"
     }
   },
   "commandPalette": {

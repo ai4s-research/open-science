@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useUiStore } from "@/lib/store";
 import { resetParkedDrafts } from "@/lib/composerStash";
 import { Composer } from "./Composer";
@@ -436,5 +437,71 @@ describe("Composer per-pane draft (#91)", () => {
 
     pane("draft:pane-1");
     expect(input().value).toBe("");
+  });
+
+  describe("compacting the context", () => {
+    it("asks before compacting — the click alone does nothing", async () => {
+      const onCompactContext = vi.fn();
+      render(<Composer onSend={vi.fn()} onCompactContext={onCompactContext} />);
+
+      await userEvent.click(screen.getByRole("button", { name: "Compress context" }));
+
+      // The whole point: one click next to Send used to rewrite what the agent
+      // can see for the rest of the conversation.
+      expect(onCompactContext).not.toHaveBeenCalled();
+      expect(screen.getByRole("alertdialog", { name: "Compact the context?" })).toBeInTheDocument();
+    });
+
+    it("says what compaction does, including what it does NOT lose", async () => {
+      render(<Composer onSend={vi.fn()} onCompactContext={vi.fn()} />);
+      await userEvent.click(screen.getByRole("button", { name: "Compress context" }));
+
+      expect(
+        screen.getByText(/The full original conversation is still stored locally/),
+      ).toBeInTheDocument();
+    });
+
+    it("compacts once the reader confirms, and closes", async () => {
+      const onCompactContext = vi.fn();
+      render(<Composer onSend={vi.fn()} onCompactContext={onCompactContext} />);
+      await userEvent.click(screen.getByRole("button", { name: "Compress context" }));
+
+      await userEvent.click(screen.getByRole("button", { name: "Compact" }));
+
+      expect(onCompactContext).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+
+    it("cancels without compacting", async () => {
+      const onCompactContext = vi.fn();
+      render(<Composer onSend={vi.fn()} onCompactContext={onCompactContext} />);
+      await userEvent.click(screen.getByRole("button", { name: "Compress context" }));
+
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(onCompactContext).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe("Composer · the action row stays one line", () => {
+  /** The row holding the send button — the composer's bottom controls. */
+  function actionRow(): HTMLElement {
+    const send = screen.getByRole("button", { name: /send/i });
+    // The row is the send button's grandparent: button → right group → row.
+    return send.parentElement!.parentElement!;
+  }
+
+  it("never wraps the controls onto a second line", () => {
+    render(<Composer onSend={vi.fn()} />);
+
+    // The reported bug: the send button sat on its own line under the other
+    // controls, with a gap between them. Flexbox wraps on an item's natural
+    // width rather than shrinking it, so ONE long model name was enough — the
+    // row must not be allowed to wrap at all.
+    expect(actionRow().className).not.toContain("flex-wrap");
+    // …which only works if the row can be narrower than its contents.
+    expect(actionRow().className).toContain("min-w-0");
   });
 });

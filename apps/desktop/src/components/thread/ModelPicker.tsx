@@ -605,7 +605,11 @@ export function ModelPicker({
   );
 
   return (
-    <div className="relative shrink-0" ref={rootRef}>
+    // `min-w-0`, NOT `shrink-0`: this chip carries the longest text in the
+    // toolbar ("Kimi For Coding High…"), so it is the one that must give way.
+    // While it refused to shrink, the whole action row wrapped onto a second
+    // line and left the send button stranded below the other controls.
+    <div className="relative min-w-0" ref={rootRef}>
       {/* Chip trigger */}
       <button
         aria-label={t("composer.model.aria")}
@@ -613,7 +617,7 @@ export function ModelPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(
-          "flex h-7 items-center rounded-full text-xs text-muted hover:bg-surface-2 hover:text-text",
+          "flex h-7 min-w-0 items-center rounded-full text-xs text-muted hover:bg-surface-2 hover:text-text",
           compact ? "gap-0.5 px-1.5" : "max-w-[190px] gap-1.5 px-2.5",
         )}
         onClick={() => setOpen((o) => !o)}

@@ -33,7 +33,15 @@
       "stopCellTitle": "Arrêter — redémarre le noyau de ce notebook (les variables sont réinitialisées)",
       "stopLabel": "Arrêter",
       "runLabel": "Exécuter",
-      "addCellLabel": "Ajouter une cellule"
+      "addCellLabel": "Ajouter une cellule",
+      "askAgent": "Interroger l'agent sur cette cellule",
+      "askAgentAria": "Interroger l'agent sur la cellule {{n}}",
+      "askAgentIntro": "À propos de la cellule [{{n}}] de `{{file}}` :",
+      "askAgentOutput": "Sortie :",
+      "askAgentSent": "Cellule ajoutée à la zone de saisie",
+      "countTitle": "Numéro d'exécution — [*] pendant l'exécution, [n] ensuite",
+      "interrupted": "Interrompu — le noyau a redémarré ; les variables ont été réinitialisées.",
+      "desktopOnlyKernel": "Le noyau local nécessite l'app de bureau."
     }
   },
   "files": {

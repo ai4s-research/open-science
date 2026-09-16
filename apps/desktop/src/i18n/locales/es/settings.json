@@ -99,7 +99,7 @@
   },
   "model": {
     "title": "Modelo",
-    "hint": "Los proveedores de abajo aportan los modelos que puedes elegir aquí",
+    "hint": "El modelo con el que empieza cada conversación nueva. Los proveedores de abajo determinan las opciones.",
     "connectPrompt": "Conecta el entorno de ejecución para configurar modelos.",
     "notSet": "Sin configurar — elige un modelo predeterminado",
     "providersDivider": "Proveedores",
@@ -117,13 +117,14 @@
     "catalogUnavailable": "El catálogo de modelos no está disponible en este momento.",
     "catalogLoading": "Cargando el catálogo de modelos…",
     "noModels": "No hay modelos disponibles.",
-    "manageProviders": "Administrar proveedores",
     "emptyFavorites": "Los modelos favoritos aparecen aquí.",
     "emptyRecent": "Los modelos seleccionados correctamente aparecen aquí.",
     "noResults": "Ningún modelo coincide con «{{query}}».",
     "clearSearch": "Borrar búsqueda",
     "addFavorite": "Añadir {{model}} a favoritos",
-    "removeFavorite": "Quitar {{model}} de favoritos"
+    "removeFavorite": "Quitar {{model}} de favoritos",
+    "change": "Cambiar",
+    "noProvidersHint": "Conecta un proveedor más abajo."
   },
   "providers": {
     "title": "Proveedores",
@@ -149,18 +150,25 @@
     "pasteCode": "Pega el código del navegador",
     "customEndpoint": "Endpoint personalizado",
     "customEndpointHint": "autoalojado · Ollama local · compatible con OpenAI/Anthropic",
-    "customNamePlaceholder": "Nombre — p. ej., Ollama, Mi gateway DeepSeek",
+    "customNamePlaceholder": "p. ej. Ollama, mi pasarela DeepSeek",
     "openaiCompatible": "Compatible con OpenAI",
     "anthropicCompatible": "Compatible con Anthropic",
-    "customUrlPlaceholder": "URL base — Ollama: http://127.0.0.1:11434/v1",
-    "customKeyPlaceholder": "Clave de API — opcional, Ollama no necesita ninguna",
-    "customModelsPlaceholder": "ID de modelos, separados por comas",
-    "customContextPlaceholder": "Ventana de contexto — opcional, 128k por defecto",
+    "customUrlPlaceholder": "http://127.0.0.1:11434/v1",
+    "customKeyPlaceholder": "Opcional: Ollama no necesita",
+    "customModelsPlaceholder": "ids de modelo separados por comas",
+    "customContextPlaceholder": "Opcional: 128k por defecto",
     "fetchModels": "Obtener modelos",
     "fetchingModels": "Obteniendo…",
     "noModelsFound": "El endpoint no informó ningún modelo.",
     "addEndpoint": "Añadir endpoint",
-    "importLogin": "¿Ya usas la CLI de OpenCode? Importa su inicio de sesión"
+    "importLogin": "¿Ya usas la CLI de OpenCode? Importa su inicio de sesión",
+    "addTitle": "Añadir un proveedor",
+    "fieldName": "Nombre",
+    "fieldApiStyle": "Estilo de API",
+    "fieldBaseUrl": "URL base",
+    "fieldApiKey": "Clave de API",
+    "fieldModels": "Modelos",
+    "fieldContext": "Ventana de contexto"
   },
   "mcp": {
     "title": "Servidores MCP",
@@ -444,13 +452,22 @@
     "title": "Modelo y esfuerzo por agente",
     "hint": "Ejecuta un revisor o explorador en un modelo rápido mientras el agente principal razona en uno potente, y fija cuánto piensa cada uno.",
     "noModels": "Conecta un proveedor para elegir modelos.",
-    "followDefault": "Modelo predeterminado",
-    "followDefaultNamed": "Predeterminado ({{model}})",
+    "followDefault": "Seguir el predeterminado",
     "modelFor": "Modelo para {{agent}}",
     "defaultEffort": "Esfuerzo predeterminado",
     "effortFor": "Esfuerzo de razonamiento para {{agent}}",
     "retiredOption": "{{model}} — ya no se sirve",
-    "primaryHint": "build y plan ejecutan los mensajes que envías. El modelo definido aquí se aplica salvo que elijas uno dentro de una conversación, que prevalece solo en esa conversación."
+    "primaryHint": "build y plan ejecutan los mensajes que envías. El modelo definido aquí se aplica salvo que elijas uno dentro de una conversación, que prevalece solo en esa conversación.",
+    "group": {
+      "conversation": "Agentes con los que hablas",
+      "utility": "Usados por el banco de trabajo"
+    },
+    "utilityHint": "Trabajo mecánico y breve que el runtime hace por su cuenta: aquí un modelo rápido es pura ganancia.",
+    "about": {
+      "title": "Nombra una sesión a partir de su primer mensaje.",
+      "summary": "Escribe el resumen breve de una conversación.",
+      "compaction": "Reescribe una conversación larga para que quepa en la ventana de contexto."
+    }
   },
   "ssh": {
     "title": "Iniciar sesión en {{host}}",

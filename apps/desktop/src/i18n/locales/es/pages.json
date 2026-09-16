@@ -33,7 +33,15 @@
       "stopCellTitle": "Detener — reinicia el kernel de este cuaderno (las variables se restablecen)",
       "stopLabel": "Detener",
       "runLabel": "Ejecutar",
-      "addCellLabel": "Añadir celda"
+      "addCellLabel": "Añadir celda",
+      "askAgent": "Preguntar al agente sobre esta celda",
+      "askAgentAria": "Preguntar al agente sobre la celda {{n}}",
+      "askAgentIntro": "Sobre la celda [{{n}}] de `{{file}}`:",
+      "askAgentOutput": "Imprimió:",
+      "askAgentSent": "Celda añadida al cuadro de texto",
+      "countTitle": "Número de ejecución: [*] mientras se ejecuta, [n] una vez ejecutada",
+      "interrupted": "Interrumpido: el kernel se reinició; las variables se restablecieron.",
+      "desktopOnlyKernel": "El kernel local requiere la app de escritorio."
     }
   },
   "files": {

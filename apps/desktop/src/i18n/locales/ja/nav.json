@@ -97,14 +97,66 @@
     "hideAction": "非表示"
   },
   "status": {
-    "runtime": "ランタイム",
-    "model": "モデル",
-    "modelNotSet": "未設定",
-    "values": {
-      "ready": "準備完了",
-      "connecting": "接続中",
-      "error": "エラー",
-      "offline": "オフライン"
+    "usage": {
+      "title": "使用量",
+      "refresh": "更新",
+      "tokens": "トークン",
+      "today": "本日",
+      "days7": "7日",
+      "workbench": "OSD",
+      "cliNote": "ご自身のターミナルでの実行です。ここには使用量だけが記録されます。",
+      "allAgents": "全エージェント",
+      "detailed": "詳細",
+      "compact": "簡易",
+      "detailedHint": "すべてのウィンドウをバーと割合付きで表示",
+      "compactHint": "上限に最も近いウィンドウのみ",
+      "detailAria": "使用量の表示密度",
+      "resetsIn": "{{duration}} 後にリセット"
+    },
+    "awake": {
+      "title": "スリープ防止",
+      "active": "有効",
+      "inactive": "無効",
+      "mode": {
+        "on": "オン",
+        "auto": "自動",
+        "off": "オフ"
+      },
+      "hint": {
+        "on": "常にスリープさせない",
+        "auto": "エージェントの作業中はスリープさせない",
+        "off": "通常どおりスリープする"
+      }
+    },
+    "resources": {
+      "title": "リソース",
+      "memory": "メモリ",
+      "processes": "プロセス数",
+      "note": "このアプリと、その配下のプロセスのみ。",
+      "cpu": "CPU {{n}}%",
+      "terminal": "ターミナル",
+      "app": "ワークベンチ本体",
+      "kernel": "カーネル"
+    },
+    "ports": {
+      "title": "ポート",
+      "empty": "待ち受けているポートはありません。",
+      "public": "公開",
+      "openTitle": "{{url}} を開く"
+    },
+    "hosts": {
+      "title": "ホスト",
+      "empty": "~/.ssh/config にホストがありません。",
+      "count": "{{count}} 台",
+      "count_other": "{{count}} 台",
+      "status": {
+        "connected": "接続済み",
+        "connecting": "接続中",
+        "prompt": "操作待ち",
+        "failed": "失敗",
+        "disconnected": "未接続"
+      },
+      "connect": "接続"
     }
   },
   "commandPalette": {

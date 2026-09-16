@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { FolderOpen, FolderPlus } from "lucide-react";
+import { FolderOpen, FolderPlus, Terminal as TerminalIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cn";
 import { isTauri, pickFolder } from "@/lib/tauri";
@@ -38,6 +38,7 @@ const MARGIN = 8;
 export function SplitMenu({
   sourceFolder,
   onSplit,
+  onSplitTerminal,
   icon,
   label,
 }: {
@@ -45,6 +46,9 @@ export function SplitMenu({
   sourceFolder: string | null;
   /** `null` means the pane makes its own dated folder on first send. */
   onSplit: (folder: string | null) => void;
+  /** Split into a TERMINAL instead of a conversation, in the source pane's
+   *  folder. Omitted where a terminal makes no sense. */
+  onSplitTerminal?: () => void;
   icon: ReactNode;
   label: string;
 }) {
@@ -99,7 +103,9 @@ export function SplitMenu({
   const trigger = (
     <button
       onClick={() => {
-        if (!isTauri || !sourceFolder) return onSplit(null);
+        // Nothing to ask means nothing to open: no folder to continue in and no
+        // terminal on offer, so the click just splits, as it always did.
+        if (!isTauri || (!sourceFolder && !onSplitTerminal)) return onSplit(null);
         setOpen((o) => !o);
       }}
       className="rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-text"
@@ -117,7 +123,7 @@ export function SplitMenu({
     <div ref={rootRef} className="shrink-0">
       {trigger}
       {open &&
-        sourceFolder &&
+        (sourceFolder || onSplitTerminal) &&
         typeof document !== "undefined" &&
         createPortal(
           <div
@@ -131,32 +137,59 @@ export function SplitMenu({
               !at && "invisible",
             )}
           >
-            <div className="px-2 py-1.5 text-[11px] text-muted">{t("splitDestination.title")}</div>
-            <button className={item} onClick={() => pick(sourceFolder)}>
-              <FolderOpen size={13} className="shrink-0 text-muted" />
-              <span className="min-w-0 flex-1 truncate">
-                {t("splitDestination.continueIn", { name: baseName(sourceFolder) })}
-              </span>
-            </button>
-            <button className={item} onClick={() => pick(null)}>
-              <FolderPlus size={13} className="shrink-0 text-muted" />
-              <span className="min-w-0 flex-1 truncate">{t("splitDestination.newFolder")}</span>
-              <span className="shrink-0 font-mono text-[11px] text-muted">
-                {datedWorkspaceName()}
-              </span>
-            </button>
-            <button
-              className={cn(item, "text-muted")}
-              // Pick first, split only if the user actually chose a folder.
-              onClick={() => {
-                void pickFolder().then((dir) => {
-                  setOpen(false);
-                  if (dir) onSplit(dir);
-                });
-              }}
-            >
-              <span className="min-w-0 flex-1 truncate">{t("splitDestination.chooseOther")}</span>
-            </button>
+            {sourceFolder && (
+              <>
+                <div className="px-2 py-1.5 text-[11px] text-muted">
+                  {t("splitDestination.title")}
+                </div>
+                <button className={item} onClick={() => pick(sourceFolder)}>
+                  <FolderOpen size={13} className="shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {t("splitDestination.continueIn", { name: baseName(sourceFolder) })}
+                  </span>
+                </button>
+                <button className={item} onClick={() => pick(null)}>
+                  <FolderPlus size={13} className="shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate">{t("splitDestination.newFolder")}</span>
+                  <span className="shrink-0 font-mono text-[11px] text-muted">
+                    {datedWorkspaceName()}
+                  </span>
+                </button>
+                <button
+                  className={cn(item, "text-muted")}
+                  // Pick first, split only if the user actually chose a folder.
+                  onClick={() => {
+                    void pickFolder().then((dir) => {
+                      setOpen(false);
+                      if (dir) onSplit(dir);
+                    });
+                  }}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {t("splitDestination.chooseOther")}
+                  </span>
+                </button>
+              </>
+            )}
+            {/* The other thing a split can be. Beside a conversation a terminal
+                is the common second pane — you run the thing the agent just
+                wrote — and it was previously only reachable from the Screen
+                bar, which makes a whole new Screen instead. */}
+            {onSplitTerminal && (
+              <>
+                <div className="mt-1 border-t border-faint pt-1" />
+                <button
+                  className={item}
+                  onClick={() => {
+                    setOpen(false);
+                    onSplitTerminal();
+                  }}
+                >
+                  <TerminalIcon size={13} className="shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate">{t("splitDestination.terminal")}</span>
+                </button>
+              </>
+            )}
           </div>,
           document.body,
         )}

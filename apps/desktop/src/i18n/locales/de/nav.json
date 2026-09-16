@@ -99,14 +99,66 @@
     "hideAction": "Ausblenden"
   },
   "status": {
-    "runtime": "Runtime",
-    "model": "Modell",
-    "modelNotSet": "nicht festgelegt",
-    "values": {
-      "ready": "bereit",
-      "connecting": "verbindet …",
-      "error": "Fehler",
-      "offline": "offline"
+    "usage": {
+      "title": "Verbrauch",
+      "refresh": "Aktualisieren",
+      "tokens": "Tokens",
+      "today": "heute",
+      "days7": "7 T",
+      "workbench": "OSD",
+      "cliNote": "Läuft in deinem eigenen Terminal — hier wird nur der Verbrauch erfasst.",
+      "allAgents": "alle Agents",
+      "detailed": "Ausführlich",
+      "compact": "Kompakt",
+      "detailedHint": "Alle Zeitfenster mit Balken und Prozentwerten",
+      "compactHint": "Nur das Fenster, das dem Limit am nächsten ist",
+      "detailAria": "Detailgrad der Nutzung",
+      "resetsIn": "Zurücksetzung in {{duration}}"
+    },
+    "awake": {
+      "title": "Wachhalten",
+      "active": "Aktiv",
+      "inactive": "Inaktiv",
+      "mode": {
+        "on": "An",
+        "auto": "Auto",
+        "off": "Aus"
+      },
+      "hint": {
+        "on": "Diesen Computer dauerhaft wachhalten",
+        "auto": "Wachbleiben, solange ein Agent arbeitet",
+        "off": "Normalen Ruhezustand zulassen"
+      }
+    },
+    "resources": {
+      "title": "Ressourcen",
+      "memory": "Arbeitsspeicher",
+      "processes": "Prozesse",
+      "note": "Diese App und alles, was sie gestartet hat.",
+      "cpu": "{{n}} % CPU",
+      "terminal": "Terminal",
+      "app": "Workbench selbst",
+      "kernel": "Kernel"
+    },
+    "ports": {
+      "title": "Ports",
+      "empty": "Nichts aus dieser App lauscht auf einem Port.",
+      "public": "öffentlich",
+      "openTitle": "{{url}} öffnen"
+    },
+    "hosts": {
+      "title": "Hosts",
+      "empty": "Keine SSH-Hosts in ~/.ssh/config.",
+      "count": "{{count}} Host",
+      "count_other": "{{count}} Hosts",
+      "status": {
+        "connected": "verbunden",
+        "connecting": "verbindet",
+        "prompt": "wartet auf dich",
+        "failed": "fehlgeschlagen",
+        "disconnected": "nicht verbunden"
+      },
+      "connect": "Verbinden"
     }
   },
   "commandPalette": {

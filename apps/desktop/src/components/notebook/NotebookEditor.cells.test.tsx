@@ -5,6 +5,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { NotebookEditor } from "./NotebookEditor";
+import { useUiStore } from "@/lib/store";
 
 const NOTEBOOK = JSON.stringify({
   cells: ["one", "two", "three"].map((s) => ({
@@ -23,8 +24,10 @@ vi.mock("@/lib/artifactFile", () => ({
 }));
 vi.mock("@/components/inspector/ProvenancePanel", () => ({ ProvenancePanel: () => null }));
 
-const codeCells = () =>
-  screen.getAllByRole("textbox").map((el) => (el as HTMLTextAreaElement).value);
+// A cell's text, read off the editor's content element. Cells hold a CodeMirror
+// editor, not a textarea, so the text is the element's content rather than a
+// `value` property.
+const codeCells = () => screen.getAllByRole("textbox").map((el) => el.textContent ?? "");
 
 async function open() {
   render(<NotebookEditor path="analysis.ipynb" />);
@@ -48,8 +51,8 @@ describe("NotebookEditor · selecting a cell and inserting around it", () => {
     await open();
     await userEvent.click(screen.getByLabelText("Insert cell above 1"));
     // The new cell is [1] and everything below it shifted down by one.
-    expect(screen.getByLabelText("Cell 1")).toHaveValue("");
-    expect(screen.getByLabelText("Cell 4")).toHaveValue("three");
+    expect(screen.getByLabelText("Cell 1").textContent).toBe("");
+    expect(screen.getByLabelText("Cell 4").textContent).toBe("three");
   });
 
   it("Esc then a/b inserts around the selected cell (Jupyter's command mode)", async () => {
@@ -71,7 +74,7 @@ describe("NotebookEditor · selecting a cell and inserting around it", () => {
     // No cell was inserted — the keys were text. (Where they land depends on the
     // caret, which a click sets from the click position.)
     expect(codeCells()).toHaveLength(3);
-    expect((screen.getByLabelText("Cell 2") as HTMLTextAreaElement).value).toContain("ab");
+    expect(screen.getByLabelText("Cell 2").textContent).toContain("ab");
   });
 
   it("moves the selection with j/k and Enter returns to editing", async () => {
@@ -91,5 +94,33 @@ describe("NotebookEditor · selecting a cell and inserting around it", () => {
     // The cell that slid into slot 2 is selected, so a/b act on it.
     await userEvent.keyboard("a");
     expect(codeCells()).toEqual(["one", "", "three"]);
+  });
+});
+
+describe("NotebookEditor · handing a cell to the agent", () => {
+  it("puts the cell's code into the composer instead of sending anything itself", async () => {
+    useUiStore.setState({ composerDraft: null });
+    await open();
+
+    await userEvent.click(screen.getByLabelText("Ask the agent about cell 2"));
+
+    const draft = useUiStore.getState().composerDraft!;
+    // Named, so the question is about THAT cell and not about the file.
+    expect(draft).toContain("cell [2] of `analysis.ipynb`");
+    expect(draft).toContain("two");
+    // A draft, not a send: the user still says what they want to ask.
+    expect(draft.startsWith("About")).toBe(true);
+  });
+
+  it("carries the output when the cell has one — that is usually the question", async () => {
+    useUiStore.setState({ composerDraft: null });
+    await open();
+
+    await userEvent.click(screen.getByLabelText("Ask the agent about cell 1"));
+
+    // This fixture's cells have no output; the intro and code must still travel.
+    const draft = useUiStore.getState().composerDraft!;
+    expect(draft).toContain("```python");
+    expect(draft).toContain("one");
   });
 });

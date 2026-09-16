@@ -2323,19 +2323,29 @@ function modelForSession(state: RuntimeState, key: string): { model: string | nu
   return { model, variant };
 }
 
-/** Context window of the model a session's next turn will actually use, or 0
- *  when nothing knows it.
+/** Which model string is in force for a pane, resolving a configured agent's
+ *  own model rather than collapsing it to null.
  *
  *  Deliberately NOT `modelForSession` — that returns `model: null` when a
  *  configured agent owns the model, which is the right thing to SEND and the
- *  wrong thing to look a context window up by. Here the question is only which
- *  model string is in force, so the agent's own setting is resolved instead of
- *  collapsed to null. 0 means unknown (see `ProviderModelInfo.contextLimit`);
+ *  wrong thing to ask questions ABOUT the model with. Callers here are naming
+ *  the model to the user or looking its window up, never sending it.
+ *
+ *  `key` is null on a pane with no session yet, where the global default is the
+ *  honest answer: that is what its first turn will use. */
+function modelInForce(state: RuntimeState, key: string | null): string | null {
+  if (!key) return state.defaultModel;
+  const agent = agentForTurn(state, key);
+  return (
+    state.sessionModels[key] ?? (agent ? state.agentModels[agent] : undefined) ?? state.defaultModel
+  );
+}
+
+/** Context window of the model a session's next turn will actually use, or 0
+ *  when nothing knows it. 0 means unknown (see `ProviderModelInfo.contextLimit`);
  *  callers show tokens without a percentage rather than inventing a limit. */
 export function contextLimitFor(state: RuntimeState, key: string): number {
-  const agent = agentForTurn(state, key);
-  const model =
-    state.sessionModels[key] ?? (agent ? state.agentModels[agent] : undefined) ?? state.defaultModel;
+  const model = modelInForce(state, key);
   if (!model) return 0;
   const i = model.indexOf("/");
   if (i <= 0) return 0;

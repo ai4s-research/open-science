@@ -80,6 +80,7 @@ export function parseIpynb(json: string): NotebookCell[] {
       code: joinSource(cell.source),
       output: out.text,
       image: out.image,
+      count: typeof cell.execution_count === "number" ? cell.execution_count : undefined,
     };
   });
 }
@@ -105,7 +106,13 @@ export function serializeIpynb(cells: NotebookCell[]): string {
       if (c.image) {
         outputs.push({ output_type: "display_data", data: { "image/png": c.image } });
       }
-      return { cell_type: "code", source: c.code, outputs, metadata: {}, execution_count: null };
+      return {
+        cell_type: "code",
+        source: c.code,
+        outputs,
+        metadata: {},
+        execution_count: c.count ?? null,
+      };
     }),
     metadata: {
       kernelspec: { display_name: ks.display_name, language: lang, name: ks.name },

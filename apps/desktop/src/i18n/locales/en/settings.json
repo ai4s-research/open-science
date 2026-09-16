@@ -99,7 +99,7 @@
   },
   "model": {
     "title": "Model",
-    "hint": "Providers below supply the models you can pick here",
+    "hint": "The model every new conversation starts on. Providers below supply what you can pick.",
     "connectPrompt": "Connect the runtime to configure models.",
     "notSet": "Not set — pick a default model",
     "providersDivider": "Providers",
@@ -117,13 +117,14 @@
     "catalogUnavailable": "The model catalog is currently unavailable.",
     "catalogLoading": "Loading the model catalog…",
     "noModels": "No models available.",
-    "manageProviders": "Manage providers",
     "emptyFavorites": "Favorite models appear here.",
     "emptyRecent": "Successfully selected models appear here.",
     "noResults": "No models match “{{query}}”.",
     "clearSearch": "Clear search",
     "addFavorite": "Add {{model}} to favorites",
-    "removeFavorite": "Remove {{model}} from favorites"
+    "removeFavorite": "Remove {{model}} from favorites",
+    "change": "Change",
+    "noProvidersHint": "Connect a provider below."
   },
   "providers": {
     "title": "Providers",
@@ -149,18 +150,25 @@
     "pasteCode": "Paste the code from the browser",
     "customEndpoint": "Custom endpoint",
     "customEndpointHint": "self-hosted · local Ollama · OpenAI/Anthropic-compatible",
-    "customNamePlaceholder": "Name — e.g. Ollama, My DeepSeek gateway",
+    "customNamePlaceholder": "e.g. Ollama, My DeepSeek gateway",
     "openaiCompatible": "OpenAI-compatible",
     "anthropicCompatible": "Anthropic-compatible",
-    "customUrlPlaceholder": "Base URL — Ollama: http://127.0.0.1:11434/v1",
-    "customKeyPlaceholder": "API key — optional, Ollama needs none",
-    "customModelsPlaceholder": "Model ids, comma-separated",
-    "customContextPlaceholder": "Context window — optional, default 128k",
+    "customUrlPlaceholder": "http://127.0.0.1:11434/v1",
+    "customKeyPlaceholder": "Optional — Ollama needs none",
+    "customModelsPlaceholder": "Comma-separated model ids",
+    "customContextPlaceholder": "Optional — defaults to 128k",
     "fetchModels": "Fetch models",
     "fetchingModels": "Fetching…",
     "noModelsFound": "No models reported by the endpoint.",
     "addEndpoint": "Add endpoint",
-    "importLogin": "Already use the OpenCode CLI? Import its login"
+    "importLogin": "Already use the OpenCode CLI? Import its login",
+    "addTitle": "Add a provider",
+    "fieldName": "Name",
+    "fieldApiStyle": "API style",
+    "fieldBaseUrl": "Base URL",
+    "fieldApiKey": "API key",
+    "fieldModels": "Models",
+    "fieldContext": "Context window"
   },
   "mcp": {
     "title": "MCP servers",
@@ -468,13 +476,22 @@
     "title": "Model and effort per agent",
     "hint": "Run a reviewer or explorer on a fast model while the main agent reasons on a strong one, and pin how hard each one thinks.",
     "noModels": "Connect a provider to choose models.",
-    "followDefault": "Default model",
-    "followDefaultNamed": "Default ({{model}})",
+    "followDefault": "Follow default",
     "modelFor": "Model for {{agent}}",
     "defaultEffort": "Default effort",
     "effortFor": "Reasoning effort for {{agent}}",
     "retiredOption": "{{model}} — no longer served",
-    "primaryHint": "build and plan run the messages you send. A model set here applies unless you pick one inside a conversation, which wins for that conversation only."
+    "primaryHint": "build and plan run the messages you send. A model set here applies unless you pick one inside a conversation, which wins for that conversation only.",
+    "group": {
+      "conversation": "Agents you talk to",
+      "utility": "Run by the workbench"
+    },
+    "utilityHint": "Short mechanical work the runtime does on its own — a fast model here is a pure win.",
+    "about": {
+      "title": "Names a session from its first message.",
+      "summary": "Writes the short recap of a conversation.",
+      "compaction": "Rewrites a long conversation to fit the context window."
+    }
   },
   "ssh": {
     "title": "Sign in to {{host}}",

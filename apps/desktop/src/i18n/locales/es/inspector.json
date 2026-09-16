@@ -107,7 +107,19 @@
     },
     "mobileNoPreview": "No se puede previsualizar este tipo de archivo aquí; descárgalo para verlo.",
     "download": "Descargar",
-    "waitingWorkspace": "Esperando a que el espacio de trabajo cargue {{filename}}… (enfoque la sesión propietaria de este archivo)"
+    "waitingWorkspace": "Esperando a que el espacio de trabajo cargue {{filename}}… (enfoque la sesión propietaria de este archivo)",
+    "editAria": "Editar este archivo",
+    "editTitle": "Editar este archivo",
+    "editorAria": "Editando {{filename}}",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "discard": "Descartar",
+    "doneEditing": "Listo",
+    "saved": "Guardado",
+    "changedOnDisk": "Cambiado en disco: recargar",
+    "changedOnDiskTitle": "Otro proceso escribió este archivo. Recarga para tomar su versión.",
+    "unsaved": "Sin guardar",
+    "markdownPlaceholder": "Escribe markdown…"
   },
   "office": {
     "rendering": "Renderizando…",
@@ -271,5 +283,21 @@
     },
     "selectSeriesHint": "selecciona una serie para graficar",
     "noNumericColumns": "No hay columnas numéricas para graficar."
+  },
+  "markdownToolbar": {
+    "label": "Formato",
+    "paragraph": "Párrafo",
+    "heading1": "Título 1",
+    "heading2": "Título 2",
+    "heading3": "Título 3",
+    "bold": "Negrita",
+    "italic": "Cursiva",
+    "strikethrough": "Tachado",
+    "bulletList": "Lista con viñetas",
+    "numberedList": "Lista numerada",
+    "checklist": "Lista de tareas",
+    "quote": "Cita",
+    "link": "Enlace",
+    "code": "Código"
   }
 }

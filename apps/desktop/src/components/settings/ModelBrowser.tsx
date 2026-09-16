@@ -24,10 +24,9 @@ interface ModelBrowserProps {
   defaultModel: string | null;
   busy: boolean;
   onSelect: (model: string) => Promise<boolean>;
-  onManageProviders: () => void;
 }
 
-export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManageProviders }: ModelBrowserProps) {
+export function ModelBrowser({ providers, defaultModel, busy, onSelect }: ModelBrowserProps) {
   const { t } = useTranslation(["settings", "common"]);
   const [filter, setFilter] = useState<ModelFilter>({ kind: "all" });
   const [query, setQuery] = useState("");
@@ -109,9 +108,9 @@ export function ModelBrowser({ providers, defaultModel, busy, onSelect, onManage
       {selectable.length === 0 ? (
         <div className="px-4 py-8 text-center">
           <p className="text-[13px] text-muted">{t("model.noModels")}</p>
-          <button className="mt-2 text-xs font-medium text-accent hover:underline" onClick={onManageProviders}>
-            {t("model.manageProviders")}
-          </button>
+          {/* Points at the Providers card, which now sits open just below —
+              there is no longer a panel to open on the reader's behalf. */}
+          <p className="mt-1 text-xs text-muted">{t("model.noProvidersHint")}</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-[148px_minmax(0,1fr)]">

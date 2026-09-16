@@ -47,7 +47,6 @@ import { useLayoutStore } from "@/lib/layout";
 import { startPaneDrag } from "@/lib/dragPane";
 import { isGatewayWeb } from "@/lib/webMode";
 import { pathKey, samePath } from "@/lib/workspacePath";
-import { StatusPills } from "./StatusPills";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   ContextMenu,
@@ -147,11 +146,26 @@ export function Sidebar({ project }: { project: Project }) {
   // The sidebar starts at the window's left edge, so clientX is the width;
   // dragging left of COLLAPSE_BELOW snaps it collapsed but keeps the drag alive
   // (unless in Settings, which never collapses) so dragging back out re-opens it.
+  // The rail's own elements, so a resize writes the width straight to them.
+  // BOTH are needed: the outer column is what the layout reads, and the <aside>
+  // inside it carries the sidebar's own surface. Widening only the outer one
+  // left a bare strip of window showing beside the sidebar for the length of
+  // the drag — the ugly gap that followed the pointer.
+  const railRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<HTMLElement>(null);
   const { dragging, dragValue: dragWidth, handleProps } = useDragDivider({
     value: sidebarWidth,
     compute: ({ x }) => {
       if (x < COLLAPSE_BELOW && !inSettings) return null;
       return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, x));
+    },
+    // Nothing inside the sidebar depends on its width, so a drag has no reason
+    // to re-render the session list — it only has to move one edge. React is
+    // told once, on release.
+    onDrag: (next) => {
+      const px = `${next}px`;
+      if (railRef.current) railRef.current.style.width = px;
+      if (surfaceRef.current) surfaceRef.current.style.width = px;
     },
     onCommit: setSidebarWidth,
     onCollapse: () => {
@@ -519,10 +533,17 @@ export function Sidebar({ project }: { project: Project }) {
 
   return (
     <div
+      ref={railRef}
       className={cn(
         "relative h-full overflow-hidden",
         isMobile ? "fixed inset-y-0 left-0 z-40 shadow-2xl" : "shrink-0",
-        !dragging && "transition-[width,transform] duration-200 ease-out",
+        // The DRAWER slides (a transform, composited, free). The desktop rail's
+        // WIDTH does not animate: it is a layout property, so a 200ms tween
+        // reflowed the whole window twelve times over — every pane, every
+        // terminal, every editor, and every Screen kept warm off-display, which
+        // are laid out even while invisible. Collapsing the sidebar stuttered
+        // for the entire animation; instant is both snappier and honest.
+        !dragging && isMobile && "transition-transform duration-200 ease-out",
       )}
       style={
         isMobile
@@ -531,6 +552,7 @@ export function Sidebar({ project }: { project: Project }) {
       }
     >
       <aside
+        ref={surfaceRef}
         // `select-none`: the rail is chrome, so a right-click (or a sloppy drag)
         // must not leave its labels highlighted. Inline rename inputs opt back
         // in via the global rule in index.css.
@@ -935,9 +957,8 @@ export function Sidebar({ project }: { project: Project }) {
         </div>
 
         <div className="border-t border-border px-3 py-3">
-          <StatusPills />
           <button
-            className="relative mt-2 flex items-center gap-2 rounded-input px-2 py-1 text-[13px] text-muted hover:bg-surface-2 hover:text-text"
+            className="relative flex items-center gap-2 rounded-input px-2 py-1 text-[13px] text-muted hover:bg-surface-2 hover:text-text"
             onClick={() => navigate("/settings")}
             aria-label={t("sidebar.settings")}
           >
@@ -1000,16 +1021,22 @@ export function Sidebar({ project }: { project: Project }) {
       <div
         {...handleProps}
         className={cn(
-          "group absolute inset-y-0 right-0 z-10 w-[5px] cursor-col-resize",
+          "group absolute inset-y-0 right-0 z-10 w-[5px] cursor-col-resize transition-colors duration-150",
+          // The whole 5px grab strip tints while it is being dragged, so the
+          // edge reads as a handle under the pointer and not as a hairline that
+          // happened to change colour.
+          dragging && "bg-accent/15",
           sidebarCollapsed && !dragging && "pointer-events-none",
         )}
       >
         <div
           className={cn(
-            "absolute inset-y-0 right-0 w-[2px] transition-colors",
-            dragging
-              ? "bg-accent/60"
-              : "bg-transparent group-hover:bg-accent/40",
+            "absolute inset-y-0 right-0 w-[2px] transition-colors duration-150",
+            // While dragging, the edge is what the eye should follow: a solid
+            // accent line with a soft halo, so it reads as the thing being
+            // moved rather than as a hairline that happens to have changed
+            // colour.
+            dragging ? "bg-accent" : "bg-transparent group-hover:bg-accent/40",
           )}
         />
       </div>

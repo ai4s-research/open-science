@@ -45,6 +45,7 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { useCompactWidth } from "@/lib/useCompactWidth";
 import { isGatewayWeb } from "@/lib/webMode";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 /** Composer width below which the toolbar shows icons without their labels. */
 const TOOLBAR_LABEL_MIN_PX = 440;
@@ -260,6 +261,9 @@ export function Composer({
   const [hist, setHist] = useState<{ index: number; draft: string } | null>(null);
   /** The approval-mode menu is open. */
   const [approvalOpen, setApprovalOpen] = useState(false);
+  // Compaction is one click next to Send, and it changes what the agent can see
+  // for the rest of the conversation. Cheap to ask, expensive to undo by hand.
+  const [confirmCompact, setConfirmCompact] = useState(false);
   const approvalRef = useRef<HTMLDivElement>(null);
   /** The agent-mode menu is open. */
   const [agentOpen, setAgentOpen] = useState(false);
@@ -911,9 +915,13 @@ export function Composer({
         aria-label={t("composer.placeholder.default")}
       />
       {/* Codex-style action row: mode controls bottom-left, send bottom-right.
-          `flex-wrap` so a narrow (tiled) pane wraps the controls to a second
-          line instead of overflowing outside the box. */}
-      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          ONE line, always. A wrapping row looks broken — the send button ends
+          up on its own line under the other controls, with a gap between them
+          — and flexbox wraps on an item's natural width rather than shrinking
+          it first, so the long model name alone was enough to trigger it.
+          Everything here is fixed-width except the model chip, which truncates;
+          below `TOOLBAR_LABEL_MIN_PX` the buttons drop their labels too. */}
+      <div className="flex min-w-0 items-center gap-1.5 pt-1">
         {command ? (
           <span
             className="flex h-7 shrink-0 items-center gap-1 rounded-input bg-accent/15 pl-2 pr-1 font-mono text-xs text-accent"
@@ -1069,7 +1077,7 @@ export function Composer({
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
               aria-label={t("composer.compact.aria")}
               title={t("composer.compact.title")}
-              onClick={onCompactContext}
+              onClick={() => setConfirmCompact(true)}
               disabled={compacting || working || disabled}
             >
               {compacting ? (
@@ -1078,6 +1086,28 @@ export function Composer({
                 <Shrink size={13} />
               )}
             </button>
+          )}
+          {confirmCompact && onCompactContext && (
+            <ConfirmDialog
+              title={t("composer.compact.confirmTitle")}
+              body={t("composer.compact.confirmBody")}
+              confirmLabel={t("composer.compact.confirmAction")}
+              // Not destructive: the full original conversation stays on disk
+              // (see the "Context compacted" row's own copy). A red button here
+              // would teach the reader to ignore red.
+              // eslint-disable-next-line i18next/no-literal-string -- tone enum, not UI copy
+              tone="default"
+              // The question is about THIS pane's conversation, so it is asked
+              // over that pane. Covering the whole window left the reader
+              // guessing which split had asked.
+              // eslint-disable-next-line i18next/no-literal-string -- scope enum, not UI copy
+              scope="pane"
+              onConfirm={() => {
+                setConfirmCompact(false);
+                onCompactContext();
+              }}
+              onCancel={() => setConfirmCompact(false)}
+            />
           )}
           {showModelPicker && <ModelPicker sessionId={modelSessionId} compact={compactToolbar} />}
           {configOptions && onConfigOption && (

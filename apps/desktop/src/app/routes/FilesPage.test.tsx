@@ -40,6 +40,19 @@ describe("FilesPage", () => {
     expect(screen.getByTestId("preview")).toHaveTextContent("preview:figure.png");
   });
 
+  it("is a plain tree in a pane: no dead preview half beside it", async () => {
+    const opened = vi.fn();
+    render(<FilesPage onOpenFile={opened} />);
+    await userEvent.click(await screen.findByText("figure.png"));
+
+    // The file opens BESIDE this pane, so there is nothing to preview here.
+    // The column used to stay, permanently reading "Select a file to preview
+    // it here" — half a pane that could never fill.
+    expect(opened).toHaveBeenCalledWith(expect.objectContaining({ name: "figure.png" }));
+    expect(screen.queryByText(/Select a file/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("preview")).not.toBeInTheDocument();
+  });
+
   it("opens notebooks in the runnable editor", async () => {
     render(<FilesPage />);
     await userEvent.click(await screen.findByText("run.ipynb"));

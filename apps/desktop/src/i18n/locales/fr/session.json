@@ -28,7 +28,12 @@
       "newSession": "Nouvelle session"
     },
     "rename": "Renommer l’écran",
-    "tabMenu": "Actions de l’écran"
+    "tabMenu": "Actions de l’écran",
+    "runAgent": "Lancer un agent",
+    "newNotebook": "Nouveau notebook",
+    "newMarkdown": "Nouveau Markdown",
+    "splitRightShort": "Diviser à droite",
+    "splitDownShort": "Diviser en bas"
   },
   "composer": {
     "placeholder": {
@@ -132,7 +137,10 @@
     },
     "compact": {
       "aria": "Compresser le contexte",
-      "title": "Résume les tours précédents ; la prochaine réponse utilisera le contexte compressé"
+      "title": "Résume les tours précédents ; la prochaine réponse utilisera le contexte compressé",
+      "confirmTitle": "Compacter le contexte ?",
+      "confirmBody": "Les échanges précédents sont remplacés par un résumé afin que la prochaine réponse s'exécute dans un contexte borné. La conversation d'origine complète reste stockée localement.",
+      "confirmAction": "Compacter"
     }
   },
   "localCommand": {
@@ -180,7 +188,10 @@
     "subagentFallback": "un sous-agent",
     "header": {
       "expandSidebarAria": "Développer la barre latérale",
-      "expandSidebarTitle": "Développer la barre latérale ({{shortcut}})"
+      "expandSidebarTitle": "Développer la barre latérale ({{shortcut}})",
+      "rename": "Renommer la session…",
+      "untitled": "Session sans titre",
+      "paneMenu": "Actions de la session"
     },
     "filesToggle": {
       "default": "Fichiers",
@@ -439,7 +450,8 @@
     "title": "La session du nouveau volet sera créée dans",
     "continueIn": "Continuer dans {{name}}",
     "newFolder": "Nouveau dossier",
-    "chooseOther": "Choisir un autre dossier…"
+    "chooseOther": "Choisir un autre dossier…",
+    "terminal": "Terminal dans ce dossier"
   },
   "stall": {
     "silentTitle": "Le tour est peut-être bloqué",
@@ -448,5 +460,28 @@
     "repeatLine": "Ce tour a exécuté le même appel {{count}} fois avec des résultats identiques. Toujours en cours, ou en boucle ?",
     "keepWaiting": "Continuer d'attendre",
     "stopTurn": "Arrêter le tour"
+  },
+  "terminal": {
+    "title": "Terminal",
+    "exited": "[processus terminé]",
+    "desktopOnly": "Le terminal nécessite l'app de bureau.",
+    "new": "Terminal",
+    "menu": {
+      "label": "Menu du terminal",
+      "copy": "Copier",
+      "paste": "Coller",
+      "selectAll": "Tout sélectionner",
+      "clear": "Effacer l'écran",
+      "revealCwd": "Afficher le dossier de travail"
+    },
+    "rename": "Renommer le terminal…",
+    "confirmClose": {
+      "title": "Fermer ce terminal ?",
+      "body": "Le shell et tout ce qui y tourne encore s'arrêteront. L'historique n'est pas conservé.",
+      "action": "Fermer le terminal"
+    }
+  },
+  "splitInto": {
+    "session": "Session"
   }
 }

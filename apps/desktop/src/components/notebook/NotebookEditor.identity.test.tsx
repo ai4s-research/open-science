@@ -24,7 +24,9 @@ vi.mock("@/lib/artifactFile", () => ({
 }));
 vi.mock("@/components/inspector/ProvenancePanel", () => ({ ProvenancePanel: () => null }));
 
-const boxes = () => screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+// The editors themselves: identity here is what proves a cell was not
+// rebuilt, and their text is content, not a `value`.
+const boxes = () => screen.getAllByRole("textbox");
 const last = () => boxes()[boxes().length - 1]!;
 
 describe("NotebookEditor · cell identity", () => {
@@ -33,13 +35,13 @@ describe("NotebookEditor · cell identity", () => {
     await screen.findByLabelText("Cell 1");
 
     const before = last();
-    expect(before.value).toBe("four");
+    expect(before.textContent).toBe("four");
 
     await userEvent.click(screen.getByLabelText("Insert cell above 1"));
 
     // Same DOM node, moved rather than destroyed and recreated.
     expect(last()).toBe(before);
-    expect(last().value).toBe("four");
+    expect(last().textContent).toBe("four");
   });
 
   it("does not rebuild the survivors of a delete", async () => {
@@ -50,7 +52,7 @@ describe("NotebookEditor · cell identity", () => {
     await userEvent.click(screen.getByLabelText("Delete cell 1"));
 
     expect(last()).toBe(before);
-    expect(boxes().map((b) => b.value)).toEqual(["two", "three", "four"]);
+    expect(boxes().map((b) => b.textContent)).toEqual(["two", "three", "four"]);
   });
 
   it("keeps the [n] labels positional after inserting and deleting", async () => {
@@ -65,7 +67,7 @@ describe("NotebookEditor · cell identity", () => {
     for (let i = 1; i <= 4; i++) {
       expect(screen.getByLabelText(`Cell ${i}`)).toBeInTheDocument();
     }
-    expect(boxes().map((b) => b.value)).toEqual(["one", "", "two", "four"]);
+    expect(boxes().map((b) => b.textContent)).toEqual(["one", "", "two", "four"]);
   });
 
   it("survives a flurry of inserts, deletes, mode switches and typing", async () => {

@@ -57,5 +57,8 @@ export function formatExecResult(r: ExecResult): string {
   const parts: string[] = [];
   if (r.stdout) parts.push(r.stdout.trimEnd());
   if (r.result !== null) parts.push(r.result);
-  return parts.join("\n") || "(no output)";
+  // Empty, not "(no output)": a cell that printed nothing shows nothing, as in
+  // Jupyter. That it RAN is carried by its `[n]` execution count instead —
+  // putting words in the output pane made every `import` look like it failed.
+  return parts.join("\n");
 }

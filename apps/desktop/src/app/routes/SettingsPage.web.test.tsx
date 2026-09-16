@@ -8,7 +8,6 @@
 // read once at module load (that is the real thing being exercised), and every
 // module branching on it holds its own copy.
 import { act, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderInfo } from "@ai4s/sdk";
@@ -58,7 +57,6 @@ describe("Providers in the gateway web client", () => {
     useRuntimeStore.setState({ status: "ready", defaultModel: "openai/gpt-5.2", switching: false });
     await i18n.changeLanguage("en");
     await renderAt("/settings/models");
-    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
   });
 
   afterEach(() => {
@@ -71,7 +69,7 @@ describe("Providers in the gateway web client", () => {
   it("shows what is connected and where to change it", async () => {
     // Scoped to the card: the provider names also appear in the model browser.
     const card = screen.getByRole("heading", { level: 2, name: "Providers" }).closest("section")!;
-    expect(within(card).getByText("OpenCode Zen")).toBeInTheDocument();
+    expect(await within(card).findByText("OpenCode Zen")).toBeInTheDocument();
     expect(within(card).getByText("OpenAI")).toBeInTheDocument();
     expect(within(card).getByText(/osd auth set/)).toBeInTheDocument();
     expect(

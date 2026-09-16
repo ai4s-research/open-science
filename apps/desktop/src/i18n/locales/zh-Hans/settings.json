@@ -99,7 +99,7 @@
   },
   "model": {
     "title": "模型",
-    "hint": "下方的供应商提供可在此选择的模型",
+    "hint": "每个新会话默认使用的模型。可选范围由下方的 Providers 提供。",
     "connectPrompt": "连接运行时以配置模型。",
     "notSet": "未设置——选择一个默认模型",
     "providersDivider": "供应商",
@@ -117,13 +117,14 @@
     "catalogUnavailable": "模型目录当前不可用。",
     "catalogLoading": "正在加载模型目录…",
     "noModels": "没有可用模型。",
-    "manageProviders": "管理供应商",
     "emptyFavorites": "收藏的模型会显示在这里。",
     "emptyRecent": "成功选择过的模型会显示在这里。",
     "noResults": "没有模型匹配“{{query}}”。",
     "clearSearch": "清除搜索",
     "addFavorite": "将 {{model}} 添加到收藏",
-    "removeFavorite": "从收藏中移除 {{model}}"
+    "removeFavorite": "从收藏中移除 {{model}}",
+    "change": "更换",
+    "noProvidersHint": "在下方连接一个 Provider。"
   },
   "providers": {
     "title": "供应商",
@@ -148,18 +149,25 @@
     "pasteCode": "粘贴浏览器中的代码",
     "customEndpoint": "自定义端点",
     "customEndpointHint": "自托管 · 本地 Ollama · 兼容 OpenAI/Anthropic",
-    "customNamePlaceholder": "名称 — 例如 Ollama、My DeepSeek gateway",
+    "customNamePlaceholder": "例如 Ollama、我的 DeepSeek 网关",
     "openaiCompatible": "兼容 OpenAI",
     "anthropicCompatible": "兼容 Anthropic",
-    "customUrlPlaceholder": "基础 URL — Ollama：http://127.0.0.1:11434/v1",
-    "customKeyPlaceholder": "API 密钥 — 可选，Ollama 不需要",
-    "customModelsPlaceholder": "模型 ID，以逗号分隔",
-    "customContextPlaceholder": "上下文窗口 — 可选，默认 128k",
+    "customUrlPlaceholder": "http://127.0.0.1:11434/v1",
+    "customKeyPlaceholder": "可选——Ollama 不需要",
+    "customModelsPlaceholder": "模型 id，逗号分隔",
+    "customContextPlaceholder": "可选——默认 128k",
     "fetchModels": "获取模型",
     "fetchingModels": "获取中…",
     "noModelsFound": "端点未返回任何模型。",
     "addEndpoint": "添加端点",
-    "importLogin": "已经在使用 OpenCode CLI？导入其登录信息"
+    "importLogin": "已经在使用 OpenCode CLI？导入其登录信息",
+    "addTitle": "添加 Provider",
+    "fieldName": "名称",
+    "fieldApiStyle": "API 风格",
+    "fieldBaseUrl": "Base URL",
+    "fieldApiKey": "API Key",
+    "fieldModels": "模型",
+    "fieldContext": "上下文窗口"
   },
   "mcp": {
     "title": "MCP 服务器",
@@ -442,13 +450,22 @@
     "title": "各智能体的模型与思考强度",
     "hint": "让主智能体用强模型推理，同时把审阅、探索类子智能体放在快模型上，并分别固定各自的思考强度。",
     "noModels": "请先接入一个供应商再选择模型。",
-    "followDefault": "默认模型",
-    "followDefaultNamed": "默认（{{model}}）",
+    "followDefault": "跟随默认",
     "modelFor": "{{agent}} 使用的模型",
     "defaultEffort": "默认强度",
     "effortFor": "{{agent}} 的思考强度",
     "retiredOption": "{{model}} — 已下架",
-    "primaryHint": "build 与 plan 负责运行你发出的消息。这里设定的模型会生效，除非你在某个会话内单独选择了模型——那个选择只对该会话生效。"
+    "primaryHint": "build 与 plan 负责运行你发出的消息。这里设定的模型会生效，除非你在某个会话内单独选择了模型——那个选择只对该会话生效。",
+    "group": {
+      "conversation": "你会对话的 Agent",
+      "utility": "工作台自己调用的"
+    },
+    "utilityHint": "运行时自己做的短小机械活——这里用快模型有百利无一害。",
+    "about": {
+      "title": "根据首条消息给会话命名。",
+      "summary": "写会话的简短摘要。",
+      "compaction": "把过长的会话改写到能塞进上下文窗口。"
+    }
   },
   "ssh": {
     "title": "登录 {{host}}",

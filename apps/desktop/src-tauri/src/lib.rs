@@ -24,7 +24,11 @@ mod runtime;
 mod session_sync;
 mod science_mcp;
 mod ssh_session;
+mod plan_usage;
+mod status_bar;
+mod terminal;
 mod tools;
+mod usage;
 #[cfg(target_os = "macos")]
 mod macos;
 mod updates;
@@ -85,6 +89,8 @@ pub fn run() {
         .manage(ProvenanceState::default())
         .manage(RunState::default())
         .manage(ssh_session::SshState::default())
+        .manage(status_bar::AwakeState::default())
+        .manage(terminal::TerminalState::default())
         .manage(acp::AcpState::default())
         .setup(|app| {
             // Every core call needs this, so nothing else may run before it.
@@ -210,6 +216,13 @@ pub fn run() {
             provenance::record_provenance,
             provenance::list_provenance,
             provenance::read_env_lockfile,
+            usage::agent_usage,
+            usage::detect_commands,
+            terminal::terminal_open,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_close,
+            terminal::terminal_event_names,
             runs::record_run,
             runs::list_runs,
             runs::read_run_log,
@@ -230,6 +243,11 @@ pub fn run() {
             ssh_session::ssh_disconnect,
             ssh_session::ssh_sessions,
             ssh_session::ssh_sharing_supported,
+            plan_usage::plan_usage,
+            status_bar::system_resources,
+            status_bar::listening_ports,
+            status_bar::awake_hold,
+            status_bar::awake_active,
             acp::acp_start,
             acp::acp_send,
             acp::acp_stop,
@@ -259,6 +277,12 @@ pub fn run() {
                 ssh_session::shutdown(app);
                 // An ACP agent child must not outlive the window that started it.
                 acp::shutdown(app);
+                // A PTY child outlives its parent unless it is killed: quitting
+                // with an open terminal would leave a detached shell running.
+                terminal::close_all(&app.state::<terminal::TerminalState>());
+                status_bar::shutdown(&app.state::<status_bar::AwakeState>());
+                // A child webview is a native view over the window; it does not
+                // go away with the React tree that asked for it.
             }
         });
 }

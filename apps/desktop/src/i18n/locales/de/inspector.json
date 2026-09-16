@@ -107,7 +107,19 @@
     },
     "mobileNoPreview": "Dieser Dateityp lässt sich hier nicht anzeigen – zum Ansehen herunterladen.",
     "download": "Herunterladen",
-    "waitingWorkspace": "Warte auf das Laden des Arbeitsbereichs {{filename}}… (Fokussieren Sie die Sitzung, der diese Datei gehört)"
+    "waitingWorkspace": "Warte auf das Laden des Arbeitsbereichs {{filename}}… (Fokussieren Sie die Sitzung, der diese Datei gehört)",
+    "editAria": "Diese Datei bearbeiten",
+    "editTitle": "Diese Datei bearbeiten",
+    "editorAria": "{{filename}} wird bearbeitet",
+    "save": "Speichern",
+    "saving": "Wird gespeichert…",
+    "discard": "Verwerfen",
+    "doneEditing": "Fertig",
+    "saved": "Gespeichert",
+    "changedOnDisk": "Auf der Festplatte geändert — neu laden",
+    "changedOnDiskTitle": "Etwas anderes hat diese Datei geschrieben. Neu laden übernimmt deren Fassung.",
+    "unsaved": "Nicht gespeichert",
+    "markdownPlaceholder": "Markdown schreiben…"
   },
   "office": {
     "rendering": "Wird gerendert…",
@@ -271,5 +283,21 @@
     },
     "selectSeriesHint": "Serie zum Plotten auswählen",
     "noNumericColumns": "Keine numerischen Spalten zum Plotten."
+  },
+  "markdownToolbar": {
+    "label": "Formatierung",
+    "paragraph": "Absatz",
+    "heading1": "Überschrift 1",
+    "heading2": "Überschrift 2",
+    "heading3": "Überschrift 3",
+    "bold": "Fett",
+    "italic": "Kursiv",
+    "strikethrough": "Durchgestrichen",
+    "bulletList": "Aufzählung",
+    "numberedList": "Nummerierte Liste",
+    "checklist": "Checkliste",
+    "quote": "Zitat",
+    "link": "Link",
+    "code": "Code"
   }
 }

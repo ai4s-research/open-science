@@ -28,7 +28,12 @@
       "newSession": "Nueva sesión"
     },
     "rename": "Cambiar nombre de la pantalla",
-    "tabMenu": "Acciones de la pantalla"
+    "tabMenu": "Acciones de la pantalla",
+    "runAgent": "Ejecutar un agente",
+    "newNotebook": "Nuevo notebook",
+    "newMarkdown": "Nuevo Markdown",
+    "splitRightShort": "Dividir a la derecha",
+    "splitDownShort": "Dividir abajo"
   },
   "composer": {
     "placeholder": {
@@ -132,7 +137,10 @@
     },
     "compact": {
       "aria": "Comprimir contexto",
-      "title": "Resume los turnos anteriores; la siguiente respuesta usará el contexto comprimido"
+      "title": "Resume los turnos anteriores; la siguiente respuesta usará el contexto comprimido",
+      "confirmTitle": "¿Compactar el contexto?",
+      "confirmBody": "Los turnos anteriores se sustituyen por un resumen para que la siguiente respuesta funcione con un contexto acotado. La conversación original completa sigue guardada localmente.",
+      "confirmAction": "Compactar"
     }
   },
   "localCommand": {
@@ -180,7 +188,10 @@
     "subagentFallback": "un subagente",
     "header": {
       "expandSidebarAria": "Expandir barra lateral",
-      "expandSidebarTitle": "Expandir barra lateral ({{shortcut}})"
+      "expandSidebarTitle": "Expandir barra lateral ({{shortcut}})",
+      "rename": "Renombrar sesión…",
+      "untitled": "Sesión sin título",
+      "paneMenu": "Acciones de la sesión"
     },
     "filesToggle": {
       "default": "Archivos",
@@ -439,7 +450,8 @@
     "title": "La sesión del nuevo panel se creará en",
     "continueIn": "Continuar en {{name}}",
     "newFolder": "Carpeta nueva",
-    "chooseOther": "Elegir otra carpeta…"
+    "chooseOther": "Elegir otra carpeta…",
+    "terminal": "Terminal en esta carpeta"
   },
   "stall": {
     "silentTitle": "Es posible que el turno esté bloqueado",
@@ -448,5 +460,28 @@
     "repeatLine": "Este turno ha ejecutado la misma llamada {{count}} veces con resultados idénticos. ¿Sigue trabajando o está en un bucle?",
     "keepWaiting": "Seguir esperando",
     "stopTurn": "Detener turno"
+  },
+  "terminal": {
+    "title": "Terminal",
+    "exited": "[proceso terminado]",
+    "desktopOnly": "El terminal requiere la app de escritorio.",
+    "new": "Terminal",
+    "menu": {
+      "label": "Menú del terminal",
+      "copy": "Copiar",
+      "paste": "Pegar",
+      "selectAll": "Seleccionar todo",
+      "clear": "Limpiar pantalla",
+      "revealCwd": "Mostrar la carpeta de trabajo"
+    },
+    "rename": "Renombrar terminal…",
+    "confirmClose": {
+      "title": "¿Cerrar este terminal?",
+      "body": "Se detendrán el shell y todo lo que siga ejecutándose en él. El historial no se conserva.",
+      "action": "Cerrar terminal"
+    }
+  },
+  "splitInto": {
+    "session": "Sesión"
   }
 }

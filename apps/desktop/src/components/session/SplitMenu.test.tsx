@@ -68,3 +68,47 @@ describe("SplitMenu", () => {
     expect(screen.queryByText("New folder")).not.toBeInTheDocument();
   });
 });
+
+describe("SplitMenu · choosing what the new pane holds", () => {
+  it("offers a terminal beside the folder choices", async () => {
+    const onSplitTerminal = vi.fn();
+    render(
+      <SplitMenu
+        sourceFolder="/ws/thesis"
+        onSplit={vi.fn()}
+        onSplitTerminal={onSplitTerminal}
+        icon={null}
+        label="Split right"
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Split right" }));
+
+    // A terminal beside a conversation is the common second pane — you run the
+    // thing the agent just wrote. It used to be reachable only from the Screen
+    // bar, which makes a whole new Screen instead.
+    await userEvent.click(await screen.findByText("Terminal in this folder"));
+
+    expect(onSplitTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it("still asks, even with no folder to continue in", async () => {
+    const onSplit = vi.fn();
+    const onSplitTerminal = vi.fn();
+    render(
+      <SplitMenu
+        sourceFolder={null}
+        onSplit={onSplit}
+        onSplitTerminal={onSplitTerminal}
+        icon={null}
+        label="Split right"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Split right" }));
+
+    // There is still a question worth asking — which kind of pane — so the
+    // click must not split on its own.
+    expect(onSplit).not.toHaveBeenCalled();
+    expect(await screen.findByText("Terminal in this folder")).toBeInTheDocument();
+  });
+});

@@ -106,7 +106,19 @@
     },
     "mobileNoPreview": "此文件类型无法在网页预览——下载后查看。",
     "download": "下载",
-    "waitingWorkspace": "正在等待工作区加载 {{filename}}…（切换到该文件所属的会话即可预览）"
+    "waitingWorkspace": "正在等待工作区加载 {{filename}}…（切换到该文件所属的会话即可预览）",
+    "editAria": "编辑此文件",
+    "editTitle": "编辑此文件",
+    "editorAria": "正在编辑 {{filename}}",
+    "save": "保存",
+    "saving": "保存中…",
+    "discard": "放弃修改",
+    "doneEditing": "完成",
+    "saved": "已保存",
+    "changedOnDisk": "文件已被改动 — 重新加载",
+    "changedOnDiskTitle": "有别的程序写了这个文件。重新加载以采用它的版本。",
+    "unsaved": "未保存",
+    "markdownPlaceholder": "开始写 Markdown…"
   },
   "office": {
     "rendering": "正在渲染…",
@@ -259,5 +271,21 @@
     },
     "selectSeriesHint": "选择一个序列进行绘图",
     "noNumericColumns": "没有可绘制的数值列。"
+  },
+  "markdownToolbar": {
+    "label": "格式",
+    "paragraph": "正文",
+    "heading1": "一级标题",
+    "heading2": "二级标题",
+    "heading3": "三级标题",
+    "bold": "加粗",
+    "italic": "斜体",
+    "strikethrough": "删除线",
+    "bulletList": "无序列表",
+    "numberedList": "有序列表",
+    "checklist": "任务列表",
+    "quote": "引用",
+    "link": "链接",
+    "code": "代码"
   }
 }

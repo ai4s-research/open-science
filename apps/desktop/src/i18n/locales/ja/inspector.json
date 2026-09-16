@@ -106,7 +106,19 @@
     },
     "mobileNoPreview": "このファイル形式はここでプレビューできません——ダウンロードしてご覧ください。",
     "download": "ダウンロード",
-    "waitingWorkspace": "ワークスペースが {{filename}} を読み込むのを待っています…（このファイルを所有するセッションにフォーカスしてください）"
+    "waitingWorkspace": "ワークスペースが {{filename}} を読み込むのを待っています…（このファイルを所有するセッションにフォーカスしてください）",
+    "editAria": "このファイルを編集",
+    "editTitle": "このファイルを編集",
+    "editorAria": "{{filename}} を編集中",
+    "save": "保存",
+    "saving": "保存中…",
+    "discard": "変更を破棄",
+    "doneEditing": "完了",
+    "saved": "保存済み",
+    "changedOnDisk": "ディスク上で変更されました — 再読み込み",
+    "changedOnDiskTitle": "他のプロセスがこのファイルを書き換えました。再読み込みするとその内容を採用します。",
+    "unsaved": "未保存",
+    "markdownPlaceholder": "Markdown を書く…"
   },
   "office": {
     "rendering": "レンダリング中…",
@@ -259,5 +271,21 @@
     },
     "selectSeriesHint": "プロットするシリーズを選択",
     "noNumericColumns": "グラフ化できる数値列がありません。"
+  },
+  "markdownToolbar": {
+    "label": "書式",
+    "paragraph": "段落",
+    "heading1": "見出し 1",
+    "heading2": "見出し 2",
+    "heading3": "見出し 3",
+    "bold": "太字",
+    "italic": "斜体",
+    "strikethrough": "取り消し線",
+    "bulletList": "箇条書き",
+    "numberedList": "番号付きリスト",
+    "checklist": "チェックリスト",
+    "quote": "引用",
+    "link": "リンク",
+    "code": "コード"
   }
 }

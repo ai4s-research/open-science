@@ -9,6 +9,7 @@
     "core:window:allow-set-theme",
     "core:webview:allow-set-webview-zoom",
     "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text",
     "notification:default"
   ]
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -71,7 +71,7 @@ import { AcpAgentsCard } from "@/components/settings/AcpAgentsCard";
 import { ModalCard } from "@/components/settings/ModalCard";
 import { DataFlowCard } from "@/components/settings/DataFlowCard";
 import { ModelBrowser } from "@/components/settings/ModelBrowser";
-import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
+import { fallbackDefaultModel, flattenModelOptions } from "@/components/settings/modelCatalog";
 import { ProviderManagerCard } from "@/components/settings/ProviderManagerCard";
 import { AgentModelsCard } from "@/components/settings/AgentModelsCard";
 import { MemoryCard } from "@/components/settings/MemoryCard";
@@ -91,6 +91,30 @@ import { cn } from "@/lib/cn";
  * Settings. ONE configuration surface: everything talks to the bundled
  * OpenCode's own config/auth API — no separate "model key" concept.
  */
+/** One field of a form: its name on the left, the control on the right.
+ *
+ *  A label, not a placeholder. Placeholder text disappears the moment a field
+ *  has a value, which is exactly when a reader most needs to know what they
+ *  are looking at — six of them stacked is a form that cannot be read back. */
+function FieldRow({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-faint px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3">
+      <label htmlFor={htmlFor} className="shrink-0 text-[13px] text-muted sm:w-[8.5rem]">
+        {label}
+      </label>
+      <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   // Which settings section is on screen — the sidebar is the navigation.
   const section = resolveSection(useParams().section);
@@ -208,7 +232,24 @@ export function SettingsPage() {
   const [cContexts, setCContexts] = useState<Record<string, number>>({});
 
   // Connect-a-provider flow state.
-  const [providerManagerOpen, setProviderManagerOpen] = useState(false);
+  // The catalog is a CHANGE flow, not a permanent fixture: the page's job at
+  // rest is to say which model is in force, which a scrolling list of forty
+  // never did. Opened by "Change", closed by a successful pick.
+  const [modelBrowserOpen, setModelBrowserOpen] = useState(false);
+  // The default model as a reader sees it: its own name on the first line, and
+  // where it comes from underneath. A configured model the catalog has never
+  // heard of still gets named — by its raw id, which is all there is.
+  const currentModel = useMemo(
+    () =>
+      defaultModel ? flattenModelOptions(providers).find((o) => o.key === defaultModel) : undefined,
+    [providers, defaultModel],
+  );
+  const currentModelName = currentModel?.modelName ?? defaultModel;
+  const currentModelDetail = currentModel
+    ? `${currentModel.providerName}${
+        currentModel.modelName !== currentModel.modelID ? ` · ${currentModel.modelID}` : ""
+      }`
+    : null;
   const [connectQuery, setConnectQuery] = useState("");
   const [keyInput, setKeyInput] = useState("");
   const [bedrockRegion, setBedrockRegion] = useState("");
@@ -982,27 +1023,54 @@ export function SettingsPage() {
 
         {/* ---- Models ---- */}
         {section === "models" && (
-        <Section title={t("model.title")} hint={t("model.hint")}>
+        <Section title={t("model.title")} hint={t("model.hint")} flush>
           {!modelSurfaceAvailable ? (
-            <p className="text-[13px] text-muted">{t("model.connectPrompt")}</p>
+            <p className="px-4 py-3 text-[13px] text-muted">{t("model.connectPrompt")}</p>
           ) : catalogState === "unavailable" ? (
-            <p className="text-[13px] text-muted">{t("model.catalogUnavailable")}</p>
+            <p className="px-4 py-3 text-[13px] text-muted">{t("model.catalogUnavailable")}</p>
           ) : catalogState === "loading" ? (
-            <p className="text-[13px] text-muted">{t("model.catalogLoading")}</p>
+            <p className="px-4 py-3 text-[13px] text-muted">{t("model.catalogLoading")}</p>
           ) : (
-            <ModelBrowser
-              providers={providers}
-              defaultModel={defaultModel}
-              busy={modelControlsBusy}
-              onSelect={saveModel}
-              onManageProviders={() => setProviderManagerOpen(true)}
-            />
+            <>
+              {/* What is in force, said once and plainly. Everything else on
+                  this page is a change to it. */}
+              <div className="flex items-center gap-3 px-4 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium text-text">
+                    {currentModelName ?? t("model.notSet")}
+                  </div>
+                  {currentModelDetail && (
+                    <div className="mt-0.5 truncate text-xs text-muted">{currentModelDetail}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setModelBrowserOpen((open) => !open)}
+                  aria-expanded={modelBrowserOpen}
+                  className="shrink-0 rounded-input border border-border bg-surface px-2.5 py-1.5 text-xs text-text transition-colors hover:bg-surface-2"
+                >
+                  {modelBrowserOpen ? t("common:actions.cancel") : t("model.change")}
+                </button>
+              </div>
+              {modelBrowserOpen && (
+                <div className="border-t border-faint">
+                  <ModelBrowser
+                    providers={providers}
+                    defaultModel={defaultModel}
+                    busy={modelControlsBusy}
+                    onSelect={async (model) => {
+                      const ok = await saveModel(model);
+                      // A pick is the end of the change flow; leaving the list
+                      // open would hide the answer it was opened to give.
+                      if (ok) setModelBrowserOpen(false);
+                      return ok;
+                    }}
+                  />
+                </div>
+              )}
+            </>
           )}
         </Section>
         )}
-
-        {/* ---- One model per agent (a fast reviewer, a strong main agent) ---- */}
-        {section === "models" && isTauri && <AgentModelsCard providers={providers} />}
 
         {/* ---- Persistent memory layers ---- */}
         {section === "memory" && <MemoryCard />}
@@ -1014,8 +1082,6 @@ export function SettingsPage() {
           // The web client can only read this surface, so say so up front
           // instead of describing writes it cannot make (#119).
           hint={isGatewayWeb ? t("providers.webHint") : undefined}
-          expanded={providerManagerOpen}
-          onExpandedChange={setProviderManagerOpen}
         >
           {!connected ? (
             <p className="px-4 py-3 text-[13px] text-muted">{t("providers.connectPrompt")}</p>
@@ -1074,7 +1140,16 @@ export function SettingsPage() {
                   </p>
                 ) : (
                   <>
-                  {/* Connect a provider */}
+                  {/* Connect a provider.
+                      A labelled band, not just another row: above it is what IS
+                      connected, below it is a form that CHANGES that. Running
+                      the two together is what made this card unreadable — the
+                      search field looked like a filter over the list above it. */}
+                  <div className="border-t border-faint bg-surface-2/50 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                      {t("providers.addTitle")}
+                    </div>
+                  </div>
                   <div className="border-t border-faint p-3">
                     <div className="relative">
                       <Search
@@ -1239,64 +1314,73 @@ export function SettingsPage() {
                       </span>
                     </button>
                     {showCustom && (
-                      <div className="space-y-2 px-3 pb-3">
-                        <div className="flex gap-2">
+                      /* Labelled rows, not a stack of placeholder-only boxes:
+                         a placeholder is gone the moment you type into it, so
+                         six of them side by side leave a form nobody can read
+                         back. Same label→control grammar as every other row on
+                         this page. */
+                      <div>
+                        <FieldRow htmlFor="custom-name" label={t("providers.fieldName")}>
                           <input
+                            id="custom-name"
                             value={cName}
                             onChange={(e) => setCName(e.target.value)}
                             placeholder={t("providers.customNamePlaceholder")}
-                            className={inputCls("flex-1")}
+                            className={inputCls("min-w-0 flex-1")}
                           />
+                        </FieldRow>
+                        <FieldRow htmlFor="custom-style" label={t("providers.fieldApiStyle")}>
                           <select
+                            id="custom-style"
                             value={cNpm}
                             onChange={(e) => setCNpm(e.target.value)}
-                            className={selectCls("w-[190px]")}
+                            className={selectCls("min-w-0 flex-1")}
                           >
                             <option value="@ai-sdk/openai-compatible">{t("providers.openaiCompatible")}</option>
                             <option value="@ai-sdk/anthropic">{t("providers.anthropicCompatible")}</option>
                           </select>
-                        </div>
-                        <input
-                          value={cUrl}
-                          onChange={(e) => setCUrl(e.target.value)}
-                          placeholder={t("providers.customUrlPlaceholder")}
-                          className={inputCls("w-full font-mono")}
-                        />
-                        <div className="flex gap-2">
+                        </FieldRow>
+                        <FieldRow htmlFor="custom-url" label={t("providers.fieldBaseUrl")}>
                           <input
+                            id="custom-url"
+                            value={cUrl}
+                            onChange={(e) => setCUrl(e.target.value)}
+                            placeholder={t("providers.customUrlPlaceholder")}
+                            className={inputCls("min-w-0 flex-1 font-mono")}
+                          />
+                        </FieldRow>
+                        <FieldRow htmlFor="custom-key" label={t("providers.fieldApiKey")}>
+                          <input
+                            id="custom-key"
                             type="password"
                             value={cKey}
                             onChange={(e) => setCKey(e.target.value)}
                             placeholder={t("providers.customKeyPlaceholder")}
-                            className={inputCls("flex-1 font-mono")}
+                            className={inputCls("min-w-0 flex-1 font-mono")}
                           />
+                        </FieldRow>
+                        <FieldRow htmlFor="custom-models" label={t("providers.fieldModels")}>
                           <input
+                            id="custom-models"
                             value={cModels}
                             onChange={(e) => setCModels(e.target.value)}
                             placeholder={t("providers.customModelsPlaceholder")}
-                            className={inputCls("flex-1 font-mono")}
+                            className={inputCls("min-w-0 flex-1 font-mono")}
                           />
-                        </div>
-                        <div className="flex gap-2">
-                          <input
-                            inputMode="numeric"
-                            value={cCtx}
-                            onChange={(e) => setCCtx(e.target.value.replace(/[^0-9]/g, ""))}
-                            placeholder={t("providers.customContextPlaceholder")}
-                            className={inputCls("flex-1 font-mono")}
-                          />
+                          {/* Beside the field it fills, not stranded next to the
+                              context window it has nothing to do with. */}
                           {isTauri && (
                             <button
-                              className={btnGhost()}
+                              className={btnGhost("shrink-0")}
                               onClick={() => void fetchCustomModels()}
                               disabled={cDetecting || !cUrl.trim()}
                             >
                               {cDetecting ? t("providers.fetchingModels") : t("providers.fetchModels")}
                             </button>
                           )}
-                        </div>
+                        </FieldRow>
                         {cDetected !== null && (
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-1.5 border-t border-faint px-3 py-2.5 sm:pl-[9.6rem]">
                             {cDetected.length === 0 && (
                               <span className="text-xs text-muted">{t("providers.noModelsFound")}</span>
                             )}
@@ -1323,9 +1407,24 @@ export function SettingsPage() {
                             })}
                           </div>
                         )}
-                        <button className={btnAccent()} onClick={() => void saveCustom()} disabled={busy}>
-                          {t("providers.addEndpoint")}
-                        </button>
+                        <FieldRow htmlFor="custom-context" label={t("providers.fieldContext")}>
+                          <input
+                            id="custom-context"
+                            inputMode="numeric"
+                            value={cCtx}
+                            onChange={(e) => setCCtx(e.target.value.replace(/[^0-9]/g, ""))}
+                            placeholder={t("providers.customContextPlaceholder")}
+                            className={inputCls("min-w-0 flex-1 font-mono")}
+                          />
+                        </FieldRow>
+                        <div className="flex items-center justify-end gap-2 border-t border-faint px-3 py-2.5">
+                          <button className={btnGhost()} onClick={() => setShowCustom(false)}>
+                            {t("common:actions.cancel")}
+                          </button>
+                          <button className={btnAccent()} onClick={() => void saveCustom()} disabled={busy}>
+                            {t("providers.addEndpoint")}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1347,6 +1446,11 @@ export function SettingsPage() {
           )}
         </ProviderManagerCard>
         )}
+
+        {/* ---- One model per agent (a fast reviewer, a strong main agent) ----
+             After Providers on purpose: those supply the models these rows pick
+             from, so a reader meets the supply before the assignment. */}
+        {section === "models" && isTauri && <AgentModelsCard providers={providers} />}
 
         {/* ---- MCP servers ---- */}
         {section === "connectors" && (

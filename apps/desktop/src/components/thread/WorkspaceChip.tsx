@@ -49,7 +49,9 @@ export function WorkspaceChip({ draftKey = DRAFT_KEY }: { draftKey?: string }) {
 
   return (
     <button
-      className="flex items-center gap-1 rounded-input px-1.5 py-1 text-xs text-muted hover:bg-surface-2 hover:text-text disabled:opacity-60"
+      // `min-w-0` so a long folder name gives way in the one-line action row
+      // rather than pushing the send button off it.
+      className="flex min-w-0 items-center gap-1 rounded-input px-1.5 py-1 text-xs text-muted hover:bg-surface-2 hover:text-text disabled:opacity-60"
       onClick={() => void choose()}
       disabled={busy || sending}
       title={

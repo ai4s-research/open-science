@@ -99,14 +99,66 @@
     "hideAction": "Ocultar"
   },
   "status": {
-    "runtime": "Entorno de ejecución",
-    "model": "Modelo",
-    "modelNotSet": "sin configurar",
-    "values": {
-      "ready": "listo",
-      "connecting": "conectando",
-      "error": "error",
-      "offline": "sin conexión"
+    "usage": {
+      "title": "Uso",
+      "refresh": "Actualizar",
+      "tokens": "tokens",
+      "today": "hoy",
+      "days7": "7 d",
+      "workbench": "OSD",
+      "cliNote": "Se ejecuta en tu propio terminal; aquí solo se registra el consumo.",
+      "allAgents": "todos los agentes",
+      "detailed": "Detallado",
+      "compact": "Compacto",
+      "detailedHint": "Todas las ventanas, con barras y porcentajes",
+      "compactHint": "Solo la ventana más cerca de su límite",
+      "detailAria": "Detalle de uso",
+      "resetsIn": "Se restablece en {{duration}}"
+    },
+    "awake": {
+      "title": "Mantener activo",
+      "active": "Activo",
+      "inactive": "Inactivo",
+      "mode": {
+        "on": "Sí",
+        "auto": "Auto",
+        "off": "No"
+      },
+      "hint": {
+        "on": "Mantener el equipo despierto siempre",
+        "auto": "Mantenerlo despierto mientras un agente trabaja",
+        "off": "Permitir la suspensión normal"
+      }
+    },
+    "resources": {
+      "title": "Recursos",
+      "memory": "Memoria",
+      "processes": "Procesos",
+      "note": "Esta app y todo lo que ha iniciado.",
+      "cpu": "{{n}} % CPU",
+      "terminal": "Terminal",
+      "app": "La propia app",
+      "kernel": "Kernel"
+    },
+    "ports": {
+      "title": "Puertos",
+      "empty": "Nada de esta app está escuchando.",
+      "public": "público",
+      "openTitle": "Abrir {{url}}"
+    },
+    "hosts": {
+      "title": "Hosts",
+      "empty": "No hay hosts SSH en ~/.ssh/config.",
+      "count": "{{count}} host",
+      "count_other": "{{count}} hosts",
+      "status": {
+        "connected": "conectado",
+        "connecting": "conectando",
+        "prompt": "esperándote",
+        "failed": "falló",
+        "disconnected": "sin conectar"
+      },
+      "connect": "Conectar"
     }
   },
   "commandPalette": {

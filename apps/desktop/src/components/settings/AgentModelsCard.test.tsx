@@ -149,9 +149,18 @@ describe("AgentModelsCard", () => {
 
     const pinned = await screen.findByLabelText("Model for reviewer");
     await waitFor(() => expect((pinned as HTMLSelectElement).value).toBe("opencode/glm-5-free"));
+    // Named as a reader sees it, not by its `provider/model` key: the key is
+    // what made every row's chosen value overflow and truncate.
     expect([...pinned.querySelectorAll("option")].map((o) => o.textContent)).toContain(
-      "opencode/glm-5-free — no longer served",
+      "GLM-5 — no longer served",
     );
+    // The provider is said once, on the group, not repeated in every option.
+    expect([...pinned.querySelectorAll("optgroup")].map((g) => g.getAttribute("label"))).toEqual([
+      "OpenCode Zen",
+    ]);
+    expect([...pinned.querySelectorAll("optgroup option")].map((o) => o.textContent)).toEqual([
+      "HY3",
+    ]);
 
     const other = screen.getByLabelText("Model for plan");
     expect([...other.querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual([

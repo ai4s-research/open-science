@@ -1,11 +1,27 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pencil, Plus, X, PanelLeft } from "lucide-react";
-import { groupLabel, useLayoutStore, type LayoutGroup } from "@/lib/layout";
+import {
+  Bot,
+  FileText,
+  FolderTree,
+  NotebookPen,
+  Pencil,
+  Plus,
+  Terminal as TerminalIcon,
+  X,
+  PanelLeft,
+} from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { groupLabel, useLayoutStore, type LayoutGroup, type PaneContent } from "@/lib/layout";
+import { createMarkdown, createNotebook } from "@/lib/newFile";
+import { toast } from "@/lib/toast";
+import { useRuntimeStore } from "@/lib/runtime";
+import { detectCliAgents, selectCliAgent, type CliAgent } from "@/lib/cliAgents";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { cn } from "@/lib/cn";
 import { ContextMenu, ContextMenuItem } from "@/components/ui/ContextMenu";
+import { InlineName } from "@/components/ui/InlineName";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 /**
@@ -14,6 +30,143 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
  * top-most element it owns the macOS overlay-titlebar clearance (traffic-light
  * inset + window-drag region), so no pane below needs to.
  */
+/**
+ * New Screen — and, when the machine has coding agents installed, which one it
+ * should run.
+ *
+ * A plain "+" could only ever mean "empty Screen", so switching to Claude Code
+ * or Codex meant a trip through Settings. The agents offered here are detected
+ * on PATH (`lib/cliAgents.ts`), so the menu describes THIS machine rather than a
+ * fixed list of things that might not be installed.
+ */
+function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
+  const { t } = useTranslation(["session", "nav"]);
+  const [agents, setAgents] = useState<CliAgent[]>([]);
+  const [busy, setBusy] = useState(false);
+  const addGroup = useLayoutStore((s) => s.addGroup);
+  // A terminal opens where the work is. Without it every shell starts in the
+  // app's own working directory, which is never where the user's files are.
+  const workspace = useRuntimeStore((s) => s.workspace);
+
+  // Once per mount: an install does not appear mid-session, and probing PATH on
+  // every open would put a filesystem walk behind a menu.
+  useEffect(() => {
+    let cancelled = false;
+    void detectCliAgents().then((found) => {
+      if (!cancelled) setAgents(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Every item here opens a NEW Screen holding the thing. The Screen bar owns
+   *  Screens; splitting the current layout belongs to the pane's own controls. */
+  const openScreen = (content: PaneContent) => addGroup(content);
+
+  const newFilePane = async (make: () => Promise<string>, kind: "notebook" | "editor") => {
+    setBusy(true);
+    try {
+      const path = await make();
+      addGroup({ kind, path, root: "workspace" });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const run = async (agent: CliAgent) => {
+    setBusy(true);
+    selectCliAgent(agent);
+    onNewScreen();
+    // The runtime is chosen when the connection is made, so switching agents
+    // means reconnecting — the same path Settings uses.
+    await useRuntimeStore.getState().connectRetry(8);
+    setBusy(false);
+  };
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          aria-label={t("group.newTab")}
+          title={t("group.newTab")}
+          disabled={busy}
+          className="shrink-0 rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-text disabled:opacity-50"
+        >
+          <Plus size={14} strokeWidth={1.5} />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={6}
+          className="z-50 min-w-[220px] rounded-card border border-border bg-surface p-1 text-[13px] text-text shadow-pop"
+        >
+          <DropdownMenu.Item
+            onSelect={onNewScreen}
+            className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+          >
+            <Plus size={13} className="shrink-0 text-muted" />
+            {t("group.newTab")}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
+            onSelect={() => openScreen({ kind: "terminal", cwd: workspace ?? undefined })}
+            className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+          >
+            <TerminalIcon size={13} className="shrink-0 text-muted" />
+            {t("terminal.new")}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
+            onSelect={() => openScreen({ kind: "files" })}
+            className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+          >
+            <FolderTree size={13} className="shrink-0 text-muted" />
+            {t("nav:items.files")}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
+            onSelect={() => void newFilePane(createNotebook, "notebook")}
+            className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+          >
+            <NotebookPen size={13} className="shrink-0 text-muted" />
+            {t("group.newNotebook")}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
+            onSelect={() => void newFilePane(createMarkdown, "editor")}
+            className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+          >
+            <FileText size={13} className="shrink-0 text-muted" />
+            {t("group.newMarkdown")}
+          </DropdownMenu.Item>
+          {agents.length > 0 && (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-faint" />
+              <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                {t("group.runAgent")}
+              </div>
+            </>
+          )}
+          {agents.map((agent) => (
+            <DropdownMenu.Item
+              key={agent.id}
+              onSelect={() => void run(agent)}
+              className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+            >
+              <Bot size={13} className="shrink-0 text-muted" />
+              {agent.name}
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 /**
  * Does closing this Screen need a confirmation?
  *
@@ -51,6 +204,22 @@ export function GroupTabs() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
   const fallback = (n: number) => t("group.defaultName", { n });
+  /** What to call a Screen that holds a surface rather than a conversation.
+   *  A file keeps its own name — that is the most useful thing a tab can say —
+   *  and the fixed surfaces use the name they are known by elsewhere. */
+  const describe = (content: PaneContent): string | null => {
+    switch (content.kind) {
+      case "terminal":
+        // The name the user gave it, when they gave it one: a Screen holding
+        // the "build" terminal should say so in the strip.
+        return content.name || t("session:terminal.title");
+      case "files":
+        return t("nav:items.files");
+      case "notebook":
+      case "editor":
+        return content.path.split("/").pop() || null;
+    }
+  };
 
 
   return (
@@ -126,9 +295,9 @@ export function GroupTabs() {
                 title={t("group.renameHint")}
               >
                 {editingId === g.id ? (
-                  <TabNameInput
+                  <InlineName
                     initial={g.name}
-                    placeholder={fallback(i + 1)}
+                    placeholder={groupLabel(g, i, fallback, describe)}
                     onCommit={(name) => {
                       renameGroup(g.id, name);
                       setEditingId(null);
@@ -136,7 +305,7 @@ export function GroupTabs() {
                     onCancel={() => setEditingId(null)}
                   />
                 ) : (
-                  <span className="max-w-[160px] truncate">{groupLabel(g, i, fallback)}</span>
+                  <span className="max-w-[160px] truncate">{groupLabel(g, i, fallback, describe)}</span>
                 )}
                 {/* Close is always available — closing the last group empties it. */}
                 <button
@@ -157,14 +326,7 @@ export function GroupTabs() {
               </ContextMenu>
             );
           })}
-          <button
-            onClick={() => addGroup()}
-            aria-label={t("group.newTab")}
-            title={t("group.newTab")}
-            className="shrink-0 rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-text"
-          >
-            <Plus size={14} strokeWidth={1.5} />
-          </button>
+          <NewScreenButton onNewScreen={() => addGroup()} />
         </div>
       </div>
       {confirmCloseId && (
@@ -184,36 +346,3 @@ export function GroupTabs() {
 }
 
 /** Inline rename field for a group tab; commits on Enter/blur, cancels on Esc. */
-function TabNameInput({
-  initial,
-  placeholder,
-  onCommit,
-  onCancel,
-}: {
-  initial: string;
-  placeholder: string;
-  onCommit: (name: string) => void;
-  onCancel: () => void;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState(initial);
-  useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
-  }, []);
-  return (
-    <input
-      ref={ref}
-      value={value}
-      placeholder={placeholder}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => onCommit(value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") onCommit(value);
-        else if (e.key === "Escape") onCancel();
-      }}
-      className="h-5 w-28 rounded border border-border bg-surface px-1 text-[12px] text-text outline-none"
-    />
-  );
-}

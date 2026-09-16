@@ -388,6 +388,10 @@ export interface NotebookCell {
   output?: string;
   /** Base64 PNG from a display_data/execute_result output (e.g. a matplotlib figure). */
   image?: string;
+  /** Jupyter's `execution_count`: the `[n]` beside the cell, absent until it
+   *  has run. It is what tells a cell that ran and printed nothing apart from
+   *  one that was never executed. */
+  count?: number;
 }
 
 export interface NotebookInspector {

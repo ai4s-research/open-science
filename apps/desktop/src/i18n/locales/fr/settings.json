@@ -99,7 +99,7 @@
   },
   "model": {
     "title": "Modèle",
-    "hint": "Les fournisseurs ci-dessous proposent les modèles que vous pouvez choisir ici",
+    "hint": "Le modèle avec lequel démarre chaque nouvelle conversation. Les fournisseurs ci-dessous déterminent les choix.",
     "connectPrompt": "Connectez le runtime pour configurer les modèles.",
     "notSet": "Non défini — choisissez un modèle par défaut",
     "providersDivider": "Fournisseurs",
@@ -117,13 +117,14 @@
     "catalogUnavailable": "Le catalogue de modèles est actuellement indisponible.",
     "catalogLoading": "Chargement du catalogue de modèles…",
     "noModels": "Aucun modèle disponible.",
-    "manageProviders": "Gérer les fournisseurs",
     "emptyFavorites": "Les modèles favoris apparaissent ici.",
     "emptyRecent": "Les modèles sélectionnés avec succès apparaissent ici.",
     "noResults": "Aucun modèle ne correspond à « {{query}} ».",
     "clearSearch": "Effacer la recherche",
     "addFavorite": "Ajouter {{model}} aux favoris",
-    "removeFavorite": "Retirer {{model}} des favoris"
+    "removeFavorite": "Retirer {{model}} des favoris",
+    "change": "Changer",
+    "noProvidersHint": "Connectez un fournisseur ci-dessous."
   },
   "providers": {
     "title": "Fournisseurs",
@@ -149,18 +150,25 @@
     "pasteCode": "Collez le code depuis le navigateur",
     "customEndpoint": "Point de terminaison personnalisé",
     "customEndpointHint": "auto-hébergé · Ollama local · compatible OpenAI/Anthropic",
-    "customNamePlaceholder": "Nom — p. ex. Ollama, Ma passerelle DeepSeek",
+    "customNamePlaceholder": "p. ex. Ollama, ma passerelle DeepSeek",
     "openaiCompatible": "Compatible OpenAI",
     "anthropicCompatible": "Compatible Anthropic",
-    "customUrlPlaceholder": "URL de base — Ollama : http://127.0.0.1:11434/v1",
-    "customKeyPlaceholder": "Clé API — facultative, Ollama n'en a besoin d'aucune",
-    "customModelsPlaceholder": "Identifiants de modèles, séparés par des virgules",
-    "customContextPlaceholder": "Fenêtre de contexte — facultative, 128k par défaut",
+    "customUrlPlaceholder": "http://127.0.0.1:11434/v1",
+    "customKeyPlaceholder": "Facultatif — Ollama n'en a pas besoin",
+    "customModelsPlaceholder": "ids de modèle, séparés par des virgules",
+    "customContextPlaceholder": "Facultatif — 128k par défaut",
     "fetchModels": "Récupérer les modèles",
     "fetchingModels": "Récupération…",
     "noModelsFound": "Le point de terminaison n'a signalé aucun modèle.",
     "addEndpoint": "Ajouter un point de terminaison",
-    "importLogin": "Vous utilisez déjà le CLI OpenCode ? Importez sa connexion"
+    "importLogin": "Vous utilisez déjà le CLI OpenCode ? Importez sa connexion",
+    "addTitle": "Ajouter un fournisseur",
+    "fieldName": "Nom",
+    "fieldApiStyle": "Style d'API",
+    "fieldBaseUrl": "URL de base",
+    "fieldApiKey": "Clé d'API",
+    "fieldModels": "Modèles",
+    "fieldContext": "Fenêtre de contexte"
   },
   "mcp": {
     "title": "Serveurs MCP",
@@ -444,13 +452,22 @@
     "title": "Modèle et effort par agent",
     "hint": "Faites tourner un relecteur ou un explorateur sur un modèle rapide pendant que l’agent principal raisonne sur un modèle puissant, et fixez l’intensité de réflexion de chacun.",
     "noModels": "Connectez un fournisseur pour choisir des modèles.",
-    "followDefault": "Modèle par défaut",
-    "followDefaultNamed": "Par défaut ({{model}})",
+    "followDefault": "Suivre le défaut",
     "modelFor": "Modèle pour {{agent}}",
     "defaultEffort": "Effort par défaut",
     "effortFor": "Effort de raisonnement pour {{agent}}",
     "retiredOption": "{{model}} — plus disponible",
-    "primaryHint": "build et plan exécutent les messages que vous envoyez. Le modèle défini ici s'applique, sauf si vous en choisissez un dans une conversation, qui l'emporte pour cette conversation uniquement."
+    "primaryHint": "build et plan exécutent les messages que vous envoyez. Le modèle défini ici s'applique, sauf si vous en choisissez un dans une conversation, qui l'emporte pour cette conversation uniquement.",
+    "group": {
+      "conversation": "Agents auxquels vous parlez",
+      "utility": "Utilisés par l'atelier lui-même"
+    },
+    "utilityHint": "Travail mécanique et court que le runtime effectue seul — un modèle rapide n'a ici que des avantages.",
+    "about": {
+      "title": "Nomme une session d'après son premier message.",
+      "summary": "Rédige le court récapitulatif d'une conversation.",
+      "compaction": "Réécrit une longue conversation pour tenir dans la fenêtre de contexte."
+    }
   },
   "ssh": {
     "title": "Se connecter à {{host}}",

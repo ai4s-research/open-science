@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   makeLeaf,
   leaves,
@@ -11,6 +11,7 @@ import {
   normalize,
   recentScreens,
   useLayoutStore,
+  isPaneContent,
   MIN_SIZE,
   type PaneNode,
   type PaneSplit,
@@ -519,5 +520,225 @@ describe("layout store — groups", () => {
     const g = saved.groups.find((x: { id: string }) => x.id === saved.activeGroupId);
     expect(JSON.stringify(g.tree)).toContain("\"A\"");
     expect(JSON.stringify(g.tree)).toContain("\"B\"");
+  });
+});
+
+describe("panes that are not conversations", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useLayoutStore.setState({ groups: [], activeGroupId: "", tree: null, focusedLeafId: null });
+    useLayoutStore.getState().addGroup();
+  });
+
+  it("fills an empty Screen rather than splitting against nothing", () => {
+    const id = useLayoutStore.getState().openContentPane({ kind: "terminal" });
+    const tree = useLayoutStore.getState().tree!;
+
+    expect(tree).toMatchObject({ kind: "leaf", id, content: { kind: "terminal" } });
+    // A surface belongs to the workspace, not to a conversation.
+    expect((tree as { sessionId: string | null }).sessionId).toBeNull();
+  });
+
+  it("docks beside the focused pane once there is one", () => {
+    const first = useLayoutStore.getState().openContentPane({ kind: "terminal" });
+    const second = useLayoutStore.getState().openContentPane({ kind: "files" });
+
+    const tree = useLayoutStore.getState().tree!;
+    expect(tree.kind).toBe("split");
+    expect(leaves(tree).map((l) => l.id)).toEqual([first, second]);
+    expect(useLayoutStore.getState().focusedLeafId).toBe(second);
+  });
+
+  it("survives a relaunch", () => {
+    useLayoutStore.getState().openContentPane({ kind: "notebook", path: "analysis.ipynb" });
+
+    const saved = JSON.parse(window.localStorage.getItem("ai4s.layout.v2")!);
+    const leaf = saved.groups[0].tree;
+    expect(leaf.content).toEqual({ kind: "notebook", path: "analysis.ipynb" });
+  });
+
+  it("refuses a surface it does not know how to mount", () => {
+    expect(isPaneContent({ kind: "terminal" })).toBe(true);
+    expect(isPaneContent({ kind: "terminal", cwd: "/tmp" })).toBe(true);
+    expect(isPaneContent({ kind: "notebook", path: "a.ipynb" })).toBe(true);
+    // A kind this build cannot render, and a file-backed surface with no file.
+    expect(isPaneContent({ kind: "wat" })).toBe(false);
+    expect(isPaneContent({ kind: "notebook" })).toBe(false);
+    expect(isPaneContent(null)).toBe(false);
+  });
+});
+
+describe("where a new surface goes", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useLayoutStore.setState({ groups: [], activeGroupId: "", tree: null, focusedLeafId: null });
+    useLayoutStore.getState().addGroup();
+  });
+
+  it("the Screen bar's + makes a SCREEN, leaving the current layout untouched", () => {
+    // The reported oddness: asking for a terminal on the Screen bar used to
+    // split the layout the user was looking at. The bar that owns Screens
+    // makes Screens; splitting is the pane's own gesture.
+    const before = useLayoutStore.getState().activeGroupId;
+    useLayoutStore.getState().openContentPane({ kind: "terminal" });
+    const layoutBefore = useLayoutStore.getState().tree;
+
+    const screen = useLayoutStore.getState().addGroup({ kind: "files" });
+
+    expect(screen).not.toBe(before);
+    expect(useLayoutStore.getState().activeGroupId).toBe(screen);
+    // The new Screen holds the surface outright, focused and ready.
+    expect(useLayoutStore.getState().tree).toMatchObject({
+      kind: "leaf",
+      content: { kind: "files" },
+    });
+    expect(useLayoutStore.getState().focusedLeafId).toBe(
+      (useLayoutStore.getState().tree as { id: string }).id,
+    );
+    // And the Screen it came from still looks exactly as it did.
+    const previous = useLayoutStore.getState().groups.find((g) => g.id === before)!;
+    expect(previous.tree).toEqual(layoutBefore);
+  });
+
+  it("an empty Screen from + is still just an empty Screen", () => {
+    const id = useLayoutStore.getState().addGroup();
+    const group = useLayoutStore.getState().groups.find((g) => g.id === id)!;
+    expect(group.tree).toBeNull();
+  });
+
+  it("accepts a file tree back off disk, and refuses a malformed one", () => {
+    expect(isPaneContent({ kind: "files" })).toBe(true);
+    expect(isPaneContent({ kind: "editor", path: "a.md" })).toBe(true);
+    expect(isPaneContent({ kind: "editor" })).toBe(false);
+    // The browser pane was removed; a layout saved by an older build must not
+    // bring it back.
+    expect(isPaneContent({ kind: "browser", url: "http://localhost:8000" })).toBe(false);
+  });
+});
+
+describe("one document pane, reused", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useLayoutStore.setState({ groups: [], activeGroupId: "", tree: null, focusedLeafId: null });
+    useLayoutStore.getState().addGroup();
+  });
+
+  it("opens the first file in a new pane", () => {
+    const id = useLayoutStore.getState().showDocumentPane({ kind: "editor", path: "a.md" });
+    expect(leafAt(id)?.content).toEqual({ kind: "editor", path: "a.md" });
+  });
+
+  it("replaces that pane on the next file instead of stacking another", () => {
+    const first = useLayoutStore.getState().showDocumentPane({ kind: "editor", path: "a.md" });
+    const second = useLayoutStore.getState().showDocumentPane({ kind: "notebook", path: "b.ipynb" });
+
+    // Clicking down a file tree used to leave one pane per file, each narrower
+    // than the last, until nothing could be read.
+    expect(second).toBe(first);
+    expect(openLeaves()).toHaveLength(1);
+    expect(leafAt(first)?.content).toEqual({ kind: "notebook", path: "b.ipynb" });
+  });
+
+  it("never takes over a terminal or a file tree", () => {
+    useLayoutStore.getState().openContentPane({ kind: "terminal" });
+    const doc = useLayoutStore.getState().showDocumentPane({ kind: "editor", path: "a.md" });
+
+    // Those panes hold their own state; reusing one would kill a shell to
+    // show a file.
+    expect(openLeaves()).toHaveLength(2);
+    expect(leafAt(doc)?.content).toEqual({ kind: "editor", path: "a.md" });
+  });
+});
+
+/** Every leaf of the active Screen. */
+function openLeaves() {
+  const tree = useLayoutStore.getState().tree;
+  return tree ? leaves(tree) : [];
+}
+
+function leafAt(id: string) {
+  return openLeaves().find((leaf) => leaf.id === id);
+}
+
+describe("a layout saved before the browser pane was removed", () => {
+  /** Load the store fresh, so it restores from what localStorage holds now. */
+  async function restore(persisted: unknown) {
+    window.localStorage.setItem("ai4s.layout.v2", JSON.stringify(persisted));
+    vi.resetModules();
+    return (await import("./layout")).useLayoutStore.getState();
+  }
+
+  it("keeps every Screen, and only forgets the pane that is gone", async () => {
+    const state = await restore({
+      groups: [
+        {
+          id: "g1",
+          name: "work",
+          tree: {
+            kind: "split",
+            id: "s1",
+            dir: "row",
+            sizes: [0.5, 0.5],
+            children: [
+              { kind: "leaf", id: "p1", sessionId: "s", content: { kind: "terminal" } },
+              { kind: "leaf", id: "p2", sessionId: null, content: { kind: "browser", url: "x" } },
+            ],
+          },
+          focusedLeafId: "p1",
+          zoomedLeafId: null,
+        },
+      ],
+      activeGroupId: "g1",
+    });
+
+    // Rejecting the unknown content outright would have failed `isNode` for the
+    // whole tree, and the user would have lost every Screen they had open.
+    expect(state.groups).toHaveLength(1);
+    const panes = leaves(state.tree!);
+    expect(panes).toHaveLength(2);
+    expect(panes[0].content).toEqual({ kind: "terminal" });
+    expect(panes[1].content).toBeUndefined();
+  });
+});
+
+describe("moving a pane keeps its identity", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useLayoutStore.setState({ groups: [], activeGroupId: "", tree: null, focusedLeafId: null });
+    useLayoutStore.getState().addGroup();
+  });
+
+  it("re-docks within a Screen without re-creating the pane", () => {
+    const store = useLayoutStore.getState();
+    const terminal = store.openContentPane({ kind: "terminal" });
+    const other = store.openContentPane({ kind: "files" });
+
+    useLayoutStore.getState().moveLeaf(terminal, other, "bottom");
+
+    // A leaf id is an IDENTITY: the shell, the parked xterm and the pane's
+    // unsent draft are all keyed by it. Re-docking used to mint a new id, which
+    // killed the shell and rebuilt an empty terminal in its place.
+    const ids = leaves(useLayoutStore.getState().tree!).map((l) => l.id);
+    expect(ids).toContain(terminal);
+    expect(ids).toHaveLength(2);
+  });
+
+  it("carries the same pane to another Screen", () => {
+    const store = useLayoutStore.getState();
+    const terminal = store.openContentPane({ kind: "terminal", cwd: "/ws" });
+    const second = store.addGroup({ kind: "files" });
+    const target = leaves(useLayoutStore.getState().tree!)[0].id;
+
+    useLayoutStore.getState().moveLeafToActiveGroup(terminal, target, "right");
+
+    const moved = leaves(useLayoutStore.getState().tree!).find((l) => l.id === terminal);
+    expect(moved?.content).toEqual({ kind: "terminal", cwd: "/ws" });
+    // And it is gone from the Screen it came from — exactly once in the layout.
+    const everywhere = useLayoutStore
+      .getState()
+      .groups.flatMap((g) => (g.tree ? leaves(g.tree) : []))
+      .filter((l) => l.id === terminal);
+    expect(everywhere).toHaveLength(1);
+    expect(second).toBe(useLayoutStore.getState().activeGroupId);
   });
 });

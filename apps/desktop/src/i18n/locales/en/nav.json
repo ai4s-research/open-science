@@ -99,14 +99,66 @@
     "hideAction": "Hide"
   },
   "status": {
-    "runtime": "Runtime",
-    "model": "Model",
-    "modelNotSet": "not set",
-    "values": {
-      "ready": "ready",
-      "connecting": "connecting",
-      "error": "error",
-      "offline": "offline"
+    "usage": {
+      "title": "Usage",
+      "refresh": "Refresh",
+      "tokens": "tokens",
+      "today": "today",
+      "days7": "7d",
+      "workbench": "OSD",
+      "cliNote": "Run in your own terminal — only the usage is recorded here.",
+      "allAgents": "all agents",
+      "detailed": "Detailed",
+      "compact": "Compact",
+      "detailedHint": "Every window, with bars and percentages",
+      "compactHint": "Only the window nearest its limit",
+      "detailAria": "Usage detail",
+      "resetsIn": "Resets in {{duration}}"
+    },
+    "awake": {
+      "title": "Keep awake",
+      "active": "Active",
+      "inactive": "Inactive",
+      "mode": {
+        "on": "On",
+        "auto": "Auto",
+        "off": "Off"
+      },
+      "hint": {
+        "on": "Keep this computer awake continuously",
+        "auto": "Stay awake while an agent is working",
+        "off": "Let the computer sleep normally"
+      }
+    },
+    "resources": {
+      "title": "Resources",
+      "memory": "Memory",
+      "processes": "Processes",
+      "note": "This app and everything it started.",
+      "cpu": "{{n}}% CPU",
+      "terminal": "Terminal",
+      "app": "Workbench",
+      "kernel": "Kernel"
+    },
+    "ports": {
+      "title": "Ports",
+      "empty": "Nothing this app started is listening.",
+      "public": "public",
+      "openTitle": "Open {{url}}"
+    },
+    "hosts": {
+      "title": "Hosts",
+      "empty": "No SSH hosts in your ~/.ssh/config.",
+      "count": "{{count}} host",
+      "count_other": "{{count}} hosts",
+      "status": {
+        "connected": "connected",
+        "connecting": "connecting",
+        "prompt": "waiting for you",
+        "failed": "failed",
+        "disconnected": "not connected"
+      },
+      "connect": "Connect"
     }
   },
   "commandPalette": {

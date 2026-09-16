@@ -107,7 +107,19 @@
     },
     "mobileNoPreview": "Impossible de prévisualiser ce type de fichier ici — téléchargez-le pour le consulter.",
     "download": "Télécharger",
-    "waitingWorkspace": "En attente du chargement de l'espace de travail {{filename}}… (concentrez-vous sur la session propriétaire de ce fichier)"
+    "waitingWorkspace": "En attente du chargement de l'espace de travail {{filename}}… (concentrez-vous sur la session propriétaire de ce fichier)",
+    "editAria": "Modifier ce fichier",
+    "editTitle": "Modifier ce fichier",
+    "editorAria": "Modification de {{filename}}",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "discard": "Abandonner",
+    "doneEditing": "Terminé",
+    "saved": "Enregistré",
+    "changedOnDisk": "Modifié sur le disque — recharger",
+    "changedOnDiskTitle": "Un autre programme a écrit ce fichier. Rechargez pour prendre sa version.",
+    "unsaved": "Non enregistré",
+    "markdownPlaceholder": "Écrivez du markdown…"
   },
   "office": {
     "rendering": "Rendu en cours…",
@@ -271,5 +283,21 @@
     },
     "selectSeriesHint": "sélectionnez une série à tracer",
     "noNumericColumns": "Aucune colonne numérique à représenter."
+  },
+  "markdownToolbar": {
+    "label": "Mise en forme",
+    "paragraph": "Paragraphe",
+    "heading1": "Titre 1",
+    "heading2": "Titre 2",
+    "heading3": "Titre 3",
+    "bold": "Gras",
+    "italic": "Italique",
+    "strikethrough": "Barré",
+    "bulletList": "Liste à puces",
+    "numberedList": "Liste numérotée",
+    "checklist": "Liste de tâches",
+    "quote": "Citation",
+    "link": "Lien",
+    "code": "Code"
   }
 }

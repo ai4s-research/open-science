@@ -99,7 +99,7 @@
   },
   "model": {
     "title": "Modell",
-    "hint": "Die unten aufgeführten Anbieter stellen die hier wählbaren Modelle bereit",
+    "hint": "Das Modell, mit dem jedes neue Gespräch startet. Die Auswahl liefern die Provider unten.",
     "connectPrompt": "Verbinden Sie die Runtime, um Modelle zu konfigurieren.",
     "notSet": "Nicht festgelegt — Standardmodell wählen",
     "providersDivider": "Anbieter",
@@ -117,13 +117,14 @@
     "catalogUnavailable": "Der Modellkatalog ist derzeit nicht verfügbar.",
     "catalogLoading": "Modellkatalog wird geladen…",
     "noModels": "Keine Modelle verfügbar.",
-    "manageProviders": "Anbieter verwalten",
     "emptyFavorites": "Favorisierte Modelle erscheinen hier.",
     "emptyRecent": "Erfolgreich ausgewählte Modelle erscheinen hier.",
     "noResults": "Keine Modelle entsprechen „{{query}}“.",
     "clearSearch": "Suche löschen",
     "addFavorite": "{{model}} zu Favoriten hinzufügen",
-    "removeFavorite": "{{model}} aus Favoriten entfernen"
+    "removeFavorite": "{{model}} aus Favoriten entfernen",
+    "change": "Ändern",
+    "noProvidersHint": "Verbinden Sie unten einen Provider."
   },
   "providers": {
     "title": "Anbieter",
@@ -149,18 +150,25 @@
     "pasteCode": "Den Code aus dem Browser einfügen",
     "customEndpoint": "Benutzerdefinierter Endpunkt",
     "customEndpointHint": "selbst gehostet · lokales Ollama · OpenAI-/Anthropic-kompatibel",
-    "customNamePlaceholder": "Name — z. B. Ollama, Mein DeepSeek-Gateway",
+    "customNamePlaceholder": "z. B. Ollama, mein DeepSeek-Gateway",
     "openaiCompatible": "OpenAI-kompatibel",
     "anthropicCompatible": "Anthropic-kompatibel",
-    "customUrlPlaceholder": "Basis-URL — Ollama: http://127.0.0.1:11434/v1",
-    "customKeyPlaceholder": "API-Schlüssel — optional, für Ollama nicht erforderlich",
-    "customModelsPlaceholder": "Modell-IDs, durch Kommas getrennt",
-    "customContextPlaceholder": "Kontextfenster — optional, Standard 128k",
+    "customUrlPlaceholder": "http://127.0.0.1:11434/v1",
+    "customKeyPlaceholder": "Optional — Ollama braucht keinen",
+    "customModelsPlaceholder": "Modell-IDs, kommagetrennt",
+    "customContextPlaceholder": "Optional — Standard 128k",
     "fetchModels": "Modelle abrufen",
     "fetchingModels": "Wird abgerufen…",
     "noModelsFound": "Der Endpunkt hat keine Modelle gemeldet.",
     "addEndpoint": "Endpunkt hinzufügen",
-    "importLogin": "Nutzen Sie bereits die OpenCode-CLI? Deren Anmeldung importieren"
+    "importLogin": "Nutzen Sie bereits die OpenCode-CLI? Deren Anmeldung importieren",
+    "addTitle": "Provider hinzufügen",
+    "fieldName": "Name",
+    "fieldApiStyle": "API-Stil",
+    "fieldBaseUrl": "Basis-URL",
+    "fieldApiKey": "API-Schlüssel",
+    "fieldModels": "Modelle",
+    "fieldContext": "Kontextfenster"
   },
   "mcp": {
     "title": "MCP-Server",
@@ -444,13 +452,22 @@
     "title": "Modell und Denkaufwand je Agent",
     "hint": "Lassen Sie Prüf- oder Rechercheagenten auf einem schnellen Modell laufen, während der Hauptagent auf einem starken denkt, und legen Sie je Agent fest, wie intensiv er denkt.",
     "noModels": "Verbinden Sie einen Anbieter, um Modelle zu wählen.",
-    "followDefault": "Standardmodell",
-    "followDefaultNamed": "Standard ({{model}})",
+    "followDefault": "Standard folgen",
     "modelFor": "Modell für {{agent}}",
     "defaultEffort": "Standardaufwand",
     "effortFor": "Denkaufwand für {{agent}}",
     "retiredOption": "{{model}} — nicht mehr verfügbar",
-    "primaryHint": "build und plan führen die Nachrichten aus, die du sendest. Ein hier gesetztes Modell gilt, sofern du nicht innerhalb einer Unterhaltung eines wählst — das gewinnt nur dort."
+    "primaryHint": "build und plan führen die Nachrichten aus, die du sendest. Ein hier gesetztes Modell gilt, sofern du nicht innerhalb einer Unterhaltung eines wählst — das gewinnt nur dort.",
+    "group": {
+      "conversation": "Agenten, mit denen Sie sprechen",
+      "utility": "Von der Workbench selbst genutzt"
+    },
+    "utilityHint": "Kurze mechanische Arbeit, die die Laufzeit selbst erledigt — ein schnelles Modell ist hier reiner Gewinn.",
+    "about": {
+      "title": "Benennt eine Sitzung nach ihrer ersten Nachricht.",
+      "summary": "Schreibt die kurze Zusammenfassung eines Gesprächs.",
+      "compaction": "Schreibt ein langes Gespräch so um, dass es ins Kontextfenster passt."
+    }
   },
   "ssh": {
     "title": "Bei {{host}} anmelden",

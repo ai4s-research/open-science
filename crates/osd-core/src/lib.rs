@@ -25,5 +25,8 @@ pub mod runs;
 pub mod runs_index;
 pub mod runtime;
 pub mod session_sync;
+pub mod usage;
+pub mod usage_pricing;
+pub mod which;
 
 pub use env::Env;

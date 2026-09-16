@@ -95,7 +95,15 @@ function humanSize(n: number): string {
  * used elsewhere (figures, tables, PDF, molecule, genome tracks, notebooks),
  * so all past work is reachable in one place.
  */
-export function FilesPage() {
+export function FilesPage({
+  onOpenFile,
+  onClose,
+}: {
+  onOpenFile?: (entry: DirEntry) => void;
+  /** In a pane: the ✕ goes at the end of the breadcrumb row, since this page
+   *  has no title bar of its own and the pane adds none. */
+  onClose?: () => void;
+} = {}) {
   const { t } = useTranslation(["pages", "common"]);
   const isMobile = useIsMobile();
   // Base-relative; "" = the base folder. Persisted client-side so returning to
@@ -139,12 +147,20 @@ export function FilesPage() {
     if (entry.isDir) {
       setSelected(null);
       setDir(entry.path);
-    } else {
-      setSelected(entry);
+      return;
     }
+    // In a pane the caller opens the file beside the tree; as a route there is
+    // nowhere to put it but here, so the page takes itself over.
+    if (onOpenFile) onOpenFile(entry);
+    else setSelected(entry);
   };
 
   const crumbs = dir ? dir.split("/") : [];
+  // In a pane the file opens BESIDE this one, so there is nothing to preview
+  // here: the tree takes the whole pane, the way a file tree does in VS Code or
+  // in Orca's sidebar. Keeping the preview column gave every Files pane a dead
+  // half reading "Select a file to preview it here" that could never fill.
+  const isTree = Boolean(onOpenFile);
 
   // Phone-width: the fixed 288px list + preview can't share the screen, so the
   // page becomes single-pane — the list fills the width, opening a file swaps
@@ -153,8 +169,10 @@ export function FilesPage() {
     <div className="flex h-full min-h-0">
       <div
         className={cn(
-          "flex flex-col border-r border-border",
-          isMobile ? cn("w-full", selected && "hidden") : "w-72 shrink-0",
+          "flex flex-col",
+          isTree
+            ? "w-full"
+            : cn("border-r border-border", isMobile ? cn("w-full", selected && "hidden") : "w-72 shrink-0"),
         )}
       >
         <div className="flex flex-wrap items-center gap-0.5 border-b border-border px-3 py-2.5 text-[13px]">
@@ -180,6 +198,18 @@ export function FilesPage() {
               </span>
             );
           })}
+          {onClose && (
+            <>
+              <div className="flex-1" />
+              <button
+                onClick={onClose}
+                aria-label={t("files.pane.closeAria")}
+                className="rounded p-1 text-muted hover:bg-border hover:text-error"
+              >
+                <X size={13} strokeWidth={1.5} />
+              </button>
+            </>
+          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -213,15 +243,17 @@ export function FilesPage() {
         </div>
       </div>
 
-      <div className={cn("min-h-0 flex-1", isMobile && !selected && "hidden")}>
-        {selected ? (
-          <FilePreview key={selected.path} entry={selected} root="base" onClose={() => setSelected(null)} />
-        ) : (
-          <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">
-            {t("files.selectFilePrompt")}
-          </div>
-        )}
-      </div>
+      {!isTree && (
+        <div className={cn("min-h-0 flex-1", isMobile && !selected && "hidden")}>
+          {selected ? (
+            <FilePreview key={selected.path} entry={selected} root="base" onClose={() => setSelected(null)} />
+          ) : (
+            <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">
+              {t("files.selectFilePrompt")}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

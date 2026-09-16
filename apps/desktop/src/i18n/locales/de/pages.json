@@ -33,7 +33,15 @@
       "stopCellTitle": "Stopp — startet den Kernel dieses Notebooks neu (Variablen werden zurückgesetzt)",
       "stopLabel": "Stopp",
       "runLabel": "Ausführen",
-      "addCellLabel": "Zelle hinzufügen"
+      "addCellLabel": "Zelle hinzufügen",
+      "askAgent": "Den Agenten zu dieser Zelle fragen",
+      "askAgentAria": "Den Agenten zu Zelle {{n}} fragen",
+      "askAgentIntro": "Zu Zelle [{{n}}] von `{{file}}`:",
+      "askAgentOutput": "Ausgabe:",
+      "askAgentSent": "Zelle in die Eingabe übernommen",
+      "countTitle": "Ausführungsnummer — [*] während der Ausführung, [n] danach",
+      "interrupted": "Unterbrochen — der Kernel wurde neu gestartet; Variablen sind zurückgesetzt.",
+      "desktopOnlyKernel": "Der lokale Kernel braucht die Desktop-App."
     }
   },
   "files": {

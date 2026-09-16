@@ -37,6 +37,29 @@ const WARM_SCREENS = 5;
  * Per-session concerns (thread, composer, right pane) live in SessionView; this
  * wrapper never reads them, so a background pane's SSE folds don't repaint it.
  */
+/**
+ * How a Screen is hidden, which is three different states.
+ *
+ * - Active: on display.
+ * - Warm: kept mounted so switching back is instant. It must be BOTH
+ *   `invisible` and `content-visibility: hidden`. `content-visibility` alone
+ *   skips its layout — the point of keeping it warm cheaply — but the element
+ *   still takes part in HIT TESTING, so a warm Screen sat over the live one as
+ *   an invisible sheet that swallowed every wheel, click and keystroke: the
+ *   conversation would not scroll and no terminal would take input.
+ *   `visibility: hidden` is what makes a subtree untouchable.
+ * - Cold: `display: none`, nothing kept at all.
+ */
+export function screenVisibility(
+  isActive: boolean,
+  isWarm: boolean,
+): { className: string; style?: React.CSSProperties } {
+  return {
+    className: cn("absolute inset-0", isWarm && "invisible", !isActive && !isWarm && "hidden"),
+    style: isWarm ? { contentVisibility: "hidden" } : undefined,
+  };
+}
+
 export function LiveSessionPage() {
   const params = useParams();
   const navigate = useNavigate();
@@ -257,11 +280,17 @@ export function LiveSessionPage() {
           return (
             <div
               key={g.id}
-              className={cn(
-                "absolute inset-0",
-                isWarm && "invisible",
-                !isActive && !isWarm && "hidden",
-              )}
+              // A warm Screen keeps its React state AND its DOM, so switching
+              // back is instant. `invisible` did that by keeping it laid out —
+              // which meant every reflow of the window (dragging the sidebar,
+              // resizing it, resizing the window) re-laid-out every pane of
+              // every warm Screen, terminals and editors included. That is what
+              // made the sidebar divider crawl.
+              //
+              // `content-visibility: hidden` keeps the subtree and its state
+              // while skipping its layout entirely, which is exactly what a
+              // warm-but-hidden Screen wants.
+              {...screenVisibility(isActive, isWarm)}
             >
               {g.tree ? (
                 <PaneTree group={g} active={isActive} laidOut={isActive || isWarm} />

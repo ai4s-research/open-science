@@ -7,6 +7,7 @@ import {
   ExternalLink,
   History,
   Loader2,
+  MessageSquarePlus,
   NotebookPen,
   Play,
   Plus,
@@ -23,6 +24,11 @@ import { ProvenancePanel } from "@/components/inspector/ProvenancePanel";
 import { PaneTitlebarInset } from "@/components/inspector/RightPane";
 import { parseIpynb, serializeIpynb, notebookLanguage } from "@/lib/notebook-file";
 import {
+  CodeEditor,
+  editorLanguage,
+  type CodeEditorHandle,
+} from "@/components/code-editor/CodeEditor";
+import {
   formatExecResult,
   isCodeLanguage,
   kernelExecute,
@@ -30,6 +36,7 @@ import {
   type KernelLanguage,
 } from "@/lib/kernel";
 import { toast } from "@/lib/toast";
+import { useUiStore } from "@/lib/store";
 import { isTauri, jupyterStatus, openJupyterLab, pythonInterpreter } from "@/lib/tauri";
 import { useScrollMemory } from "@/lib/scrollMemory";
 import { cn } from "@/lib/cn";
@@ -80,7 +87,7 @@ export function NotebookEditor({
   const [activeId, setActiveId] = useState<number | null>(null);
   const [mode, setMode] = useState<"edit" | "command">("edit");
   const cellRefs = useRef(new Map<number, HTMLDivElement | null>());
-  const codeRefs = useRef(new Map<number, HTMLTextAreaElement | null>());
+  const codeRefs = useRef(new Map<number, CodeEditorHandle | null>());
   /** Set when the keyboard put us into edit mode, so the caret lands at the end. */
   const caretToEnd = useRef(false);
   const cellsRef = useRef<NotebookCell[] | null>(null);
@@ -209,6 +216,23 @@ export function NotebookEditor({
     return () => clearTimeout(t);
   }, [cells, saved, save]);
 
+  /** Put one cell into the composer as a question about it.
+   *
+   *  A draft rather than a send: the user still says what they want asked, and
+   *  the composer appends it below whatever they were already typing. */
+  const askAgent = (cell: NotebookCell, position: number) => {
+    const fence = isCodeLanguage(cell.language) ? cell.language : "";
+    const parts = [
+      t("notebooks.editor.askAgentIntro", { n: position, file: path }),
+      `\`\`\`${fence}\n${cell.code}\n\`\`\``,
+    ];
+    if (cell.output) {
+      parts.push(t("notebooks.editor.askAgentOutput"), `\`\`\`\n${cell.output}\n\`\`\``);
+    }
+    useUiStore.getState().setComposerDraft(parts.join("\n\n"));
+    toast.success(t("notebooks.editor.askAgentSent"));
+  };
+
   const update = (index: number, patch: Partial<NotebookCell>) => {
     setCells((c) => c?.map((cell) => (cell.index === index ? { ...cell, ...patch } : cell)) ?? null);
     setSaved(false);
@@ -218,20 +242,34 @@ export function NotebookEditor({
   // error renders as "Interrupted", not as a crash.
   const interruptRef = useRef(false);
 
+  /** The next `[n]`. Jupyter counts executions per kernel, not per cell, so a
+   *  re-run gets a higher number than the cell below it — which is exactly how
+   *  you spot a notebook whose cells were run out of order. */
+  const nextCount = () => Math.max(0, ...(cellsRef.current ?? []).map((c) => c.count ?? 0)) + 1;
+
   const run = async (cell: NotebookCell) => {
     if (running !== null) return;
     setRunning(cell.index);
-    update(cell.index, { output: "running…" });
+    // Outputs are cleared at the start of a run, as Jupyter does, and the
+    // RUNNING state lives only in `running` — never in the cell.
+    //
+    // It used to be written into the output as the text "running…", which
+    // autosave then persisted: any interruption (the app closing, the pane
+    // unmounting, a kernel that never answered) left a notebook whose file said
+    // "running…" for ever, and reopening it showed a cell that looked stuck
+    // with nothing able to clear it.
+    update(cell.index, { output: undefined, image: undefined });
     try {
       const lang = isCodeLanguage(cell.language) ? cell.language : language;
       const res = await kernelExecute(cell.code, lang, path, root);
       update(cell.index, {
-        output: res ? formatExecResult(res) : "(local kernel available only in the desktop app)",
+        output: res ? formatExecResult(res) : t("notebooks.editor.desktopOnlyKernel"),
+        count: res ? nextCount() : undefined,
       });
     } catch (e) {
       update(cell.index, {
         output: interruptRef.current
-          ? "Interrupted — the kernel was restarted; variables were reset."
+          ? t("notebooks.editor.interrupted")
           : `kernel error: ${e instanceof Error ? e.message : String(e)}`,
       });
     } finally {
@@ -240,14 +278,22 @@ export function NotebookEditor({
     }
   };
 
-  // Stop a hung cell: kill THIS notebook's kernel — the blocked execute then
-  // errors out and `run` reports the interruption. Reset is best-effort.
+  // Stop a hung cell: kill THIS notebook's kernel, so the blocked execute errors
+  // out and `run` reports the interruption.
+  //
+  // The running state is cleared HERE too, rather than trusting that error to
+  // arrive. If it never does — the kernel died without answering, the command
+  // never settled — `run`'s `finally` never fires, and the guard at the top of
+  // `run` would then refuse every later cell: one unanswered execute wedged the
+  // whole notebook until the app was restarted.
   const stop = async () => {
     interruptRef.current = true;
     try {
       await kernelReset(language, path, root);
     } catch {
       /* the execute's own error path reports the state */
+    } finally {
+      setRunning(null);
     }
   };
 
@@ -305,20 +351,20 @@ export function NotebookEditor({
   const scrollRef = useRef<HTMLDivElement>(null);
   const onScroll = useScrollMemory(scrollRef, `file:${path}`, cells !== null);
 
-  const onCellKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>, cell: NotebookCell) => {
-    if ((e.metaKey || e.ctrlKey || e.shiftKey) && e.key === "Enter") {
-      e.preventDefault();
-      void run(cell);
-      return;
-    }
-    // Esc leaves the text and drives the cell instead — the same door into
-    // command mode Jupyter uses, and the only one that frees bare a/b/j/k.
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setActiveId(cell.index);
-      setMode("command");
-    }
-  };
+  /** The keys a cell owns, taken before CodeMirror's own bindings: run the
+   *  cell, and Escape out to command mode — the same door into it Jupyter uses,
+   *  and the only one that frees bare a/b/j/k. */
+  const cellCommands = (cell: NotebookCell) => [
+    { key: "Shift-Enter", run: () => void run(cell) },
+    { key: "Mod-Enter", run: () => void run(cell) },
+    {
+      key: "Escape",
+      run: () => {
+        setActiveId(cell.index);
+        setMode("command");
+      },
+    },
+  ];
 
   /** Command mode: the cell is selected but not being typed into, so single
    *  keys act on the notebook. Modified chords are left to the browser/OS. */
@@ -371,10 +417,10 @@ export function NotebookEditor({
       return;
     }
     const code = codeRefs.current.get(activeId);
-    code?.focus();
     // Only when edit mode was ENTERED by keyboard: Jupyter drops the caret at
     // the end of the cell. A click must keep the caret where it was clicked.
-    if (caretToEnd.current && code) code.setSelectionRange(code.value.length, code.value.length);
+    if (caretToEnd.current) code?.focusAtEnd();
+    else code?.focus();
     caretToEnd.current = false;
   }, [activeId, mode]);
 
@@ -487,7 +533,12 @@ export function NotebookEditor({
               )}
             >
               <div className="mb-1 flex items-center gap-2 text-xs text-muted">
-                <span className="font-mono">[{i + 1}]</span>
+                {/* Jupyter's marker: `[ ]` never run, `[*]` running, `[n]` the
+                    execution count. It is the only thing that distinguishes a
+                    cell that ran and printed nothing from one nobody ran. */}
+                <span className="font-mono" title={t("notebooks.editor.countTitle")}>
+                  {running === cell.index ? "[*]" : `[${cell.count ?? " "}]`}
+                </span>
                 <span>{cell.language}</span>
                 {isCodeLanguage(cell.language) &&
                   (running === cell.index ? (
@@ -513,6 +564,19 @@ export function NotebookEditor({
                       {t("notebooks.editor.runLabel")}
                     </button>
                   ))}
+                {/* Hand THIS cell to the agent — its code and, when it has
+                    one, what it actually printed. The hinge of the workbench:
+                    you run something, the output is wrong, and the question you
+                    want to ask is about that cell, not about the file. Pasting
+                    it by hand loses the output and the cell's identity. */}
+                <button
+                  className="hidden rounded px-1 py-0.5 hover:bg-surface-2 hover:text-accent group-hover:block"
+                  aria-label={t("notebooks.editor.askAgentAria", { n: i + 1 })}
+                  title={t("notebooks.editor.askAgent")}
+                  onClick={() => askAgent(cell, i + 1)}
+                >
+                  <MessageSquarePlus size={11} />
+                </button>
                 <button
                   className="hidden rounded px-1 py-0.5 hover:bg-surface-2 hover:text-text group-hover:block"
                   aria-label={`Insert cell above ${i + 1}`}
@@ -535,23 +599,24 @@ export function NotebookEditor({
                   <Trash2 size={11} />
                 </button>
               </div>
-              <textarea
-                ref={(el) => void codeRefs.current.set(cell.index, el)}
+              <CodeEditor
+                handleRef={(handle) => void codeRefs.current.set(cell.index, handle)}
                 value={cell.code}
-                onChange={(e) => update(cell.index, { code: e.target.value })}
-                onKeyDown={(e) => onCellKeyDown(e, cell)}
+                language={editorLanguage(cell.language)}
+                onChange={(code) => update(cell.index, { code })}
+                commands={cellCommands(cell)}
                 // Typing in a cell IS selecting it, however focus got here.
                 onFocus={() => {
                   setActiveId(cell.index);
+                  // eslint-disable-next-line i18next/no-literal-string -- notebook mode id, not UI copy
                   setMode("edit");
                 }}
-                rows={Math.min(Math.max(cell.code.split("\n").length, 1), 14)}
-                spellCheck={false}
-                className={cn(
-                  "w-full resize-none rounded-input border border-border bg-surface p-3 font-mono text-[12.5px] leading-relaxed text-text outline-none focus:border-accent/50",
-                  !isCodeLanguage(cell.language) && "bg-surface-2 text-muted",
-                )}
-                aria-label={`Cell ${i + 1}`}
+                // The old textarea capped itself at 14 rows; keep that, so one
+                // long cell cannot push every other cell off the screen.
+                // eslint-disable-next-line i18next/no-literal-string -- CSS length, not UI copy
+                maxHeight="18rem"
+                className={cn(!isCodeLanguage(cell.language) && "bg-surface-2 text-muted")}
+                ariaLabel={`Cell ${i + 1}`}
               />
               {cell.output && (
                 <pre className="mt-1.5 whitespace-pre-wrap rounded-input border border-border bg-surface-2 p-3 font-mono text-[12px] text-text">

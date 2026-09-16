@@ -33,7 +33,15 @@
       "stopCellTitle": "停止 — このノートブックのカーネルを再起動します（変数はリセットされます）",
       "stopLabel": "停止",
       "runLabel": "実行",
-      "addCellLabel": "セルを追加"
+      "addCellLabel": "セルを追加",
+      "askAgent": "このセルについてエージェントに聞く",
+      "askAgentAria": "セル {{n}} についてエージェントに聞く",
+      "askAgentIntro": "`{{file}}` のセル [{{n}}] について:",
+      "askAgentOutput": "出力:",
+      "askAgentSent": "入力欄に追加しました",
+      "countTitle": "実行番号 — 実行中は [*]、実行後は [n]",
+      "interrupted": "中断しました — カーネルを再起動したため、変数はリセットされました。",
+      "desktopOnlyKernel": "ローカルカーネルはデスクトップアプリでのみ使えます。"
     }
   },
   "files": {

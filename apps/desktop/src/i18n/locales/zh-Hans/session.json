@@ -28,7 +28,12 @@
       "newSession": "新建会话"
     },
     "rename": "重命名屏幕",
-    "tabMenu": "屏幕操作"
+    "tabMenu": "屏幕操作",
+    "runAgent": "运行一个 Agent",
+    "newNotebook": "新建 Notebook",
+    "newMarkdown": "新建 Markdown",
+    "splitRightShort": "向右分屏",
+    "splitDownShort": "向下分屏"
   },
   "composer": {
     "placeholder": {
@@ -132,7 +137,10 @@
     },
     "compact": {
       "aria": "压缩上下文",
-      "title": "把较早的对话总结掉，让下一条回复在受控的上下文上运行"
+      "title": "把较早的对话总结掉，让下一条回复在受控的上下文上运行",
+      "confirmTitle": "压缩上下文？",
+      "confirmBody": "先前的对话会被替换为一段摘要，让接下来的回复在有限的上下文里运行。完整的原始对话仍然保存在本地。",
+      "confirmAction": "压缩"
     }
   },
   "localCommand": {
@@ -180,7 +188,10 @@
     "subagentFallback": "一个子代理",
     "header": {
       "expandSidebarAria": "展开侧边栏",
-      "expandSidebarTitle": "展开侧边栏（{{shortcut}}）"
+      "expandSidebarTitle": "展开侧边栏（{{shortcut}}）",
+      "rename": "重命名会话…",
+      "untitled": "未命名会话",
+      "paneMenu": "会话操作"
     },
     "filesToggle": {
       "default": "文件",
@@ -428,7 +439,8 @@
     "title": "新窗格的会话将建在",
     "continueIn": "沿用 {{name}}",
     "newFolder": "新建文件夹",
-    "chooseOther": "选择其他文件夹…"
+    "chooseOther": "选择其他文件夹…",
+    "terminal": "在此文件夹开终端"
   },
   "stall": {
     "silentTitle": "回合可能已卡住",
@@ -437,5 +449,28 @@
     "repeatLine": "此回合已连续 {{count}} 次执行相同调用且结果相同。仍在工作，还是在循环？",
     "keepWaiting": "继续等待",
     "stopTurn": "停止回合"
+  },
+  "terminal": {
+    "title": "终端",
+    "exited": "[进程已退出]",
+    "desktopOnly": "终端只能在桌面应用中使用。",
+    "new": "终端",
+    "menu": {
+      "label": "终端菜单",
+      "copy": "复制",
+      "paste": "粘贴",
+      "selectAll": "全选",
+      "clear": "清屏",
+      "revealCwd": "在访达中显示工作目录"
+    },
+    "rename": "重命名终端…",
+    "confirmClose": {
+      "title": "关闭这个终端？",
+      "body": "Shell 以及里面还在跑的程序都会停止，滚动历史不会保留。",
+      "action": "关闭终端"
+    }
+  },
+  "splitInto": {
+    "session": "会话"
   }
 }

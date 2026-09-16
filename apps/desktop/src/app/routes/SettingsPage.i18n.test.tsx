@@ -81,7 +81,9 @@ describe("Settings page strings (i18n)", () => {
       // state while the separate Providers card is already on screen.
       expect(await screen.findByText("Loading the model catalog…")).toBeInTheDocument();
       expect(screen.getByRole("heading", { level: 2, name: "Providers" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Manage" })).toHaveAttribute("aria-expanded", "false");
+      // The Providers card shows its content outright — adding a provider is
+      // the common task here and used to sit behind a "Manage" click.
+      expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
     } finally {
       view?.unmount();
       useRuntimeStore.setState({ status: original.status, defaultModel: original.defaultModel });

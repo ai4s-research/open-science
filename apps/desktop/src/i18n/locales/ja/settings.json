@@ -99,7 +99,7 @@
   },
   "model": {
     "title": "モデル",
-    "hint": "以下のプロバイダーが、ここで選択できるモデルを提供します",
+    "hint": "新しい会話が既定で使うモデル。選べる範囲は下の Providers が決めます。",
     "connectPrompt": "モデルを設定するには、ランタイムに接続してください。",
     "notSet": "未設定 — デフォルトモデルを選択",
     "providersDivider": "プロバイダー",
@@ -117,13 +117,14 @@
     "catalogUnavailable": "モデルカタログは現在利用できません。",
     "catalogLoading": "モデルカタログを読み込み中…",
     "noModels": "利用可能なモデルがありません。",
-    "manageProviders": "プロバイダーを管理",
     "emptyFavorites": "お気に入りのモデルがここに表示されます。",
     "emptyRecent": "選択に成功したモデルがここに表示されます。",
     "noResults": "「{{query}}」に一致するモデルはありません。",
     "clearSearch": "検索をクリア",
     "addFavorite": "{{model}} をお気に入りに追加",
-    "removeFavorite": "{{model}} をお気に入りから削除"
+    "removeFavorite": "{{model}} をお気に入りから削除",
+    "change": "変更",
+    "noProvidersHint": "下の Providers で接続してください。"
   },
   "providers": {
     "title": "プロバイダー",
@@ -148,18 +149,25 @@
     "pasteCode": "ブラウザからコードを貼り付け",
     "customEndpoint": "カスタムエンドポイント",
     "customEndpointHint": "セルフホスト・ローカル Ollama・OpenAI/Anthropic 互換",
-    "customNamePlaceholder": "名前 — 例: Ollama、My DeepSeek gateway",
+    "customNamePlaceholder": "例: Ollama、自分の DeepSeek ゲートウェイ",
     "openaiCompatible": "OpenAI 互換",
     "anthropicCompatible": "Anthropic 互換",
-    "customUrlPlaceholder": "ベース URL — Ollama: http://127.0.0.1:11434/v1",
-    "customKeyPlaceholder": "API キー — 任意、Ollama では不要です",
-    "customModelsPlaceholder": "モデル ID（カンマ区切り）",
-    "customContextPlaceholder": "コンテキストウィンドウ — 任意、既定 128k",
+    "customUrlPlaceholder": "http://127.0.0.1:11434/v1",
+    "customKeyPlaceholder": "任意 — Ollama には不要",
+    "customModelsPlaceholder": "モデル ID をカンマ区切りで",
+    "customContextPlaceholder": "任意 — 既定は 128k",
     "fetchModels": "モデルを取得",
     "fetchingModels": "取得中…",
     "noModelsFound": "エンドポイントからモデルが返されませんでした。",
     "addEndpoint": "エンドポイントを追加",
-    "importLogin": "すでに OpenCode CLI を使っていますか？ そのログインをインポート"
+    "importLogin": "すでに OpenCode CLI を使っていますか？ そのログインをインポート",
+    "addTitle": "プロバイダーを追加",
+    "fieldName": "名前",
+    "fieldApiStyle": "API 形式",
+    "fieldBaseUrl": "Base URL",
+    "fieldApiKey": "API キー",
+    "fieldModels": "モデル",
+    "fieldContext": "コンテキスト長"
   },
   "mcp": {
     "title": "MCP サーバー",
@@ -442,13 +450,22 @@
     "title": "エージェントごとのモデルと推論の強度",
     "hint": "メインのエージェントが強力なモデルで推論する一方、レビューや探索のエージェントは高速なモデルで動かし、それぞれの考える強度も指定できます。",
     "noModels": "モデルを選ぶにはプロバイダーを接続してください。",
-    "followDefault": "既定のモデル",
-    "followDefaultNamed": "既定 ({{model}})",
+    "followDefault": "デフォルトに従う",
     "modelFor": "{{agent}} のモデル",
     "defaultEffort": "既定の強度",
     "effortFor": "{{agent}} の推論の強度",
     "retiredOption": "{{model}} — 提供終了",
-    "primaryHint": "build と plan は送信したメッセージを実行します。ここで設定したモデルが適用されますが、会話内でモデルを選ぶとその会話でのみ優先されます。"
+    "primaryHint": "build と plan は送信したメッセージを実行します。ここで設定したモデルが適用されますが、会話内でモデルを選ぶとその会話でのみ優先されます。",
+    "group": {
+      "conversation": "あなたが話しかけるエージェント",
+      "utility": "ワークベンチが内部で使うもの"
+    },
+    "utilityHint": "ランタイムが自前で行う短い機械的な作業——ここは速いモデルが純粋に有利です。",
+    "about": {
+      "title": "最初のメッセージからセッション名を付けます。",
+      "summary": "会話の短い要約を書きます。",
+      "compaction": "長い会話をコンテキスト長に収まるよう書き直します。"
+    }
   },
   "ssh": {
     "title": "{{host}} にサインイン",

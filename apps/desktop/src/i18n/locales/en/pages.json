@@ -33,7 +33,15 @@
       "stopCellTitle": "Stop — restarts this notebook's kernel (variables reset)",
       "stopLabel": "Stop",
       "runLabel": "Run",
-      "addCellLabel": "Add cell"
+      "addCellLabel": "Add cell",
+      "askAgent": "Ask the agent about this cell",
+      "askAgentAria": "Ask the agent about cell {{n}}",
+      "askAgentIntro": "About cell [{{n}}] of `{{file}}`:",
+      "askAgentOutput": "It printed:",
+      "askAgentSent": "Cell added to the composer",
+      "countTitle": "Execution count — [*] while running, [n] once it has run",
+      "interrupted": "Interrupted — the kernel was restarted; variables were reset.",
+      "desktopOnlyKernel": "The local kernel needs the desktop app."
     }
   },
   "files": {
