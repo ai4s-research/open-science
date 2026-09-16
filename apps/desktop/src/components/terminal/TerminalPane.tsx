@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isTauri } from "@/lib/tauri";
 import {
@@ -8,6 +8,7 @@ import {
   ContextMenuSub,
 } from "@/components/ui/ContextMenu";
 import { getTerminal, markTerminalUsed, putTerminal } from "@/lib/terminalSessions";
+import { TerminalSearch } from "./TerminalSearch";
 
 /**
  * A real shell in a pane.
@@ -45,6 +46,7 @@ export function TerminalPane({
 }) {
   const { t } = useTranslation("session");
   const host = useRef<HTMLDivElement | null>(null);
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     if (!isTauri || !host.current) return;
@@ -66,13 +68,15 @@ export function TerminalPane({
     }
 
     void (async () => {
-      const [{ Terminal }, { FitAddon }, { invoke }, { listen }] = await Promise.all([
-        import("@xterm/xterm"),
-        import("@xterm/addon-fit"),
-        import("@tauri-apps/api/core"),
-        import("@tauri-apps/api/event"),
-        import("@xterm/xterm/css/xterm.css"),
-      ]);
+      const [{ Terminal }, { FitAddon }, { SearchAddon }, { invoke }, { listen }] =
+        await Promise.all([
+          import("@xterm/xterm"),
+          import("@xterm/addon-fit"),
+          import("@xterm/addon-search"),
+          import("@tauri-apps/api/core"),
+          import("@tauri-apps/api/event"),
+          import("@xterm/xterm/css/xterm.css"),
+        ]);
       if (disposed) return;
 
       const container = document.createElement("div");
@@ -86,7 +90,18 @@ export function TerminalPane({
         theme: readTheme(),
       });
       const fit = new FitAddon();
+      const search = new SearchAddon();
       term.loadAddon(fit);
+      term.loadAddon(search);
+      // ⌘F / Ctrl+F belongs to the app, not to the shell: xterm would otherwise
+      // pass it through and some full-screen program would act on it.
+      term.attachCustomKeyEventHandler((event) => {
+        if (event.type === "keydown" && (event.metaKey || event.ctrlKey) && event.key === "f") {
+          setSearching(true);
+          return false;
+        }
+        return true;
+      });
       term.open(container);
       fit.fit();
 
@@ -140,6 +155,7 @@ export function TerminalPane({
       putTerminal(leafId, {
         term,
         fit,
+        search,
         container,
         dispose: () => {
           unlistenData();
@@ -206,6 +222,9 @@ export function TerminalPane({
           {t("terminal.menu.revealCwd")}
         </ContextMenuItem>
       )}
+      <ContextMenuItem onSelect={() => setSearching(true)}>
+        {t("terminal.search.find")}
+      </ContextMenuItem>
       {onRename && (
         <ContextMenuItem onSelect={onRename}>{t("terminal.rename")}</ContextMenuItem>
       )}
@@ -244,7 +263,20 @@ export function TerminalPane({
   }
   return (
     <ContextMenu items={menuItems} label={t("terminal.menu.label")}>
-      <div ref={host} className="h-full w-full bg-surface p-2" />
+      {/* `relative`: the search bar floats over the terminal rather than
+          pushing it, so the line being read does not move as you type. */}
+      <div className="relative h-full w-full">
+        <div ref={host} className="h-full w-full bg-surface p-2" />
+        {searching && (
+          <TerminalSearch
+            addon={getTerminal(leafId)?.search ?? null}
+            onClose={() => {
+              setSearching(false);
+              getTerminal(leafId)?.term.focus();
+            }}
+          />
+        )}
+      </div>
     </ContextMenu>
   );
 }

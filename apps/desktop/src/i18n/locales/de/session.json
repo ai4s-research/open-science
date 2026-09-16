@@ -479,6 +479,16 @@
       "title": "Dieses Terminal schließen?",
       "body": "Die Shell und alles, was noch darin läuft, wird beendet. Der Verlauf bleibt nicht erhalten.",
       "action": "Terminal schließen"
+    },
+    "search": {
+      "placeholder": "Suchen",
+      "matchCase": "Groß-/Kleinschreibung",
+      "regex": "Regulärer Ausdruck",
+      "previous": "Vorheriger Treffer",
+      "next": "Nächster Treffer",
+      "close": "Suche schließen",
+      "none": "keine Treffer",
+      "find": "Suchen…"
     }
   },
   "splitInto": {

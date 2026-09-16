@@ -479,6 +479,16 @@
       "title": "Fermer ce terminal ?",
       "body": "Le shell et tout ce qui y tourne encore s'arrêteront. L'historique n'est pas conservé.",
       "action": "Fermer le terminal"
+    },
+    "search": {
+      "placeholder": "Rechercher",
+      "matchCase": "Respecter la casse",
+      "regex": "Expression régulière",
+      "previous": "Précédent",
+      "next": "Suivant",
+      "close": "Fermer la recherche",
+      "none": "aucun résultat",
+      "find": "Rechercher…"
     }
   },
   "splitInto": {

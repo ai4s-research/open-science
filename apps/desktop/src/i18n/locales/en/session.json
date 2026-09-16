@@ -479,6 +479,16 @@
       "title": "Close this terminal?",
       "body": "The shell and anything still running in it will stop. Scrollback is not kept.",
       "action": "Close terminal"
+    },
+    "search": {
+      "placeholder": "Find",
+      "matchCase": "Match case",
+      "regex": "Regular expression",
+      "previous": "Previous match",
+      "next": "Next match",
+      "close": "Close find",
+      "none": "no results",
+      "find": "Find…"
     }
   },
   "splitInto": {

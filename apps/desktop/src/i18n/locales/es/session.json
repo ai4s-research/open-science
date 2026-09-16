@@ -479,6 +479,16 @@
       "title": "¿Cerrar este terminal?",
       "body": "Se detendrán el shell y todo lo que siga ejecutándose en él. El historial no se conserva.",
       "action": "Cerrar terminal"
+    },
+    "search": {
+      "placeholder": "Buscar",
+      "matchCase": "Coincidir mayúsculas",
+      "regex": "Expresión regular",
+      "previous": "Anterior",
+      "next": "Siguiente",
+      "close": "Cerrar búsqueda",
+      "none": "sin resultados",
+      "find": "Buscar…"
     }
   },
   "splitInto": {

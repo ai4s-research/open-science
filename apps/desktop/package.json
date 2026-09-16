@@ -39,6 +39,7 @@
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@xterm/addon-fit": "^0.10",
+    "@xterm/addon-search": "^0.16.0",
     "@xterm/xterm": "^5",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",

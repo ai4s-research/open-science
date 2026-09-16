@@ -468,6 +468,16 @@
       "title": "이 터미널을 닫을까요?",
       "body": "셸과 실행 중인 프로그램이 모두 중지됩니다. 스크롤백은 남지 않습니다.",
       "action": "터미널 닫기"
+    },
+    "search": {
+      "placeholder": "찾기",
+      "matchCase": "대소문자 구분",
+      "regex": "정규식",
+      "previous": "이전 결과",
+      "next": "다음 결과",
+      "close": "찾기 닫기",
+      "none": "결과 없음",
+      "find": "찾기…"
     }
   },
   "splitInto": {

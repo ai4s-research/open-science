@@ -11,10 +11,14 @@
 // and React does not.
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
+import type { SearchAddon } from "@xterm/addon-search";
 
 interface LiveTerminal {
   term: Terminal;
   fit: FitAddon;
+  /** Find-in-terminal. Lives with the terminal, not with the search bar, so
+   *  closing and reopening the bar does not lose the buffer's decorations. */
+  search: SearchAddon;
   /** The terminal's own element, kept alive while it is parked. */
   container: HTMLDivElement;
   dispose: () => void;

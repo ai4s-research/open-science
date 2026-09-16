@@ -13,6 +13,7 @@ function fakeTerminal(id: string) {
     // Only the members this module touches; the real xterm has far more.
     term: { dispose: termDispose } as never,
     fit: {} as never,
+    search: {} as never,
     container,
     dispose,
   });
