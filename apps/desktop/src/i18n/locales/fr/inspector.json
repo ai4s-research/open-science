@@ -193,6 +193,7 @@
     "moleculeViewerAria": "Visionneuse de molécule 3D {{filename}}",
     "notChemicalFile": "Ce n'est pas un fichier de structure chimique.",
     "noStructuresFound": "Aucune structure chimique trouvée dans ce fichier.",
+    "webglUnavailable": "L'aperçu 3D nécessite WebGL, que la WebView de ce système ne fournit pas. Sous Linux, essayez de lancer l'application avec WEBKIT_DISABLE_DMABUF_RENDERER=1.",
     "resetView": "Réinitialiser la vue",
     "atomCount_one": "{{count}} atome",
     "atomCount_other": "{{count}} atomes",

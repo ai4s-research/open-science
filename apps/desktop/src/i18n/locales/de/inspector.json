@@ -193,6 +193,7 @@
     "moleculeViewerAria": "{{filename}} 3D-Molekülbetrachter",
     "notChemicalFile": "Keine chemische Strukturdatei.",
     "noStructuresFound": "Keine chemischen Strukturen in dieser Datei gefunden.",
+    "webglUnavailable": "Die 3D-Vorschau benötigt WebGL, das die WebView dieses Systems nicht bereitstellt. Unter Linux die App mit WEBKIT_DISABLE_DMABUF_RENDERER=1 starten.",
     "resetView": "Ansicht zurücksetzen",
     "atomCount_one": "{{count}} Atom",
     "atomCount_other": "{{count}} Atome",

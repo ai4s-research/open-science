@@ -69,6 +69,16 @@ fn build_env(app: &AppHandle) -> Result<Env, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebKitGTK's DMA-BUF renderer fails to hand out a GL context on a good
+    // number of Linux setups (proprietary NVIDIA, VMs, some Wayland sessions).
+    // The page still paints, so nothing looks broken until something asks for
+    // WebGL — `canvas.getContext("webgl")` returns null and the molecule viewer
+    // dies. The plain GL renderer costs nothing where dma-buf does work, so
+    // prefer it by default; an explicit setting still wins.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     tauri::Builder::default()
         // Single instance MUST be the first plugin. A second launch (or a reinstall
         // while the app is still running) focuses the existing window instead of

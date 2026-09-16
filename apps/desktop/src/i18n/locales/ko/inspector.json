@@ -189,6 +189,7 @@
     "moleculeViewerAria": "{{filename}} 3D 분자 뷰어",
     "notChemicalFile": "화학 구조 파일이 아닙니다.",
     "noStructuresFound": "이 파일에서 화학 구조를 찾을 수 없습니다.",
+    "webglUnavailable": "3D 미리 보기에는 WebGL이 필요하지만 이 시스템의 WebView에서 제공되지 않습니다. Linux에서는 WEBKIT_DISABLE_DMABUF_RENDERER=1 로 앱을 실행해 보세요.",
     "resetView": "보기 초기화",
     "atomCount_other": "원자 {{count}}개",
     "renderingStructure": "구조 렌더링 중…",

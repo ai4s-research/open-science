@@ -12,6 +12,22 @@ import {
 } from "@/lib/molecule";
 import { cn } from "@/lib/cn";
 
+/**
+ * Whether this WebView can actually give 3Dmol a WebGL context. It cannot on
+ * every Linux box: WebKitGTK hands back a null context when its renderer and
+ * the GPU driver disagree, and 3Dmol then dereferences that null deep inside
+ * its constructor — the user is shown `this._gl.clearDepth` and told nothing.
+ * Probe for it so the failure can be explained instead.
+ */
+function hasWebgl(): boolean {
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(canvas.getContext("webgl2") ?? canvas.getContext("webgl"));
+  } catch {
+    return false; // some builds throw here rather than return null
+  }
+}
+
 const STYLE_OPTIONS: Array<{ value: MoleculeStyleMode }> = [
   { value: "stick" },
   { value: "sphere" },
@@ -77,6 +93,12 @@ export function MoleculeView({ filename, text }: { filename: string; text: strin
         if (cancelled) return;
         if (!model) {
           setError(t("molecule.noStructuresFound"));
+          return;
+        }
+        // Checked after the file itself: what's wrong with this file is the more
+        // useful answer, and it is one we can give without a GPU at all.
+        if (!hasWebgl()) {
+          setError(t("molecule.webglUnavailable"));
           return;
         }
 

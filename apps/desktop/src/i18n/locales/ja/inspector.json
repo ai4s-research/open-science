@@ -189,6 +189,7 @@
     "moleculeViewerAria": "{{filename}} の 3D 分子ビューア",
     "notChemicalFile": "化学構造ファイルではありません。",
     "noStructuresFound": "このファイルに化学構造が見つかりません。",
+    "webglUnavailable": "3D プレビューには WebGL が必要ですが、このシステムの WebView では利用できません。Linux では WEBKIT_DISABLE_DMABUF_RENDERER=1 を付けて起動してみてください。",
     "resetView": "表示をリセット",
     "atomCount_other": "{{count}} 個の原子",
     "renderingStructure": "構造をレンダリング中…",
