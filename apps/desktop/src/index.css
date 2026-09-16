@@ -510,16 +510,29 @@ textarea,
 }
 
 /* Find-in-page highlights (lib/findInPage).
-   ::highlight() is the only way to paint a Range without wrapping it in an
-   element, which is the whole point: the conversation's DOM belongs to React.
-   The colours match the terminal's search — dim amber for every match, a
-   brighter orange for the current one — so one gesture looks the same wherever
-   it is used. */
-::highlight(osd-find) {
-  background-color: #5c4a00;
-  color: #ffffff;
+   One overlay, appended to the searched element and holding a rectangle per
+   match — the way an editor draws its own decorations. The conversation's DOM
+   belongs to React and is never touched. Every match is tinted with the
+   accent, the current one more strongly and outlined, so a search reads the
+   same wherever it is used. */
+[data-osd-find-overlay] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* No size of its own: it must not add a pixel of scrollable area. */
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 5;
 }
-::highlight(osd-find-current) {
-  background-color: #c4580e;
-  color: #ffffff;
+.osd-find-hit {
+  position: absolute;
+  border-radius: 2px;
+  /* Drawn over the words, translucent, the way a marker pen reads: the text
+     underneath has to stay readable at every theme. */
+  background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.osd-find-hit-current {
+  background-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  outline: 1px solid var(--accent);
 }

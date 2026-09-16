@@ -2,20 +2,12 @@
  * Find text in rendered content — a conversation, a preview — without touching
  * the DOM that React owns.
  *
- * Matches are `Range`s handed to the CSS Custom Highlight API, so nothing is
- * wrapped in `<mark>`: wrapping would fight React on the next render, break
- * text selection across the seams, and re-run every message component. The
- * highlight is a paint-time overlay; the document underneath is untouched.
- *
- * Where the API is missing, the current match is still scrolled to and selected
- * — the browser paints a selection natively — so find works, just without the
- * other matches lit up.
+ * Matches are `Range`s, and they are drawn as rectangles in one overlay this
+ * module appends to the searched element. Nothing is wrapped in `<mark>`:
+ * wrapping would fight React on the next render, break text selection across
+ * the seams, and re-run every message component. The overlay is a leaf the
+ * module creates and destroys; the document underneath is untouched.
  */
-
-/** Registered highlight names. Two, so the current match can be painted
- *  differently from the rest, as every editor does. */
-const ALL = "osd-find";
-const CURRENT = "osd-find-current";
 
 export interface FindOptions {
   caseSensitive: boolean;
@@ -75,8 +67,18 @@ function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Paint `ranges`, with `current` marked apart. Safe to call when the browser
- *  has no Highlight API — it simply paints nothing. */
+/**
+ * Paint `ranges`, with `current` marked apart.
+ *
+ * The matches are drawn as rectangles in an overlay this module owns, the way
+ * an editor draws its own decorations (VS Code, CodeMirror, PDF.js all do it
+ * this way). It replaced the CSS Custom Highlight API, which registers the
+ * matches with the engine and leaves the painting to it: in WKWebView the
+ * engine kept the old matches lit after the registry had dropped them, so a
+ * closed search stayed highlighted and a previous query's hits sat next to the
+ * current one's. Erasing an overlay is removing nodes from the document, which
+ * no engine can leave on screen.
+ */
 export function paintHighlights(
   ranges: Range[],
   current: Range | null,
@@ -84,56 +86,74 @@ export function paintHighlights(
   token?: object,
 ): void {
   // Not the live search: a bar left open in another pane must not paint its
-  // matches back over the registry the visible one just cleared.
+  // matches back over the one the reader is looking at.
   if (token && owner !== token) return;
-  const highlights = highlightRegistry();
-  if (!highlights) return;
-  highlights.set(ALL, new Highlight(...ranges));
-  highlights.set(CURRENT, new Highlight(...(current ? [current] : [])));
-  repaint(scope);
+  if (!(scope instanceof HTMLElement)) return;
+
+  const overlay = overlayFor(scope);
+  // Rebuilt whole, never patched: two generations of a search can then never
+  // be on screen at once.
+  overlay.replaceChildren();
+  if (ranges.length === 0) return;
+
+  const box = scope.getBoundingClientRect();
+  // Page zoom (⌘+/-) scales what `getClientRects` reports but not the lengths
+  // the overlay is positioned with, so the two are reconciled here.
+  const scale = scope.offsetWidth > 0 ? box.width / scope.offsetWidth : 1;
+  // A screen above and below as well: the reader scrolls a little without a
+  // repaint catching up, and a rectangle for each of two thousand matches
+  // costs far more than anyone can see at once.
+  const margin = scope.clientHeight;
+  const doc = scope.ownerDocument;
+  const hits = doc.createDocumentFragment();
+
+  for (const range of ranges) {
+    const bounds = range.getBoundingClientRect();
+    if (bounds.bottom < box.top - margin || bounds.top > box.bottom + margin) continue;
+    for (const rect of range.getClientRects()) {
+      if (rect.width === 0 || rect.height === 0) continue;
+      const hit = doc.createElement("div");
+      hit.className = range === current ? "osd-find-hit osd-find-hit-current" : "osd-find-hit";
+      hit.style.left = `${(rect.left - box.left) / scale + scope.scrollLeft}px`;
+      hit.style.top = `${(rect.top - box.top) / scale + scope.scrollTop}px`;
+      hit.style.width = `${rect.width / scale}px`;
+      hit.style.height = `${rect.height / scale}px`;
+      hits.appendChild(hit);
+    }
+  }
+  overlay.appendChild(hits);
 }
 
 export function clearHighlights(scope?: Element | null): void {
-  const highlights = highlightRegistry();
-  if (!highlights) return;
-  highlights.delete(ALL);
-  highlights.delete(CURRENT);
-  repaint(scope);
-}
-
-/**
- * Make the engine paint `scope` again.
- *
- * Changing the highlight registry does not reliably invalidate the area that
- * was painted with the OLD highlights. On WKWebView — the engine the desktop
- * app runs — the matches stay lit on screen after the registry has dropped
- * them, until something else happens to repaint that region (a scroll, a new
- * message, a hover). That is exactly the report: closing the search does not
- * clear the highlights *immediately*, and a previous query's matches stay lit
- * next to the current one's. The registry is right; the pixels are stale.
- *
- * A compositing-only property forces the subtree to be rastered again. Opacity
- * a thousandth below 1 is imperceptible and moves nothing, so there is no
- * flicker and no reflow; it is put back on the second frame, because restoring
- * it within the same frame would coalesce into no change at all — and no
- * change is no repaint.
- */
-function repaint(scope: Element | null | undefined): void {
   if (!(scope instanceof HTMLElement)) return;
-  const view = scope.ownerDocument.defaultView;
-  if (!view || typeof view.requestAnimationFrame !== "function") return;
-  const previous = scope.style.opacity;
-  scope.style.opacity = "0.999";
-  view.requestAnimationFrame(() => {
-    view.requestAnimationFrame(() => {
-      scope.style.opacity = previous;
-    });
-  });
+  scope.querySelector(`:scope > [${OVERLAY}]`)?.remove();
 }
 
-function highlightRegistry(): HighlightRegistry | null {
-  return typeof CSS !== "undefined" && "highlights" in CSS ? CSS.highlights : null;
+/** Marks the overlay, so it is found again and never searched. */
+const OVERLAY = "data-osd-find-overlay";
+
+/** The overlay lives inside the searched element and scrolls with it, so the
+ *  rectangles stay on their words without a scroll handler moving them. */
+function overlayFor(scope: HTMLElement): HTMLElement {
+  const existing = scope.querySelector<HTMLElement>(`:scope > [${OVERLAY}]`);
+  if (existing) return existing;
+
+  const view = scope.ownerDocument.defaultView;
+  // Absolute positions inside it are only meaningful if it is a containing
+  // block; a scroll container is `static` by default.
+  if (view && view.getComputedStyle(scope).position === "static") {
+    scope.style.position = "relative";
+  }
+  const overlay = scope.ownerDocument.createElement("div");
+  overlay.setAttribute(OVERLAY, "");
+  // It holds no text and takes no clicks: neither find, nor a screen reader,
+  // nor the mouse has any business in it.
+  overlay.setAttribute("data-find-skip", "");
+  overlay.setAttribute("aria-hidden", "true");
+  scope.appendChild(overlay);
+  return overlay;
 }
+
 
 /** Bring a match into view and select it.
  *
@@ -151,22 +171,11 @@ export function revealRange(range: Range): void {
 }
 
 /**
- * Put everything back: the highlights AND the selection find made.
- *
- * Clearing the highlights alone left the last match still SELECTED, which
- * looks exactly like a highlight that refused to go away — the search was
- * closed and the text was still lit.
- *
- * Only a selection that lies inside the searched content is dropped. A
- * selection the user made somewhere else is theirs, and closing a find bar is
- * no reason to take it.
- */
-/**
  * One search owns the highlights at a time.
  *
- * The registry is the document's, not a component's: two panes each hold a
- * conversation, each can have a find bar open, and both write the same two
- * names. Without an owner the bar left open in the background repaints its
+ * The overlay is per element, but a reader is searching one thing: two panes
+ * each hold a conversation and each can have a find bar open. Without an owner
+ * the bar left open in the background repaints its
  * matches the moment its conversation streams another block — over the pane
  * the reader is looking at, after that pane's search was closed. The last bar
  * to open owns them; the others go quiet.
@@ -189,6 +198,17 @@ export function releaseFind(token: object, scope: Element | null): void {
   clearFind(scope);
 }
 
+/**
+ * Put everything back: the highlights AND the selection find made.
+ *
+ * Clearing the highlights alone left the last match still SELECTED, which
+ * looks exactly like a highlight that refused to go away — the search was
+ * closed and the text was still lit.
+ *
+ * Only a selection that lies inside the searched content is dropped. A
+ * selection the user made somewhere else is theirs, and closing a find bar is
+ * no reason to take it.
+ */
 export function clearFind(scope: Element | null): void {
   clearHighlights(scope);
   const view = scope?.ownerDocument?.defaultView ?? (typeof window === "undefined" ? null : window);

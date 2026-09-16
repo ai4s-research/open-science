@@ -72,6 +72,29 @@ export function FindBar({
     paintHighlights(ranges, ranges[current] ?? null, scope.current, token);
   }, [scope, ranges, current, token, claims]);
 
+  // Only what is on screen is drawn, so scrolling and resizing have to draw
+  // the rest. One frame at a time — a scroll fires far faster than it paints.
+  useEffect(() => {
+    const root = scope.current;
+    const view = root?.ownerDocument.defaultView;
+    if (!root || !view) return;
+    let frame = 0;
+    const redraw = () => {
+      view.cancelAnimationFrame(frame);
+      frame = view.requestAnimationFrame(() =>
+        paintHighlights(ranges, ranges[current] ?? null, root, token),
+      );
+    };
+    root.addEventListener("scroll", redraw, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(redraw);
+    observer?.observe(root);
+    return () => {
+      view.cancelAnimationFrame(frame);
+      root.removeEventListener("scroll", redraw);
+      observer?.disconnect();
+    };
+  }, [scope, ranges, current, token]);
+
   // Only on a deliberate step, never on every keystroke: scrolling the
   // conversation while the word is still being typed loses the reader's place.
   const step = (delta: number) => {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   claimFind,
+  paintHighlights,
   clearFind,
   findRanges,
   MAX_MATCHES,
@@ -149,5 +150,47 @@ describe("who owns the highlights", () => {
 
     expect(window.getSelection()?.rangeCount ?? 0).toBe(0);
     expect(ownsFind(foreground)).toBe(false);
+  });
+});
+
+describe("painting the matches", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("keeps its rectangles in one overlay it owns, and takes it away again", () => {
+    const root = content("<p>alpha beta</p>");
+    const ranges = findRanges(root, "beta", PLAIN);
+
+    paintHighlights(ranges, ranges[0] ?? null, root);
+    // The conversation's own DOM is React's; find adds one leaf beside it and
+    // never wraps a word.
+    expect(root.querySelectorAll("[data-osd-find-overlay]")).toHaveLength(1);
+    expect(root.querySelector("p")!.innerHTML).toBe("alpha beta");
+
+    clearFind(root);
+
+    // Erasing a search is removing nodes from the document — not asking the
+    // engine to stop painting something it was told about.
+    expect(root.querySelector("[data-osd-find-overlay]")).toBeNull();
+  });
+
+  it("draws one generation at a time", () => {
+    const root = content("<p>alpha beta</p>");
+    paintHighlights(findRanges(root, "alpha", PLAIN), null, root);
+    paintHighlights(findRanges(root, "beta", PLAIN), null, root);
+
+    // The overlay is rebuilt whole, so a previous query's hits cannot be left
+    // on screen next to the current one's.
+    expect(root.querySelectorAll("[data-osd-find-overlay]")).toHaveLength(1);
+  });
+
+  it("is never searched itself", () => {
+    const root = content("<p>alpha</p>");
+    paintHighlights(findRanges(root, "alpha", PLAIN), null, root);
+    const overlay = root.querySelector("[data-osd-find-overlay]")!;
+
+    expect(overlay.getAttribute("data-find-skip")).not.toBeNull();
+    expect(overlay.getAttribute("aria-hidden")).toBe("true");
   });
 });
