@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { CaseSensitive, ChevronDown, ChevronUp, Regex, X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { clearHighlights, findRanges, paintHighlights, revealRange } from "@/lib/findInPage";
+import { clearFind, findRanges, paintHighlights, revealRange } from "@/lib/findInPage";
 
 /**
  * Find in rendered content — ⌘F / Ctrl+F.
@@ -57,13 +57,23 @@ export function FindBar({
     if (range) revealRange(range);
   };
 
-  useEffect(() => () => clearHighlights(), []);
+  // Both on unmount and on the way out: a close must leave nothing behind, and
+  // the caller may keep the bar mounted for an animation.
+  useEffect(() => {
+    const root = scope.current;
+    return () => clearFind(root);
+  }, [scope]);
+
+  const close = () => {
+    clearFind(scope.current);
+    onClose();
+  };
 
   return (
     <div
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (e.key === "Escape") onClose();
+        if (e.key === "Escape") close();
         else if (e.key === "Enter") step(e.shiftKey ? -1 : 1);
       }}
       className="absolute right-3 top-3 z-30 flex items-center gap-0.5 rounded-card border border-border bg-surface/95 px-1.5 py-1 shadow-pop backdrop-blur"
@@ -98,7 +108,7 @@ export function FindBar({
       <Toggle label={t("find.next")} onClick={() => step(1)}>
         <ChevronDown size={13} strokeWidth={1.5} />
       </Toggle>
-      <Toggle label={t("find.close")} onClick={onClose}>
+      <Toggle label={t("find.close")} onClick={close}>
         <X size={13} strokeWidth={1.5} />
       </Toggle>
     </div>

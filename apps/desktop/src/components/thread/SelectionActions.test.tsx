@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useUiStore } from "@/lib/store";
 import { useRuntimeStore } from "@/lib/runtime";
-import { SelectionActions } from "./SelectionActions";
+import { SelectionActions, signatureOf } from "./SelectionActions";
 
 /** Select the text of `id` and release the pointer, as a user drag would. */
 function selectIn(id: string) {
@@ -91,5 +91,69 @@ describe("SelectionActions", () => {
     scene();
     selectIn("answer");
     expect(screen.queryByText("Save to memory")).not.toBeInTheDocument();
+  });
+});
+
+describe("dismissing the selection toolbar", () => {
+  it("stays gone when the click leaves the same selection behind", () => {
+    scene();
+    selectIn("answer");
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+
+    // A click on empty space: the toolbar hides on pointerdown, and then
+    // pointerup reads the selection again. WebKit has not always collapsed it
+    // by then, so the toolbar came straight back — a flicker that needed a
+    // second click to be rid of.
+    fireEvent.pointerDown(document.getElementById("elsewhere")!);
+    fireEvent.pointerUp(document);
+
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+  });
+
+  it("still shows for a NEW selection made right after a dismiss", () => {
+    scene();
+    selectIn("answer");
+    fireEvent.pointerDown(document.getElementById("elsewhere")!);
+    fireEvent.pointerUp(document);
+
+    // Double-clicking a word immediately after dismissing is a new selection,
+    // and must not be mistaken for the one just dismissed.
+    const node = document.getElementById("answer")!.firstChild!;
+    const range = document.createRange();
+    range.setStart(node, 0);
+    range.setEnd(node, 5);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    fireEvent.pointerUp(document);
+
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+  });
+
+  it("describes a selection well enough to tell it from another", () => {
+    const host = document.createElement("p");
+    host.textContent = "alpha beta";
+    document.body.appendChild(host);
+    const range = (from: number, to: number) => {
+      const r = document.createRange();
+      r.setStart(host.firstChild!, from);
+      r.setEnd(host.firstChild!, to);
+      return {
+        isCollapsed: false,
+        rangeCount: 1,
+        getRangeAt: () => r,
+        toString: () => host.textContent!.slice(from, to),
+      } as unknown as Selection;
+    };
+
+    expect(signatureOf(range(0, 5))).toBe(signatureOf(range(0, 5)));
+    // A different selection must NOT look like the dismissed one, or
+    // double-clicking a word right after a dismiss would show nothing.
+    expect(signatureOf(range(0, 5))).not.toBe(signatureOf(range(6, 10)));
+  });
+
+  it("has no signature for an empty selection", () => {
+    expect(signatureOf(null)).toBeNull();
+    expect(signatureOf({ isCollapsed: true, rangeCount: 0 } as unknown as Selection)).toBeNull();
   });
 });

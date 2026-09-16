@@ -109,3 +109,24 @@ export function revealRange(range: Range): void {
   selection?.removeAllRanges();
   selection?.addRange(range.cloneRange());
 }
+
+/**
+ * Put everything back: the highlights AND the selection find made.
+ *
+ * Clearing the highlights alone left the last match still SELECTED, which
+ * looks exactly like a highlight that refused to go away — the search was
+ * closed and the text was still lit.
+ *
+ * Only a selection that lies inside the searched content is dropped. A
+ * selection the user made somewhere else is theirs, and closing a find bar is
+ * no reason to take it.
+ */
+export function clearFind(scope: Element | null): void {
+  clearHighlights();
+  const view = scope?.ownerDocument?.defaultView ?? (typeof window === "undefined" ? null : window);
+  const selection = view?.getSelection();
+  if (!scope || !selection || selection.rangeCount === 0) return;
+  if (scope.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+    selection.removeAllRanges();
+  }
+}

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { findRanges, MAX_MATCHES } from "./findInPage";
+import { clearFind, findRanges, MAX_MATCHES, revealRange } from "./findInPage";
 
 function content(html: string): HTMLElement {
   const root = document.createElement("div");
@@ -63,5 +63,38 @@ describe("finding text in rendered content", () => {
 
   it("finds nothing for an empty query", () => {
     expect(findRanges(content("<p>beta</p>"), "", PLAIN)).toEqual([]);
+  });
+});
+
+describe("leaving a find", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    window.getSelection()?.removeAllRanges();
+  });
+
+  it("drops the selection find made, not only the highlights", () => {
+    const root = content("<p>alpha beta</p>");
+    const range = findRanges(root, "beta", PLAIN)[0]!;
+    revealRange(range);
+    expect(window.getSelection()?.isCollapsed).toBe(false);
+
+    clearFind(root);
+
+    // Clearing the highlights alone left the last match SELECTED, which looks
+    // exactly like a highlight that refused to go away.
+    expect(window.getSelection()?.rangeCount ?? 0).toBe(0);
+  });
+
+  it("leaves a selection the user made elsewhere alone", () => {
+    const root = content("<p>alpha</p>");
+    const elsewhere = content("<p id=other>the user's own selection</p>");
+    const range = document.createRange();
+    range.selectNodeContents(elsewhere.querySelector("#other")!);
+    window.getSelection()?.addRange(range);
+
+    clearFind(root);
+
+    // Closing a find bar is no reason to take a selection that was never ours.
+    expect(window.getSelection()?.rangeCount).toBe(1);
   });
 });

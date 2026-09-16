@@ -8,6 +8,22 @@ import { useRuntimeStore } from "@/lib/runtime";
 import { appendMemory, isTauri } from "@/lib/tauri";
 import { samePath } from "@/lib/workspacePath";
 
+/**
+ * Enough of a selection to tell it from a different one: where it starts, where
+ * it ends, and what it says. Compared as a string because the nodes themselves
+ * may be replaced by a re-render between the two reads.
+ */
+export function signatureOf(selection: Selection | null): string | null {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  return [
+    range.startOffset,
+    range.endOffset,
+    range.startContainer.nodeName,
+    selection.toString(),
+  ].join("\u0000");
+}
+
 /** Longest excerpt carried into a follow-up or into memory. A whole answer
  *  pasted back would just re-fill the context this feature exists to save. */
 const MAX = 4000;
@@ -30,6 +46,9 @@ export function SelectionActions({ sessionId }: { sessionId: string | null }) {
   const { t } = useTranslation(["session", "common"]);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const bar = useRef<HTMLDivElement>(null);
+  /** The selection the user just clicked away from, so it is not read back as
+   *  a fresh one. */
+  const dismissed = useRef<string | null>(null);
   const setComposerDraft = useUiStore((s) => s.setComposerDraft);
   const sessions = useRuntimeStore((s) => s.sessions);
   const projects = useRuntimeStore((s) => s.projects);
@@ -40,8 +59,11 @@ export function SelectionActions({ sessionId }: { sessionId: string | null }) {
       const text = sel?.toString().trim() ?? "";
       if (!sel || sel.isCollapsed || !text) {
         setAnchor(null);
+        dismissed.current = null;
         return;
       }
+      if (signatureOf(sel) === dismissed.current) return; // the one just dismissed
+      dismissed.current = null;
       // Both ends must sit inside one answer: a drag that runs off the end of
       // a message into the next block is not a quote of anything coherent.
       const host = (node: Node | null) =>
@@ -69,6 +91,13 @@ export function SelectionActions({ sessionId }: { sessionId: string | null }) {
     // enough and keeps the toolbar from flickering under the moving cursor.
     const onDown = (e: PointerEvent) => {
       if (bar.current?.contains(e.target as Node)) return; // clicking the toolbar
+      // Remember WHAT was dismissed. A click on empty space hides the toolbar
+      // here and then, a few milliseconds later, `pointerup` reads the
+      // selection again — and WebKit has not always collapsed it by then, so
+      // the toolbar came straight back. It looked like a flicker that needed a
+      // second click to get rid of. Reading the same selection twice is not a
+      // new selection, so it does not bring the toolbar back.
+      dismissed.current = signatureOf(window.getSelection());
       setAnchor(null);
     };
     document.addEventListener("pointerup", read);
