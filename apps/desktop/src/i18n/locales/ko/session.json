@@ -482,5 +482,15 @@
   },
   "splitInto": {
     "session": "세션"
+  },
+  "find": {
+    "placeholder": "대화에서 찾기",
+    "matchCase": "대소문자 구분",
+    "regex": "정규식",
+    "previous": "이전 결과",
+    "next": "다음 결과",
+    "close": "찾기 닫기",
+    "none": "결과 없음",
+    "find": "찾기…"
   }
 }

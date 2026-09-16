@@ -493,5 +493,15 @@
   },
   "splitInto": {
     "session": "Sitzung"
+  },
+  "find": {
+    "placeholder": "Im Gespräch suchen",
+    "matchCase": "Groß-/Kleinschreibung",
+    "regex": "Regulärer Ausdruck",
+    "previous": "Vorheriger Treffer",
+    "next": "Nächster Treffer",
+    "close": "Suche schließen",
+    "none": "keine Treffer",
+    "find": "Suchen…"
   }
 }

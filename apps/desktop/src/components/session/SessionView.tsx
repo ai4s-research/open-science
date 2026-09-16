@@ -25,6 +25,8 @@ import {
 } from "@/lib/runtime";
 import { useLayoutStore } from "@/lib/layout";
 import { startPaneDrag } from "@/lib/dragPane";
+import { allowsNativeMenu } from "@/lib/nativeMenu";
+import { FindBar } from "@/components/ui/FindBar";
 import { isGatewayWeb } from "@/lib/webMode";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { queryRuns } from "@/lib/runs";
@@ -229,6 +231,7 @@ export function SessionView({
   const bindSession = useLayoutStore((s) => s.bindSession);
   const aimDraft = useRuntimeStore((s) => s.aimDraft);
   const renameSession = useRuntimeStore((s) => s.renameSession);
+  const [finding, setFinding] = useState(false);
   const dockSession = useLayoutStore((s) => s.dockSession);
   const openContentPane = useLayoutStore((s) => s.openContentPane);
   const [renaming, setRenaming] = useState(false);
@@ -501,6 +504,25 @@ export function SessionView({
     return () => ro.disconnect();
   }, [inspectorFillsPane]);
 
+  // ⌘F / Ctrl+F searches THIS pane, and only while it is the focused one: a
+  // window can hold four conversations, and a find that picked one of them at
+  // random would be worse than none.
+  useEffect(() => {
+    if (!focused || !visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "f") return;
+      // An editor or a terminal in another pane binds its own ⌘F; this one is
+      // for the conversation, so it only fires when the keystroke was not
+      // already claimed by a field.
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable='true'], .monaco-editor")) return;
+      e.preventDefault();
+      setFinding(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focused, visible]);
+
   const autoOpened = useRef(new Set<string>());
   useEffect(() => {
     // Not while hidden: an unbound pane's artifact falls back to the CURRENT
@@ -569,6 +591,7 @@ export function SessionView({
    *  the gesture works anywhere in the pane rather than only on its 32px strip. */
   const paneMenu = (
     <>
+      <ContextMenuItem onSelect={() => setFinding(true)}>{t("find.find")}</ContextMenuItem>
       <ContextMenuItem disabled={!eid} onSelect={() => setRenaming(true)}>
         {t("live.header.rename")}
       </ContextMenuItem>
@@ -876,6 +899,16 @@ export function SessionView({
           <div className="min-h-0 flex-1 overflow-hidden">{inspectorNode}</div>
         ) : (
           <>
+        {finding && (
+          <FindBar
+            scope={chatRef}
+            // A streaming answer adds text while the bar is open; matches found
+            // in a paragraph that has since re-rendered point at nodes no
+            // longer in the document.
+            generation={thread?.blocks.length ?? 0}
+            onClose={() => setFinding(false)}
+          />
+        )}
         <div
           ref={chatRef}
           onScroll={onChatScroll}
@@ -895,10 +928,14 @@ export function SessionView({
             // The conversation is document content, so it keeps the WebView's
             // own menu (Copy, Look Up, Translate) — see lib/nativeMenu.
             data-native-menu
-            // …which means the PANE's right-click menu must not reach it. The
-            // pane menu is for the pane; a right-click on a sentence is for
-            // copying that sentence.
-            onContextMenu={(e) => e.stopPropagation()}
+            // …but only while something is selected. A right-click on a
+            // sentence is for copying that sentence; a right-click on empty
+            // space in the conversation is for the pane, because the WebView's
+            // own menu there is "Back" and "Reload" — the menu of a web page,
+            // in an app that is not one.
+            onContextMenu={(e) => {
+              if (allowsNativeMenu(e.target)) e.stopPropagation();
+            }}
             style={zoom !== 1 ? { zoom } : undefined}
             className="mx-auto flex max-w-[760px] flex-col gap-4 px-8 pt-6"
           >

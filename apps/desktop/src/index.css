@@ -508,3 +508,18 @@ textarea,
     visibility: visible;
   }
 }
+
+/* Find-in-page highlights (lib/findInPage).
+   ::highlight() is the only way to paint a Range without wrapping it in an
+   element, which is the whole point: the conversation's DOM belongs to React.
+   The colours match the terminal's search — dim amber for every match, a
+   brighter orange for the current one — so one gesture looks the same wherever
+   it is used. */
+::highlight(osd-find) {
+  background-color: #5c4a00;
+  color: #ffffff;
+}
+::highlight(osd-find-current) {
+  background-color: #c4580e;
+  color: #ffffff;
+}

@@ -55,14 +55,31 @@ describe("the native-menu guard alongside the app's own menus", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it("leaves the page menu alone over document content", async () => {
+  it("leaves the page menu alone over SELECTED document content", async () => {
     render(<Harness />);
+    const target = screen.getByText("conversation text");
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+
+    // Copy / Look Up / Translate must still be available on a selected sentence.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("suppresses it over document content with nothing selected", async () => {
+    render(<Harness />);
+    window.getSelection()?.removeAllRanges();
     const target = screen.getByText("conversation text");
 
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
     target.dispatchEvent(event);
 
-    // Copy / Look Up / Translate must still be available in a conversation.
-    expect(event.defaultPrevented).toBe(false);
+    // With no selection the WebView's menu is "Back" and "Reload", so the
+    // right-click belongs to the pane it happened in.
+    expect(event.defaultPrevented).toBe(true);
   });
 });

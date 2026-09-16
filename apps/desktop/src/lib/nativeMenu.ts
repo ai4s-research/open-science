@@ -1,23 +1,50 @@
 import { useEffect } from "react";
 import { isTauri } from "@/lib/tauri";
 
-/** Where the WebView's own menu is still the right answer:
- *
- *  - editable fields — Paste, Look Up, spelling all matter there
- *  - anything marked `data-native-menu` — read-only DOCUMENT content
- *    (a conversation, a file preview, a code listing), where Copy, Look Up and
- *    Translate are exactly what a user wants from a right-click
- *
- *  Everywhere else is chrome, and a chrome row is not a web page: offering
- *  "Open Link in New Window" or "Download Linked File" on a sidebar session is
- *  just wrong (it is an `<a>` only incidentally). Those get their own menus. */
-const NATIVE_OK = 'input, textarea, [contenteditable="true"], [data-native-menu]';
+/** Editable fields always keep the WebView's menu: Paste, spelling and Look Up
+ *  all matter there, selection or not. */
+const EDITABLE = 'input, textarea, [contenteditable="true"]';
 
-/** True when the page menu should be allowed for this event target. */
-export function allowsNativeMenu(target: EventTarget | null): boolean {
+/** Read-only DOCUMENT content — a conversation, a file preview, a code
+ *  listing — keeps it only while something is SELECTED. See below. */
+const DOCUMENT_CONTENT = "[data-native-menu]";
+
+/**
+ * True when the page menu should be allowed for this event target.
+ *
+ * On document content the answer depends on the selection, and that is the
+ * whole point: with a selection the WebView offers Copy, Look Up and Translate,
+ * which is exactly what a right-click on a sentence is for. With NOTHING
+ * selected it offers "Back" and "Reload" — the menu of a web page, in an app
+ * that is not one — so the right-click may as well belong to the pane it
+ * happened in. Right-clicking a conversation used to give one or the other
+ * depending on whether the pointer landed on text, which read as the menu
+ * being broken.
+ *
+ * Everywhere else is chrome, and a chrome row is not a web page: offering
+ * "Open Link in New Window" on a sidebar session is just wrong (it is an `<a>`
+ * only incidentally). Those get their own menus.
+ */
+export function allowsNativeMenu(target: EventTarget | null, selection?: Selection | null): boolean {
   const el =
     target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
-  return !!el?.closest(NATIVE_OK);
+  if (!el) return false;
+  if (el.closest(EDITABLE)) return true;
+  const content = el.closest(DOCUMENT_CONTENT);
+  if (!content) return false;
+  const active = selection === undefined ? currentSelection() : selection;
+  return hasSelectionInside(content, active);
+}
+
+function currentSelection(): Selection | null {
+  return typeof window === "undefined" ? null : window.getSelection();
+}
+
+/** A non-empty selection that actually lies inside `root`. */
+export function hasSelectionInside(root: Element, selection: Selection | null): boolean {
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  return root.contains(range.commonAncestorContainer);
 }
 
 /**

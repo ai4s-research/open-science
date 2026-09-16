@@ -482,5 +482,15 @@
   },
   "splitInto": {
     "session": "セッション"
+  },
+  "find": {
+    "placeholder": "会話内を検索",
+    "matchCase": "大文字小文字を区別",
+    "regex": "正規表現",
+    "previous": "前の一致",
+    "next": "次の一致",
+    "close": "検索を閉じる",
+    "none": "該当なし",
+    "find": "検索…"
   }
 }

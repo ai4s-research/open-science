@@ -493,5 +493,15 @@
   },
   "splitInto": {
     "session": "Session"
+  },
+  "find": {
+    "placeholder": "Find in conversation",
+    "matchCase": "Match case",
+    "regex": "Regular expression",
+    "previous": "Previous match",
+    "next": "Next match",
+    "close": "Close find",
+    "none": "no results",
+    "find": "Find…"
   }
 }
