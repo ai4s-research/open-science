@@ -364,7 +364,7 @@ export function FilePreviewInspector({
           </span>
         )}
         {canToggle && (
-          <div className="ml-2 flex items-center gap-1 rounded-input bg-surface-2 p-0.5">
+          <div className="ml-2 flex shrink-0 items-center gap-1 rounded-input bg-surface-2 p-0.5">
             {/* eslint-disable-next-line i18next/no-literal-string -- "preview" is an internal tab id, not display text (the visible label is t("filePreview.tabs.preview")) */}
             <ToggleBtn active={tab === "preview"} onClick={() => setTab("preview")}>
               <Eye size={13} /> {t("filePreview.tabs.preview")}
@@ -1057,7 +1057,7 @@ function ToggleBtn({
     <button
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1 rounded px-2 py-1 text-xs",
+        "flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs",
         active ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text",
       )}
     >
