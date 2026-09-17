@@ -1,6 +1,6 @@
 ---
 name: domain-check
-description: Use whenever you write or run scientific analysis code (physics, earth/geo, biology, chemistry, social science, or bioprocess/fermentation) in this workspace — before executing it and again after generating results. Runs a deterministic domain-correctness gate that catches code which runs but is scientifically wrong (unit/dimension mismatch, Euclidean distance on lat/lon without a CRS, 0-based/1-based coordinate and strand errors, impossible SMILES valence, uncorrected multiple comparisons, averaging a categorical code, unconstrained kinetic-parameter fits, kLa computed from raw DO instead of the driving force, arithmetic mean of raw CFU counts, ANOVA/Tukey with no assumption check, a curvature DOE design fit with a first-order model, an ML model fit across process scales with no correction). Surfaces structured findings; never claims the code is correct.
+description: Use ONLY when the user asks to check, validate, review or audit analysis code for scientific correctness, or when you are the reviewer agent running its checks. Never run it unprompted as part of ordinary analysis work. Covers physics, earth/geo, biology, chemistry, social science and bioprocess/fermentation. Runs a deterministic domain-correctness gate that catches code which runs but is scientifically wrong (unit/dimension mismatch, Euclidean distance on lat/lon without a CRS, 0-based/1-based coordinate and strand errors, impossible SMILES valence, uncorrected multiple comparisons, averaging a categorical code, unconstrained kinetic-parameter fits, kLa computed from raw DO instead of the driving force, arithmetic mean of raw CFU counts, ANOVA/Tukey with no assumption check, a curvature DOE design fit with a first-order model, an ML model fit across process scales with no correction). Surfaces structured findings; never claims the code is correct.
 ---
 
 # Domain-correctness gate
@@ -10,16 +10,19 @@ scientifically wrong**. This gate intercepts that field's classic error classes
 **deterministically** — by analysing the code you actually wrote, not by
 recalling rules. It verifies specific error classes; it never proves correctness.
 
-Run it as a normal step of any analysis — it is fast, offline, and stdlib-only.
+It is fast, offline and stdlib-only — but it is an on-request gate, not a
+background one.
 
 ## When to run
 
-- **Before executing** analysis code you generated (catch the bug before it
-  produces a plausible-but-wrong number).
-- **After generating results**, as a final gate before you report figures or
-  numbers to the user.
-- Whenever the user asks to check, validate, or audit an analysis for
+- **When the user asks** to check, validate, review or audit an analysis for
   correctness.
+- **When you are the reviewer agent**, running the checks that agent's prompt
+  lists (the app's auto-review turn, which the user switches on in Settings).
+
+Do NOT run it on your own initiative while writing or executing analysis code.
+A clean run still emits a review block, so an unprompted pass puts a card with
+no findings in the user's conversation — noise they did not ask for.
 
 ## How to run
 

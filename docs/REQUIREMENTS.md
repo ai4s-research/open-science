@@ -200,8 +200,14 @@ competitors.
   `gender`/`region`, treating a label as interval; a `groupby` key is correctly
   not flagged). Rules favour precision (unrecognized units / no discipline
   signal / bracket-atom SMILES / a single test / a groupby key stay silent); 37
-  validator tests. Gap: POSCAR→pymatgen validity round-trip; broader per-field
-  rule depth.
+  validator tests. **Trigger narrowed (2026-09-16)**: the gate is on-request,
+  not automatic. "Runs before/after execution" above was the original
+  requirement, and as written the skill ran itself on every analysis turn —
+  which put a reviewer card carrying nothing but its own disclaimer into the
+  conversation each time it found nothing. It now runs when the user asks for a
+  correctness check, and on the auto-review turn (the reviewer agent's prompt
+  names it), so the Settings toggle governs the automatic half. Gap:
+  POSCAR→pymatgen validity round-trip; broader per-field rule depth.
 
 ### P0-6 · Large files: reference, don't load — ✅ Done · was inside P0-2/P2-1
 
