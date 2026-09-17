@@ -366,6 +366,11 @@ interface RuntimeState {
   // focused session (`currentId ?? DRAFT_KEY`) — the single-pane behavior.
   setAgentMode: (mode: AgentMode, sessionId?: string) => void;
   openArtifact: (a: ArtifactBlock, sessionId?: string) => void;
+  /** Open this artifact, or close the inspector when it is the one already
+   *  showing — what a second click on the same file card means. Separate from
+   *  `openArtifact` because not every caller is a toggle: opening a notebook
+   *  the agent just created must show it, never hide it. */
+  toggleArtifact: (a: ArtifactBlock, sessionId?: string) => void;
   closeArtifact: (sessionId?: string) => void;
   setShowFiles: (show: boolean, sessionId?: string) => void;
   setShowRuns: (show: boolean, sessionId?: string) => void;
@@ -2546,6 +2551,19 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         },
       },
     })),
+  toggleArtifact: (artifact, sessionId) => {
+    const s = get();
+    const key = sessionId ?? s.currentId ?? DRAFT_KEY;
+    // Same file already in the inspector ⇒ the click is asking to put it away.
+    // Keyed on `path`, which is the file's identity here: `filename` repeats
+    // across directories, and the block object itself is rebuilt on every
+    // thread re-render so it can never be compared by reference.
+    if (s.panes[key]?.artifact?.path === artifact.path) {
+      s.closeArtifact(sessionId);
+      return;
+    }
+    s.openArtifact(artifact, sessionId);
+  },
   closeArtifact: (sessionId) =>
     set((s) => {
       const key = sessionId ?? s.currentId ?? DRAFT_KEY;

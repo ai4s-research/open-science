@@ -1757,6 +1757,28 @@ describe("per-session right pane", () => {
     expect(useRuntimeStore.getState().panes["ses_2"]?.artifact?.path).toBe("analysis.ipynb");
   });
 
+  it("a second click on the same file card puts the inspector away", () => {
+    // The card is the only handle on that pane from the thread, so without a
+    // toggle the preview could be opened there and closed only by aiming at the
+    // inspector's own close button.
+    useRuntimeStore.setState({ currentId: "ses_1" });
+    useRuntimeStore.getState().toggleArtifact(artifact("report.pdf"));
+    expect(useRuntimeStore.getState().panes["ses_1"]?.artifact?.path).toBe("report.pdf");
+    useRuntimeStore.getState().toggleArtifact(artifact("report.pdf"));
+    expect(useRuntimeStore.getState().panes["ses_1"]?.artifact).toBe(null);
+    // Identity is the path, not the object: the thread rebuilds the block on
+    // every render, so a reference comparison would never close anything.
+    useRuntimeStore.getState().toggleArtifact(artifact("report.pdf"));
+    expect(useRuntimeStore.getState().panes["ses_1"]?.artifact?.path).toBe("report.pdf");
+  });
+
+  it("clicking a DIFFERENT file swaps the inspector rather than closing it", () => {
+    useRuntimeStore.setState({ currentId: "ses_1" });
+    useRuntimeStore.getState().toggleArtifact(artifact("report.pdf"));
+    useRuntimeStore.getState().toggleArtifact(artifact("notes.md"));
+    expect(useRuntimeStore.getState().panes["ses_1"]?.artifact?.path).toBe("notes.md");
+  });
+
   it("a closed pane stays closed after switching away and back", () => {
     useRuntimeStore.setState({ currentId: "ses_1" });
     useRuntimeStore.getState().openArtifact(artifact("report.pdf"));

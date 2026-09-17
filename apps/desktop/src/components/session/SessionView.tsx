@@ -209,6 +209,7 @@ export function SessionView({
   const runShell = useRuntimeStore((s) => s.runShell);
   const runCommand = useRuntimeStore((s) => s.runCommand);
   const openArtifact = useRuntimeStore((s) => s.openArtifact);
+  const toggleArtifact = useRuntimeStore((s) => s.toggleArtifact);
   const closeArtifact = useRuntimeStore((s) => s.closeArtifact);
   const setShowFiles = useRuntimeStore((s) => s.setShowFiles);
   const setShowRuns = useRuntimeStore((s) => s.setShowRuns);
@@ -306,7 +307,11 @@ export function SessionView({
     () => ({
       onArtifactOpen: (a) => {
         pinEphemeral();
-        openArtifact(a, sid ?? undefined);
+        // A toggle, not an open: clicking the card of the file already in the
+        // inspector puts it away. The card is the only handle on that pane, so
+        // without this the side preview could be opened from the thread and
+        // only closed by aiming at the inspector's own ✕.
+        toggleArtifact(a, sid ?? undefined);
       },
       onFigureComment: (a, title) =>
         void sendPrompt(
@@ -340,7 +345,7 @@ export function SessionView({
       },
     }),
     [
-      openArtifact,
+      toggleArtifact,
       sendPrompt,
       editMessage,
       revertMessage,
