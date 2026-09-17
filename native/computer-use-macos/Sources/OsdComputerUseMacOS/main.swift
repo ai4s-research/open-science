@@ -4053,10 +4053,38 @@ private final class SocketListener: @unchecked Sendable {
         while !isStopped {
             let fd = accept(socketFd, nil, nil)
             if fd < 0 {
-                if !isStopped {
-                    fputs("computer-use socket accept failed: \(String(cString: strerror(errno)))\n", stderr)
+                let failure = errno
+                if isStopped {
+                    return
                 }
-                continue
+                // Retrying an error that cannot clear is a busy loop, and this
+                // one used to `continue` on every errno: a listener closed under
+                // it (EBADF after a concurrent `stop`, ENOTSOCK) then spun a
+                // core and wrote a line of stderr per iteration for the life of
+                // the process. Only the recoverable ones are worth another
+                // pass, and the two kinds recover differently.
+                switch failure {
+                // The connection went away before it was handed over, or a
+                // signal interrupted the wait. Both are ordinary.
+                case EINTR, ECONNABORTED:
+                    continue
+                // Out of descriptors or memory: real, and transient, but the fd
+                // table is emptied by the handlers finishing rather than by
+                // asking again, so pause instead of hammering it.
+                case EMFILE, ENFILE, ENOBUFS, ENOMEM:
+                    fputs(
+                        "computer-use socket accept deferred: \(String(cString: strerror(failure)))\n",
+                        stderr
+                    )
+                    usleep(100_000)
+                    continue
+                default:
+                    fputs(
+                        "computer-use socket accept failed, no longer listening: \(String(cString: strerror(failure)))\n",
+                        stderr
+                    )
+                    return
+                }
             }
             guard let connectionID = allocateConnectionID() else {
                 fputs("computer-use socket exhausted connection identities\n", stderr)
@@ -4265,6 +4293,16 @@ private func handleRequest(
     }
 }
 
+/// Ceiling on one request line.
+///
+/// Not a defence against an attacker — the socket is 0600 inside a 0700
+/// directory and the peer's pid is checked — but against a peer that stops
+/// sending newlines: the buffer below grew without limit, so a truncated or
+/// wedged write ended in the helper being killed for its memory. Generous
+/// enough for the largest request the protocol allows, a `pasteText` at the
+/// client's own 16 MB clipboard cap, plus its JSON envelope.
+private let maxRequestLineBytes = 24 * 1024 * 1024
+
 private func readLine(from fd: Int32) -> String? {
     var bytes: [UInt8] = []
     var byte: UInt8 = 0
@@ -4274,10 +4312,20 @@ private func readLine(from fd: Int32) -> String? {
             return bytes.isEmpty ? nil : String(bytes: bytes, encoding: .utf8)
         }
         if count < 0 {
+            if errno == EINTR {
+                continue
+            }
             return nil
         }
         if byte == 10 {
             return String(bytes: bytes, encoding: .utf8)
+        }
+        if bytes.count >= maxRequestLineBytes {
+            fputs(
+                "computer-use request line exceeded \(maxRequestLineBytes) bytes; closing the connection\n",
+                stderr
+            )
+            return nil
         }
         bytes.append(byte)
     }

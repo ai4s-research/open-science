@@ -113,7 +113,8 @@
       "detailedHint": "Alle Zeitfenster mit Balken und Prozentwerten",
       "compactHint": "Nur das Fenster, das dem Limit am nächsten ist",
       "detailAria": "Detailgrad der Nutzung",
-      "resetsIn": "Zurücksetzung in {{duration}}"
+      "resetsIn": "Zurücksetzung in {{duration}}",
+      "asOf": "Stand: vor {{age}}"
     },
     "awake": {
       "title": "Wachhalten",

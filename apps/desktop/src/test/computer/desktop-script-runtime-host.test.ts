@@ -394,6 +394,29 @@ describe('DesktopScriptRuntimeHost', () => {
     host.dispose()
   })
 
+  it('never replays a mutation just because the failure looked like a policy block', async () => {
+    const { host, children, specs } = createHost()
+
+    const promise = host.request({ tool: 'click', app: 'Notepad', x: 10, y: 10 })
+    await settle()
+    children[0].exit(1, POLICY_ERROR)
+    await settle()
+
+    // A helper that never announced readiness can still be a stale runtime.ps1
+    // that ran the click, which is what the policy pattern cannot rule out. The
+    // escalation is a fact about the host and is kept; the click is not re-sent.
+    expect(children).toHaveLength(1)
+    await expect(promise).rejects.toSatisfy(isRuntimeHostUnavailable)
+
+    // Kept, not discarded: the next start is the escalated one.
+    const next = host.request({ tool: 'handshake' })
+    await settle()
+    expect(specs[specs.length - 1]?.args).toContain('Bypass')
+    children[children.length - 1]?.respond({ ok: true, capabilities: {} })
+    await expect(next).resolves.toMatchObject({ ok: true })
+    host.dispose()
+  })
+
   it('never replays a mutation once the helper announced it was reading', async () => {
     const { host, children } = createHost()
 

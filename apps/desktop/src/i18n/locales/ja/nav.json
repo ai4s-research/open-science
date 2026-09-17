@@ -111,7 +111,8 @@
       "detailedHint": "すべてのウィンドウをバーと割合付きで表示",
       "compactHint": "上限に最も近いウィンドウのみ",
       "detailAria": "使用量の表示密度",
-      "resetsIn": "{{duration}} 後にリセット"
+      "resetsIn": "{{duration}} 後にリセット",
+      "asOf": "{{age}}前の値"
     },
     "awake": {
       "title": "スリープ防止",

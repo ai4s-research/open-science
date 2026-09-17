@@ -113,7 +113,8 @@
       "detailedHint": "Every window, with bars and percentages",
       "compactHint": "Only the window nearest its limit",
       "detailAria": "Usage detail",
-      "resetsIn": "Resets in {{duration}}"
+      "resetsIn": "Resets in {{duration}}",
+      "asOf": "as of {{age}} ago"
     },
     "awake": {
       "title": "Keep awake",

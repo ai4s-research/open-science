@@ -71,14 +71,25 @@ pub fn terminal_open(
     rows: u16,
 ) -> Result<(), String> {
     let state = app.state::<TerminalState>();
-    {
-        let terminals = state.0.lock().map_err(|_| "terminal state poisoned")?;
-        // Reopening a live terminal is a no-op, not a second shell: a pane that
-        // remounts (a Screen switch, a React strict-mode double effect) must not
-        // silently leave an orphan process behind.
-        if terminals.contains_key(&id) {
-            return Ok(());
-        }
+    // Reopening a live terminal is a no-op, not a second shell: a pane that
+    // remounts (a Screen switch, a React strict-mode double effect) must not
+    // silently leave an orphan process behind.
+    //
+    // ONE lock for the whole open, not one to check and another to insert.
+    // Tauri runs these on a thread pool, so two opens for the same id — exactly
+    // what a remount produces — both passed the check inside the old gap, both
+    // spawned a shell, and the second insert dropped the first `Terminal`
+    // without killing its child. Dropping a `portable_pty` child does not kill
+    // it, so that PTY outlived the pane with nothing left holding its id: the
+    // orphan this check exists to prevent.
+    //
+    // The reader thread below takes the same lock to forget an exited shell. It
+    // blocks until this returns rather than deadlocking, and that ordering is
+    // wanted: a shell that exits instantly must not be removed before it is
+    // inserted.
+    let mut terminals = state.0.lock().map_err(|_| "terminal state poisoned")?;
+    if terminals.contains_key(&id) {
+        return Ok(());
     }
 
     let pty = NativePtySystem::default();
@@ -133,7 +144,6 @@ pub fn terminal_open(
         }
     });
 
-    let mut terminals = state.0.lock().map_err(|_| "terminal state poisoned")?;
     terminals.insert(
         id,
         Terminal {

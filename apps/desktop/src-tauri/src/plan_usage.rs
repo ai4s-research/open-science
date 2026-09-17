@@ -7,7 +7,8 @@
 // that token, so the honest figure is one request away:
 //
 //   Claude  GET https://api.anthropic.com/api/oauth/usage
-//           token: macOS keychain, service "Claude Code-credentials"
+//           token: macOS keychain (service "Claude Code-credentials"), else
+//                  ~/.claude/.credentials.json
 //   Codex   GET https://chatgpt.com/backend-api/wham/usage
 //           token: ~/.codex/auth.json
 //
@@ -98,10 +99,43 @@ fn client(proxy: Option<&str>) -> Option<reqwest::blocking::Client> {
 
 /// The token Claude Code signed in with.
 ///
-/// Read from the login keychain, where the CLI keeps it — service
-/// "Claude Code-credentials", the same entry Orca reads. Reading it needs no
-/// prompt because this app is asking on behalf of the same user who granted it.
+/// Two places, because the CLI keeps it in two: the login keychain on macOS
+/// (service "Claude Code-credentials", the entry Orca reads), and a file under
+/// `~/.claude` where there is no keychain. Reading either needs no prompt
+/// because this app is asking on behalf of the same user who granted it.
+///
+/// This used to shell out to `security` unconditionally. On Linux and Windows —
+/// both shipped targets — that command does not exist, so every Claude plan
+/// lookup failed with "could not read the keychain", which reads as a broken
+/// keychain rather than as a thing this build never did. Worse, the empty
+/// result then fell through to the spend figures, so a subscriber saw a dollar
+/// amount computed at API rates where their quota bars belonged.
 fn claude_token() -> Result<String, String> {
+    let keychain = cfg!(target_os = "macos")
+        .then(read_claude_keychain)
+        .and_then(Result::ok);
+    if let Some(token) = keychain {
+        return Ok(token);
+    }
+    // NOT verified against a real file: this machine holds its credentials in
+    // the keychain, so the path and the `claudeAiOauth` shape below are read
+    // across from the keychain entry (which holds exactly this JSON) rather
+    // than observed on disk. If the CLI writes something else, this returns the
+    // same "not signed in" it would have anyway — it cannot report a wrong
+    // number, only fail to find one.
+    let home = dirs_home().ok_or("no home directory")?;
+    let path = home.join(".claude").join(".credentials.json");
+    let raw = std::fs::read(&path).map_err(|_| {
+        if cfg!(target_os = "macos") {
+            "Claude Code is not signed in on this machine".to_string()
+        } else {
+            "Claude Code is not signed in on this machine (looked in ~/.claude)".to_string()
+        }
+    })?;
+    claude_token_from(&raw).ok_or_else(|| "no Claude access token in ~/.claude".into())
+}
+
+fn read_claude_keychain() -> Result<String, String> {
     let out = crate::runtime::quiet_command("security")
         .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
         .output()
@@ -109,13 +143,18 @@ fn claude_token() -> Result<String, String> {
     if !out.status.success() {
         return Err("Claude Code is not signed in on this machine".into());
     }
-    let json: Value = serde_json::from_slice(&out.stdout)
-        .map_err(|_| "the keychain entry is not the shape Claude Code writes".to_string())?;
-    json.get("claudeAiOauth")
-        .and_then(|o| o.get("accessToken"))
-        .and_then(Value::as_str)
+    claude_token_from(&out.stdout)
+        .ok_or_else(|| "no Claude access token in the keychain".to_string())
+}
+
+/// The one shape both stores use.
+fn claude_token_from(raw: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(raw)
+        .ok()?
+        .get("claudeAiOauth")?
+        .get("accessToken")?
+        .as_str()
         .map(str::to_owned)
-        .ok_or_else(|| "no Claude access token in the keychain".into())
 }
 
 fn claude_windows(proxy: Option<&str>) -> Result<Vec<RateLimitWindow>, String> {
@@ -336,6 +375,19 @@ mod tests {
             windows.iter().map(|w| w.window_minutes).collect::<Vec<_>>(),
             vec![300, 10080]
         );
+    }
+
+    #[test]
+    fn one_token_shape_serves_the_keychain_and_the_file() {
+        // The keychain entry holds this JSON; the file store is read with the
+        // same parse, so a signed-in user is found on every platform rather
+        // than only where `security` exists.
+        let raw = br#"{"claudeAiOauth":{"accessToken":"sk-tok","refreshToken":"r"}}"#;
+        assert_eq!(claude_token_from(raw).as_deref(), Some("sk-tok"));
+        // Anything else is "no token found", never a wrong one.
+        assert_eq!(claude_token_from(b"not json"), None);
+        assert_eq!(claude_token_from(br#"{"claudeAiOauth":{}}"#), None);
+        assert_eq!(claude_token_from(br#"{"other":{"accessToken":"x"}}"#), None);
     }
 
     #[test]

@@ -7,9 +7,11 @@ import {
   agentWindows,
   planError,
   clampPercent,
+  formatResetDuration,
   formatTokens,
   formatWindowLength,
   soonestReset,
+  staleFor,
   tightestWindow,
   totalTokens,
   usageBarTone,
@@ -337,12 +339,12 @@ function UsageRosterRow({ row, mode, now }: { row: UsageRow; mode: UsageMode; no
         {shown.map((window) => (
           <WindowMetric key={window.windowMinutes} window={window} />
         ))}
-        {/* Why there are no bars, when the reason is knowable. A silent absence
-            reads as "this app cannot do that" — which is exactly how the first
-            attempt looked when the requests were going out unproxied. */}
-        {windows.length === 0 && row.planError && (
-          <span className="text-[11px] text-warn">{row.planError}</span>
-        )}
+        {/* Why there is no live figure, when the reason is knowable. A silent
+            absence reads as "this app cannot do that" — which is exactly how the
+            first attempt looked when the requests were going out unproxied.
+            Shown even when a stale session-file percentage stands in above:
+            that number is the symptom, and this is the cause. */}
+        {row.planError && <span className="text-[11px] text-warn">{row.planError}</span>}
         {/* Spend, for the agents that report no plan window at all. Claude Code
             writes token counts and nothing about the subscription, so a
             percentage there would be invented. */}
@@ -369,7 +371,13 @@ function UsageRosterRow({ row, mode, now }: { row: UsageRow; mode: UsageMode; no
 /** Orca's metric shape: a short window label, a 5px bar, the number. Colour
  *  appears only once the window is worth noticing. */
 function WindowMetric({ window, showBar = true }: { window: RateLimitWindow; showBar?: boolean }) {
+  const { t } = useTranslation("nav");
   const used = clampPercent(window.usedPercent);
+  // A figure the provider could not be asked for, standing in from a session
+  // file. Its age is the whole difference between it and a live reading, and
+  // `asOfMs` carried that age from the start with nothing rendering it.
+  const stale = staleFor(window);
+  const age = stale === null ? null : formatResetDuration(stale);
   return (
     <span className="flex shrink-0 items-center gap-1.5">
       <span className="text-[10px] text-muted">{formatWindowLength(window.windowMinutes)}</span>
@@ -382,6 +390,9 @@ function WindowMetric({ window, showBar = true }: { window: RateLimitWindow; sho
         </span>
       )}
       <span className={cn("tabular-nums", usageTextTone(used))}>{`${used}%`}</span>
+      {age && (
+        <span className="text-[10px] text-muted">{t("status.usage.asOf", { age })}</span>
+      )}
     </span>
   );
 }

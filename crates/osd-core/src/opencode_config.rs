@@ -116,11 +116,32 @@ fn browser_tools_key() -> String {
 /// is one prompt and not one per step.
 const COMPUTER_TOOL_KEY: &str = "computer";
 
+/// Every spelling of one dangerous token that has to prompt.
+///
+/// The third is not decoration. The first two anchor on the token starting the
+/// command or following a space, so `/Users/me/.local/bin/ego-browser open …`
+/// matched NEITHER — the path has no space before the program name — and the
+/// gate was walked around by the most natural way to invoke something that is
+/// not on PATH. It applies to every token, not just that one: `/bin/rm -rf` had
+/// the same free pass.
+///
+/// One generator rather than two lists, because the seeding path and the
+/// back-fill migration below must produce the same globs or a back-filled
+/// install is gated differently from a fresh one.
+fn bash_ask_globs(token: &str) -> [String; 3] {
+    [
+        format!("{token} *"),
+        format!("* {token} *"),
+        format!("*/{token} *"),
+    ]
+}
+
 fn approve_permission() -> Value {
     let mut bash = serde_json::Map::new();
     for t in DANGEROUS_BASH {
-        bash.insert(format!("{t} *"), json!("ask"));
-        bash.insert(format!("* {t} *"), json!("ask"));
+        for glob in bash_ask_globs(t) {
+            bash.insert(glob, json!("ask"));
+        }
     }
     let mut permission = json!({
         "bash": Value::Object(bash),
@@ -221,7 +242,7 @@ pub fn migrate_dangerous_bash(existing: &str) -> Option<String> {
     let bash = root.get_mut("permission")?.get_mut("bash")?.as_object_mut()?;
     let mut changed = false;
     for token in DANGEROUS_BASH {
-        for glob in [format!("{token} *"), format!("* {token} *")] {
+        for glob in bash_ask_globs(token) {
             if !bash.contains_key(&glob) {
                 bash.insert(glob, json!("ask"));
                 changed = true;
@@ -1301,6 +1322,12 @@ mod tests {
         // ("cd x && rm -rf y").
         assert_eq!(bash["* rm *"], "ask");
         assert_eq!(bash["* ssh *"], "ask");
+        // …and the path form catches it invoked by an absolute or relative
+        // path, which neither of the other two match: there is no space before
+        // the program name in "/usr/local/bin/ego-browser open …", so the gate
+        // was walked around by the ordinary way to run something off PATH.
+        assert_eq!(bash["*/rm *"], "ask");
+        assert_eq!(bash["*/ego-browser *"], "ask");
         // No blanket rule of our own: everything else falls through to the
         // builtin "*": "allow" (rules are last-match-wins, ours come last).
         assert!(!bash.contains_key("*"));
@@ -1339,6 +1366,27 @@ mod tests {
         let v: Value = serde_json::from_str(&approved).unwrap();
         assert_eq!(v["permission"]["bash"]["ego-browser *"], "ask");
         assert_eq!(v["permission"]["bash"]["* ego-browser *"], "ask");
+        // The CLI lives in ~/.local/bin, which is exactly the case the first two
+        // globs miss — the agent is told the absolute path by the settings card.
+        assert_eq!(v["permission"]["bash"]["*/ego-browser *"], "ask");
+    }
+
+    #[test]
+    fn the_seeded_and_the_back_filled_globs_are_the_same_set() {
+        // Two lists drifting apart is what left a back-filled install gated
+        // differently from a fresh one; one generator is what keeps them equal.
+        let fresh = set_permission_mode("", MODE_APPROVE).unwrap();
+        let fresh: Value = serde_json::from_str(&fresh).unwrap();
+        let stale = r#"{"permission":{"bash":{},"webfetch":"ask"}}"#;
+        let filled = migrate_dangerous_bash(stale).expect("approve config is back-filled");
+        let filled: Value = serde_json::from_str(&filled).unwrap();
+        let mut fresh_globs: Vec<&String> =
+            fresh["permission"]["bash"].as_object().unwrap().keys().collect();
+        let mut filled_globs: Vec<&String> =
+            filled["permission"]["bash"].as_object().unwrap().keys().collect();
+        fresh_globs.sort();
+        filled_globs.sort();
+        assert_eq!(fresh_globs, filled_globs);
     }
 
     #[test]

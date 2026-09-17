@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   agentMetric,
+  agentWindows,
   clampPercent,
   formatCostUsd,
   formatResetIn,
   formatTokens,
   formatWindowLength,
+  planError,
   quotaWindowLabel,
+  staleFor,
   totalTokens,
   usageBarTone,
   usageWindowBounds,
@@ -14,6 +17,7 @@ import {
   type AgentUsage,
   type RateLimitWindow,
   type TokenTotals,
+  type UsageSummary,
 } from "./usage";
 
 function totals(fields: Partial<TokenTotals>): TokenTotals {
@@ -192,5 +196,54 @@ describe("quota meter presentation", () => {
     expect(quotaWindowLabel(resetting, now)).toBe("2h");
     // Once the reset time is unknown or past, the window's length is all there is.
     expect(quotaWindowLabel(quota, now)).toBe("5h");
+  });
+});
+
+describe("a plan figure the provider could not be asked for", () => {
+  const live: RateLimitWindow = { ...quota, usedPercent: 12, asOfMs: Date.now() };
+  const recorded: RateLimitWindow = { ...quota, usedPercent: 91, asOfMs: 1_000 };
+
+  function summary(fields: Partial<UsageSummary>): UsageSummary {
+    return {
+      agents: [],
+      codexRateLimits: [],
+      scannedFiles: 0,
+      skippedFiles: 0,
+      scanMs: 0,
+      ...fields,
+    };
+  }
+
+  it("is shown, because a stale percentage beats none", () => {
+    const s = summary({ codexRateLimits: [recorded], plan: { claude: [], codex: [] } });
+    expect(agentWindows("codex", s)).toEqual([recorded]);
+  });
+
+  it("never stands in front of the provider's own answer", () => {
+    const s = summary({ codexRateLimits: [recorded], plan: { claude: [], codex: [live] } });
+    expect(agentWindows("codex", s)).toEqual([live]);
+  });
+
+  it("carries its age, which is the only thing telling it apart from a live one", () => {
+    // The bug this closes: `asOfMs` was on the wire and nothing rendered it, so
+    // a session file's last percentage looked exactly like a current reading.
+    expect(staleFor(recorded, 1_000 + 6 * 60 * 1000)).toBe(6 * 60 * 1000);
+    // What the provider just answered is not stale.
+    expect(staleFor(live, live.asOfMs + 1_000)).toBeNull();
+    // Nor is a window that never claimed a time.
+    expect(staleFor({ ...quota, asOfMs: 0 })).toBeNull();
+  });
+
+  it("does not hide why the live figure is missing", () => {
+    // It used to: a fallback window satisfied the "has windows" check and the
+    // proxy error went unsaid, so a refused request looked like a healthy plan.
+    const s = summary({
+      codexRateLimits: [recorded],
+      plan: { claude: [], codex: [], codexError: "timed out — check the proxy in Settings" },
+    });
+    expect(planError("codex", s)).toBe("timed out — check the proxy in Settings");
+    // With a live answer there is nothing to explain.
+    const healthy = summary({ plan: { claude: [], codex: [live], codexError: "stale error" } });
+    expect(planError("codex", healthy)).toBeUndefined();
   });
 });

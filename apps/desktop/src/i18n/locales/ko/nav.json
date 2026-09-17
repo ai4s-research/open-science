@@ -111,7 +111,8 @@
       "detailedHint": "모든 기간을 막대와 백분율로 표시",
       "compactHint": "한도에 가장 가까운 기간만",
       "detailAria": "사용량 표시 밀도",
-      "resetsIn": "{{duration}} 후 초기화"
+      "resetsIn": "{{duration}} 후 초기화",
+      "asOf": "{{age}} 전 기준"
     },
     "awake": {
       "title": "절전 방지",

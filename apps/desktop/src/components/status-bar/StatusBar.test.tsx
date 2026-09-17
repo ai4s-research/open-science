@@ -364,6 +364,32 @@ describe("StatusBar · when the provider cannot be asked", () => {
     ).toBeInTheDocument();
   });
 
+  it("marks a session-file percentage with its age, and still says why", async () => {
+    // The number plan_usage.rs was written to replace: whatever the session
+    // happened to end on. Shown, because a stale figure beats none — but never
+    // as a live reading, and never instead of the reason the request failed.
+    showUsage({
+      agents: [agent("codex")],
+      codexRateLimits: [
+        {
+          usedPercent: 91,
+          windowMinutes: 300,
+          resetsAt: null,
+          asOfMs: Date.now() - 3 * 60 * 60 * 1000,
+          planType: null,
+        },
+      ],
+      plan: { claude: [], codex: [], codexError: "timed out — check the proxy in Settings" },
+    });
+    render(<StatusBar />);
+    await userEvent.click(screen.getByRole("button", { name: "Usage" }));
+
+    const popover = within(await screen.findByRole("dialog"));
+    expect(popover.getByText("91%")).toBeInTheDocument();
+    expect(popover.getByText("as of 3h ago")).toBeInTheDocument();
+    expect(popover.getByText("timed out — check the proxy in Settings")).toBeInTheDocument();
+  });
+
   it("says nothing when the bars are there", async () => {
     showUsage({
       agents: [agent("claude")],

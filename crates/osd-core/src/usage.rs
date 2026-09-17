@@ -423,8 +423,14 @@ fn codex_usage_turn(
 /// Codex reports TWO windows on every `rate_limits` payload — `primary` (a few
 /// hours) and `secondary` (the week). Verified on real sessions:
 ///
-///     "primary":   {"used_percent":0.0,"window_minutes":300,  "resets_at":...}
-///     "secondary": {"used_percent":0.0,"window_minutes":10080,"resets_at":...}
+/// ```text
+/// "primary":   {"used_percent":0.0,"window_minutes":300,  "resets_at":...}
+/// "secondary": {"used_percent":0.0,"window_minutes":10080,"resets_at":...}
+/// ```
+///
+/// Fenced as `text`, not indented: an indented block is a Rust doctest, so this
+/// JSON was compiled as code and `cargo test --workspace` has been failing on
+/// it. Nothing caught that because CI only builds.
 ///
 /// Reading only `primary` threw the weekly quota away — the one a subscriber
 /// actually runs out of.

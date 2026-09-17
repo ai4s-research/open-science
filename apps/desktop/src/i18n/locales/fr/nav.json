@@ -113,7 +113,8 @@
       "detailedHint": "Toutes les fenêtres, avec barres et pourcentages",
       "compactHint": "Seulement la fenêtre la plus proche de sa limite",
       "detailAria": "Niveau de détail de l'usage",
-      "resetsIn": "Réinitialisation dans {{duration}}"
+      "resetsIn": "Réinitialisation dans {{duration}}",
+      "asOf": "il y a {{age}}"
     },
     "awake": {
       "title": "Garder éveillé",

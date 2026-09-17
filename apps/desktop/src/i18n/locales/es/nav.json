@@ -113,7 +113,8 @@
       "detailedHint": "Todas las ventanas, con barras y porcentajes",
       "compactHint": "Solo la ventana más cerca de su límite",
       "detailAria": "Detalle de uso",
-      "resetsIn": "Se restablece en {{duration}}"
+      "resetsIn": "Se restablece en {{duration}}",
+      "asOf": "hace {{age}}"
     },
     "awake": {
       "title": "Mantener activo",

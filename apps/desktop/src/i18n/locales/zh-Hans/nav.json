@@ -111,7 +111,8 @@
       "detailedHint": "显示每个窗口，含进度条与百分比",
       "compactHint": "只显示最接近上限的那个窗口",
       "detailAria": "用量显示密度",
-      "resetsIn": "{{duration}} 后重置"
+      "resetsIn": "{{duration}} 后重置",
+      "asOf": "{{age}}前的数据"
     },
     "awake": {
       "title": "保持唤醒",

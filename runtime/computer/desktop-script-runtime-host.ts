@@ -132,12 +132,23 @@ export class DesktopScriptRuntimeHost {
       } catch (error) {
         lastError = error
         if (this.availability.policyRetryPending) {
+          // The policy diagnosis is about the HOST, so record it either way —
+          // the next operation should start under the escalated policy.
           this.availability.escalateExecutionPolicy()
-          continue
-        }
-        // Only this error proves no helper started, which is what disproves the
-        // escalation; a helper that started and then died proves the opposite.
-        if (isRuntimeHostUnavailable(error)) {
+          // Replaying it here is a different question, and it is the same one
+          // every other pre-answer death has to answer. Without this check a
+          // mutating call took the in-host retry that the `mayReplay` guard
+          // below withholds from it, purely because the helper's stderr
+          // happened to match the policy pattern — and a stale runtime.ps1 that
+          // runs the click without ever announcing readiness is exactly the
+          // case that pattern cannot rule out.
+          if (this.mayReplay(request)) {
+            continue
+          }
+        } else if (isRuntimeHostUnavailable(error)) {
+          // Only this error proves no helper started, which is what disproves
+          // the escalation; a helper that started and then died proves the
+          // opposite. Not in the branch above: it just escalated on purpose.
           this.availability.abandonUnprovenFallback()
         }
         // A helper that answered and then died is a crash, not a bad start: the

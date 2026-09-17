@@ -50,9 +50,14 @@ export interface PlanUsage {
   codexError?: string | null;
 }
 
-/** Why this agent shows no plan windows, or null when it shows some. */
+/** Why this agent has no LIVE plan figure, or undefined when it has one.
+ *
+ *  Keyed on the provider's own answer, not on whether a window is being shown:
+ *  a stale session-file percentage standing in for it used to satisfy this and
+ *  hide the reason the request failed, so a proxy that refused looked the same
+ *  as a plan reporting 45%. */
 export function planError(agent: string, summary: UsageSummary | null): string | undefined {
-  if (agentWindows(agent, summary).length > 0) return undefined;
+  if (livePlanWindows(agent, summary).length > 0) return undefined;
   const plan = summary?.plan;
   if (agent === "claude") return plan?.claudeError ?? undefined;
   if (agent === "codex") return plan?.codexError ?? undefined;
@@ -252,15 +257,38 @@ export function formatResetIn(resetsAtSeconds: number | null, now = Date.now()):
  * nothing about the plan, which is why its row shows spend instead — inventing
  * a percentage there would be a number we do not have.
  */
-export function agentWindows(agent: string, summary: UsageSummary | null): RateLimitWindow[] {
+/** Only what the PROVIDER answered — no session-file fallback. */
+export function livePlanWindows(agent: string, summary: UsageSummary | null): RateLimitWindow[] {
   const plan = summary?.plan;
-  if (agent === "claude") return sortByWindow(plan?.claude ?? []);
-  if (agent !== "codex") return [];
-  // The provider's own answer when we have it; the last figure a session file
-  // recorded only when we do not. That file's number is whatever the session
-  // happened to end on, which is why it was wrong rather than merely old.
-  const live = plan?.codex ?? [];
-  return sortByWindow(live.length > 0 ? live : (summary?.codexRateLimits ?? []));
+  if (agent === "claude") return plan?.claude ?? [];
+  if (agent === "codex") return plan?.codex ?? [];
+  return [];
+}
+
+export function agentWindows(agent: string, summary: UsageSummary | null): RateLimitWindow[] {
+  const live = livePlanWindows(agent, summary);
+  if (live.length > 0 || agent !== "codex") return sortByWindow(live);
+  // The last figure a session file recorded, only when the provider could not
+  // be reached. That number is whatever the session happened to end on — a
+  // session left open yesterday reports yesterday's percentage for ever — so it
+  // is shown only WITH its age beside it (`staleFor`), never as a live reading.
+  return sortByWindow(summary?.codexRateLimits ?? []);
+}
+
+/** A reading this old is not a current one. Chosen against what it is standing
+ *  in for: the hourly window moves continuously, so anything past a few minutes
+ *  can already be wrong by a lot. */
+export const STALE_WINDOW_MS = 5 * 60 * 1000;
+
+/** How long ago this figure was recorded, when that is long enough to matter —
+ *  otherwise null, which is the case for everything the provider just answered.
+ *
+ *  `asOfMs` was on the wire from the start and nothing rendered it, so a
+ *  fallback percentage was indistinguishable from a live one. */
+export function staleFor(window: RateLimitWindow, now = Date.now()): number | null {
+  if (!window.asOfMs) return null;
+  const age = now - window.asOfMs;
+  return age >= STALE_WINDOW_MS ? age : null;
 }
 
 function sortByWindow(windows: RateLimitWindow[]): RateLimitWindow[] {
