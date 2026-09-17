@@ -1,7 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ThreadBlock, ToolCallBlock } from "@ai4s/shared";
-import { ToolGroup, groupToolBlocks, summarizeGroup } from "./ToolGroup";
+import {
+  ToolGroup,
+  groupIcon,
+  groupToolBlocks,
+  dropProcessArtifacts,
+  summarizeGroup,
+} from "./ToolGroup";
 
 const tool = (over: Partial<ToolCallBlock>): ToolCallBlock => ({
   kind: "tool-call",
@@ -28,16 +34,20 @@ describe("groupToolBlocks", () => {
     expect(items[2]).toMatchObject({ kind: "group", start: 3 });
   });
 
-  it("folds reasoning into the adjacent tool run so consecutive tools still merge", () => {
+  it("leaves reasoning OUT of the run, so prose and activity alternate", () => {
+    // The shape Codex has: paragraph, one muted line of "what I did",
+    // paragraph. Folding thought in gave a summary line that opened into a wall
+    // of monospace rows with the narration buried among them as stubs.
     const items = groupToolBlocks([
       { kind: "reasoning", text: "let me look at the data" },
       tool({ title: "a" }),
       { kind: "reasoning", text: "now transform it" },
       tool({ title: "b" }),
     ]);
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: "group", start: 0 });
-    expect((items[0] as { blocks: ThreadBlock[] }).blocks).toHaveLength(4);
+    expect(items.map((i) => i.kind)).toEqual(["block", "group", "block", "group"]);
+    // Each group is the work done since the last thing the model said, which is
+    // also what keeps the summary lines short enough to read.
+    expect((items[1] as { blocks: ThreadBlock[] }).blocks).toHaveLength(1);
   });
 
   it("renders reasoning that precedes the final answer on its own (nothing to group)", () => {
@@ -102,7 +112,7 @@ describe("ToolGroup", () => {
     expect(screen.getByText("ls")).toBeInTheDocument();
   });
 
-  it("stays open while a step runs and shows its live output tail", () => {
+  it("stays ONE line while a step runs, and that line says what is running", () => {
     render(
       <ToolGroup
         blocks={[
@@ -116,9 +126,13 @@ describe("ToolGroup", () => {
         ]}
       />,
     );
-    // No click: the running group is auto-expanded with the tail visible.
+    // Folding the list is what was asked for; going silent with it was not.
+    // "Ran 2 commands" beside a spinner tells a reader nothing about the twenty
+    // minutes they are waiting, so the live line names the command instead.
     expect(screen.getByText("python train.py")).toBeInTheDocument();
-    expect(screen.getByText(/loss=0\.51/)).toBeInTheDocument();
+    expect(screen.queryByText("ls")).not.toBeInTheDocument();
+    // The output tail is behind the fold now — the cost of one line.
+    expect(screen.queryByText(/loss=0.51/)).not.toBeInTheDocument();
   });
 
   it("a single quiet step renders as a plain row, no group chrome", () => {
@@ -232,5 +246,84 @@ describe("ToolGroup", () => {
     fireEvent.click(screen.getByText("Review the statistics"));
     expect(onOpenSubagent).not.toHaveBeenCalled();
     expect(screen.getByText("found three outliers")).toBeInTheDocument();
+  });
+});
+
+describe("the summary row's left edge", () => {
+  it("starts where the message blocks around it start", () => {
+    // It sits between an agent message and a file card, both of which begin at
+    // the content edge; an 8px inset put its chevron visibly out of line.
+    const { container } = render(
+      <ToolGroup blocks={[tool({ title: "a" }), tool({ title: "b" })]} />,
+    );
+    const summary = container.querySelector("button")!;
+    expect(summary).not.toHaveClass("px-2");
+    // The highlight still spans the whole column — only the content was inset.
+    expect(summary).toHaveClass("w-full");
+  });
+});
+
+describe("dropProcessArtifacts", () => {
+  const art = (path: string, presentation?: object) =>
+    ({
+      kind: "artifact",
+      path,
+      filename: path.split("/").pop()!,
+      artifact: "script",
+      tool: "write",
+      ...(presentation ? { presentation } : {}),
+    }) as ThreadBlock;
+
+  it("drops the scratch files a turn wrote — the answer's chips already list them", () => {
+    const blocks: ThreadBlock[] = [
+      { kind: "user", text: "go" } as ThreadBlock,
+      tool({ title: "a" }),
+      art("run.py"),
+      tool({ title: "b" }),
+      { kind: "agent", markdown: "done" },
+    ];
+    expect(dropProcessArtifacts(blocks).map((b: ThreadBlock) => b.kind)).toEqual([
+      "user",
+      "tool-call",
+      "tool-call",
+      "agent",
+    ]);
+  });
+
+  it("lets a run fold as one group once the file between its steps is gone", () => {
+    // A card between two steps used to break the run into two groups.
+    const blocks: ThreadBlock[] = [tool({ title: "a" }), art("run.py"), tool({ title: "b" })];
+    expect(groupToolBlocks(blocks).filter((i) => i.kind === "group")).toHaveLength(2);
+    expect(
+      groupToolBlocks(dropProcessArtifacts(blocks)).filter((i) => i.kind === "group"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps an artifact the agent PRESENTED", () => {
+    // present_artifact is the agent saying this file IS the point here.
+    const presented = art("figure1.png", { mode: "inline" });
+    const blocks: ThreadBlock[] = [tool({ title: "a" }), presented, tool({ title: "b" })];
+    expect(dropProcessArtifacts(blocks)).toContain(presented);
+  });
+
+  it("returns the very same array when there is nothing to drop", () => {
+    // Identity matters: BlockList resolves the streaming thought with indexOf.
+    const blocks: ThreadBlock[] = [tool({ title: "a" })];
+    expect(dropProcessArtifacts(blocks)).toBe(blocks);
+  });
+});
+
+describe("groupIcon", () => {
+  it("follows the first phrase of the summary, as Codex's rows do", () => {
+    // Same first-seen verb ordering as summarizeGroup, so the icon and the
+    // sentence can never disagree.
+    const read = groupIcon([tool({ verb: "Read" }), tool({ verb: "Ran" })]);
+    const ran = groupIcon([tool({ verb: "Ran" }), tool({ verb: "Read" })]);
+    expect(read).not.toEqual(ran);
+  });
+
+  it("still gives a shape to a run whose verb this build does not know", () => {
+    // A verb from a future build, which this one has no icon for.
+    expect(groupIcon([tool({ verb: "Teleported" as never })])).toBeTruthy();
   });
 });

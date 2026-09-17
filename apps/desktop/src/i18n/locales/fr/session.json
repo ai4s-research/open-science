@@ -285,7 +285,11 @@
       "data": "données"
     },
     "via": "· via {{tool}}",
-    "open": "Ouvrir"
+    "open": "Ouvrir",
+    "maximize": "Agrandir",
+    "close": "Fermer",
+    "collapse": "Replier",
+    "expand": "Déplier"
   },
   "figure": {
     "downloadAria": "Télécharger la figure",
@@ -332,9 +336,15 @@
     "alwaysAllow": "Toujours autoriser",
     "allowOnce": "Autoriser une fois"
   },
+  "turn": {
+    "worked": "Travail",
+    "workedFor": "A travaillé pendant {{duration}}"
+  },
   "reasoning": {
     "thinking": "Réflexion…",
-    "thought": "Réflexion faite"
+    "thought": "Réflexion faite",
+    "collapse": "Replier le raisonnement",
+    "expand": "Voir tout le raisonnement"
   },
   "stepSummary": {
     "steps": "{{count}} étapes"

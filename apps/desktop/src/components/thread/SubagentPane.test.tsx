@@ -95,6 +95,11 @@ describe("SubagentPane", () => {
     await userEvent.click(row);
     expect(row).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("The residuals look fine.")).toBeInTheDocument();
+    // The child's own work folds like any finished turn's: the brief and the
+    // result are what opening a subagent is for, and the commands are one more
+    // click away rather than a wall between them.
+    expect(screen.queryByText("python3 check.py")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Worked/ }));
     expect(screen.getByText("python3 check.py")).toBeInTheDocument();
     // The brief is shown, flat — not as the right-aligned user bubble the main
     // conversation uses, which in a narrow panel read as a ragged indent.

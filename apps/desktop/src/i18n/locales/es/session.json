@@ -285,7 +285,11 @@
       "data": "datos"
     },
     "via": "· mediante {{tool}}",
-    "open": "Abrir"
+    "open": "Abrir",
+    "maximize": "Maximizar",
+    "close": "Cerrar",
+    "collapse": "Contraer",
+    "expand": "Expandir"
   },
   "figure": {
     "downloadAria": "Descargar figura",
@@ -332,9 +336,15 @@
     "alwaysAllow": "Permitir siempre",
     "allowOnce": "Permitir una vez"
   },
+  "turn": {
+    "worked": "Trabajó",
+    "workedFor": "Trabajó durante {{duration}}"
+  },
   "reasoning": {
     "thinking": "Pensando…",
-    "thought": "Pensado"
+    "thought": "Pensado",
+    "collapse": "Contraer el razonamiento",
+    "expand": "Ver el razonamiento completo"
   },
   "stepSummary": {
     "steps": "{{count}} pasos"

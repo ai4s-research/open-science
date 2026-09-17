@@ -278,7 +278,11 @@
       "data": "データ"
     },
     "via": "· {{tool}} 経由",
-    "open": "開く"
+    "open": "開く",
+    "maximize": "最大化",
+    "close": "閉じる",
+    "collapse": "折りたたむ",
+    "expand": "展開"
   },
   "figure": {
     "downloadAria": "図をダウンロード",
@@ -324,9 +328,15 @@
     "alwaysAllow": "常に許可",
     "allowOnce": "今回のみ許可"
   },
+  "turn": {
+    "worked": "作業",
+    "workedFor": "{{duration}} 作業しました"
+  },
   "reasoning": {
     "thinking": "思考中…",
-    "thought": "思考済み"
+    "thought": "思考済み",
+    "collapse": "思考を折りたたむ",
+    "expand": "思考をすべて表示"
   },
   "stepSummary": {
     "steps": "{{count}} ステップ"

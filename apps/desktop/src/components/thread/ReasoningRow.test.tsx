@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ReasoningRow } from "./ReasoningRow";
 
@@ -9,30 +9,35 @@ const long = {
 };
 
 describe("ReasoningRow", () => {
-  it("types the line being written into the row while thinking", () => {
-    render(<ReasoningRow block={long} streaming />);
-    expect(screen.getByText("Thinking…")).toBeInTheDocument();
-    // The tail, not the head: the row shows what the model is writing now.
-    expect(screen.getByText("so the join key is missing")).toBeInTheDocument();
-    expect(screen.queryByText(/it is 3 columns wide/)).not.toBeInTheDocument();
+  it("shows what the model said, whole, as ordinary prose", () => {
+    // It is the narration a reader follows, so it reads like the rest of the
+    // conversation: full text, no summary line, no card, nothing to expand.
+    const { container } = render(<ReasoningRow block={long} />);
+    expect(container.textContent).toContain("checking the dataset shape");
+    expect(container.textContent).toContain("so the join key is missing");
   });
 
-  it("expands a streaming thought to the whole text", () => {
-    render(<ReasoningRow block={long} streaming />);
-    fireEvent.click(screen.getByText("Thinking…"));
-    expect(screen.getByText(/it is 3 columns wide/)).toBeInTheDocument();
-  });
-
-  it("keeps the opening line as the summary once the thought settles", () => {
+  it("is not a control — clicking a sentence must not fold it away", () => {
+    // Click-to-collapse meant selecting a line pulled the paragraph out from
+    // under the cursor. What hides finished work is the TURN fold, not this.
     render(<ReasoningRow block={long} />);
-    expect(screen.getByText("Thought")).toBeInTheDocument();
-    expect(screen.getByText("checking the dataset shape")).toBeInTheDocument();
-    expect(screen.queryByText(/so the join key is missing/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("a done thought expands on click", () => {
-    render(<ReasoningRow block={block} />);
-    fireEvent.click(screen.getByText("Thought"));
-    expect(screen.getByText("checking the dataset shape")).toBeInTheDocument();
+  it("reads in the conversation's own colour, not a muted aside", () => {
+    const { container } = render(<ReasoningRow block={block} />);
+    expect(container.querySelector("p")).toHaveClass("text-text");
+  });
+
+  it("marks the thought being written with a caret and nothing else", () => {
+    const { container } = render(<ReasoningRow block={long} streaming />);
+    // Same text, same layout — text that reflows differently as it arrives is
+    // harder to follow than text that does not.
+    expect(container.textContent).toContain("so the join key is missing");
+  });
+
+  it("renders nothing for an empty thought", () => {
+    const { container } = render(<ReasoningRow block={{ kind: "reasoning", text: "  " }} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

@@ -278,7 +278,11 @@
       "data": "데이터"
     },
     "via": "· {{tool}} 사용",
-    "open": "열기"
+    "open": "열기",
+    "maximize": "최대화",
+    "close": "닫기",
+    "collapse": "접기",
+    "expand": "펼치기"
   },
   "figure": {
     "downloadAria": "그림 다운로드",
@@ -324,9 +328,15 @@
     "alwaysAllow": "항상 허용",
     "allowOnce": "한 번만 허용"
   },
+  "turn": {
+    "worked": "작업",
+    "workedFor": "{{duration}} 동안 작업함"
+  },
   "reasoning": {
     "thinking": "생각 중…",
-    "thought": "생각 완료"
+    "thought": "생각 완료",
+    "collapse": "사고 접기",
+    "expand": "전체 사고 보기"
   },
   "stepSummary": {
     "steps": "{{count}}단계"

@@ -65,6 +65,7 @@ export function FilePreviewInspector({
   workspaceDirectory,
   onClose,
   controls,
+  collapsed = false,
   embedded = false,
   compactHeader = false,
   startEditing = false,
@@ -78,6 +79,10 @@ export function FilePreviewInspector({
   onClose?: () => void;
   /** Pane-level header buttons (e.g. maximize), rendered before Close. */
   controls?: React.ReactNode;
+  /** Render the header alone. The body is what folds away, never the header —
+   *  it carries the control that folds it, so hiding both would leave nothing
+   *  to click to get the file back. */
+  collapsed?: boolean;
   /** Compact chrome when the same native preview is embedded in a message. */
   embedded?: boolean;
   /** Match the 32px header used by tiled Session panes. */
@@ -457,7 +462,12 @@ export function FilePreviewInspector({
         )}
       </header>
 
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto bg-surface-2">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-auto bg-surface-2"
+        hidden={collapsed}
+      >
         {showHistory && <ProvenancePanel path={data.path} language={data.language} />}
         {!showHistory && waitingForWorkspace && (
           <div className="flex items-center gap-2 p-4 text-sm text-muted">

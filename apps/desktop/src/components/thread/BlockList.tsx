@@ -9,7 +9,9 @@ import {
   UserMessage,
 } from "./atoms";
 import { ToolCallRow } from "./ToolCallRow";
-import { ToolGroup, groupToolBlocks } from "./ToolGroup";
+import { ToolGroup, dropProcessArtifacts, groupToolBlocks } from "./ToolGroup";
+import { TurnWork } from "./TurnWork";
+import { isTurnDone, spanMs, splitTurns } from "./turns";
 import { ReviewerCard } from "./ReviewerCard";
 import { ReasoningRow } from "./ReasoningRow";
 import { StepSummaryRow } from "./StepSummaryRow";
@@ -132,30 +134,80 @@ export const BlockList = memo(function BlockList({
    *  can say how full it is. 0/undefined ⇒ tokens shown without a percentage. */
   contextLimit?: number;
 }) {
-  // Runs of quiet tool steps render as one collapsible group (Codex-style);
-  // everything else — text, artifacts, prominent tool cards — on its own.
+  // Three shaping passes, in this order.
+  //
+  // 1. The scratch files a turn wrote are dropped — the answer already ends with
+  //    a chip per file it produced — which also stops a file card from splitting
+  //    the run it sits in.
+  // 2. The thread is cut into turns, and each turn into the work and the answer.
+  // 3. Inside a turn's work, consecutive tool calls fold into one activity line.
+  //
+  // The order matters both times: dropping before grouping is what lets a run
+  // fold as ONE line, and splitting before grouping keeps a group from ever
+  // straddling two turns.
+  //
+  // `liveReasoningIndex` addresses the array the CALLER holds and the first pass
+  // removes blocks, so the streaming thought is resolved to a BLOCK here and
+  // compared by identity below. An index would point at whatever shifted into
+  // that slot — silently, since a wrong index is still a valid one.
+  const shaped = dropProcessArtifacts(blocks);
+  const liveBlock = liveReasoningIndex == null ? undefined : blocks[liveReasoningIndex];
+  const renderOne = (block: ThreadBlock, key: number) =>
+    block.kind === "reasoning" ? (
+      <ReasoningRow key={key} block={block} streaming={block === liveBlock} />
+    ) : (
+      renderBlock(block, key, handlers, undefined, workspaceDirectory, contextLimit)
+    );
+  const renderRun = (run: ThreadBlock[], offset: number) =>
+    groupToolBlocks(run).map((item) =>
+      item.kind === "group" ? (
+        <ToolGroup
+          key={`group:${offset + item.start}`}
+          blocks={item.blocks}
+          onOpenSubagent={handlers?.onOpenSubagent}
+        />
+      ) : (
+        renderOne(item.block, offset + item.index)
+      ),
+    );
+
+  const cursorAfter = (turn: { lead: ThreadBlock[]; segments: { blocks: ThreadBlock[] }[] }, at: number) =>
+    at + turn.lead.length + turn.segments.reduce((n, seg) => n + seg.blocks.length, 0);
+  let offset = 0;
   return (
     <>
-      {groupToolBlocks(blocks).map((item) =>
-        item.kind === "group" ? (
-          <ToolGroup
-            key={`group:${item.start}`}
-            blocks={item.blocks}
-            start={item.start}
-            liveReasoningIndex={liveReasoningIndex}
-            onOpenSubagent={handlers?.onOpenSubagent}
-          />
-        ) : (
-          renderBlock(
-            item.block,
-            item.index,
-            handlers,
-            liveReasoningIndex,
-            workspaceDirectory,
-            contextLimit,
-          )
-        ),
-      )}
+      {splitTurns(shaped).map((turn) => {
+        const at = offset;
+        offset = cursorAfter(turn, at) + turn.answer.length;
+        return (
+          <div key={at} className="flex flex-col gap-4">
+            {turn.lead.map((b, i) => renderOne(b, at + i))}
+            {(() => {
+              const done = isTurnDone(turn);
+              let cursor = at + turn.lead.length;
+              return turn.segments.map((segment) => {
+                const from = cursor;
+                cursor += segment.blocks.length;
+                const rendered = renderRun(segment.blocks, from);
+                // Each foldable run gets its OWN line and its own elapsed time:
+                // a notice between two runs (a reviewer's findings, a status
+                // line) stays on screen and splits them, and one turn-wide
+                // figure repeated on both would be wrong on at least one.
+                return segment.foldable && done ? (
+                  <TurnWork key={from} done durationMs={spanMs(segment.blocks)}>
+                    {rendered}
+                  </TurnWork>
+                ) : (
+                  <div key={from} className="flex flex-col gap-4">
+                    {rendered}
+                  </div>
+                );
+              });
+            })()}
+            {renderRun(turn.answer, cursorAfter(turn, at))}
+          </div>
+        );
+      })}
     </>
   );
 });

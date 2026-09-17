@@ -285,7 +285,11 @@
       "data": "Daten"
     },
     "via": "· über {{tool}}",
-    "open": "Öffnen"
+    "open": "Öffnen",
+    "maximize": "Maximieren",
+    "close": "Schließen",
+    "collapse": "Einklappen",
+    "expand": "Ausklappen"
   },
   "figure": {
     "downloadAria": "Abbildung herunterladen",
@@ -332,9 +336,15 @@
     "alwaysAllow": "Immer erlauben",
     "allowOnce": "Einmal erlauben"
   },
+  "turn": {
+    "worked": "Gearbeitet",
+    "workedFor": "Gearbeitet: {{duration}}"
+  },
   "reasoning": {
     "thinking": "Denkt nach…",
-    "thought": "Nachgedacht"
+    "thought": "Nachgedacht",
+    "collapse": "Gedanken einklappen",
+    "expand": "Ganzen Gedanken zeigen"
   },
   "stepSummary": {
     "steps": "{{count}} Schritte"

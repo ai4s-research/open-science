@@ -278,7 +278,11 @@
       "data": "数据"
     },
     "via": "· 通过 {{tool}}",
-    "open": "打开"
+    "open": "打开",
+    "maximize": "最大化",
+    "close": "关闭",
+    "collapse": "折叠",
+    "expand": "展开"
   },
   "figure": {
     "downloadAria": "下载图表",
@@ -324,9 +328,15 @@
     "alwaysAllow": "始终允许",
     "allowOnce": "仅允许一次"
   },
+  "turn": {
+    "worked": "工作过程",
+    "workedFor": "工作了 {{duration}}"
+  },
   "reasoning": {
     "thinking": "思考中…",
-    "thought": "已思考"
+    "thought": "已思考",
+    "collapse": "收起思考",
+    "expand": "展开完整思考"
   },
   "stepSummary": {
     "steps": "{{count}} 个步骤"

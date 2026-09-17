@@ -285,7 +285,11 @@
       "data": "data"
     },
     "via": "· via {{tool}}",
-    "open": "Open"
+    "open": "Open",
+    "maximize": "Maximize",
+    "close": "Close",
+    "collapse": "Collapse",
+    "expand": "Expand"
   },
   "figure": {
     "downloadAria": "Download figure",
@@ -332,9 +336,15 @@
     "alwaysAllow": "Always allow",
     "allowOnce": "Allow once"
   },
+  "turn": {
+    "worked": "Worked",
+    "workedFor": "Worked for {{duration}}"
+  },
   "reasoning": {
     "thinking": "Thinking…",
-    "thought": "Thought"
+    "thought": "Thought",
+    "collapse": "Collapse the thought",
+    "expand": "Show the whole thought"
   },
   "stepSummary": {
     "steps": "{{count}} steps"
