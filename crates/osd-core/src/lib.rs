@@ -17,6 +17,7 @@ pub mod examples;
 pub mod gateway;
 pub mod git_snapshot;
 pub mod harness;
+pub mod model_prices;
 pub mod model_probe;
 pub mod opencode_config;
 pub mod project;

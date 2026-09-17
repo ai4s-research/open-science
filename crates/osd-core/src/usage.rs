@@ -32,6 +32,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::model_prices::Prices;
 use crate::usage_pricing::{claude_cost_usd, codex_cost_usd};
 
 /// Cap on how deep a transcript directory is walked. Claude nests one level
@@ -313,7 +314,10 @@ fn parse_claude_row(line: &str) -> Option<ClaudeRow> {
 /// Merge the rows of one Claude transcript into priced turns.
 ///
 /// Public for the tests, which feed it transcript text rather than a path.
-pub fn claude_turns_from_lines<S: AsRef<str>>(lines: impl Iterator<Item = S>) -> Vec<TurnSummary> {
+pub fn claude_turns_from_lines<S: AsRef<str>>(
+    prices: &Prices,
+    lines: impl Iterator<Item = S>,
+) -> Vec<TurnSummary> {
     let mut merged: Vec<ClaudeRow> = Vec::new();
     let mut index_by_key: HashMap<String, usize> = HashMap::new();
 
@@ -348,6 +352,7 @@ pub fn claude_turns_from_lines<S: AsRef<str>>(lines: impl Iterator<Item = S>) ->
             cache_read_tokens: row.cache_read_tokens,
             cache_write_tokens: row.cache_write_tokens,
             cost_usd: claude_cost_usd(
+                prices,
                 row.model.as_deref(),
                 row.input_tokens,
                 row.output_tokens,
@@ -391,7 +396,12 @@ pub struct CodexFileScan {
     pub rate_limits: Vec<RateLimitWindow>,
 }
 
-fn codex_usage_turn(timestamp_ms: i64, usage: &Value, model: Option<&str>) -> Option<TurnSummary> {
+fn codex_usage_turn(
+    prices: &Prices,
+    timestamp_ms: i64,
+    usage: &Value,
+    model: Option<&str>,
+) -> Option<TurnSummary> {
     let input_tokens = as_u64(usage.get("input_tokens"));
     let cached_input_tokens = as_u64(usage.get("cached_input_tokens"));
     let output_tokens = as_u64(usage.get("output_tokens"));
@@ -406,7 +416,7 @@ fn codex_usage_turn(timestamp_ms: i64, usage: &Value, model: Option<&str>) -> Op
         output_tokens,
         cache_read_tokens: cached_input_tokens.min(input_tokens),
         cache_write_tokens: as_u64(usage.get("cache_write_input_tokens")),
-        cost_usd: codex_cost_usd(model, input_tokens, cached_input_tokens, output_tokens),
+        cost_usd: codex_cost_usd(prices, model, input_tokens, cached_input_tokens, output_tokens),
     })
 }
 
@@ -445,7 +455,10 @@ fn parse_codex_rate_limits(payload: &Value, timestamp_ms: i64) -> Vec<RateLimitW
 ///
 /// Public for the tests. See the module note on why `token_count` events stop
 /// counting once the file starts writing `token_usage_record` rows.
-pub fn codex_scan_from_lines<S: AsRef<str>>(lines: impl Iterator<Item = S>) -> CodexFileScan {
+pub fn codex_scan_from_lines<S: AsRef<str>>(
+    prices: &Prices,
+    lines: impl Iterator<Item = S>,
+) -> CodexFileScan {
     let mut model: Option<String> = None;
     let mut records: Vec<TurnSummary> = Vec::new();
     let mut events: Vec<TurnSummary> = Vec::new();
@@ -490,7 +503,7 @@ pub fn codex_scan_from_lines<S: AsRef<str>>(lines: impl Iterator<Item = S>) -> C
                 }
                 if let Some(turn) = payload
                     .get("usage")
-                    .and_then(|usage| codex_usage_turn(timestamp_ms, usage, model.as_deref()))
+                    .and_then(|usage| codex_usage_turn(prices, timestamp_ms, usage, model.as_deref()))
                 {
                     records.push(turn);
                 }
@@ -518,7 +531,7 @@ pub fn codex_scan_from_lines<S: AsRef<str>>(lines: impl Iterator<Item = S>) -> C
                 if let Some(turn) = payload
                     .get("info")
                     .and_then(|info| info.get("last_token_usage"))
-                    .and_then(|usage| codex_usage_turn(timestamp_ms, usage, model.as_deref()))
+                    .and_then(|usage| codex_usage_turn(prices, timestamp_ms, usage, model.as_deref()))
                 {
                     events.push(turn);
                 }
@@ -616,6 +629,10 @@ pub fn collect_usage(
     week_start_ms: i64,
 ) -> UsageSummary {
     let started = SystemTime::now();
+    // Prices come from the catalog the runtime already caches; read once for the
+    // whole scan rather than per file. Absent, every lookup falls back to the
+    // built-in table (`usage_pricing`).
+    let prices = Prices::load(runtime_root);
     let mut stats = (0usize, 0usize);
     let mut agents = Vec::new();
     let mut sessions = Vec::new();
@@ -638,7 +655,7 @@ pub fn collect_usage(
         today_start_ms,
         &mut stats,
         |path| CodexFileScan {
-            turns: claude_turns_from_lines(stream_lines(path)),
+            turns: claude_turns_from_lines(&prices, stream_lines(path)),
             rate_limits: Vec::new(),
         },
     );
@@ -655,7 +672,7 @@ pub fn collect_usage(
         week_start_ms,
         today_start_ms,
         &mut stats,
-        |path| codex_scan_from_lines(stream_lines(path)),
+        |path| codex_scan_from_lines(&prices, stream_lines(path)),
     );
     if codex_week != TokenTotals::default() {
         agents.push(AgentUsage {
@@ -710,7 +727,7 @@ mod tests {
 {"type":"assistant","timestamp":"2026-09-11T17:01:25.929Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":5}}}
 {"type":"assistant","timestamp":"2026-09-11T17:01:26.100Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":40}}}
 "#;
-        let turns = claude_turns_from_lines(lines(transcript).into_iter());
+        let turns = claude_turns_from_lines(&Prices::empty(), lines(transcript).into_iter());
         assert_eq!(turns.len(), 1, "one reply, one turn");
         assert_eq!(turns[0].output_tokens, 40, "the fuller row wins");
         assert_eq!(turns[0].input_tokens, 10);
@@ -723,7 +740,7 @@ mod tests {
 {"type":"assistant","timestamp":"2026-09-11T17:02:25.929Z","requestId":"req_2","message":{"id":"msg_2","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":5}}}
 "#;
         assert_eq!(
-            claude_turns_from_lines(lines(transcript).into_iter()).len(),
+            claude_turns_from_lines(&Prices::empty(), lines(transcript).into_iter()).len(),
             2
         );
     }
@@ -735,7 +752,7 @@ mod tests {
 {"type":"assistant","timestamp":"2026-09-11T17:01:25.929Z","message":{"id":"m","model":"claude-sonnet-4-6","usage":{"input_tokens":0,"output_tokens":0}}}
 not json at all
 "#;
-        assert!(claude_turns_from_lines(lines(transcript).into_iter()).is_empty());
+        assert!(claude_turns_from_lines(&Prices::empty(), lines(transcript).into_iter()).is_empty());
     }
 
     #[test]
@@ -745,7 +762,7 @@ not json at all
         let transcript = r#"
 {"type":"assistant","timestamp":"2026-09-11T17:01:25.929Z","message":{"id":"m","model":"claude-opus-5","usage":{"input_tokens":1,"cache_creation_input_tokens":100,"cache_creation":{"ephemeral_1h_input_tokens":999}}}}
 "#;
-        let turns = claude_turns_from_lines(lines(transcript).into_iter());
+        let turns = claude_turns_from_lines(&Prices::empty(), lines(transcript).into_iter());
         assert_eq!(turns.len(), 1);
         assert_eq!(turns[0].cache_write_tokens, 100);
         assert!(turns[0].cost_usd.is_some_and(|cost| cost > 0.0));
@@ -759,7 +776,7 @@ not json at all
 {"type":"event_msg","timestamp":"2026-07-25T17:11:24.844Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":22804,"output_tokens":286},"last_token_usage":{"input_tokens":22804,"cached_input_tokens":0,"output_tokens":286}}}}
 {"type":"event_msg","timestamp":"2026-07-25T17:11:39.371Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":54692,"output_tokens":558},"last_token_usage":{"input_tokens":31888,"cached_input_tokens":22272,"output_tokens":272}}}}
 "#;
-        let scan = codex_scan_from_lines(lines(session).into_iter());
+        let scan = codex_scan_from_lines(&Prices::empty(), lines(session).into_iter());
         assert_eq!(scan.turns.len(), 2);
         let billed_input: u64 = scan.turns.iter().map(|t| t.input_tokens).sum();
         let cached: u64 = scan.turns.iter().map(|t| t.cache_read_tokens).sum();
@@ -778,7 +795,7 @@ not json at all
 {"type":"token_usage_record","timestamp":"2026-09-07T16:22:11.563Z","payload":{"response_id":"resp_a","usage":{"input_tokens":2000,"output_tokens":200}}}
 {"type":"event_msg","timestamp":"2026-09-07T16:22:11.565Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":2000,"output_tokens":200}}}}
 "#;
-        let scan = codex_scan_from_lines(lines(session).into_iter());
+        let scan = codex_scan_from_lines(&Prices::empty(), lines(session).into_iter());
         assert_eq!(scan.turns.len(), 2, "the duplicated pair counts once");
         let output: u64 = scan.turns.iter().map(|t| t.output_tokens).sum();
         assert_eq!(output, 300, "100 from before the cutover, 200 after");
@@ -791,7 +808,7 @@ not json at all
 {"type":"token_usage_record","timestamp":"2026-09-07T16:22:12.000Z","payload":{"response_id":"resp_a","usage":{"input_tokens":2000,"output_tokens":200}}}
 "#;
         assert_eq!(
-            codex_scan_from_lines(lines(session).into_iter())
+            codex_scan_from_lines(&Prices::empty(), lines(session).into_iter())
                 .turns
                 .len(),
             1
@@ -804,7 +821,7 @@ not json at all
 {"type":"event_msg","timestamp":"2026-07-25T17:11:24.844Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1,"output_tokens":1}},"rate_limits":{"primary":{"used_percent":49.0,"window_minutes":10080,"resets_at":1785259461},"plan_type":"prolite"}}}
 {"type":"event_msg","timestamp":"2026-07-25T18:11:24.844Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1,"output_tokens":1}},"rate_limits":{"primary":{"used_percent":52.5,"window_minutes":10080,"resets_at":1785259461},"plan_type":"prolite"}}}
 "#;
-        let windows = codex_scan_from_lines(lines(session).into_iter()).rate_limits;
+        let windows = codex_scan_from_lines(&Prices::empty(), lines(session).into_iter()).rate_limits;
         assert_eq!(windows.len(), 1, "this session reports only a primary window");
         assert_eq!(windows[0].used_percent, 52.5, "the newest report in the file");
         assert_eq!(windows[0].window_minutes, 10080);
@@ -820,7 +837,7 @@ not json at all
         let session = r#"
 {"type":"event_msg","timestamp":"2026-07-25T18:11:24.844Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1,"output_tokens":1}},"rate_limits":{"primary":{"used_percent":8.0,"window_minutes":300,"resets_at":1789539196},"secondary":{"used_percent":45.0,"window_minutes":10080,"resets_at":1790125996},"plan_type":"pro"}}}
 "#;
-        let windows = codex_scan_from_lines(lines(session).into_iter()).rate_limits;
+        let windows = codex_scan_from_lines(&Prices::empty(), lines(session).into_iter()).rate_limits;
         assert_eq!(windows.len(), 2);
         assert_eq!((windows[0].used_percent, windows[0].window_minutes), (8.0, 300));
         assert_eq!((windows[1].used_percent, windows[1].window_minutes), (45.0, 10080));
@@ -837,7 +854,7 @@ not json at all
 {"type":"event_msg","timestamp":"2026-07-25T17:11:24.844Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1,"output_tokens":1}},"rate_limits":{"primary":{"used_percent":1.0,"window_minutes":300,"resets_at":1},"secondary":{"used_percent":2.0,"window_minutes":10080,"resets_at":2}}}}
 {"type":"event_msg","timestamp":"2026-07-25T18:11:24.844Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1,"output_tokens":1}},"rate_limits":{"primary":{"used_percent":9.0,"window_minutes":300,"resets_at":3},"secondary":{"used_percent":9.5,"window_minutes":10080,"resets_at":4}}}}
 "#;
-        let windows = codex_scan_from_lines(lines(session).into_iter()).rate_limits;
+        let windows = codex_scan_from_lines(&Prices::empty(), lines(session).into_iter()).rate_limits;
         assert_eq!(
             windows.iter().map(|w| w.used_percent).collect::<Vec<_>>(),
             vec![9.0, 9.5]
@@ -849,7 +866,7 @@ not json at all
         let transcript = r#"
 {"type":"assistant","timestamp":"2026-09-11T17:01:25.929Z","message":{"id":"m","model":"some-local-llama","usage":{"input_tokens":1000,"output_tokens":100}}}
 "#;
-        let turns = claude_turns_from_lines(lines(transcript).into_iter());
+        let turns = claude_turns_from_lines(&Prices::empty(), lines(transcript).into_iter());
         assert_eq!(turns[0].cost_usd, None);
         let mut totals = TokenTotals::default();
         totals.add(&turns[0].clone().into());
