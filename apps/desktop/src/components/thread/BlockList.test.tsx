@@ -76,30 +76,42 @@ describe("BlockList", () => {
   });
 });
 
-describe("BlockList · shaping the list does not lose the streaming thought", () => {
-  it("resolves the streaming thought by identity, not by a stale index", async () => {
-    // The trap: dropping a turn's scratch files shifts every index after them,
-    // so the caller's index would land on a different block — silently, since a
-    // wrong index is still a valid one. `blocks[2]` is the reasoning; once the
-    // file is dropped it sits at 1.
+describe("BlockList · thinking never enters the conversation", () => {
+  it("renders no reasoning at all — it belongs on the status row, live", async () => {
+    // It was indistinguishable from what the model actually SAID (both plain
+    // black paragraphs) and, on a model that thinks a lot, was the bulk of
+    // every fold — so the answer sat buried in the deliberation behind it.
     const blocks = [
-      { kind: "artifact", path: "run.py", filename: "run.py", artifact: "script", tool: "write" },
-      { kind: "tool-call", title: "python3 run.py", status: "success", verb: "Ran" },
-      { kind: "reasoning", text: "Now I check the output" },
-    ] as never;
-    const { container } = render(<BlockList blocks={blocks} liveReasoningIndex={2} />);
-    const paragraph = await screen.findByText(/Now I check the output/);
-    // The caret marks the thought being written, and it must be on THAT one.
-    expect(paragraph.querySelector("span[aria-hidden]")).toBeTruthy();
-    // The turn never answered, so nothing folded and the work is on screen.
-    expect(container.textContent).toContain("Now I check the output");
+      { kind: "user", text: "go" },
+      { kind: "reasoning", text: "Let me look at the workspace" },
+      { kind: "tool-call", title: "ls -la", status: "success", verb: "Ran" },
+      { kind: "agent", markdown: "Done." },
+    ] as ThreadBlock[];
+    const { container } = render(<BlockList blocks={blocks} />);
+    expect(container.textContent).not.toContain("Let me look at the workspace");
+    // And it leaves no empty fold or blank segment behind it.
+    expect(await screen.findByText("Done.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Worked/ })).toBeInTheDocument();
+  });
+
+  it("does not make a fold out of a turn whose only work was thinking", () => {
+    // Nothing visible happened, so there is nothing to hide.
+    const blocks = [
+      { kind: "user", text: "go" },
+      { kind: "reasoning", text: "thinking about it" },
+      { kind: "agent", markdown: "Done." },
+    ] as ThreadBlock[];
+    render(<BlockList blocks={blocks} />);
+    expect(screen.queryByRole("button", { name: /Worked/ })).not.toBeInTheDocument();
   });
 });
 
 describe("BlockList · a finished turn folds its work", () => {
   const done: ThreadBlock[] = [
     { kind: "user", text: "run the analysis" },
-    { kind: "reasoning", text: "I will simulate the dataset first" },
+    // Mid-turn narration: the model saying what it is about to do. It folds,
+    // because only the LAST agent message of a turn is the answer.
+    { kind: "agent", markdown: "I will simulate the dataset first" },
     { kind: "tool-call", title: "python3 run.py", status: "success", verb: "Ran", startedAt: 1000, endedAt: 3000 },
     { kind: "agent", markdown: "Done. IC50 = 31.8 nM.", created: 3000, completed: 4000 },
   ];
@@ -123,10 +135,14 @@ describe("BlockList · a finished turn folds its work", () => {
   });
 
   it("folds nothing while the turn is still running", () => {
-    // No answer yet — the narration and the live activity line are the only
-    // sign of progress there is.
-    render(<BlockList blocks={done.slice(0, 3)} />);
-    expect(screen.getByText(/simulate the dataset/)).toBeInTheDocument();
+    // No answer yet, so there is no finished work to hide — the activity line
+    // is the only sign of progress there is.
+    const running: ThreadBlock[] = [
+      { kind: "user", text: "run the analysis" },
+      { kind: "tool-call", title: "python3 run.py", status: "running", verb: "Ran" },
+    ];
+    render(<BlockList blocks={running} />);
+    expect(screen.getByText("python3 run.py")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Worked/ })).not.toBeInTheDocument();
   });
 });

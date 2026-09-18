@@ -57,6 +57,15 @@ export function useStickToEnd(
 }
 
 /** The blinking bar that marks where the next token will land. */
+/** The line being written right now — everything after the last break.
+ *
+ *  Lives here rather than with a caller because it is the same question the
+ *  component below answers: what, of a growing text, belongs on ONE line. */
+export function latestLine(text: string): string {
+  const end = text.trimEnd();
+  return end.slice(end.lastIndexOf("\n") + 1);
+}
+
 export function Caret() {
   return (
     <span

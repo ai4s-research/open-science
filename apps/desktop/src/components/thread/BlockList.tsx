@@ -11,9 +11,8 @@ import {
 import { ToolCallRow } from "./ToolCallRow";
 import { ToolGroup, dropProcessArtifacts, groupToolBlocks } from "./ToolGroup";
 import { TurnWork } from "./TurnWork";
-import { isTurnDone, spanMs, splitTurns } from "./turns";
+import { dropReasoning, isTurnDone, spanMs, splitTurns } from "./turns";
 import { ReviewerCard } from "./ReviewerCard";
-import { ReasoningRow } from "./ReasoningRow";
 import { StepSummaryRow } from "./StepSummaryRow";
 import { FigureBlock } from "./FigureBlock";
 import { ArtifactCard } from "./ArtifactCard";
@@ -47,7 +46,9 @@ export function renderBlock(
   block: ThreadBlock,
   i: number,
   handlers?: BlockHandlers,
-  liveReasoningIndex?: number,
+  /** Unused. Kept so the positional signature two test files call stays put;
+   *  thinking is shown live on the status row and never rendered here. */
+  _unusedLiveReasoning?: undefined,
   workspaceDirectory?: string,
   contextLimit?: number,
 ) {
@@ -74,7 +75,10 @@ export function renderBlock(
         />
       );
     case "reasoning":
-      return <ReasoningRow key={i} block={block} streaming={i === liveReasoningIndex} />;
+      // Thinking is shown live beside "Working…" and never kept — `dropReasoning`
+      // removes these before they reach here. This arm stays only because the
+      // switch is exhaustive over the block union.
+      return null;
     case "step-summary":
       return <StepSummaryRow key={i} block={block} />;
     case "tool-call":
@@ -119,15 +123,11 @@ export function renderBlock(
 export const BlockList = memo(function BlockList({
   blocks,
   handlers,
-  liveReasoningIndex,
   workspaceDirectory,
   contextLimit,
 }: {
   blocks: ThreadBlock[];
   handlers?: BlockHandlers;
-  /** Global index of the reasoning block streaming right now (live session);
-   *  that block renders expanded and unfolds/collapses itself as it streams. */
-  liveReasoningIndex?: number;
   /** Workspace directory that owns inline artifact files. */
   workspaceDirectory?: string;
   /** Context window of the model this session uses, so each answer's meta line
@@ -150,14 +150,9 @@ export const BlockList = memo(function BlockList({
   // removes blocks, so the streaming thought is resolved to a BLOCK here and
   // compared by identity below. An index would point at whatever shifted into
   // that slot — silently, since a wrong index is still a valid one.
-  const shaped = dropProcessArtifacts(blocks);
-  const liveBlock = liveReasoningIndex == null ? undefined : blocks[liveReasoningIndex];
+  const shaped = dropReasoning(dropProcessArtifacts(blocks));
   const renderOne = (block: ThreadBlock, key: number) =>
-    block.kind === "reasoning" ? (
-      <ReasoningRow key={key} block={block} streaming={block === liveBlock} />
-    ) : (
-      renderBlock(block, key, handlers, undefined, workspaceDirectory, contextLimit)
-    );
+    renderBlock(block, key, handlers, undefined, workspaceDirectory, contextLimit);
   const renderRun = (run: ThreadBlock[], offset: number) =>
     groupToolBlocks(run).map((item) =>
       item.kind === "group" ? (

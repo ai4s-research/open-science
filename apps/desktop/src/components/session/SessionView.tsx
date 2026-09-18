@@ -40,6 +40,7 @@ import { BlockList, type BlockHandlers } from "@/components/thread/BlockList";
 import { SubagentPane } from "@/components/thread/SubagentPane";
 import { SelectionActions } from "@/components/thread/SelectionActions";
 import { Elapsed } from "@/components/thread/ToolGroup";
+import { LiveLine, latestLine } from "@/components/thread/LiveLine";
 import { Composer } from "@/components/thread/Composer";
 import { GoalPill } from "@/components/thread/GoalPill";
 import { GOAL_RESUME_NUDGE } from "@/lib/goalPrompts";
@@ -377,8 +378,15 @@ export function SessionView({
   const [turnStart, setTurnStart] = useState<number | null>(null);
   if (working !== (turnStart !== null)) setTurnStart(working ? Date.now() : null);
   const lastBlock = thread?.blocks[thread.blocks.length - 1];
-  const liveReasoningIndex =
-    running && thread && lastBlock?.kind === "reasoning" ? thread.blocks.length - 1 : undefined;
+  // The thought being written right now, as ONE line beside "Working…".
+  //
+  // Thinking is not part of the conversation and is not kept: it went by on the
+  // status row while it happened and is gone afterwards. Rendered into the
+  // thread instead it was indistinguishable from what the model actually SAID
+  // (both plain black paragraphs) and it was the bulk of every fold — a model
+  // that thinks a lot would bury its own answer in its own deliberation.
+  const liveReasoning =
+    running && lastBlock?.kind === "reasoning" ? latestLine(lastBlock.text) : undefined;
 
   // Esc interrupts the running turn — but only in the FOCUSED pane, so a split
   // layout doesn't broadcast one Esc to every running session.
@@ -991,7 +999,6 @@ export function SessionView({
               <BlockList
                 blocks={thread.blocks}
                 handlers={handlers}
-                liveReasoningIndex={liveReasoningIndex}
                 workspaceDirectory={sessionDir ?? undefined}
                 contextLimit={contextLimit}
               />
@@ -1054,6 +1061,14 @@ export function SessionView({
                   <span className="shrink-0 text-xs text-muted/70">
                     {t("live.status.step", { count: step })}
                   </span>
+                )}
+                {/* What it is thinking, one line, flashing past. It takes the
+                    row's remaining width and truncates rather than wrapping:
+                    this row is a fixed-height status line, and a thought that
+                    reflowed it would shift the whole conversation on every
+                    token. */}
+                {!activeRequest && !retryNotice && liveReasoning && (
+                  <LiveLine text={liveReasoning} active className="text-muted/70" />
                 )}
                 {!activeRequest && retryNotice && (
                   <span

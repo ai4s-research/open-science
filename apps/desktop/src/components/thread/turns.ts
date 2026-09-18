@@ -27,7 +27,26 @@ export type TurnSegment = { foldable: boolean; blocks: ThreadBlock[] };
  * ("the sub-agent caught the swap"), so hiding it would leave the answer
  * referring to something the reader cannot see.
  */
-const FOLDABLE = new Set(["reasoning", "tool-call", "agent", "step-summary"]);
+const FOLDABLE = new Set(["tool-call", "agent", "step-summary"]);
+
+/**
+ * Thinking never enters the conversation.
+ *
+ * It goes by as one line beside "Working…" while it happens
+ * (`SessionView`'s status row) and is not kept. In the thread it was
+ * indistinguishable from what the model actually SAID — both plain black
+ * paragraphs, the colour being a deliberate choice — and on a model that thinks
+ * a lot it was the bulk of every fold, so the answer was buried in the
+ * deliberation that produced it.
+ *
+ * Dropped here rather than rendered as nothing, so it cannot leave an empty
+ * segment behind or make a fold out of blocks that draw nothing.
+ */
+export function dropReasoning(blocks: ThreadBlock[]): ThreadBlock[] {
+  return blocks.some((b) => b.kind === "reasoning")
+    ? blocks.filter((b) => b.kind !== "reasoning")
+    : blocks;
+}
 
 /** Blocks that carry nothing of their own and must not, alone, make a fold. */
 const isInvisible = (b: ThreadBlock): boolean => b.kind === "running-jobs";
