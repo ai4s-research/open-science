@@ -141,19 +141,19 @@ export const UserMessage = memo(function UserMessage({
   }
 
   return (
-    <div {...{ [HOVER_HOST]: "" }} className="flex flex-col items-end">
+    <div {...{ [HOVER_HOST]: "" }} className="relative flex flex-col items-end">
       <div className="w-fit max-w-[85%] whitespace-pre-wrap break-words rounded-card bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed text-text">
         {block.text}
       </div>
       <div
         data-hover-row
-        className="flex items-center gap-0.5 pr-0.5 pt-1"
+        className="flex items-center justify-end gap-0.5 pr-0.5 pt-0.5"
       >
         <button
           onClick={copy}
           title={copied ? t("message.copied") : t("message.copy")}
           aria-label={t("message.copy")}
-          className="rounded p-1 text-muted hover:bg-surface-2 hover:text-text"
+          className="rounded p-0.5 text-muted hover:bg-surface-2 hover:text-text"
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
@@ -162,7 +162,7 @@ export const UserMessage = memo(function UserMessage({
             onClick={openEditor}
             title={t("message.edit")}
             aria-label={t("message.edit")}
-            className="rounded p-1 text-muted hover:bg-surface-2 hover:text-text"
+            className="rounded p-0.5 text-muted hover:bg-surface-2 hover:text-text"
           >
             <Pencil size={14} />
           </button>
@@ -172,7 +172,7 @@ export const UserMessage = memo(function UserMessage({
             onClick={() => setConfirm("revert")}
             title={t("message.revert")}
             aria-label={t("message.revert")}
-            className="rounded p-1 text-muted hover:bg-surface-2 hover:text-text"
+            className="rounded p-0.5 text-muted hover:bg-surface-2 hover:text-text"
           >
             <RotateCcw size={14} />
           </button>
@@ -244,7 +244,7 @@ export const AgentMessage = memo(function AgentMessage({
   return (
     // Marked so a text selection inside an ANSWER (never a tool log or the
     // user's own message) can offer follow-up actions — see SelectionActions.
-    <div {...{ [HOVER_HOST]: "" }} data-agent-message>
+    <div {...{ [HOVER_HOST]: "" }} data-agent-message className="relative">
       <MarkdownViewer>{shown}</MarkdownViewer>
       {refs.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
@@ -263,13 +263,13 @@ export const AgentMessage = memo(function AgentMessage({
       )}
       <div
         data-hover-row
-        className="flex min-w-0 items-center gap-1.5 pt-1"
+        className="flex min-w-0 items-center gap-1.5 pt-0.5"
       >
         <button
           onClick={copy}
           title={copied ? t("message.copied") : t("message.copy")}
           aria-label={t("message.copy")}
-          className="shrink-0 rounded p-1 text-muted hover:bg-surface-2 hover:text-text"
+          className="shrink-0 rounded p-0.5 text-muted hover:bg-surface-2 hover:text-text"
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>

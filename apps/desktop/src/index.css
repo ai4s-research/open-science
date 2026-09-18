@@ -489,7 +489,18 @@ textarea,
      visible by computed style, several still drawn. Visibility invalidates
      differently and cannot be animated on the compositor, so the row goes when
      it is told to. No transition, for the same reason. */
+  /* Out of the flow, not merely invisible. A hidden row still reserves its
+     height, and with one under every message that dead strip — plus the gap the
+     block list already puts between blocks — was most of the whitespace between
+     a paragraph and the activity line under it. Floated into that gap it costs
+     nothing when hidden and overlaps nothing when shown (the row is ~18px, the
+     gap 16px). Touch devices keep it in the flow: with no hover to reveal it,
+     the row is permanent and must not sit on top of the next block. */
   [data-hover-row] {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
     opacity: 0;
     visibility: hidden;
   }
