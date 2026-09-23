@@ -48,7 +48,14 @@
       "mcp": "mcp"
     },
     "file": {
-      "removeAria": "{{name}} entfernen"
+      "removeAria": "{{name}} entfernen",
+      "previewAria": "{{name}} ansehen",
+      "preview": {
+        "empty": "Leere Datei",
+        "none": "Keine Vorschau",
+        "unreadable": "Datei lässt sich im Arbeitsbereich nicht lesen",
+        "lines_other": "{{count}} Zeilen"
+      }
     },
     "attach": {
       "addAria": "Dateien hinzufügen",
@@ -99,7 +106,8 @@
     },
     "error": {
       "paste": "Einfügen konnte nicht gespeichert werden: {{message}}",
-      "addFiles": "Dateien konnten nicht hinzugefügt werden: {{message}}"
+      "addFiles": "Dateien konnten nicht hinzugefügt werden: {{message}}",
+      "imageNotSent": "{{names}} ließ sich nicht lesen — die Nachricht wurde ohne das Bild gesendet."
     },
     "model": {
       "aria": "Modell wechseln",

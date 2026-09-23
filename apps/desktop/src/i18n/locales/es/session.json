@@ -48,7 +48,14 @@
       "mcp": "mcp"
     },
     "file": {
-      "removeAria": "Quitar {{name}}"
+      "removeAria": "Quitar {{name}}",
+      "previewAria": "Vista previa de {{name}}",
+      "preview": {
+        "empty": "Archivo vacío",
+        "none": "Sin vista previa",
+        "unreadable": "No se puede leer este archivo del espacio de trabajo",
+        "lines_other": "{{count}} líneas"
+      }
     },
     "attach": {
       "addAria": "Añadir archivos",
@@ -99,7 +106,8 @@
     },
     "error": {
       "paste": "No se pudo guardar el contenido pegado: {{message}}",
-      "addFiles": "No se pudieron añadir los archivos: {{message}}"
+      "addFiles": "No se pudieron añadir los archivos: {{message}}",
+      "imageNotSent": "No se pudo leer {{names}}: el mensaje se envió sin la imagen."
     },
     "model": {
       "aria": "Cambiar de modelo",

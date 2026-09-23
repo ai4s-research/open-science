@@ -11,6 +11,7 @@
 
 import type { PromptFile } from "@ai4s/sdk";
 import { readArtifact, toDataUrl } from "./artifactFile";
+import { previewKindForName } from "./artifacts";
 
 /** Formats a vision model can be expected to accept. */
 const IMAGE_MIME = /^image\/(png|jpe?g|gif|webp)$/i;
@@ -22,14 +23,27 @@ const IMAGE_MIME = /^image\/(png|jpe?g|gif|webp)$/i;
  */
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
+/** What a send got, and what it silently did not. */
+export interface AttachmentParts {
+  parts: PromptFile[];
+  /** Attachments that LOOK like images but produced no part — unreadable,
+   *  oversized, or not actually an image. Named so the caller can say so: the
+   *  prompt still carries the filename, so a dropped picture is otherwise
+   *  invisible, and the model answers about a figure it never saw. */
+  dropped: string[];
+}
+
 /**
  * Resolve workspace attachment names to image parts. Never throws and never
  * blocks a send: anything unreadable, oversized, or not an image is simply
  * omitted, leaving the prompt's file note as the only reference to it.
+ *
+ * Omitting a CSV is the design; omitting a PNG is a failure, and the two are
+ * reported differently — see `dropped`.
  */
-export async function imageAttachmentParts(names: string[]): Promise<PromptFile[]> {
-  if (names.length === 0) return [];
-  const parts = await Promise.all(
+export async function imageAttachmentParts(names: string[]): Promise<AttachmentParts> {
+  if (names.length === 0) return { parts: [], dropped: [] };
+  const resolved = await Promise.all(
     names.map(async (filename): Promise<PromptFile | null> => {
       try {
         const file = await readArtifact(filename);
@@ -42,5 +56,10 @@ export async function imageAttachmentParts(names: string[]): Promise<PromptFile[
       }
     }),
   );
-  return parts.filter((p): p is PromptFile => p !== null);
+  return {
+    parts: resolved.filter((p): p is PromptFile => p !== null),
+    dropped: names.filter(
+      (name, i) => resolved[i] === null && previewKindForName(name) === "image",
+    ),
+  };
 }

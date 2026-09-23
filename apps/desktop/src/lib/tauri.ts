@@ -111,10 +111,19 @@ export async function zenServedModelIds(): Promise<string[]> {
  * Pick local files via the native dialog and copy them into the agent
  * workspace (desktop only). Returns the workspace file names; [] on cancel.
  */
-export async function addFilesToWorkspace(): Promise<string[]> {
+/** One attached file, and whether attaching it COPIED the file into the
+ *  workspace. Only a copy may be deleted when its chip is removed — a file that
+ *  was already in the workspace was referenced in place, and deleting it would
+ *  destroy the user's own data. See `attach_paths` in `osd-core`. */
+export interface AttachedFile {
+  name: string;
+  copied: boolean;
+}
+
+export async function addFilesToWorkspace(): Promise<AttachedFile[]> {
   if (!isTauri) return [];
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<string[]>("add_files_to_workspace");
+  return invoke<AttachedFile[]>("add_files_to_workspace");
 }
 
 /**
@@ -137,10 +146,19 @@ export async function addBinaryToWorkspace(filename: string, base64: string): Pr
 
 /** Copy explicit local file paths into the workspace (deduplicated). Used by
  *  drag-and-drop. Returns the names written. */
-export async function addPathsToWorkspace(paths: string[]): Promise<string[]> {
+export async function addPathsToWorkspace(paths: string[]): Promise<AttachedFile[]> {
   if (!isTauri) return [];
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<string[]>("add_paths_to_workspace", { paths });
+  return invoke<AttachedFile[]>("add_paths_to_workspace", { paths });
+}
+
+/** Delete a file the composer copied in, when its chip is removed before the
+ *  message is sent. Root-level names only — the backend refuses anything else,
+ *  because only a copy lands there. */
+export async function discardWorkspaceFile(name: string): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("discard_workspace_file", { name });
 }
 
 /**

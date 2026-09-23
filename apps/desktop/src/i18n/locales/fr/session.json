@@ -48,7 +48,14 @@
       "mcp": "mcp"
     },
     "file": {
-      "removeAria": "Supprimer {{name}}"
+      "removeAria": "Supprimer {{name}}",
+      "previewAria": "Aperçu de {{name}}",
+      "preview": {
+        "empty": "Fichier vide",
+        "none": "Aperçu indisponible",
+        "unreadable": "Impossible de lire ce fichier dans l'espace de travail",
+        "lines_other": "{{count}} lignes"
+      }
     },
     "attach": {
       "addAria": "Ajouter des fichiers",
@@ -99,7 +106,8 @@
     },
     "error": {
       "paste": "Impossible d'enregistrer le collage : {{message}}",
-      "addFiles": "Impossible d'ajouter les fichiers : {{message}}"
+      "addFiles": "Impossible d'ajouter les fichiers : {{message}}",
+      "imageNotSent": "Impossible de lire {{names}} — le message est parti sans l'image."
     },
     "model": {
       "aria": "Changer de modèle",

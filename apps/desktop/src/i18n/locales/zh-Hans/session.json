@@ -48,7 +48,14 @@
       "mcp": "mcp"
     },
     "file": {
-      "removeAria": "移除 {{name}}"
+      "removeAria": "移除 {{name}}",
+      "previewAria": "预览 {{name}}",
+      "preview": {
+        "empty": "空文件",
+        "none": "不支持内嵌预览",
+        "unreadable": "读不到这个文件",
+        "lines_other": "{{count}} 行"
+      }
     },
     "attach": {
       "addAria": "添加文件",
@@ -99,7 +106,8 @@
     },
     "error": {
       "paste": "无法保存粘贴内容：{{message}}",
-      "addFiles": "无法添加文件：{{message}}"
+      "addFiles": "无法添加文件：{{message}}",
+      "imageNotSent": "读不到 {{names}}，这条消息发出去时没带上这张图。"
     },
     "model": {
       "aria": "切换模型",

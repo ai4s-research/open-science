@@ -4214,8 +4214,16 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // echo and the spinner must appear on click, not after a multi-MB read.
       (sid) =>
         withRetry(async () => {
-          const files = await imageAttachmentParts(attachments ?? []);
-          await client!.sendPrompt(sid, text, agent, model, variant, files);
+          const { parts, dropped } = await imageAttachmentParts(attachments ?? []);
+          // A picture that could not be read is NOT sent, and the prompt still
+          // names the file — so without this the model answers about a figure
+          // it never saw, and nothing anywhere says so.
+          if (dropped.length > 0) {
+            toast.error(
+              i18n.t("session:composer.error.imageNotSent", { names: dropped.join(", ") }),
+            );
+          }
+          await client!.sendPrompt(sid, text, agent, model, variant, parts);
         }),
       // An ACP turn is a SYNC turn: `session/prompt` is one JSON-RPC request that
       // answers when the turn is over, where OpenCode's `prompt_async` answers as

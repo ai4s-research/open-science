@@ -20,6 +20,8 @@ import {
   addBinaryToWorkspace,
   addFilesToWorkspace,
   addPathsToWorkspace,
+  discardWorkspaceFile,
+  type AttachedFile,
   addTextToWorkspace,
   isTauri,
   logDebug,
@@ -39,6 +41,7 @@ import { ModelPicker } from "@/components/thread/ModelPicker";
 import { AcpConfigPicker } from "@/components/thread/AcpConfigPicker";
 import type { AcpConfigOption } from "@ai4s/sdk/acp";
 import { WorkspaceChip } from "@/components/thread/WorkspaceChip";
+import { AttachmentChip } from "@/components/thread/AttachmentChip";
 import { useUiStore } from "@/lib/store";
 import { parkDraft, unparkDraft } from "@/lib/composerStash";
 import { toast } from "@/lib/toast";
@@ -249,6 +252,9 @@ export function Composer({
   const [restored] = useState(() => (draftKey ? unparkDraft(draftKey) : null));
   const [value, setValue] = useState(restored?.text ?? "");
   const [files, setFiles] = useState<string[]>(restored?.files ?? []);
+  /** Of `files`, the ones this composer COPIED in — the only ones removing a
+   *  chip may delete. See `addWorkspaceFile`. */
+  const owned = useRef<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   /** Highlighted palette row; clamped to the current matches. */
@@ -500,6 +506,11 @@ export function Composer({
     if (text) recordHistory(text);
     setValue("");
     setFiles([]);
+    // The sent files belong to the conversation now, so this composer no longer
+    // owns any of them. Leaving the set behind would arm a real deletion: send
+    // `pasted.png`, later drag that same file back in from the Files pane —
+    // which attaches it IN PLACE — and removing that chip would delete it.
+    owned.current.clear();
   };
 
   /** Quote each referenced conversation down to its ask and its conclusion.
@@ -618,23 +629,33 @@ export function Composer({
     }
   };
 
-  // Very long pastes become a workspace file chip instead of flooding the box;
-  // a pasted image (screenshot) becomes an image file chip. Both land in the
-  // draft's own folder (materialized first) so the session can see them.
+  // Anything pasted that is a FILE becomes a workspace chip; only characters
+  // stay characters. A screenshot, a .md copied in Finder and a CSV all arrive
+  // as clipboard file items and all belong in the draft's folder (materialized
+  // first) — copying a Markdown file used to dump its path into the box as
+  // text, because only `image/*` was looked for. A very long text paste becomes
+  // a file too, rather than flooding the box.
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     if (!isTauri || !onSend) return;
-    // A clipboard image — works the same across macOS/Windows/Linux webviews,
-    // which all expose the bitmap as an `image/*` clipboard item.
-    const imageItem = Array.from(e.clipboardData.items ?? []).find((it) =>
-      it.type.startsWith("image/"),
-    );
-    const blob = imageItem?.getAsFile();
-    if (blob) {
+    const blobs = Array.from(e.clipboardData.items ?? [])
+      .filter((it) => it.kind === "file")
+      .map((it) => it.getAsFile())
+      .filter((b): b is File => b !== null);
+    if (blobs.length > 0) {
       e.preventDefault();
-      void addWorkspaceFile(async () => {
-        const base64 = await blobToBase64(blob);
-        return addBinaryToWorkspace(`pasted.${imageExt(blob.type)}`, base64);
-      });
+      void addWorkspaceFile(async () =>
+        Promise.all(
+          blobs.map(async (blob) => ({
+            // A bitmap has no name of its own, so it gets one; a file copied
+            // in a file manager keeps the name the person knows it by.
+            name: await addBinaryToWorkspace(
+              blob.name || `pasted.${imageExt(blob.type)}`,
+              await blobToBase64(blob),
+            ),
+            copied: true,
+          })),
+        ),
+      );
       return;
     }
     const text = e.clipboardData.getData("text/plain");
@@ -642,17 +663,28 @@ export function Composer({
       return; // normal paste
     }
     e.preventDefault();
-    void addWorkspaceFile(() => addTextToWorkspace("pasted.txt", text));
+    void addWorkspaceFile(async () => [
+      { name: await addTextToWorkspace("pasted.txt", text), copied: true },
+    ]);
   };
 
   // Shared: materialize the draft's folder, run the write, and chip the result
   // (one file or several — paste yields one, a multi-file drop yields many).
-  const addWorkspaceFile = async (write: () => Promise<string | string[]>) => {
+  //
+  // `copied` is remembered separately from the chip list so removing a chip can
+  // delete the workspace copy it made, and can NEVER delete a file that was
+  // only referenced in place. It is a set beside `files` rather than a field on
+  // it because `files` is also the send's `attachments` argument and the parked
+  // draft's shape; a restored draft therefore forgets what it owned, and its
+  // chips fall back to dropping the reference — the old behaviour, not a wrong
+  // deletion.
+  const addWorkspaceFile = async (write: () => Promise<AttachedFile[]>) => {
     try {
       await useRuntimeStore.getState().ensureDraftWorkspace();
-      const res = await write();
-      const names = Array.isArray(res) ? res : [res];
-      if (names.length > 0) setFiles((f) => [...f, ...names]);
+      const added = await write();
+      if (added.length === 0) return;
+      for (const a of added) if (a.copied) owned.current.add(a.name);
+      setFiles((f) => [...f, ...added.map((a) => a.name)]);
     } catch (err) {
       toast.error(
         t("composer.error.paste", {
@@ -660,6 +692,16 @@ export function Composer({
         }),
       );
     }
+  };
+
+  /** Remove a chip, and delete the file if this composer is what put it there. */
+  const removeFile = (name: string) => {
+    setFiles((f) => f.filter((n) => n !== name));
+    if (!owned.current.delete(name)) return;
+    void discardWorkspaceFile(name).catch(() => {
+      // The chip is gone either way: a file that cannot be deleted is litter in
+      // the workspace folder, not a reason to put the attachment back.
+    });
   };
 
   // Latest drop handler, kept in a ref so the native subscription below can run
@@ -716,8 +758,9 @@ export function Composer({
     try {
       // Same as paste: give the draft its folder before copying files in.
       await useRuntimeStore.getState().ensureDraftWorkspace();
-      const names = await addFilesToWorkspace();
-      if (names.length > 0) setFiles((f) => [...f, ...names]);
+      const added = await addFilesToWorkspace();
+      for (const a of added) if (a.copied) owned.current.add(a.name);
+      if (added.length > 0) setFiles((f) => [...f, ...added.map((a) => a.name)]);
     } catch (err) {
       toast.error(
         t("composer.error.addFiles", {
@@ -850,20 +893,7 @@ export function Composer({
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5 px-1 pb-2">
           {files.map((name) => (
-            <span
-              key={name}
-              className="flex items-center gap-1.5 rounded-input bg-surface-2 py-1 pl-2 pr-1 font-mono text-xs text-text ring-1 ring-border"
-            >
-              <Paperclip size={11} className="shrink-0 text-muted" />
-              <span className="max-w-[220px] truncate">{name}</span>
-              <button
-                className="rounded p-0.5 text-muted hover:bg-border hover:text-text"
-                aria-label={t("composer.file.removeAria", { name })}
-                onClick={() => setFiles((f) => f.filter((n) => n !== name))}
-              >
-                <X size={11} />
-              </button>
-            </span>
+            <AttachmentChip key={name} name={name} onRemove={() => removeFile(name)} />
           ))}
         </div>
       )}

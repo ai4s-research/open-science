@@ -48,7 +48,14 @@
       "mcp": "mcp"
     },
     "file": {
-      "removeAria": "{{name}} 제거"
+      "removeAria": "{{name}} 제거",
+      "previewAria": "{{name}} 미리보기",
+      "preview": {
+        "empty": "빈 파일",
+        "none": "미리보기 미지원",
+        "unreadable": "작업 공간에서 이 파일을 읽을 수 없습니다",
+        "lines_other": "{{count}}줄"
+      }
     },
     "attach": {
       "addAria": "파일 추가",
@@ -99,7 +106,8 @@
     },
     "error": {
       "paste": "붙여넣기를 저장할 수 없습니다: {{message}}",
-      "addFiles": "파일을 추가할 수 없습니다: {{message}}"
+      "addFiles": "파일을 추가할 수 없습니다: {{message}}",
+      "imageNotSent": "{{names}}을(를) 읽지 못해 이미지 없이 전송했습니다."
     },
     "model": {
       "aria": "모델 전환",

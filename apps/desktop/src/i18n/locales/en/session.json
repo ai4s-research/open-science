@@ -48,7 +48,14 @@
       "mcp": "mcp"
     },
     "file": {
-      "removeAria": "Remove {{name}}"
+      "removeAria": "Remove {{name}}",
+      "previewAria": "Preview {{name}}",
+      "preview": {
+        "empty": "Empty file",
+        "none": "No inline preview",
+        "unreadable": "Can't read this file from the workspace",
+        "lines_other": "{{count}} lines"
+      }
     },
     "attach": {
       "addAria": "Add files",
@@ -99,7 +106,8 @@
     },
     "error": {
       "paste": "Could not save paste: {{message}}",
-      "addFiles": "Could not add files: {{message}}"
+      "addFiles": "Could not add files: {{message}}",
+      "imageNotSent": "Couldn't read {{names}} — the message was sent without the image."
     },
     "model": {
       "aria": "Switch model",
