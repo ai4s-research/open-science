@@ -23,7 +23,7 @@ import type { RunArtifact, RunRecord } from "@ai4s/shared";
 import { queryRuns, readRunLog, reproduceRunPrompt, type RunFacet, type RunPage } from "@/lib/runs";
 import { openArtifactExternally } from "@/lib/artifactFile";
 import { copyText } from "@/lib/clipboard";
-import { PaneTitlebarInset } from "@/components/inspector/RightPane";
+import { PANE_HEADER, PaneTitlebarInset } from "@/components/inspector/RightPane";
 import { useUiStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import i18n from "@/i18n";
@@ -297,7 +297,10 @@ export function RunsPane({
   const { t } = useTranslation(["runs", "common"]);
   return (
     <div className="flex h-full flex-col border-l border-border bg-surface">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+      {/* The one pane header every pane beside a conversation uses. It was a
+          48px row of its own here, under a 32px session header — see the
+          `compactHeader` note in SessionView: two misaligned windows. */}
+      <div className={PANE_HEADER}>
         <PaneTitlebarInset />
         <FlaskConical size={14} strokeWidth={1.5} className="shrink-0 text-text" />
         <span className="text-sm font-medium text-text">{t("title")}</span>

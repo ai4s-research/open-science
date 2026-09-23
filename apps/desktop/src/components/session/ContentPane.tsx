@@ -51,6 +51,8 @@ export function ContentPane({
     case "terminal":
       return (
         <div className="flex h-full flex-col bg-surface">
+          {/* 32px, like every pane beside a conversation — only the rule is
+              fainter here. See `PANE_HEADER`. */}
           <header className="flex h-8 shrink-0 select-none items-center gap-1.5 border-b border-faint px-2.5">
             <TerminalIcon size={13} strokeWidth={1.5} className="shrink-0 text-muted" />
             {renaming ? (
