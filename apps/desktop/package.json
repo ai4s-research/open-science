@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && node ../../scripts/build-acp-server.mjs && vite build",
+    "build": "tsc --noEmit && node ../../scripts/build-acp-server.mjs && node --max-old-space-size=4096 node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
