@@ -15,13 +15,18 @@
 // only on macOS, because only a signed app bundle can hold a TCC grant, and the
 // grant follows the signature.
 //
-// Wired as Tauri's `beforeBundleCommand` rather than as a CI step of its own:
-// the signing identity is in the keychain by then, and running it any earlier
-// would sign the helper ad-hoc and fail notarization. Node, not bash, for the
-// same reason `build-acp-server.mjs` is — it is the one interpreter every
-// platform's build already has.
+// Wired as Tauri's `beforeBundleCommand` so the helper lands in the bundle
+// directory right before Tauri signs and notarizes the whole app. In CI the
+// signing identity is NOT in any keychain yet at that point — Tauri imports
+// `APPLE_CERTIFICATE` into its own keychain later, while bundling, and deletes
+// it afterwards — so when that certificate is in the environment this script
+// imports it into a throwaway keychain of its own (see `withReleaseKeychain`).
+// Node, not bash, for the same reason `build-acp-server.mjs` is — it is the one
+// interpreter every platform's build already has.
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "../..");
@@ -72,15 +77,65 @@ function writeBundle() {
 }
 
 function sign() {
-  const identity = resolveSigningIdentity();
-  const args = ["--force", "--sign", identity];
-  // Hardened runtime and a timestamp are what notarization requires; an ad-hoc
-  // dev signature cannot carry them.
-  if (identity !== "-") {
-    args.push("--options", "runtime", "--timestamp");
+  withReleaseKeychain((keychain) => {
+    const identity = resolveSigningIdentity();
+    const args = ["--force", "--sign", identity];
+    // Hardened runtime and a timestamp are what notarization requires; an ad-hoc
+    // dev signature cannot carry them.
+    if (identity !== "-") {
+      args.push("--options", "runtime", "--timestamp");
+    }
+    if (keychain) {
+      args.push("--keychain", keychain);
+    }
+    run("codesign", [...args, appPath]);
+    console.log(`Built and signed ${appPath} with identity: ${identity}`);
+  });
+}
+
+/** CI hands the release certificate over as base64 (`APPLE_CERTIFICATE`), the
+ *  same variables Tauri reads. Import it into a keychain that exists only for
+ *  this one codesign call and delete it afterwards: leaving it on the search
+ *  list would put a second copy of the identity next to the one Tauri imports,
+ *  and codesign refuses an identity name that matches twice. */
+function withReleaseKeychain(signWith) {
+  const certificate = process.env.APPLE_CERTIFICATE;
+  if (!certificate) {
+    signWith(null);
+    return;
   }
-  run("codesign", [...args, appPath]);
-  console.log(`Built and signed ${appPath} with identity: ${identity}`);
+  const dir = mkdtempSync(path.join(tmpdir(), "osd-computer-use-sign-"));
+  const keychain = path.join(dir, "sign.keychain-db");
+  const p12 = path.join(dir, "cert.p12");
+  const password = randomBytes(24).toString("hex");
+  const searchList = keychainSearchList();
+  try {
+    writeFileSync(p12, Buffer.from(certificate, "base64"), { mode: 0o600 });
+    run("security", ["create-keychain", "-p", password, keychain]);
+    run("security", ["set-keychain-settings", "-lut", "3600", keychain]);
+    run("security", ["unlock-keychain", "-p", password, keychain]);
+    run("security", [
+      "import", p12, "-k", keychain, "-f", "pkcs12",
+      "-P", process.env.APPLE_CERTIFICATE_PASSWORD ?? "", "-T", "/usr/bin/codesign",
+    ]);
+    // Without this, codesign stops at a GUI "allow access" prompt nobody can click.
+    run("security", ["set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", password, keychain]);
+    // On the search list too, so codesign can build the certificate chain.
+    run("security", ["list-keychains", "-d", "user", "-s", keychain, ...searchList]);
+    signWith(keychain);
+  } finally {
+    spawnSync("security", ["list-keychains", "-d", "user", "-s", ...searchList], { stdio: "inherit" });
+    spawnSync("security", ["delete-keychain", keychain], { stdio: "inherit" });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function keychainSearchList() {
+  const listed = spawnSync("security", ["list-keychains", "-d", "user"], { encoding: "utf8" });
+  return (listed.stdout ?? "")
+    .split("\n")
+    .map((line) => line.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean);
 }
 
 /** The release identity when the build has one, otherwise whatever this machine
@@ -106,8 +161,9 @@ function run(command, args) {
   if (result.signal) {
     process.kill(process.pid, result.signal);
   }
+  // Throw rather than exit, so `withReleaseKeychain` still gets to clean up.
   if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    throw new Error(`${command} ${args[0]} exited with ${result.status ?? "an error"}`);
   }
 }
 
