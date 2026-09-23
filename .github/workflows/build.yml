@@ -1,7 +1,7 @@
 name: build
 
 # Builds macOS (.dmg/.app), Windows (NSIS .exe + WiX .msi) and Linux
-# (.deb/.rpm) installers. Each platform's installer can only be
+# (.deb/.rpm, x86_64 + arm64) installers. Each platform's installer can only be
 # produced on its own runner — hence the matrix. On a `v*` tag push the
 # installers are also attached to a draft GitHub Release.
 
@@ -34,8 +34,15 @@ jobs:
             target: x86_64-apple-darwin
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
+          # Linux builds on 22.04 on purpose: the installer's glibc floor is
+          # the runner's, and 22.04 (glibc 2.35) is the oldest LTS with
+          # webkit2gtk-4.1. arm64 is built natively, not cross-compiled —
+          # WebKitGTK's system libraries don't cross-link cleanly — and is what
+          # NVIDIA DGX Spark / DGX OS (Ubuntu 24.04, aarch64) installs.
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+          - platform: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -206,8 +213,9 @@ jobs:
             - Uninstalling: leave **"Also delete my sessions, run history and settings"** unchecked unless you mean it — it erases `%APPDATA%\com.ai4s.workbench`.
             - Pick one format and stay on it. Installing the `.exe` over an `.msi` install (or the reverse) registers the app twice; uninstall the old one from **Settings → Apps** first.
 
-            **Linux** — `.deb` / `.rpm`
-            - `sudo apt install ./…_amd64.deb`  or  `sudo rpm -i …x86_64.rpm`
+            **Linux** — Intel/AMD: `…_amd64.deb` / `…x86_64.rpm` · ARM64 (incl. NVIDIA DGX Spark): `…_arm64.deb` / `…aarch64.rpm` (Ubuntu 22.04+ or equivalent)
+            - `sudo apt install ./…_amd64.deb` (or `_arm64.deb`)  ·  `sudo dnf install ./…x86_64.rpm` (or `aarch64.rpm`)
+            - Check your machine with `uname -m`: `x86_64` → amd64/x86_64, `aarch64` → arm64/aarch64. A package for the other architecture fails with a dependency error that looks unrelated.
 
             > **No in-app auto-update** — download new versions from this Releases page. (The `.app.tar.gz` assets are build artifacts, not an update channel.)
 
