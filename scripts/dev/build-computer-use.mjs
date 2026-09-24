@@ -109,6 +109,10 @@ function withReleaseKeychain(signWith) {
   const p12 = path.join(dir, "cert.p12");
   const password = randomBytes(24).toString("hex");
   const searchList = keychainSearchList();
+  // Restoring an empty list below would wipe the user's keychain search list.
+  if (searchList.length === 0) {
+    throw new Error("could not read the keychain search list; refusing to change it");
+  }
   try {
     writeFileSync(p12, Buffer.from(certificate, "base64"), { mode: 0o600 });
     run("security", ["create-keychain", "-p", password, keychain]);
