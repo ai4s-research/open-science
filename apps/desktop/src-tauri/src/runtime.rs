@@ -299,7 +299,9 @@ pub fn set_agent_variant(app: AppHandle, agent: String, variant: String) -> Resu
     osd_core::runtime::set_agent_variant(&env_of(&app), agent, variant)
 }
 
-#[tauri::command]
+// Async (off the main thread): on Windows, reading the system proxy can mean
+// fetching and evaluating a PAC script.
+#[tauri::command(async)]
 pub fn get_proxy_setting(app: AppHandle) -> Result<serde_json::Value, String> {
     osd_core::runtime::get_proxy_setting(&env_of(&app))
 }

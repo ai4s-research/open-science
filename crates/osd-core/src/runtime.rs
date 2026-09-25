@@ -1242,12 +1242,18 @@ fn read_proxy_setting(env: &Env) -> (String, String) {
     }
 }
 
-/// Accept `http://`, `https://` or `socks5://` with a host:port.
+/// Accept `http://` or `https://` with a host:port. Not SOCKS: the Bun inside
+/// OpenCode rejects a `socks5://` HTTPS_PROXY outright (`UnsupportedProxyProtocol`
+/// on every fetch — see `system_proxy`), so saving one would cut the agent off
+/// from every provider. Clients such as Clash serve HTTP on the same "mixed" port.
 fn validate_proxy_url(url: &str) -> Result<(), String> {
-    let rest = ["http://", "https://", "socks5://"]
+    if url.to_ascii_lowercase().starts_with("socks") {
+        return Err("SOCKS proxies are not supported by the agent runtime; use the proxy's HTTP port (Clash: the mixed port, e.g. http://127.0.0.1:7890)".into());
+    }
+    let rest = ["http://", "https://"]
         .iter()
         .find_map(|s| url.strip_prefix(s))
-        .ok_or("proxy URL must start with http://, https:// or socks5://")?;
+        .ok_or("proxy URL must start with http:// or https://")?;
     let hostport = rest.trim_end_matches('/');
     let (host, port) = hostport
         .rsplit_once(':')
@@ -1293,17 +1299,30 @@ fn resolve_proxy_env(mode: &str, url: &str) -> Vec<(&'static str, String)> {
             {
                 return Vec::new();
             }
-            match system_proxy_url() {
-                Some(sys) => vec![
-                    ("HTTP_PROXY", sys.clone()),
-                    ("HTTPS_PROXY", sys),
-                    ("NO_PROXY", NO_PROXY_LOOPBACK.to_string()),
-                ],
+            match crate::system_proxy::detect() {
+                Some(sys) => {
+                    let no_proxy = std::iter::once(NO_PROXY_LOOPBACK.to_string())
+                        .chain(sys.bypass)
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    vec![
+                        ("HTTP_PROXY", sys.url.clone()),
+                        ("HTTPS_PROXY", sys.url),
+                        ("NO_PROXY", no_proxy),
+                    ]
+                }
                 None => Vec::new(),
             }
         }
     }
 }
+
+/// The proxy the running sidecar was started with (`effective_proxy` at spawn;
+/// "" = direct). A sidecar's environment is fixed when it starts, so when the
+/// system proxy changes afterwards — Clash switched on after the app — the
+/// sidecar keeps the old route until it restarts; Settings compares the two to
+/// say so. None until this process has started a sidecar.
+static SIDECAR_PROXY: Mutex<Option<String>> = Mutex::new(None);
 
 /// The proxy the sidecar would actually use right now, for display in
 /// Settings. None ⇒ direct connections.
@@ -1314,7 +1333,7 @@ fn effective_proxy(mode: &str, url: &str) -> Option<String> {
         _ => ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]
             .iter()
             .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
-            .or_else(system_proxy_url),
+            .or_else(|| crate::system_proxy::detect().map(|sys| sys.url)),
     }
 }
 
@@ -1380,48 +1399,6 @@ pub fn uv_network_env(env: &Env) -> Vec<(&'static str, String)> {
 pub fn sidecar_proxy_env(env: &Env) -> Vec<(&'static str, String)> {
     let (mode, url) = read_proxy_setting(env);
     resolve_proxy_env(&mode, &url)
-}
-
-/// The system-configured proxy as a URL, if one is enabled (macOS: scutil).
-/// HTTP(S) proxies are preferred — an HTTPS proxy endpoint still speaks plain
-/// HTTP CONNECT, hence the http:// scheme — with SOCKS as the fallback.
-#[cfg(target_os = "macos")]
-fn system_proxy_url() -> Option<String> {
-    let out = quiet_command("scutil").arg("--proxy").output().ok()?;
-    parse_scutil_proxy(&String::from_utf8_lossy(&out.stdout))
-}
-
-/// Parse `scutil --proxy` output (`  Key : value` lines) into a proxy URL.
-/// Compiled where it is reachable — macOS — plus tests everywhere, so the
-/// parser stays covered on any host without warning as dead code on the ones
-/// that never call it. (Same shape as `strip_windows_verbatim`.)
-#[cfg(any(target_os = "macos", test))]
-fn parse_scutil_proxy(text: &str) -> Option<String> {
-    let get = |key: &str| -> Option<String> {
-        let prefix = format!("{key} : ");
-        text.lines()
-            .find_map(|l| l.trim().strip_prefix(prefix.as_str()).map(|v| v.trim().to_string()))
-    };
-    let enabled = |key: &str| get(key).as_deref() == Some("1");
-    for (en, host, port, scheme) in [
-        ("HTTPSEnable", "HTTPSProxy", "HTTPSPort", "http"),
-        ("HTTPEnable", "HTTPProxy", "HTTPPort", "http"),
-        ("SOCKSEnable", "SOCKSProxy", "SOCKSPort", "socks5"),
-    ] {
-        if enabled(en) {
-            if let (Some(h), Some(p)) = (get(host), get(port)) {
-                return Some(format!("{scheme}://{h}:{p}"));
-            }
-        }
-    }
-    None
-}
-
-#[cfg(not(target_os = "macos"))]
-fn system_proxy_url() -> Option<String> {
-    // Windows/Linux: terminal-launched apps inherit the user's proxy env
-    // (covered by the passthrough above); no OS store is read here yet.
-    None
 }
 
 /// One-time upgrade cleanup for connector configs created before the app gave
@@ -1632,6 +1609,8 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     for (k, v) in resolve_proxy_env(&proxy_mode, &proxy_url) {
         cmd.env(k, v);
     }
+    *SIDECAR_PROXY.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some(effective_proxy(&proxy_mode, &proxy_url).unwrap_or_default());
 
     let mut child = spawn_tied_to_our_lifetime(cmd)
         .map_err(|e| format!("failed to spawn opencode: {e}"))?;
@@ -2118,7 +2097,7 @@ pub fn kill_child(state: &RuntimeState) {
 #[cfg(test)]
 mod tests {
     use super::{
-        auth_has_provider, dependency_pins, deploy_goal_plugin_dependencies, parse_scutil_proxy,
+        auth_has_provider, dependency_pins, deploy_goal_plugin_dependencies,
         package_dependency_version, OPENCODE_PLUGIN_PACKAGE,
         base_workspace_dir, ensure_base_layout, prune_stale_skills, random_hex, remove_key_from_config,
         resolve_proxy_env, set_workspace_base, skill_name_from_markdown, sync_skill_pack,
@@ -2658,7 +2637,7 @@ mod tests {
     #[test]
     fn proxy_url_validation() {
         assert!(validate_proxy_url("http://127.0.0.1:7890").is_ok());
-        assert!(validate_proxy_url("socks5://10.0.0.2:1080").is_ok());
+        assert!(validate_proxy_url("socks5://10.0.0.2:1080").is_err()); // Bun cannot use it
         assert!(validate_proxy_url("http://[::1]:8080").is_ok());
         assert!(validate_proxy_url("127.0.0.1:7890").is_err()); // no scheme
         assert!(validate_proxy_url("http://host").is_err()); // no port
@@ -2675,18 +2654,6 @@ mod tests {
         let custom = resolve_proxy_env("custom", "http://127.0.0.1:7890");
         assert!(custom.iter().any(|(k, v)| *k == "HTTPS_PROXY" && v == "http://127.0.0.1:7890"));
         assert!(custom.iter().any(|(k, v)| *k == "NO_PROXY" && v.contains("127.0.0.1")));
-    }
-
-    #[test]
-    fn scutil_proxy_parses_and_prefers_https() {
-        // Real `scutil --proxy` shape (indented `Key : value` lines).
-        let all = "<dictionary> {\n  HTTPEnable : 1\n  HTTPPort : 1087\n  HTTPProxy : 127.0.0.1\n  HTTPSEnable : 1\n  HTTPSPort : 1087\n  HTTPSProxy : 127.0.0.1\n  SOCKSEnable : 1\n  SOCKSPort : 1087\n  SOCKSProxy : 127.0.0.1\n}";
-        assert_eq!(parse_scutil_proxy(all).as_deref(), Some("http://127.0.0.1:1087"));
-        let socks_only = "  SOCKSEnable : 1\n  SOCKSPort : 7890\n  SOCKSProxy : 10.0.0.2\n";
-        assert_eq!(parse_scutil_proxy(socks_only).as_deref(), Some("socks5://10.0.0.2:7890"));
-        let disabled = "  HTTPEnable : 0\n  HTTPPort : 1087\n  HTTPProxy : 127.0.0.1\n";
-        assert_eq!(parse_scutil_proxy(disabled), None);
-        assert_eq!(parse_scutil_proxy(""), None);
     }
 
     #[test]
@@ -3403,7 +3370,18 @@ pub fn set_agent_variant(
 pub fn get_proxy_setting(env: &Env) -> Result<serde_json::Value, String> {
     let (mode, url) = read_proxy_setting(env);
     let effective = effective_proxy(&mode, &url);
-    Ok(serde_json::json!({ "mode": mode, "url": url, "effective": effective }))
+    let started_with = SIDECAR_PROXY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let restart_needed =
+        started_with.is_some_and(|applied| applied != effective.clone().unwrap_or_default());
+    Ok(serde_json::json!({
+        "mode": mode,
+        "url": url,
+        "effective": effective,
+        "restartNeeded": restart_needed,
+    }))
 }
 
 /// Persist the proxy setting ("system" | "custom" | "none", url for custom)

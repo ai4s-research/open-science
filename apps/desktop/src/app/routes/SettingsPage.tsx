@@ -414,7 +414,8 @@ export function SettingsPage() {
     }
     void applyProxy(mode, "");
   };
-  const validProxyUrl = /^(https?|socks5):\/\/\S+:\d+\/?$/i.test(proxyUrlInput.trim());
+  // HTTP(S) only: the Bun inside OpenCode fails every fetch on a SOCKS proxy.
+  const validProxyUrl = /^https?:\/\/\S+:\d+\/?$/i.test(proxyUrlInput.trim());
 
   // uv download mirrors, used only when provisioning Python tools (Jupyter,
   // science databases). Optional; a blank field clears that mirror.
@@ -945,7 +946,9 @@ export function SettingsPage() {
                   proxy.mode === "none"
                     ? t("runtime.proxyDirectHint")
                     : proxy.effective
-                      ? t("runtime.proxyEffective", { url: proxy.effective })
+                      ? /^socks/i.test(proxy.effective)
+                        ? t("runtime.proxySocksUnsupported", { url: proxy.effective })
+                        : t("runtime.proxyEffective", { url: proxy.effective })
                       : t("runtime.proxyNoneDetected")
                 }
                 control={
@@ -962,6 +965,18 @@ export function SettingsPage() {
                   </select>
                 }
               >
+                {proxy.restartNeeded && (
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <p className="flex-1 text-xs text-muted">{t("runtime.proxyRestartNeeded")}</p>
+                    <button
+                      className={btnAccent()}
+                      onClick={() => void applyProxy(proxy.mode, proxy.url)}
+                      disabled={busy}
+                    >
+                      {t("runtime.proxyApply")}
+                    </button>
+                  </div>
+                )}
                 {proxy.mode === "custom" && (
                   <div className="mt-2.5 flex items-center gap-2">
                     <input

@@ -298,6 +298,9 @@ export interface ProxySetting {
   url: string;
   /** The proxy the sidecar would use right now; null ⇒ direct. */
   effective: string | null;
+  /** The running sidecar was started with a different proxy than `effective`
+   *  (the system proxy changed since); re-applying the setting restarts it. */
+  restartNeeded: boolean;
 }
 
 /** The persisted proxy setting (desktop only; null in browser). */
