@@ -8,7 +8,7 @@ set -euo pipefail
 # chronology; 1.18.17 hardened compaction again. Below those, a long session
 # eventually built a message array the AI SDK rejected outright with
 # "The messages do not match the ModelMessage[] schema" (issue #114).
-OPENCODE_VERSION="${OPENCODE_VERSION:-1.18.18}"
+OPENCODE_VERSION="${OPENCODE_VERSION:-1.18.32}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="$ROOT/apps/desktop/src-tauri/binaries"
 mkdir -p "$OUT_DIR"

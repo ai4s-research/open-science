@@ -3,7 +3,7 @@ import type { MessageUsage, RuntimeStatus, ToolCallStatus } from "@ai4s/shared";
 export type { RuntimeStatus, ToolCallStatus };
 
 /** Pinned OpenCode release this client targets. */
-export const OPENCODE_VERSION = "1.18.18";
+export const OPENCODE_VERSION = "1.18.32";
 
 /** OpenCode server defaults (`opencode serve`). */
 export const DEFAULT_OPENCODE_URL = "http://127.0.0.1:4096";
