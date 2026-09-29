@@ -79,6 +79,8 @@ const mocks = vi.hoisted(() => ({
   failShell: false,
   /** Next runCommand call throws before any event (HTTP-level failure). */
   failCommand: false,
+  /** Next sendPrompt call throws (HTTP-level failure). */
+  failSend: false,
   /** Next runCommand call streams an event, then throws — the WKWebView
    *  ~60 s fetch kill on a long sync turn ("Load failed"). */
   dropCommandPost: false,
@@ -234,6 +236,7 @@ vi.mock("@ai4s/sdk", () => {
     ) {
       mocks.sendPromptSpy(sid, text, agent);
       mocks.sendPromptFullSpy(sid, text, agent, model, variant);
+      if (mocks.failSend) throw new Error("provider exploded");
     }
     async listCommands() {
       return [{ name: "init", description: "guided AGENTS.md setup", source: "command" }];
@@ -324,6 +327,7 @@ beforeEach(async () => {
   mocks.failCreates = 0;
   mocks.failShell = false;
   mocks.failCommand = false;
+  mocks.failSend = false;
   mocks.dropCommandPost = false;
   mocks.abortTrailing = [];
   mocks.messages = [];
@@ -700,6 +704,29 @@ describe("per-session workspace folders", () => {
     await useRuntimeStore.getState().sendPrompt("hello", undefined, "draft:leaf-new");
     expect(mocks.newDatedWorkspace).toHaveBeenCalledTimes(1);
     expect(mocks.setWorkspace).not.toHaveBeenCalledWith("/ws/毕设");
+  });
+
+  it("a draft's first send that fails reports into the real session, not the orphaned draft slot", async () => {
+    // A draft pane's first message lazy-creates its session, then grafts the
+    // draft slot (`draft:leaf-9`) onto the real id and DELETES the draft slot.
+    // If the POST then fails, the error must land in the session the pane now
+    // shows — re-deriving `draftKey` at catch time re-reads a slot that was just
+    // deleted, and in a split layout the "Send failed" line was invisible.
+    mocks.failSend = true;
+    const id = await useRuntimeStore.getState().sendPrompt("hello", undefined, "draft:leaf-9");
+    expect(id).toBe("ses_new");
+
+    const state = useRuntimeStore.getState();
+    // The pane now displays threads["ses_new"] — that's where the failure lives.
+    const blocks = state.threads["ses_new"]?.blocks ?? [];
+    const last = blocks[blocks.length - 1];
+    expect(last).toMatchObject({
+      kind: "status-line",
+      tone: "error",
+      text: expect.stringContaining("Send failed"),
+    });
+    // The orphaned draft slot must not hold the failure (or exist at all).
+    expect(state.threads["draft:leaf-9"]).toBeUndefined();
   });
 
   // "+ new session in project X" opens its own pane, and that pane's composer

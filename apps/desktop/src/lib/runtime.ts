@@ -1786,8 +1786,17 @@ async function performTurn(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     void logDebug(`turn FAILED: ${msg}`);
-    // The failure belongs next to the message that caused it.
-    const key = target ?? draftKey ?? get().currentId ?? DRAFT_KEY;
+    // The failure belongs next to the message that caused it. This must be the
+    // slot the turn actually lives in NOW, which is `lockKey`: it starts as the
+    // echo key and is re-pointed to the real session id when a draft's first
+    // send grafts the draft slot onto its new session (see above). Re-deriving
+    // `target ?? draftKey ?? currentId` here re-reads the STALE draft key after
+    // that graft deleted `threads[draftKey]` — so in a split layout, a first
+    // send that fails (bad model, provider error) wrote its "Send failed:" line
+    // into a slot no pane displays, and the user got nothing but a cleared
+    // composer. The lock cleanup in `finally` already tracks the current key for
+    // exactly this reason; the error must follow the same pointer.
+    const key = lockKey;
     set((s) => {
       const cur = s.threads[key] ?? emptyThread();
       return {
@@ -1802,6 +1811,8 @@ async function performTurn(
         },
       };
     });
+    // The return value keeps its original meaning: null when the session was
+    // never created (the caller treats that as "nothing to switch to").
     return target ?? get().currentId;
   } finally {
     // Clear the lock under its CURRENT key (`lockKey` follows the draft→session
