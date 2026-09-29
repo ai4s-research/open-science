@@ -239,7 +239,18 @@ fn git(root: &Path) -> std::process::Command {
         .env("GIT_AUTHOR_NAME", AUTHOR_NAME)
         .env("GIT_AUTHOR_EMAIL", AUTHOR_EMAIL)
         .env("GIT_COMMITTER_NAME", AUTHOR_NAME)
-        .env("GIT_COMMITTER_EMAIL", AUTHOR_EMAIL);
+        .env("GIT_COMMITTER_EMAIL", AUTHOR_EMAIL)
+        // Parse git's own error output for the paths it refuses to stage
+        // (`commitless_repos`, in `stage_all`), so the message must be
+        // language-stable. Git localizes its diagnostics with the user's
+        // locale (LC_MESSAGES/LANG/LC_ALL): on a zh_CN box, `git add` on a
+        // nested commitless repo prints `错误：'projects/Empty/' 没有检出一
+        // 个提交`, the matcher finds nothing, `stage_all` errors out, and the
+        // workspace quietly stops being snapshotted at all — exactly the bug
+        // this code exists to work around, resurfacing for every non-English
+        // locale. `LC_ALL` overrides LC_MESSAGES/LANG unconditionally, so
+        // pinning it here makes the parse reliable on every system.
+        .env("LC_ALL", "C");
     cmd
 }
 
@@ -859,6 +870,26 @@ mod tests {
         assert!(snapshot_due(SNAPSHOT_DEBOUNCE, Duration::from_secs(5)));
         // Changes still arriving, but the max wait elapsed → fire (no starvation).
         assert!(snapshot_due(Duration::from_millis(100), SNAPSHOT_MAX_WAIT));
+    }
+
+    /// Every git invocation must speak C English, because `stage_all` parses
+    /// git's diagnostics for the paths it refuses to stage (`commitless_repos`).
+    /// Git localizes those with the user's locale: on a zh_CN box a nested
+    /// commitless repo makes `git add` print `错误：'projects/Empty/' …`, the
+    /// matcher finds nothing, and the whole workspace silently stops being
+    /// snapshotted. `LC_ALL` overrides `LC_MESSAGES`/`LANG` unconditionally, so
+    /// pinning it here is what makes the parse language-stable. Asserted without
+    /// running git, so the guard cannot rot on a host that only ever speaks
+    /// English.
+    #[test]
+    fn every_git_call_pins_a_stable_language() {
+        let cmd = super::git(std::path::Path::new("."));
+        let lc_all: std::ffi::OsString = "LC_ALL".into();
+        let c: std::ffi::OsString = "C".into();
+        assert_eq!(
+            cmd.get_envs().find(|(k, _)| *k == lc_all),
+            Some((lc_all.as_os_str(), Some(c.as_os_str())))
+        );
     }
 
     #[test]
