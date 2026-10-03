@@ -519,6 +519,46 @@ fn adopt_bundled_plugin_dependency(package_json: &Path, bundled_spec: &str) -> R
     std::fs::write(package_json, out).map_err(|e| e.to_string())
 }
 
+/// Drop the entry-point fields from the profile's own `package.json`.
+///
+/// This file is read by the runtime whenever it resolves a plugin the config
+/// names **by path** — not only the plugin whose package it is. `main` (and
+/// `exports`) there win over the file the `plugin` array actually names, so
+/// every path plugin sitting in this directory — `browser-guard.ts`,
+/// `history-guard.ts`, and this one — is loaded from `main` instead of itself.
+/// The guards then never register their hooks, silently: the module that does
+/// load is a valid plugin, so nothing is logged and nothing looks wrong until a
+/// browser call is refused for a lease that was never attached (#151).
+///
+/// `dependencies` and every other key are left exactly as they are — only our
+/// own entry-point fields go, so a user's own edits survive. A missing file is
+/// fine (a fresh profile has none yet), and the write happens only when
+/// something was actually removed, which keeps this idempotent across the
+/// "refresh on every start" passes.
+fn strip_plugin_entry_points(package_json: &Path) -> Result<(), String> {
+    let Ok(text) = std::fs::read_to_string(package_json) else {
+        return Ok(());
+    };
+    let mut doc: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        format!(
+            "{} is not readable JSON ({e}) — left as it is",
+            package_json.display()
+        )
+    })?;
+    let object = doc
+        .as_object_mut()
+        .ok_or_else(|| format!("{} is not a JSON object", package_json.display()))?;
+    let removed = ["main", "exports"]
+        .iter()
+        .any(|key| object.remove(*key).is_some());
+    if !removed {
+        return Ok(());
+    }
+    let mut out = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    out.push('\n');
+    std::fs::write(package_json, out).map_err(|e| e.to_string())
+}
+
 /// Is this lockfile ours alone to replace? It is when it resolves no root
 /// dependency other than the OpenCode plugin: a stale one pins the old version
 /// (the July profile's lock named 1.17.13), and the next `npm install` would
@@ -571,6 +611,11 @@ fn deploy_goal_plugin_dependencies(src: &Path, dst: &Path) -> Result<(), String>
     let package_json = dst.join("package.json");
     let package_lock = dst.join("package-lock.json");
     let node_modules = dst.join("node_modules");
+    // Before the "already deployed" fast path below, deliberately: a profile
+    // whose dependency tree is already correct still needs this, and that is
+    // exactly the affected install — shipped with `main`, otherwise up to date,
+    // so it would take the early return and never be repaired.
+    strip_plugin_entry_points(&package_json)?;
     let dependency_ready = package_dependency_version(&package_json, OPENCODE_PLUGIN_PACKAGE)
         .is_some_and(|spec| dependency_pins(&spec, expected))
         && installed_package_version(&node_modules, OPENCODE_PLUGIN_PACKAGE).as_deref()
@@ -613,6 +658,10 @@ fn deploy_goal_plugin_dependencies(src: &Path, dst: &Path) -> Result<(), String>
     if !package_lock.exists() || lock_resolves_nothing_else(&package_lock) {
         std::fs::copy(&src_lock, &package_lock).map_err(|e| e.to_string())?;
     }
+    // The copy branch above writes the bundled package.json verbatim — `main`
+    // included — so a fresh profile needs this after the write as well, not
+    // only in front of the fast path.
+    strip_plugin_entry_points(&package_json)?;
 
     if !package_dependency_version(&package_json, OPENCODE_PLUGIN_PACKAGE)
         .is_some_and(|spec| dependency_pins(&spec, expected))
@@ -2913,6 +2962,102 @@ mod tests {
         assert_eq!(
             fs::read_to_string(dst.join("node_modules/user-plugin/keep.txt")).unwrap(),
             "keep"
+        );
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// The profile's own `package.json` is read when the runtime resolves EVERY
+    /// plugin the config names by path in that directory, so a `main` in it
+    /// replaces the file each of them names — the guards then never register and
+    /// say nothing (#151). The bundled package.json carries exactly such a
+    /// `main`, and a fresh profile gets it verbatim.
+    #[test]
+    fn a_fresh_profile_drops_the_entry_point_that_hijacks_sibling_plugins() {
+        let tmp = std::env::temp_dir().join(format!("goal-deps-hijack-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let src = tmp.join("src");
+        let dst = tmp.join("dst");
+        write(&src.join(".opencode-plugin-version"), "1.18.32\n");
+        // The shape the fetch script actually produces and ships.
+        write(
+            &src.join("package.json"),
+            r#"{"name":"goal-plugin","version":"1.0.0","main":"goal-plugin.server.js","dependencies":{"@opencode-ai/plugin":"^1.18.32"}}"#,
+        );
+        write(&src.join("package-lock.json"), "{}");
+        write(
+            &src.join("node_modules/@opencode-ai/plugin/package.json"),
+            r#"{"name":"@opencode-ai/plugin","version":"1.18.32"}"#,
+        );
+
+        deploy_goal_plugin_dependencies(&src, &dst).unwrap();
+
+        let deployed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dst.join("package.json")).unwrap()).unwrap();
+        assert!(
+            deployed.get("main").is_none(),
+            "a `main` here makes the runtime load this plugin for browser-guard.ts and \
+             history-guard.ts too, so their hooks never register: {deployed}"
+        );
+        assert!(deployed.get("exports").is_none(), "{deployed}");
+        // The dependency line is the reason the file exists; it must survive.
+        assert_eq!(
+            deployed
+                .get("dependencies")
+                .and_then(|d| d.get(OPENCODE_PLUGIN_PACKAGE))
+                .and_then(serde_json::Value::as_str),
+            Some("^1.18.32"),
+        );
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// The affected install is the one that is otherwise up to date: it has the
+    /// dependency, the lockfile and the marker, so `deploy_goal_plugin_dependencies`
+    /// takes its "already deployed" early return — and would never repair the
+    /// `main` an earlier release put there.
+    #[test]
+    fn an_up_to_date_profile_is_still_cleaned_of_the_hijacking_entry_point() {
+        let tmp = std::env::temp_dir().join(format!("goal-deps-repair-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let src = tmp.join("src");
+        let dst = tmp.join("dst");
+        write(&src.join(".opencode-plugin-version"), "1.18.32\n");
+        write(
+            &src.join("package.json"),
+            r#"{"name":"goal-plugin","main":"goal-plugin.server.js","dependencies":{"@opencode-ai/plugin":"^1.18.32"}}"#,
+        );
+        // A profile that is fully deployed already — except for `main`.
+        write(
+            &dst.join("package.json"),
+            r#"{"main":"goal-plugin.server.js","dependencies":{"@opencode-ai/plugin":"^1.18.32","user-plugin":"2.0.0"},"userKey":true}"#,
+        );
+        write(
+            &dst.join("package-lock.json"),
+            r#"{"lockfileVersion":3,"packages":{"":{"dependencies":{"@opencode-ai/plugin":"^1.18.32","user-plugin":"2.0.0"}}}}"#,
+        );
+        write(
+            &dst.join("node_modules/@opencode-ai/plugin/package.json"),
+            r#"{"name":"@opencode-ai/plugin","version":"1.18.32"}"#,
+        );
+        write(&dst.join(".opencode-plugin-version"), "1.18.32\n");
+
+        deploy_goal_plugin_dependencies(&src, &dst).unwrap();
+
+        let repaired: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dst.join("package.json")).unwrap()).unwrap();
+        assert!(repaired.get("main").is_none(), "not repaired: {repaired}");
+        // ...and only our entry point was touched.
+        assert_eq!(
+            repaired
+                .get("dependencies")
+                .and_then(|d| d.get("user-plugin"))
+                .and_then(serde_json::Value::as_str),
+            Some("2.0.0"),
+            "a user's own plugin dependency was dropped: {repaired}"
+        );
+        assert_eq!(
+            repaired.get("userKey").and_then(serde_json::Value::as_bool),
+            Some(true),
+            "a user's own key was dropped: {repaired}"
         );
         fs::remove_dir_all(&tmp).unwrap();
     }
