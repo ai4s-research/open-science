@@ -581,6 +581,23 @@ pub fn is_registered_project_path(env: &Env, path: &Path) -> bool {
     })
 }
 
+/// Whether `path` (canonical) sits inside a registered project's workspace —
+/// its root or anything under it. A file ticket names a file, not a session
+/// directory, so it needs this rather than `is_registered_project_path`'s
+/// exact-root match: an in-place project lives outside the base directory.
+pub fn is_inside_registered_project(env: &Env, path: &Path) -> bool {
+    let Ok(base) = base_workspace_dir(env) else {
+        return false;
+    };
+    project_dirs(&base).into_iter().any(|dir| {
+        let Some(meta) = read_meta(&dir) else {
+            return false;
+        };
+        let target = meta.source_path.map(PathBuf::from).unwrap_or(dir);
+        target.canonicalize().map(|p| path.starts_with(p)).unwrap_or(false)
+    })
+}
+
 /// Rename the project's display name only — keyed by project id, since an
 /// imported project's metadata lives in its base-dir stub, not at its (external)
 /// workspace path. The folder never moves, so session `directory` grouping stays

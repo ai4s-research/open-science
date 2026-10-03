@@ -195,7 +195,7 @@ fn redeem_verify(ctx: &Ctx, full: &Path) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())?
         .canonicalize()
         .map_err(|e| e.to_string())?;
-    if !canon.starts_with(&base) && !crate::project::is_registered_project_path(&ctx.env, &canon) {
+    if !canon.starts_with(&base) && !crate::project::is_inside_registered_project(&ctx.env, &canon) {
         return Err("outside the workspace".into());
     }
     Ok(canon)
@@ -1903,6 +1903,32 @@ mod tests {
         // And a file that legitimately lives outside the workspace is refused
         // outright (containment, independent of symlinks).
         assert!(redeem_verify(&ctx, &outside).is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// An in-place project lives OUTSIDE the base workspace, and `fs_base`
+    /// issues tickets for files in it — so redemption must accept any file under
+    /// that project's root, not only the root itself.
+    #[test]
+    #[cfg(unix)]
+    fn a_ticket_for_a_file_in_an_in_place_project_redeems() {
+        let (ctx, root) = ctx_with_base("inplace");
+        let ext = root.join("external-project");
+        std::fs::create_dir_all(ext.join("figures")).unwrap();
+        let file = ext.join("figures").join("fig1.png");
+        std::fs::write(&file, b"png").unwrap();
+        crate::project::import_project(
+            &ctx.env,
+            ext.to_string_lossy().to_string(),
+            Some("in-place".into()),
+        )
+        .unwrap();
+
+        assert!(redeem_verify(&ctx, &file).is_ok());
+        // A sibling of the project that is not part of it stays refused.
+        let sibling = root.join("external-project-other.txt");
+        std::fs::write(&sibling, b"no").unwrap();
+        assert!(redeem_verify(&ctx, &sibling).is_err());
         std::fs::remove_dir_all(&root).unwrap();
     }
 }
