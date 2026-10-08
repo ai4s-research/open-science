@@ -242,6 +242,15 @@ sudo apt install ./Open.Science_*.deb
 sudo rpm -i Open.Science-*.rpm
 ```
 
+No root? This installs everything under your home directory — `osd` by
+default, the desktop app with `--desktop` (which needs WebKitGTK 4.1 already on
+the system). `--uninstall` removes it again.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai4s-research/open-science/master/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ai4s-research/open-science/master/scripts/install.sh | sh -s -- --desktop
+```
+
 ## Headless & CLI (`osd`)
 
 A research machine usually has no screen. `osd` is the same workbench without

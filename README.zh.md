@@ -203,6 +203,13 @@ sudo apt install ./Open.Science_*.deb
 sudo rpm -i Open.Science-*.rpm
 ```
 
+没有 root 权限？下面的命令把所有东西装在你的用户目录下——默认装 `osd`，加 `--desktop` 装桌面版（要求系统里已有 WebKitGTK 4.1）。`--uninstall` 可以再卸掉。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai4s-research/open-science/master/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ai4s-research/open-science/master/scripts/install.sh | sh -s -- --desktop
+```
+
 ## 无头与命令行(`osd`)
 
 科研机器通常没有屏幕。`osd` 就是没有屏幕的同一套工作台：同样的工作区布局、同样的智能体运行时、同样的项目、同样的 Web UI——只是通过 HTTP 提供，而不是画在窗口里。

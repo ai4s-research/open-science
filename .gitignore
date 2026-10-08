@@ -81,6 +81,7 @@ runtime/acp-server/
 
 # osd release archives (built by scripts/release/package-osd.sh)
 dist-osd/
+dist-desktop/
 
 # The app's own per-workspace state, written when this repo is opened as a
 # workspace. Machine inventories and run records are local, never source.

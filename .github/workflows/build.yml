@@ -216,6 +216,7 @@ jobs:
             **Linux** — Intel/AMD: `…_amd64.deb` / `…x86_64.rpm` · ARM64 (incl. NVIDIA DGX Spark): `…_arm64.deb` / `…aarch64.rpm` (Ubuntu 22.04+ or equivalent)
             - `sudo apt install ./…_amd64.deb` (or `_arm64.deb`)  ·  `sudo dnf install ./…x86_64.rpm` (or `aarch64.rpm`)
             - Check your machine with `uname -m`: `x86_64` → amd64/x86_64, `aarch64` → arm64/aarch64. A package for the other architecture fails with a dependency error that looks unrelated.
+            - No root? `curl -fsSL https://raw.githubusercontent.com/ai4s-research/open-science/master/scripts/install.sh | sh` installs `osd` (headless) under `$HOME`; add `-s -- --desktop` for the desktop app (needs WebKitGTK 4.1 already present).
 
             > **No in-app auto-update** — download new versions from this Releases page. (The `.app.tar.gz` assets are build artifacts, not an update channel.)
 
@@ -255,6 +256,33 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" "${{ steps.osd.outputs.archive }}" --clobber
+
+      # The desktop app for a Linux user without root: the .deb's payload as a
+      # plain archive, which scripts/install.sh --desktop unpacks under $HOME.
+      # Tauri resolves its resources relative to the executable
+      # (<bin>/../lib/<name>), so the tree runs from any prefix.
+      - name: Package the desktop app for no-root installs
+        id: desktop_tar
+        if: steps.tauri_build.outcome == 'success' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb=$(find "target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -name '*.deb' -print -quit)
+          [ -n "$deb" ] || { echo "::error::No .deb was produced."; exit 1; }
+          version=$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)
+          name="open-science-desktop-$version-${{ matrix.target }}"
+          rm -rf dist-desktop && mkdir -p "dist-desktop/$name"
+          dpkg-deb -x "$deb" "dist-desktop/$name"
+          tar -czf "dist-desktop/$name.tar.gz" -C dist-desktop "$name"
+          echo "archive=dist-desktop/$name.tar.gz" >> "$GITHUB_OUTPUT"
+          ls -la "dist-desktop/$name.tar.gz"
+
+      - name: Attach the desktop archive to the draft release
+        if: steps.desktop_tar.outcome == 'success' && github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.desktop_tar.outputs.archive }}" --clobber
 
       - name: Preserve submitted macOS app
         id: macos_app
