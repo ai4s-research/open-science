@@ -79,7 +79,7 @@ To use the [configuration example](../runtime/mcp/parallel-search.json):
    `web_fetch` returns page content relevant to the request. Review those sources
    before citing them.
 
-To turn it off, disable `parallel-search` in Settings → **MCP servers**.
+To turn it off, click **Remove** beside `parallel-search` in Settings → **MCP servers**.
 If you reach the anonymous rate limit, wait before retrying; do not add an
 OAuth login to this anonymous endpoint.
 
