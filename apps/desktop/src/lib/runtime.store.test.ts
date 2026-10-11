@@ -315,7 +315,7 @@ vi.mock("@ai4s/sdk", () => {
 });
 
 import type { ArtifactBlock, ThreadBlock } from "@ai4s/shared";
-import { DRAFT_KEY, adoptSourceFolder, rootSessionOf, useRuntimeStore } from "./runtime";
+import { DRAFT_KEY, __resetStreamCoalesceForTests, adoptSourceFolder, rootSessionOf, useRuntimeStore } from "./runtime";
 import { useSshStore } from "./ssh";
 import { useToastStore } from "./toast";
 import { leaves, makeLeaf, useLayoutStore } from "./layout";
@@ -3595,6 +3595,197 @@ describe("stall guard integration", () => {
           (b) => b.kind === "status-line" && "stall" in b,
         ),
       ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// #157: one streamed token used to fold the whole thread, and with a long
+// history that per-fold cost outran the token interval until the backlog
+// wedged the main thread (scroll froze). text/reasoning deltas now coalesce
+// per session: the first of a burst folds instantly (first-token paint stays
+// immediate), the rest fold once per 120 ms window, and any other event
+// flushes the pending deltas ahead of itself so block order is unchanged.
+describe("stream coalescing (#157)", () => {
+  // The coalescing maps are module-level: a window left by another test would
+  // swallow this one's leading edge (and this one's would swallow the next).
+  beforeEach(() => __resetStreamCoalesceForTests());
+  afterEach(() => __resetStreamCoalesceForTests());
+
+  const text = (t: string, messageID?: string) => ({
+    type: "text.updated",
+    sessionId: "ses_new",
+    partId: "t1",
+    text: t,
+    ...(messageID ? { messageID } : {}),
+  });
+
+  it("folds the first delta instantly, then at most once per window", async () => {
+    await useRuntimeStore.getState().sendPrompt("hi");
+    vi.useFakeTimers();
+    try {
+      let threadChanges = 0;
+      const un = useRuntimeStore.subscribe((s, prev) => {
+        if (s.threads["ses_new"] !== prev.threads["ses_new"]) threadChanges++;
+      });
+      try {
+        mocks.fireEvent(text("a"));
+        // Leading edge: the first token paints without any wait.
+        expect(useRuntimeStore.getState().threads["ses_new"].blocks).toEqual([
+          { kind: "user", text: "hi" },
+          { kind: "agent", markdown: "a" },
+        ]);
+        // A burst inside the window buffers — the thread is NOT touched.
+        mocks.fireEvent(text("ab"));
+        mocks.fireEvent(text("abc"));
+        mocks.fireEvent(text("abcd"));
+        expect(useRuntimeStore.getState().threads["ses_new"].blocks).toHaveLength(2);
+        expect(threadChanges).toBe(1); // 5 events, ONE fold
+        // The trailing flush folds the latest snapshot, exactly once.
+        vi.advanceTimersByTime(120);
+        expect(useRuntimeStore.getState().threads["ses_new"].blocks).toEqual([
+          { kind: "user", text: "hi" },
+          { kind: "agent", markdown: "abcd" },
+        ]);
+        expect(threadChanges).toBe(2); // not 5
+        // The window re-arms from the flush: the next token buffers again.
+        mocks.fireEvent(text("abcde"));
+        expect(threadChanges).toBe(2);
+        vi.advanceTimersByTime(120);
+        const blocks = useRuntimeStore.getState().threads["ses_new"].blocks;
+        expect(blocks[1]).toMatchObject({ markdown: "abcde" });
+        expect(threadChanges).toBe(3);
+      } finally {
+        un();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("session.idle flushes the pending deltas first — final text, then the done line", async () => {
+    await useRuntimeStore.getState().sendPrompt("hi");
+    vi.useFakeTimers();
+    try {
+      mocks.fireEvent(text("a"));
+      mocks.fireEvent(text("ab"));
+      mocks.fireEvent(text("the final answer"));
+      // No timer advance: the terminal event must see the full text.
+      mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
+      const s = useRuntimeStore.getState();
+      expect(s.runningSessions["ses_new"]).toBeUndefined();
+      const blocks = s.threads["ses_new"].blocks;
+      expect(blocks.map((b) => b.kind)).toEqual(["user", "agent", "status-line"]);
+      expect(blocks[1]).toMatchObject({ markdown: "the final answer" });
+      expect(blocks[2]).toMatchObject({ tone: "done" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a non-coalescible event flushes the pending deltas ahead of itself", async () => {
+    await useRuntimeStore.getState().sendPrompt("hi");
+    vi.useFakeTimers();
+    try {
+      mocks.fireEvent(text("a"));
+      mocks.fireEvent(text("ab"));
+      mocks.fireEvent(text("abc"));
+      // A tool call starts mid-stream: the buffered text must land BEFORE the
+      // tool's block, without waiting for the window.
+      mocks.fireEvent({
+        type: "tool.updated",
+        sessionId: "ses_new",
+        callId: "call_1",
+        tool: "bash",
+        status: "running",
+      });
+      const blocks = useRuntimeStore.getState().threads["ses_new"].blocks;
+      expect(blocks).toHaveLength(3); // user, agent, tool — synchronously
+      expect(blocks[1]).toMatchObject({ markdown: "abc" });
+      expect(blocks[2].kind).not.toBe("agent"); // the tool's block came last
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("message.usage stamps the flushed block, not a stale one", async () => {
+    await useRuntimeStore.getState().sendPrompt("hi");
+    vi.useFakeTimers();
+    try {
+      mocks.fireEvent(text("partial", "msg_1"));
+      mocks.fireEvent(text("full answer", "msg_1"));
+      // Usage republishes interleaved with the text on a real stream; the
+      // preemptive flush must leave the block in place for the stamp.
+      mocks.fireEvent({
+        type: "message.usage",
+        sessionId: "ses_new",
+        messageID: "msg_1",
+        usage: { input: 10, output: 20 },
+        created: 1,
+        completed: 2,
+      });
+      const blocks = useRuntimeStore.getState().threads["ses_new"].blocks;
+      expect(blocks[1]).toMatchObject({ markdown: "full answer" });
+      expect((blocks[1] as { usage?: unknown }).usage).toEqual({ input: 10, output: 20 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("buffers independently per session", async () => {
+    await useRuntimeStore.getState().sendPrompt("hi");
+    vi.useFakeTimers();
+    try {
+      const other = (t: string) => ({ type: "text.updated", sessionId: "ses_other", partId: "t1", text: t });
+      mocks.fireEvent(text("a1"));
+      mocks.fireEvent(other("b1"));
+      mocks.fireEvent(text("a2"));
+      mocks.fireEvent(other("b2"));
+      // Each session folded its own leading token only.
+      expect(useRuntimeStore.getState().threads["ses_new"].blocks[1]).toMatchObject({ markdown: "a1" });
+      expect(useRuntimeStore.getState().threads["ses_other"].blocks[0]).toMatchObject({ markdown: "b1" });
+      vi.advanceTimersByTime(120);
+      expect(useRuntimeStore.getState().threads["ses_new"].blocks[1]).toMatchObject({ markdown: "a2" });
+      expect(useRuntimeStore.getState().threads["ses_other"].blocks[0]).toMatchObject({ markdown: "b2" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an error flushes first, lands after the text, and no late timer refolds", async () => {
+    await useRuntimeStore.getState().sendPrompt("hi");
+    vi.useFakeTimers();
+    try {
+      mocks.fireEvent(text("a"));
+      mocks.fireEvent(text("ab"));
+      mocks.fireEvent({ type: "error", sessionId: "ses_new", message: "boom" });
+      const s = useRuntimeStore.getState();
+      expect(s.runningSessions["ses_new"]).toBeUndefined();
+      const blocks = s.threads["ses_new"].blocks;
+      expect(blocks.map((b) => b.kind)).toEqual(["user", "agent", "status-line"]);
+      expect(blocks[1]).toMatchObject({ markdown: "ab" });
+      // The turn ended: the pending window is dead, nothing refolds later.
+      vi.advanceTimersByTime(1000);
+      expect(useRuntimeStore.getState().threads["ses_new"].blocks).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces reasoning deltas the same way", async () => {
+    await useRuntimeStore.getState().sendPrompt("hi");
+    vi.useFakeTimers();
+    try {
+      const think = (t: string) => ({ type: "reasoning.updated", sessionId: "ses_new", partId: "r1", text: t });
+      mocks.fireEvent(think("thinking"));
+      expect(useRuntimeStore.getState().threads["ses_new"].blocks[1]).toMatchObject({ text: "thinking" });
+      mocks.fireEvent(think("thinking harder"));
+      expect(useRuntimeStore.getState().threads["ses_new"].blocks[1]).toMatchObject({ text: "thinking" });
+      vi.advanceTimersByTime(120);
+      const blocks = useRuntimeStore.getState().threads["ses_new"].blocks;
+      expect(blocks.map((b) => b.kind)).toEqual(["user", "reasoning"]);
+      expect(blocks[1]).toMatchObject({ text: "thinking harder" });
     } finally {
       vi.useRealTimers();
     }

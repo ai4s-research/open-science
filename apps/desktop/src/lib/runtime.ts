@@ -98,6 +98,12 @@ import {
   type StallSessionState,
   type StallVerdict,
 } from "./stallGuard";
+import {
+  STREAM_COALESCE_MS,
+  coalesceKey,
+  upsertCoalesced,
+  type CoalescedEntry,
+} from "./streamCoalesce";
 import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { listProvidersWithAvailability, ZEN_PROVIDER_ID } from "./zenModels";
 import { toast } from "@/lib/toast";
@@ -1479,6 +1485,58 @@ function clearLiveFolds(sessionId: string) {
     liveFoldPending.delete(callId);
     liveFoldLast.delete(callId);
   }
+}
+
+/* #157 stream coalescing: one streamed token used to fold the whole thread
+ * per event; with a long history the per-fold cost outruns the token interval
+ * on slow machines and the backlog wedges the main thread (scroll freezes).
+ * text/reasoning updates carry full snapshots, so per part only the latest
+ * matters — fold the first of a burst immediately (leading edge keeps the
+ * first-token paint instant), buffer the rest, and flush one batch per
+ * STREAM_COALESCE_MS per session. Any other event for the session flushes
+ * first, so block order and terminal events (idle/error) are unchanged. */
+const streamCoalesce = new Map<string, { timer: number | null; queue: CoalescedEntry[] }>();
+const streamCoalesceLast = new Map<string, number>();
+
+/** Fold every buffered delta for a session, in first-arrival order. */
+function flushStreamCoalesce(sessionId: string) {
+  const entry = streamCoalesce.get(sessionId);
+  if (!entry) return;
+  if (entry.timer !== null) window.clearTimeout(entry.timer);
+  streamCoalesce.delete(sessionId);
+  if (entry.queue.length === 0) return;
+  streamCoalesceLast.set(sessionId, Date.now());
+  for (const { event } of entry.queue) {
+    useRuntimeStore.setState((s) => {
+      const cur = s.threads[sessionId] ?? emptyThread();
+      const folded = foldEvent(
+        { blocks: cur.blocks, index: cur.index },
+        event,
+        { shellTurn: !!s.shellTurns[sessionId] },
+      );
+      // Buffered events are only ever text/reasoning deltas — never
+      // session.idle — so the running-lock branch of applyFold cannot apply.
+      return { threads: { ...s.threads, [sessionId]: { ...cur, ...folded, loaded: true } } };
+    });
+  }
+}
+
+/** Turn-end cleanup: no late timer may fold into a reloaded thread. */
+function clearStreamCoalesce(sessionId: string) {
+  const entry = streamCoalesce.get(sessionId);
+  if (entry && entry.timer !== null) window.clearTimeout(entry.timer);
+  streamCoalesce.delete(sessionId);
+  streamCoalesceLast.delete(sessionId);
+}
+
+/** Test-only: drop every coalescing window — the maps are module-level, and a
+ *  window left by one test ("folded just now") would swallow the leading edge
+ *  of the next test's first token. */
+export function __resetStreamCoalesceForTests() {
+  for (const entry of streamCoalesce.values())
+    if (entry.timer !== null) window.clearTimeout(entry.timer);
+  streamCoalesce.clear();
+  streamCoalesceLast.clear();
 }
 
 /** Resolve a (possibly nested) subagent session to its top-level session —
@@ -3072,6 +3130,46 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           set((s) => ({ runningSessions: { ...s.runningSessions, [active]: true } }));
         }
       }
+      // #157: coalesce streamed text/reasoning deltas. Everything above (stall
+      // guard, first-token latency, re-lock) still sees the raw stream; only
+      // the fold below is rate-capped. Leading edge folds immediately; a burst
+      // inside the window buffers (latest per part wins) and flushes trailing.
+      const eventSid = "sessionId" in event ? event.sessionId : undefined;
+      if (eventSid) {
+        const key = coalesceKey(event);
+        if (!key) {
+          // Any other event supersedes the pending deltas: fold them first so
+          // block order and causal order match the raw stream exactly.
+          flushStreamCoalesce(eventSid);
+        } else {
+          const now = Date.now();
+          const last = streamCoalesceLast.get(eventSid) ?? 0;
+          const pending = streamCoalesce.get(eventSid);
+          if (!pending && now - last >= STREAM_COALESCE_MS) {
+            streamCoalesceLast.set(eventSid, now);
+            // Leading edge: fall through to the normal path and fold now.
+          } else {
+            const entry = pending ?? { timer: null, queue: [] };
+            upsertCoalesced(entry.queue, key, event as CoalescedEntry["event"]);
+            if (entry.timer === null)
+              entry.timer = window.setTimeout(
+                () => flushStreamCoalesce(eventSid),
+                Math.max(1, STREAM_COALESCE_MS - (now - last)),
+              );
+            streamCoalesce.set(eventSid, entry);
+            // A retried attempt's first token still lifts the retry banner on
+            // time — the buffered path would otherwise skip the clear below.
+            if (get().retryNotices[eventSid]) {
+              set((s) => {
+                const retryNotices = { ...s.retryNotices };
+                delete retryNotices[eventSid];
+                return { retryNotices };
+              });
+            }
+            return;
+          }
+        }
+      }
       if (event.type === "error") {
         // A session-scoped error belongs IN the conversation (a red status
         // line where the user is looking), and it ends that session's turn so
@@ -3080,6 +3178,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         // After a user interrupt the abort's own "aborted" error is expected —
         // the thread already says "Interrupted"; don't add a second red line.
         if (sid) clearLiveFolds(sid);
+        if (sid) clearStreamCoalesce(sid);
         if (sid && backgroundReviewParent) {
           finishAutoReview(set, get, sid, false);
           set((s) => {
@@ -3266,6 +3365,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         });
       }
       if (event.type === "session.idle") clearLiveFolds(sid);
+      if (event.type === "session.idle") clearStreamCoalesce(sid);
       // A manual compaction finished: the "Context compacted" seam just folded
       // in, so subsequent turns already run on the bounded context. Clear the
       // composer spinner and confirm. Idle also clears, as a safety net: a
