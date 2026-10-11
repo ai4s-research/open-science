@@ -45,14 +45,35 @@ function previewText(text: string): string {
     .slice(0, PREVIEW_CHARS);
 }
 
+/** Preview cache keyed by block IDENTITY (#157): a fold rebuilds only the one
+ *  block object it changed, so on every streamed token the historical turns
+ *  hit this cache and only the live block re-computes its preview. WeakMap:
+ *  entries die with their block, no eviction bookkeeping needed. */
+const previewCache = new WeakMap<ThreadBlock, string>();
+
+/** Exported for tests — the contract under test is the cache key: block
+ *  identity, not text content. `compute` is injectable so a test can count
+ *  how often the (expensive) strip really runs. */
+export function cachedPreview(
+  block: ThreadBlock,
+  text: string,
+  compute: (text: string) => string = previewText,
+): string {
+  const hit = previewCache.get(block);
+  if (hit !== undefined) return hit;
+  const value = compute(text);
+  previewCache.set(block, value);
+  return value;
+}
+
 function turnItems(blocks: ThreadBlock[]): TurnItem[] {
   return splitTurns(shapeThread(blocks)).map((turn, index) => {
     const ask = turn.lead.find((b) => b.kind === "user");
     const answer = [...turn.answer].reverse().find((b) => b.kind === "agent");
     return {
       turn: index,
-      prompt: ask && ask.kind === "user" ? previewText(ask.text) : "",
-      response: answer && answer.kind === "agent" ? previewText(answer.markdown) : "",
+      prompt: ask && ask.kind === "user" ? cachedPreview(ask, ask.text) : "",
+      response: answer && answer.kind === "agent" ? cachedPreview(answer, answer.markdown) : "",
     };
   });
 }
@@ -73,6 +94,47 @@ function readVisibleTurn(scroller: HTMLElement): number | null {
   }
   return current;
 }
+
+/** One tick on the rail (#157): the `blocks` array gets a new identity on
+ *  every streamed token, so TurnNavigator re-renders per flush — but a mark's
+ *  props are all primitives and stay equal, so the memo skips the row and its
+ *  i18next aria-label lookup stays off the per-token hot path. (i18next key
+ *  resolution measured as the top self-cost in the #157 CPU profile.) */
+const TurnMark = memo(function TurnMark({
+  turn,
+  active,
+  preview,
+  describedBy,
+  onHover,
+  onLeave,
+  onNavigate,
+}: {
+  turn: number;
+  active: boolean;
+  preview: boolean;
+  describedBy?: string;
+  onHover: (turn: number) => void;
+  onLeave: () => void;
+  onNavigate: (turn: number) => void;
+}) {
+  const { t } = useTranslation("session");
+  const classes = [css.mark];
+  if (active) classes.push(css.markActive);
+  else if (preview) classes.push(css.markPreview);
+  return (
+    <button
+      type="button"
+      className={classes.join(" ")}
+      aria-label={t("turnNav.jump", { turn: turn + 1 })}
+      aria-current={active ? "true" : undefined}
+      aria-describedby={preview ? describedBy : undefined}
+      onPointerMove={() => onHover(turn)}
+      onFocus={() => onHover(turn)}
+      onBlur={onLeave}
+      onClick={() => onNavigate(turn)}
+    />
+  );
+});
 
 export const TurnNavigator = memo(function TurnNavigator({
   blocks,
@@ -135,6 +197,7 @@ export const TurnNavigator = memo(function TurnNavigator({
     },
     [scrollRef],
   );
+  const clearPreview = useCallback(() => setPreviewTurn(null), []);
 
   if (items.length < 2) return null;
   const rail = railRef.current;
@@ -161,25 +224,18 @@ export const TurnNavigator = memo(function TurnNavigator({
       >
         <div ref={railRef} className={fade.join(" ")} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
           <div className={css.marks}>
-            {items.map((item) => {
-              const classes = [css.mark];
-              if (item.turn === activeTurn) classes.push(css.markActive);
-              else if (item.turn === previewTurn) classes.push(css.markPreview);
-              return (
-                <button
-                  key={item.turn}
-                  type="button"
-                  className={classes.join(" ")}
-                  aria-label={t("turnNav.jump", { turn: item.turn + 1 })}
-                  aria-current={item.turn === activeTurn ? "true" : undefined}
-                  aria-describedby={item.turn === previewTurn ? previewId : undefined}
-                  onPointerMove={() => setPreviewTurn(item.turn)}
-                  onFocus={() => setPreviewTurn(item.turn)}
-                  onBlur={() => setPreviewTurn(null)}
-                  onClick={() => navigate(item.turn)}
-                />
-              );
-            })}
+            {items.map((item) => (
+              <TurnMark
+                key={item.turn}
+                turn={item.turn}
+                active={item.turn === activeTurn}
+                preview={item.turn === previewTurn}
+                describedBy={previewId}
+                onHover={setPreviewTurn}
+                onLeave={clearPreview}
+                onNavigate={navigate}
+              />
+            ))}
           </div>
         </div>
         {preview && (

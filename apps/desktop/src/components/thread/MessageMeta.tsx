@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { contextUsed, type MessageUsage } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
@@ -48,7 +49,7 @@ function formatCost(usd: number): string | null {
  * OpenCode does not know (`contextLimit` 0) shows tokens with no percentage
  * rather than a made-up denominator.
  */
-export function MessageMeta({
+export const MessageMeta = memo(function MessageMeta({
   created,
   completed,
   usage,
@@ -67,8 +68,6 @@ export function MessageMeta({
   const share = used !== null && limit ? used / limit : null;
   const cost = usage ? formatCost(usage.cost) : null;
 
-  if (created == null && duration === null && used === null) return null;
-
   const clock =
     created != null
       ? new Date(created).toLocaleTimeString(i18n.language, {
@@ -79,29 +78,44 @@ export function MessageMeta({
 
   // The full breakdown belongs in the tooltip: the line itself stays scannable,
   // but the numbers behind it are one hover away instead of unavailable.
-  const breakdown = usage
-    ? [
-        t("meta.tooltip.input", { n: usage.input.toLocaleString(i18n.language) }),
-        t("meta.tooltip.cacheRead", { n: usage.cacheRead.toLocaleString(i18n.language) }),
-        t("meta.tooltip.cacheWrite", { n: usage.cacheWrite.toLocaleString(i18n.language) }),
-        t("meta.tooltip.output", { n: usage.output.toLocaleString(i18n.language) }),
-        ...(usage.reasoning > 0
-          ? [t("meta.tooltip.reasoning", { n: usage.reasoning.toLocaleString(i18n.language) })]
-          : []),
-        limit
-          ? t("meta.tooltip.context", {
-              used: (used ?? 0).toLocaleString(i18n.language),
-              limit: limit.toLocaleString(i18n.language),
-            })
-          : t("meta.tooltip.contextUnknown", {
-              used: (used ?? 0).toLocaleString(i18n.language),
-            }),
-      ].join("\n")
-    : undefined;
+  // Memoized (#157): while a message streams, this row re-renders on every
+  // coalesced flush even though `usage` only moves a few times per answer —
+  // six i18next lookups plus five Intl formats per flush measured as the top
+  // self-cost in the streaming CPU profile.
+  const breakdown = useMemo(
+    () =>
+      usage
+        ? [
+            t("meta.tooltip.input", { n: usage.input.toLocaleString(i18n.language) }),
+            t("meta.tooltip.cacheRead", { n: usage.cacheRead.toLocaleString(i18n.language) }),
+            t("meta.tooltip.cacheWrite", { n: usage.cacheWrite.toLocaleString(i18n.language) }),
+            t("meta.tooltip.output", { n: usage.output.toLocaleString(i18n.language) }),
+            ...(usage.reasoning > 0
+              ? [t("meta.tooltip.reasoning", { n: usage.reasoning.toLocaleString(i18n.language) })]
+              : []),
+            limit
+              ? t("meta.tooltip.context", {
+                  used: (used ?? 0).toLocaleString(i18n.language),
+                  limit: limit.toLocaleString(i18n.language),
+                })
+              : t("meta.tooltip.contextUnknown", {
+                  used: (used ?? 0).toLocaleString(i18n.language),
+                }),
+          ].join("\n")
+        : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t/i18n.language move together
+    [usage, used, limit, i18n.language],
+  );
+  const clockTitle = useMemo(
+    () => (created != null ? new Date(created).toLocaleString(i18n.language) : undefined),
+    [created, i18n.language],
+  );
+
+  if (created == null && duration === null && used === null) return null;
 
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-[11px] tabular-nums text-muted">
-      {clock && <span title={new Date(created!).toLocaleString(i18n.language)}>{clock}</span>}
+      {clock && <span title={clockTitle}>{clock}</span>}
       {duration !== null && (
         <>
           <span aria-hidden>·</span>
@@ -140,7 +154,7 @@ export function MessageMeta({
       )}
     </div>
   );
-}
+});
 
 /** A 10px dial of the context window. Purely redundant with the "62%" beside it
  *  — that redundancy is the point: the shape is readable at a glance and the

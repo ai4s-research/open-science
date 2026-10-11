@@ -111,15 +111,29 @@ export function useLabelsOverflow(ref: RefObject<HTMLElement | null>, laidOut = 
     }
   };
 
-  // Every render: a label that changed (another model picked) changes the need.
-  useLayoutEffect(measure);
-  // And every resize of the row itself.
+  // Mount: measure once synchronously (pre-paint, same guarantee the old
+  // every-render effect gave the first frame). After that, re-measure only
+  // when something that can change the need actually changes — the row's own
+  // size (ResizeObserver) or its labels (MutationObserver: a model pick swaps
+  // label text; a class flip can change the font). The old every-render
+  // measure ran on EVERY streamed token of any session on the page (#157).
   useLayoutEffect(() => {
     const row = ref.current;
-    if (!row || typeof ResizeObserver === "undefined") return;
+    if (!row) return;
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);
     ro.observe(row);
     return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `measure` reads refs only
+  }, [ref, laidOut]);
+
+  useLayoutEffect(() => {
+    const row = ref.current;
+    if (!row || typeof MutationObserver === "undefined") return;
+    const mo = new MutationObserver(measure);
+    mo.observe(row, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"] });
+    return () => mo.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `measure` reads refs only
   }, [ref, laidOut]);
 

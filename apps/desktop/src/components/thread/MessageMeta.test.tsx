@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { MessageUsage } from "@ai4s/shared";
 import { renderBlock } from "./BlockList";
+import { MessageMeta } from "./MessageMeta";
 
 const usage = (over: Partial<MessageUsage> = {}): MessageUsage => ({
   input: 3_000,
@@ -105,5 +106,24 @@ describe("agent message meta", () => {
 
     expect(screen.getByText("124k / 200k (62%)")).toBeInTheDocument();
     expect(screen.queryByText(/\ds$/)).not.toBeInTheDocument();
+  });
+
+  // #157 regression: the meta row mounts empty (a fresh streaming message
+  // carries no usage) and gains fields as events arrive — every hook must run
+  // before the "nothing to show" early return, or React kills the page with
+  // "Rendered more hooks than during the previous render".
+  it("toggles between empty and populated states without a hook-order crash", () => {
+    const { rerender } = render(<MessageMeta />);
+
+    rerender(<MessageMeta created={created} />);
+    rerender(<MessageMeta created={created} usage={usage()} contextLimit={200_000} />);
+    expect(screen.getByText("124k / 200k (62%)")).toBeInTheDocument();
+
+    rerender(<MessageMeta created={created} completed={created + 7_300} usage={usage()} contextLimit={200_000} />);
+    expect(screen.getByText("7.3s")).toBeInTheDocument();
+
+    rerender(<MessageMeta />);
+    rerender(<MessageMeta created={created} completed={created + 7_300} usage={usage()} contextLimit={200_000} />);
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
   });
 });
