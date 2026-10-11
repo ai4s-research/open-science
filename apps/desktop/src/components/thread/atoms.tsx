@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, Loader2, Paperclip, Pencil, RotateCcw, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { copyText } from "@/lib/clipboard";
@@ -19,9 +19,34 @@ import { MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
 import { extractArtifactRefs, refToArtifactBlock } from "@/lib/artifacts";
 import { resolveArtifactPath } from "@/lib/artifactFile";
 import { useThrottledValue } from "@/lib/useThrottledValue";
+import { splitStreamingMarkdown } from "@/lib/markdownSegments";
 import { HSCROLL_ATTR } from "@/lib/wheelChain";
 import { HOVER_HOST } from "@/lib/hoverTracking";
 import { RunningDot } from "./RunningDot";
+
+/** Streaming markdown throttle interval, ms (#157). The re-parse cost is
+ *  linear in the message length, so the window scales with it: 90ms for short
+ *  answers, reaching the 1200ms cap around 72k chars — long enough that the
+ *  per-render work stays cheaper than the interval on a slow CPU, short
+ *  enough that the text still visibly types out. */
+export function streamThrottleMs(length: number): number {
+  return Math.min(1200, Math.max(90, Math.floor(length / 60)));
+}
+
+/** One sealed markdown segment of a streaming answer (#157). Its text is
+ *  prefix-stable (splitStreamingMarkdown never revises a sealed segment), so
+ *  this memo means the already-finished paragraphs/code blocks of a streaming
+ *  message are parsed and highlighted exactly once — only the live tail below
+ *  re-renders on each throttle tick. The wrapper's bottom margin stands in
+ *  for the blank line that ended the segment (the finished message renders
+ *  as a single MarkdownViewer, so final spacing is unchanged). */
+const SealedSegment = memo(function SealedSegment({ text }: { text: string }) {
+  return (
+    <div className="mb-3.5" data-sealed-segment>
+      <MarkdownViewer links>{text}</MarkdownViewer>
+    </div>
+  );
+});
 
 // All block atoms are memoized on their props: a fold rebuilds only the one
 // block object it changed (the blocks-array copy preserves the rest by
@@ -183,6 +208,25 @@ export const UserMessage = memo(function UserMessage({
   );
 });
 
+/** Streaming body as one memoized unit (#157): `markdown` changes on every
+ *  coalesced flush (~8/s), but `segments` only changes on a throttle tick —
+ *  keying the memo on the segments OBJECT keeps the sealed-list reconcile
+ *  (dozens of elements late in a long answer) off the per-flush path. */
+const StreamingMarkdown = memo(function StreamingMarkdown({
+  segments,
+}: {
+  segments: { sealed: string[]; tail: string };
+}) {
+  return (
+    <>
+      {segments.sealed.map((text, i) => (
+        <SealedSegment key={i} text={text} />
+      ))}
+      <MarkdownViewer links>{segments.tail}</MarkdownViewer>
+    </>
+  );
+});
+
 export const AgentMessage = memo(function AgentMessage({
   markdown,
   created,
@@ -206,12 +250,27 @@ export const AgentMessage = memo(function AgentMessage({
   // whole message (react-markdown + KaTeX) each time is the main live CPU cost
   // (#50). Throttle to the trailing value so the parse runs a bounded number of
   // times per second; a finished message settles immediately and stays put.
-  const shown = useThrottledValue(markdown, 90);
+  // The interval scales with message length (#157): re-parsing is linear in
+  // markdown length, so a long streaming answer needs a longer window for the
+  // per-render cost to stay below the frame budget on slow machines.
+  const shown = useThrottledValue(markdown, streamThrottleMs(markdown.length));
+  // A streaming message (no `completed` yet) renders as sealed segments + a
+  // live tail (#157): without this the whole document — every finished code
+  // block re-highlighted, every table re-parsed — churns on each throttle
+  // tick, and that O(message) work per update is what saturated the main
+  // thread on long answers. Sealed segments are memoized and never render
+  // twice; only the tail re-parses. A finished message keeps the single
+  // MarkdownViewer, so the final layout is byte-identical to before.
+  const streaming = completed === undefined;
+  const segments = useMemo(() => (streaming ? splitStreamingMarkdown(shown) : null), [streaming, shown]);
   // Files the agent mentions (e.g. a PDF produced by running code) become clickable.
   // Each mention is resolved to a real workspace path first — prose often names a
   // bare filename ("index.html") whose file lives in a subdirectory; mentions of
   // files that don't exist get no chip.
-  const mentioned = onOpenArtifact ? extractArtifactRefs(shown) : [];
+  // Memoized on `shown` (#157): the regex sweeps the whole message, so running
+  // it per coalesced flush (rather than per throttle tick) is a linear cost
+  // that grows exactly as the answer does.
+  const mentioned = useMemo(() => (onOpenArtifact ? extractArtifactRefs(shown) : []), [shown, onOpenArtifact]);
   const [refs, setRefs] = useState<string[]>([]);
   const mentionedKey = mentioned.join("\n");
   useEffect(() => {
@@ -245,7 +304,11 @@ export const AgentMessage = memo(function AgentMessage({
     // Marked so a text selection inside an ANSWER (never a tool log or the
     // user's own message) can offer follow-up actions — see SelectionActions.
     <div {...{ [HOVER_HOST]: "" }} data-agent-message className="relative">
-      <MarkdownViewer links>{shown}</MarkdownViewer>
+      {segments ? (
+        <StreamingMarkdown segments={segments} />
+      ) : (
+        <MarkdownViewer links>{shown}</MarkdownViewer>
+      )}
       {refs.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {refs.map((path) => (
