@@ -43,6 +43,46 @@ bridge. In Settings → **MCP servers**, use the add form:
 The entry is written to the bundled OpenCode's config and applies immediately;
 its live status (connected / failed) shows in the same list.
 
+### Parallel web search and page fetching
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+provides free web search in Fast mode and page fetching without an account or
+API key. It is a hosted service: queries and requested URLs are sent to Parallel,
+and anonymous access has rate limits. This optional example uses HTTP MCP and
+does not replace the literature connectors.
+
+To use the [configuration example](../runtime/mcp/parallel-search.json):
+
+1. Start Open Science Desktop once to create its runtime configuration, then
+   quit the app (or stop `osd server`) before editing it.
+2. Open `runtime/xdg-config/opencode/opencode.jsonc` under the app's data
+   directory, or `opencode.json` if that is the existing file. Back it up first.
+   The default data directory is:
+
+   | Platform | App data directory |
+   | --- | --- |
+   | macOS | `~/Library/Application Support/com.ai4s.workbench` |
+   | Windows | `%APPDATA%\com.ai4s.workbench` |
+   | Linux | `${XDG_DATA_HOME:-~/.local/share}/com.ai4s.workbench` |
+
+   For an `osd server` with a custom `--state-dir` or `OSD_STATE_DIR`, use that
+   directory instead.
+3. Merge only the example's `mcp.parallel-search` entry into the existing `mcp`
+   object (create the object if absent). Keep the other connectors, provider,
+   model, and permission settings. The example explicitly disables OAuth and
+   supplies a project User-Agent; no credentials are needed. Do not overwrite
+   the whole configuration or put it in your workspace or global OpenCode config.
+4. Restart the app or server. Settings → **MCP servers** should show
+   `parallel-search` as connected. With your usual model selected, ask the agent
+   to use `parallel-search` to search for a research topic, or fetch a specific
+   public page. Its `web_search` results include source URLs and excerpts;
+   `web_fetch` returns page content relevant to the request. Review those sources
+   before citing them.
+
+To turn it off, disable `parallel-search` in Settings → **MCP servers**.
+If you reach the anonymous rate limit, wait before retrying; do not add an
+OAuth login to this anonymous endpoint.
+
 ### Minimal local MCP server (Python)
 
 ```python

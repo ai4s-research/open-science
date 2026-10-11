@@ -1,5 +1,7 @@
 # Progress
 
+2026-10-11 02:22 · Added an opt-in anonymous Parallel HTTP MCP configuration example and setup guide; pinned OpenCode 1.18.32 dispatched live search and page fetch with useful source content, and observed discovery/search/fetch requests carried the project User-Agent without credentials.
+
 2026-10-08 11:40 · No-root Linux install (#156): `scripts/install.sh` (curl | sh) installs `osd` or, with `--desktop`, the desktop app under $HOME; CI now attaches `open-science-desktop-<ver>-<target>.tar.gz` (the .deb payload). Verified as a non-root user on Ubuntu 22.04 containers with the 0.6.0 artifacts: osd serves HTTP 200; the desktop app runs from ~/.local/share with its WebKit and opencode sidecar; missing WebKitGTK is refused before download. AppImage stays off (tauri#8929).
 
 2026-10-04 14:45 · v0.6.0 published (tag 2c49fdc, re-cut to include #148/#149/#150/#153; Zenodo DOI 10.5281/zenodo.23138229, synced to CITATION.cff and all seven READMEs). Two release gotchas: notarization 403 "agreement missing or expired" means the Apple developer agreement must be re-accepted by the Account Holder, not a code issue; and the scheduled finalize-macos-notarization run fires far less often than its cron, so `gh workflow run finalize-macos-notarization.yml` turns `.submitted.*` into the final DMGs on demand.

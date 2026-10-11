@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "parallel-search": {
+      "type": "remote",
+      "url": "https://search.parallel.ai/mcp",
+      "enabled": true,
+      "oauth": false,
+      "headers": {
+        "User-Agent": "Open-Science-Desktop/0.6.0 (+https://github.com/ai4s-research/open-science)"
+      }
+    }
+  }
+}
