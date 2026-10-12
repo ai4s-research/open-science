@@ -73,6 +73,31 @@ describe("splitStreamingMarkdown (#157)", () => {
     expect(final.tail).toContain("still typing");
   });
 
+  it("keeps a loose list, and code inside a list item, in one segment", () => {
+    const loose = splitStreamingMarkdown("Steps:\n\n1. Install\n\n2. Run\n\nDone");
+    expect(loose.sealed).toEqual(["Steps:\n\n1. Install\n\n2. Run\n\n"]);
+    expect(loose.tail).toBe("Done");
+    const nested = splitStreamingMarkdown("- Build:\n\n    ```bash\n    make\n    ```\n\n- Test\n\nAfter");
+    expect(nested.sealed).toEqual(["- Build:\n\n    ```bash\n    make\n    ```\n\n- Test\n\n"]);
+    expect(nested.tail).toBe("After");
+  });
+
+  it("waits while the next line could still become a list item", () => {
+    expect(splitStreamingMarkdown("1. a\n\n2").sealed).toEqual([]);
+    expect(splitStreamingMarkdown("1. a\n\n2. b").sealed).toEqual([]);
+    expect(splitStreamingMarkdown("1. a\n\n2024 was").sealed).toEqual(["1. a\n\n"]);
+    expect(splitStreamingMarkdown("Para.\n\n**bold** start").sealed).toEqual(["Para.\n\n"]);
+    const chars = [..."Intro.\n\n1. one\n\n2. two\n\n- x\n\n-- not a list\n\n3 apples\n\nend"];
+    expectStreamingInvariants(chars);
+  });
+
+  it("does not close a fence on a shorter or labelled fence inside it", () => {
+    const text = "````md\n```js\nlet a = 1\n\nlet b = 2\n```\n````\n\nafter";
+    const { sealed, tail } = splitStreamingMarkdown(text);
+    expect(sealed).toEqual(["````md\n```js\nlet a = 1\n\nlet b = 2\n```\n````\n\n"]);
+    expect(tail).toBe("after");
+  });
+
   it("tolerates CRLF line endings", () => {
     const { sealed, tail } = splitStreamingMarkdown("One.\r\n\r\nTwo.");
     expect(sealed).toEqual(["One.\r\n\r\n"]);

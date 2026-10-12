@@ -183,18 +183,7 @@ export const BlockList = memo(function BlockList({
         offset = cursorAfter(turn, at) + turn.answer.length;
         return (
           // `data-turn` is the anchor the turn navigator scrolls to.
-          // content-visibility: auto (#157): without layout containment, one
-          // block mounting in a long thread re-lays-out and re-paints the
-          // whole document (~1s tasks under 4x CPU on a 40kpx conversation).
-          // `contain-intrinsic-size: auto` remembers each rendered turn's real
-          // height, so scroll position and turn anchors stay stable while
-          // offscreen turns skip layout/paint entirely.
-          <div
-            key={at}
-            data-turn={turnIndex}
-            className="flex flex-col gap-4"
-            style={{ contentVisibility: "auto", containIntrinsicSize: "auto 800px" }}
-          >
+          <div key={at} data-turn={turnIndex} className="flex flex-col gap-4">
             {turn.lead.map((b, i) => renderOne(b, at + i))}
             {(() => {
               const done = isTurnDone(turn);
