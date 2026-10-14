@@ -297,6 +297,7 @@
     "providerRemoved": "{{providerID}} を削除しました",
     "couldNotAddEndpoint": "エンドポイントを追加できませんでした",
     "couldNotFetchModels": "エンドポイントからモデルを取得できませんでした",
+    "baseUrlCorrected": "Base URL を {{url}} に修正しました",
     "endpointFieldsRequired": "名前、ベース URL、少なくとも 1 つのモデル ID が必要です。",
     "endpointAdded": "{{name}} を追加しました — 上部でそのモデルを選択できるようになりました。",
     "couldNotAddMcp": "MCP サーバーを追加できませんでした",

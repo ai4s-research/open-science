@@ -19,11 +19,20 @@ pub struct ProbedModel {
     pub context: Option<u64>,
 }
 
+/// The models found, and the base URL that served them — which differs from
+/// the one entered when the probe had to append `/v1` (#159).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeResult {
+    pub base_url: String,
+    pub models: Vec<ProbedModel>,
+}
+
 pub fn probe_endpoint_models(
     base_url: &str,
     api_key: Option<&str>,
     kind: &str,
-) -> Result<Vec<ProbedModel>, String> {
+) -> Result<ProbeResult, String> {
     probe(base_url, api_key, kind)
 }
 
@@ -52,7 +61,7 @@ pub fn fetch_zen_models() -> Result<Vec<String>, String> {
     Ok(parse_openai_models(&body)?.into_iter().map(|m| m.id).collect())
 }
 
-fn probe(base_url: &str, api_key: Option<&str>, kind: &str) -> Result<Vec<ProbedModel>, String> {
+fn probe(base_url: &str, api_key: Option<&str>, kind: &str) -> Result<ProbeResult, String> {
     let base = base_url.trim().trim_end_matches('/');
     if base.is_empty() {
         return Err("Base URL is empty".into());
@@ -61,11 +70,25 @@ fn probe(base_url: &str, api_key: Option<&str>, kind: &str) -> Result<Vec<Probed
     // model's context length, so try it first. Its OpenAI-compatible base is
     // `…:11434/v1`; the native API lives at the root.
     if let Some(models) = probe_ollama(base.trim_end_matches("/v1")) {
-        return Ok(models);
+        return Ok(ProbeResult { base_url: base.into(), models });
     }
-    match kind {
+    let list = |base: &str| match kind {
         "anthropic" => probe_anthropic(base, api_key),
         _ => probe_openai(base, api_key),
+    };
+    match list(base) {
+        Ok(models) => Ok(ProbeResult { base_url: base.into(), models }),
+        // Relay gateways (new-api / one-api, e.g. RunAPI) serve their web
+        // console at the root, so `{root}/models` answers 200 with an HTML
+        // page; the API lives under /v1. Retry there and hand the corrected
+        // base back, so the saved endpoint works for chat too (#159).
+        Err(e) if !base.ends_with("/v1") => {
+            let v1 = format!("{base}/v1");
+            list(&v1)
+                .map(|models| ProbeResult { base_url: v1, models })
+                .map_err(|_| e)
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -279,7 +302,7 @@ mod tests {
         ]);
         // The form's Ollama base URL ends in /v1; the native API must be found
         // at the root anyway.
-        let models = probe(&format!("{base}/v1"), None, "openai").unwrap();
+        let models = probe(&format!("{base}/v1"), None, "openai").unwrap().models;
         assert_eq!(
             models,
             vec![ProbedModel { id: "nemotron:latest".into(), context: Some(131072) }]
@@ -292,8 +315,28 @@ mod tests {
             "/v1/models",
             r#"{"data":[{"id":"vllm-model","max_model_len":32768}]}"#.to_string(),
         )]);
-        let models = probe(&format!("{base}/v1"), Some("sk-test"), "openai").unwrap();
-        assert_eq!(models, vec![ProbedModel { id: "vllm-model".into(), context: Some(32768) }]);
+        let result = probe(&format!("{base}/v1"), Some("sk-test"), "openai").unwrap();
+        assert_eq!(result.base_url, format!("{base}/v1"));
+        assert_eq!(result.models, vec![ProbedModel { id: "vllm-model".into(), context: Some(32768) }]);
+    }
+
+    #[test]
+    fn probe_appends_v1_when_root_serves_a_web_page() {
+        // RunAPI-style relay: the root /models is the console's HTML page.
+        let (base, _h) = serve(vec![
+            ("/v1/models", r#"{"data":[{"id":"gpt-5"}]}"#.to_string()),
+            ("/models", "<!doctype html><html></html>".to_string()),
+        ]);
+        let result = probe(&base, Some("sk-test"), "openai").unwrap();
+        assert_eq!(result.base_url, format!("{base}/v1"));
+        assert_eq!(result.models[0].id, "gpt-5");
+    }
+
+    #[test]
+    fn probe_reports_the_original_error_when_v1_also_fails() {
+        let (base, _h) = serve(vec![("/models", "<!doctype html>".to_string())]);
+        let err = probe(&base, None, "openai").unwrap_err();
+        assert!(err.starts_with("model list was not JSON"), "{err}");
     }
 }
 

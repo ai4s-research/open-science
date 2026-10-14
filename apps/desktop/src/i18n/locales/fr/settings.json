@@ -298,6 +298,7 @@
     "providerRemoved": "{{providerID}} supprimé",
     "couldNotAddEndpoint": "Impossible d'ajouter le point de terminaison",
     "couldNotFetchModels": "Impossible de récupérer les modèles depuis le point de terminaison",
+    "baseUrlCorrected": "URL de base corrigée en {{url}}",
     "endpointFieldsRequired": "Le nom, l'URL de base et au moins un identifiant de modèle sont requis.",
     "endpointAdded": "{{name}} ajouté — ses modèles sont désormais sélectionnables ci-dessus.",
     "couldNotAddMcp": "Impossible d'ajouter le serveur MCP",

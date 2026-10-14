@@ -80,6 +80,13 @@ export interface ProbedModel {
   context?: number | null;
 }
 
+export interface ProbeResult {
+  /** The base URL that served the list — the entered one with `/v1`
+   *  appended when only that worked (relay gateways like RunAPI). */
+  baseUrl: string;
+  models: ProbedModel[];
+}
+
 /**
  * Ask a custom endpoint which models it serves, with context windows where
  * the server reports them (desktop only — the probe runs in Rust because
@@ -90,10 +97,10 @@ export async function probeEndpointModels(
   baseUrl: string,
   apiKey: string | undefined,
   kind: "openai" | "anthropic",
-): Promise<ProbedModel[]> {
-  if (!isTauri) return [];
+): Promise<ProbeResult> {
+  if (!isTauri) return { baseUrl, models: [] };
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<ProbedModel[]>("probe_endpoint_models", { baseUrl, apiKey, kind });
+  return invoke<ProbeResult>("probe_endpoint_models", { baseUrl, apiKey, kind });
 }
 
 /**

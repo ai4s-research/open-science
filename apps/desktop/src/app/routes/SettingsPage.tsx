@@ -708,11 +708,15 @@ export function SettingsPage() {
     }
     setCDetecting(true);
     try {
-      const found = await probeEndpointModels(
+      const { baseUrl, models: found } = await probeEndpointModels(
         cUrl.trim(),
         cKey.trim() || undefined,
         cNpm === "@ai-sdk/anthropic" ? "anthropic" : "openai",
       );
+      if (baseUrl !== cUrl.trim()) {
+        setCUrl(baseUrl);
+        toast.success(t("toast.baseUrlCorrected", { url: baseUrl }));
+      }
       setCDetected(found);
       setCContexts((prev) => {
         const next = { ...prev };

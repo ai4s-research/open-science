@@ -297,6 +297,7 @@
     "providerRemoved": "{{providerID}} 已移除",
     "couldNotAddEndpoint": "无法添加端点",
     "couldNotFetchModels": "无法从端点获取模型",
+    "baseUrlCorrected": "Base URL 已补全为 {{url}}",
     "endpointFieldsRequired": "名称、基础 URL 和至少一个模型 ID 为必填项。",
     "endpointAdded": "{{name}} 已添加——其模型现在可在上方选择。",
     "couldNotAddMcp": "无法添加 MCP 服务器",

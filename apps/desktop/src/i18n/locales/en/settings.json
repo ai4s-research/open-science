@@ -322,6 +322,7 @@
     "providerRemoved": "{{providerID}} removed",
     "couldNotAddEndpoint": "Could not add the endpoint",
     "couldNotFetchModels": "Could not fetch models from the endpoint",
+    "baseUrlCorrected": "Base URL corrected to {{url}}",
     "endpointFieldsRequired": "Name, base URL and at least one model id are required.",
     "endpointAdded": "{{name}} added — its models are now selectable above.",
     "couldNotAddMcp": "Could not add the MCP server",
