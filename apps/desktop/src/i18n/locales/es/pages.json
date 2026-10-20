@@ -58,6 +58,13 @@
       "copyRelativePath": "Copiar ruta relativa",
       "relativePathLabel": "Ruta relativa",
       "openInDefaultApp": "Abrir en la app predeterminada"
+    },
+    "linked": {
+      "tag": "Vinculada",
+      "unlink": "Desvincular",
+      "unlinkTitle": "¿Desvincular esta carpeta?",
+      "unlinkBody": "El enlace sale del proyecto. La carpeta a la que apunta y todos sus archivos se quedan donde están; el agente volverá a pedir permiso antes de usarlos.",
+      "outsideBase": "Esa carpeta ya no está dentro de la carpeta de trabajo: {{path}}"
     }
   },
   "skills": {

@@ -866,6 +866,29 @@ export interface ProjectInfo {
   importMode?: ProjectImportMode;
   /** Whether this project is pinned to the sidebar. */
   pinned: boolean;
+  /** Folders outside the project that belong to it — a moved-in session's own
+   *  folder, kept where it was and shown in the project folder as a link. The
+   *  agent working in the project may reach them. Absent on older backends. */
+  linked?: LinkedFolder[];
+}
+
+/** One entry of a project's folder index. */
+export interface LinkedFolder {
+  path: string;
+  /** The link to it inside the project folder. */
+  link: string;
+  /** The session whose folder it was, and that session's title then. */
+  sessionId: string;
+  title: string;
+  linkedAt: number;
+}
+
+/** Unlink a folder from a project: its link leaves the project folder and the
+ *  index entry goes. The folder itself and its files stay where they are. */
+export async function unlinkProjectFolder(id: string, path: string): Promise<void> {
+  if (!isTauri) throw new Error("not running in the desktop app");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("unlink_project_folder", { id, path });
 }
 
 /** Create a project folder (with metadata, harness and an initial git
@@ -920,6 +943,23 @@ export async function openProjectFolder(id: string): Promise<void> {
 }
 
 /** Pin/unpin a project to the sidebar. */
+/** What moving a session into a project did: the folder it now lives in, and
+ *  the link to the session's own folder that now sits in it (null when it had
+ *  no folder of its own with anything in it — or came from another project). */
+export interface MoveOutcome {
+  directory: string;
+  link: string | null;
+}
+
+/** Move a conversation into a project — its history and working folder; its
+ *  own folder stays put and appears in the project as a link. Desktop only: it
+ *  runs the bundled runtime's CLI. */
+export async function moveSessionToProject(sessionId: string, projectId: string): Promise<MoveOutcome> {
+  if (!isTauri) throw new Error("not running in the desktop app");
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<MoveOutcome>("move_session_to_project", { sessionId, projectId });
+}
+
 export async function setProjectPinned(id: string, pinned: boolean): Promise<void> {
   if (!isTauri) throw new Error("not running in the desktop app");
   const { invoke } = await import("@tauri-apps/api/core");

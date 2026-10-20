@@ -22,11 +22,6 @@
       "action": "Bildschirm schließen"
     },
     "zoom": "Dieses Bereich zoomen",
-    "empty": {
-      "title": "Leerer Bildschirm",
-      "hint": "Ziehen Sie eine Sitzung aus der Seitenleiste hierher, um zu beginnen, oder drücken Sie ⌘D zum Teilen.",
-      "newSession": "Neue Sitzung"
-    },
     "rename": "Screen umbenennen",
     "tabMenu": "Screen-Aktionen",
     "runAgent": "Agent starten",
@@ -574,5 +569,27 @@
     "steps_one": "{{count}} Schritt",
     "steps_other": "{{count}} Schritte",
     "close": "Verlauf schließen"
+  },
+  "drag": {
+    "moveInto": "Nach „{{name}}“ verschieben"
+  },
+  "home": {
+    "tab": "Start",
+    "openFolder": "Ordner öffnen",
+    "recent": "Letzte Sitzungen",
+    "seeAll": "Alle {{count}}",
+    "emptyProject": "Noch leer — beginne die erste Unterhaltung dieses Projekts.",
+    "emptyDefault": "Noch keine losen Sitzungen — beginne eine oder öffne links ein Projekt.",
+    "greeting": {
+      "morning": "Guten Morgen",
+      "noon": "Mahlzeit",
+      "afternoon": "Guten Tag",
+      "evening": "Guten Abend",
+      "night": "Noch wach"
+    },
+    "count_one": "{{count}} Sitzung",
+    "count_other": "{{count}} Sitzungen",
+    "countDefault_one": "{{count}} Sitzung ohne Projekt",
+    "countDefault_other": "{{count}} Sitzungen ohne Projekt"
   }
 }

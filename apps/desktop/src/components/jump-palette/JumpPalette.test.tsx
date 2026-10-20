@@ -60,7 +60,7 @@ describe("⌘J jump palette", () => {
     const user = userEvent.setup();
     renderPalette();
     await user.keyboard("{Control>}{Shift>}j{/Shift}{/Control}");
-    const input = await screen.findByPlaceholderText("Jump to a project, screen, session or terminal…");
+    const input = await screen.findByPlaceholderText("Search projects, screens, sessions…");
 
     await user.type(input, "quant");
     const list = screen.getByRole("listbox");
@@ -69,14 +69,49 @@ describe("⌘J jump palette", () => {
 
     await user.keyboard("{Enter}");
     expect(selectActiveProjectId(useLayoutStore.getState())).toBe("Q");
-    expect(screen.queryByPlaceholderText(/Jump to a project/)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Search projects, screens/)).not.toBeInTheDocument();
+  });
+
+  it("empty, it shows only the quick actions and recent conversations; typing reaches everything", async () => {
+    const user = userEvent.setup();
+    useRuntimeStore.setState({
+      sessions: [{ id: "s1", title: "Fold the thing", directory: "/w/P", updated: 5 }],
+    });
+    renderPalette();
+    await user.keyboard("{Control>}{Shift>}j{/Shift}{/Control}");
+    const input = await screen.findByPlaceholderText(/Search projects, screens/);
+    const list = screen.getByRole("listbox");
+    expect(within(list).getByText("Recent")).toBeInTheDocument();
+    expect(within(list).getByText("Fold the thing")).toBeInTheDocument();
+    expect(within(list).queryByText("Projects")).not.toBeInTheDocument();
+    expect(within(list).queryByText("Quantum")).not.toBeInTheDocument();
+
+    await user.type(input, "quant");
+    expect(within(list).getByText("Quantum")).toBeInTheDocument();
+    // …and a new session there, found by the project's name.
+    expect(within(list).getByText("New session in Quantum")).toBeInTheDocument();
+  });
+
+  it("⌘↵ opens a conversation that is not open anywhere beside the current pane", async () => {
+    const user = userEvent.setup();
+    useRuntimeStore.setState({
+      sessions: [{ id: "s9", title: "Closed analysis", directory: "/w/P", updated: 5 }],
+    });
+    renderPalette();
+    await user.keyboard("{Control>}{Shift>}j{/Shift}{/Control}");
+    const input = await screen.findByPlaceholderText(/Search projects, screens/);
+    await user.type(input, "closed analysis");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    const { tree } = useLayoutStore.getState();
+    // The terminal stays; the conversation docks beside it.
+    expect(tree?.kind).toBe("split");
   });
 
   it("jumps to a Screen in another project, switching the project with it", async () => {
     const user = userEvent.setup();
     renderPalette();
     await user.keyboard("{Control>}{Shift>}j{/Shift}{/Control}");
-    const input = await screen.findByPlaceholderText(/Jump to a project/);
+    const input = await screen.findByPlaceholderText(/Search projects, screens/);
     await user.type(input, "folding");
     await user.keyboard("{Enter}");
     expect(useLayoutStore.getState().activeGroupId).toBe("p1");
@@ -87,7 +122,7 @@ describe("⌘J jump palette", () => {
     const user = userEvent.setup();
     renderPalette();
     await user.keyboard("{Control>}{Shift>}j{/Shift}{/Control}");
-    await screen.findByPlaceholderText(/Jump to a project/);
+    await screen.findByPlaceholderText(/Search projects, screens/);
     // What the session page checks before interrupting on Esc.
     let seenByPage: boolean | null = null;
     const page = (e: KeyboardEvent) => {
@@ -97,7 +132,7 @@ describe("⌘J jump palette", () => {
     await user.keyboard("{Escape}");
     window.removeEventListener("keydown", page);
     expect(seenByPage).toBe(true);
-    expect(screen.queryByPlaceholderText(/Jump to a project/)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Search projects, screens/)).not.toBeInTheDocument();
   });
 });
 

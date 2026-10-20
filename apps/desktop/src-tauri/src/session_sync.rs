@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use osd_core::session_sync::{self, ExportOutcome, MirrorFile};
+use osd_core::session_sync::{self, ExportOutcome, MirrorFile, MoveOutcome};
 use tauri::AppHandle;
 
 use crate::env_of;
@@ -49,4 +49,16 @@ pub fn sync_list_mirror(dir: String) -> Result<Vec<MirrorFile>, String> {
 #[tauri::command(async)]
 pub fn sync_check_dir(dir: String) -> Result<(), String> {
     session_sync::check_dir(&PathBuf::from(dir))
+}
+
+/// Move a conversation into a project — its history, its files and the folder
+/// the agent works in. `async`: it runs the runtime CLI twice and may copy a
+/// folder, none of which belongs on the UI thread.
+#[tauri::command(async)]
+pub fn move_session_to_project(
+    app: AppHandle,
+    session_id: String,
+    project_id: String,
+) -> Result<MoveOutcome, String> {
+    session_sync::move_session_to_project(&env_of(&app), &session_id, &project_id)
 }

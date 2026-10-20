@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
-import { useLayoutStore } from "@/lib/layout";
+import { draftLeafOf, useLayoutStore } from "@/lib/layout";
 import { GroupTabs } from "./GroupTabs";
 
 // No Tauri: agent detection answers "none installed", which is the shape most
@@ -44,7 +44,7 @@ describe("the Screen bar's create menu", () => {
     render(<GroupTabs />);
     await openCreateMenu();
 
-    for (const label of ["New screen", "Terminal", "Files", "New Notebook", "New Markdown"]) {
+    for (const label of ["New session", "Terminal", "Files", "New Notebook", "New Markdown"]) {
       expect(await screen.findByRole("menuitem", { name: label })).toBeInTheDocument();
     }
     // The browser pane was removed: a native webview floated above every menu
@@ -95,13 +95,16 @@ describe("the Screen bar's create menu", () => {
     );
   });
 
-  it("still makes a plain empty Screen", async () => {
+  it("makes a new conversation, never an empty Screen", async () => {
     render(<GroupTabs />);
     await openCreateMenu();
 
-    await userEvent.click(await screen.findByRole("menuitem", { name: "New screen" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "New session" }));
 
-    expect(activeContent()).toBeUndefined();
+    const { groups, activeGroupId } = useLayoutStore.getState();
+    expect(draftLeafOf(groups.find((g) => g.id === activeGroupId)!)).not.toBeNull();
+    // And it is called that, not "Screen 1".
+    expect(await screen.findByText("New session")).toBeInTheDocument();
   });
 });
 

@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   /** Desktop or plain-browser runtime (drives the isTauri gates). */
   isTauri: true,
+  /** `move_session_to_project`: what the Rust side reports, or a refusal. */
+  moveSessionToProject: vi.fn(async (_id: string, _project: string) => ({
+    directory: "/work/projects/bci",
+    link: "/work/projects/bci/loose work" as string | null,
+  })),
   /** The host's active workspace folder, as `active-workspace.txt` holds it.
    *  `setWorkspace`/`newDatedWorkspace` move it and `workspacePath` reads it
    *  back, because that is the contract the Rust side keeps: creating a dated
@@ -33,7 +38,6 @@ const mocks = vi.hoisted(() => ({
   renameSessionSpy: vi.fn(),
   /** What listSessions() answers — the runtime's whole history. */
   sessionList: [] as { id: string; title: string; directory?: string }[],
-  moveSessionSpy: vi.fn(),
   /** Next renameSession call is rejected by the server. */
   failRename: false,
   createSessionSpy: vi.fn(),
@@ -130,6 +134,7 @@ vi.mock("./tauri", () => ({
   installSkillMarkdown: mocks.installSkillMarkdown,
   workspaceSkillNames: mocks.workspaceSkillNames,
   adoptWorkspaceSkills: mocks.adoptWorkspaceSkills,
+  moveSessionToProject: mocks.moveSessionToProject,
 }));
 vi.mock("./kernel", () => ({ kernelReset: mocks.kernelReset }));
 vi.mock("./systemNotification", () => ({
@@ -183,9 +188,6 @@ vi.mock("@ai4s/sdk", () => {
     async renameSession(id: string, title: string) {
       mocks.renameSessionSpy(id, title);
       if (mocks.failRename) throw new Error("rename rejected");
-    }
-    async moveSession(id: string, directory: string) {
-      mocks.moveSessionSpy(id, directory);
     }
     async listSkills() {
       return [{ name: "stub" }];
@@ -1256,6 +1258,34 @@ describe("subagent permission asks and long sync turns", () => {
     expect(s.sessionParents["ses_child"]).toBe(id);
     expect(rootSessionOf(s.sessionParents, "ses_child")).toBe(id);
     expect(s.permissions).toHaveLength(1);
+  });
+
+  it("answers an ask that only reaches into the project's linked folders, and asks about anything else", async () => {
+    await useRuntimeStore.getState().connect();
+    mocks.replyPermission.mockClear();
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_m", title: "moved", directory: "/work/projects/bci" }],
+      projects: [
+        {
+          id: "p1", name: "BCI", path: "/work/projects/bci", createdAt: 1, pinned: false,
+          linked: [{ path: "/work/sessions/2026-10-18-0900", sessionId: "ses_m", title: "moved", linkedAt: 1 }],
+        },
+      ] as never,
+      permissions: [],
+    });
+    const ask = (requestId: string, resources: string[]) =>
+      mocks.fireEvent({ type: "permission.asked", sessionId: "ses_m", requestId, action: "external_directory", resources });
+
+    ask("per_in", ["/work/sessions/2026-10-18-0900/figures/*"]);
+    expect(mocks.replyPermission).toHaveBeenCalledWith("per_in", "once");
+    expect(useRuntimeStore.getState().permissions).toHaveLength(0);
+
+    // One path outside the index — or a sibling that merely shares a prefix —
+    // and it is the user's question again.
+    ask("per_mixed", ["/work/sessions/2026-10-18-0900/*", "/work/sessions/2026-10-18-0901/*"]);
+    ask("per_sibling", ["/work/sessions/2026-10-18-0900-old/*"]);
+    expect(mocks.replyPermission).toHaveBeenCalledTimes(1);
+    expect(useRuntimeStore.getState().permissions.map((p) => p.requestId)).toEqual(["per_mixed", "per_sibling"]);
   });
 
   it("keeps the turn alive when a sync POST dies mid-turn but SSE kept streaming", async () => {
@@ -2405,26 +2435,38 @@ describe("session rename and project filing", () => {
     expect(useRuntimeStore.getState().error).toBe("rename rejected");
   });
 
-  it("moveSessionToWorkspace re-homes the conversation so it groups under the project", async () => {
+  it("moveSessionToProject files the conversation in the project and says where its files went", async () => {
     await useRuntimeStore.getState().connect();
-    useRuntimeStore.setState({ sessions: [{ id: "ses_1", title: "loose work" }] });
-    // The move also re-homes the session's subagent children, so the store
-    // re-lists afterwards; the server reports both in the destination folder.
-    mocks.sessionList = [
-      { id: "ses_1", title: "loose work", directory: "/work/projects/bci" },
-      { id: "ses_2", title: "subagent", directory: "/work/projects/bci" },
-    ];
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_1", title: "loose work", directory: "/work/sessions/2026-10-18-0900" }],
+      projects: [{ id: "p1", name: "BCI", path: "/work/projects/bci", createdAt: 1, pinned: false }] as never,
+    });
+    mocks.sessionList = [{ id: "ses_1", title: "loose work", directory: "/work/projects/bci" }];
 
-    expect(
-      await useRuntimeStore.getState().moveSessionToWorkspace("ses_1", "/work/projects/bci"),
-    ).toBe(true);
-    await vi.waitFor(() => expect(useRuntimeStore.getState().sessions).toHaveLength(2));
+    expect(await useRuntimeStore.getState().moveSessionToProject("ses_1", "p1")).toBe(true);
 
-    expect(mocks.moveSessionSpy).toHaveBeenCalledWith("ses_1", "/work/projects/bci");
-    expect(useRuntimeStore.getState().sessions.map((s) => s.directory)).toEqual([
-      "/work/projects/bci",
-      "/work/projects/bci",
-    ]);
+    // By project id — the Rust side resolves the folder, never a raw path.
+    expect(mocks.moveSessionToProject).toHaveBeenCalledWith("ses_1", "p1");
+    expect(useRuntimeStore.getState().sessions[0]!.directory).toBe("/work/projects/bci");
+    expect(useToastStore.getState().toasts.slice(-1)[0]?.message).toContain("loose work");
+  });
+
+  it("moveSessionToProject refuses a running session and reports a failed move", async () => {
+    await useRuntimeStore.getState().connect();
+    mocks.moveSessionToProject.mockClear();
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_1", title: "busy", directory: "/work/sessions/a" }],
+      projects: [{ id: "p1", name: "BCI", path: "/work/projects/bci", createdAt: 1, pinned: false }] as never,
+      runningSessions: { ses_1: true },
+    });
+    expect(await useRuntimeStore.getState().moveSessionToProject("ses_1", "p1")).toBe(false);
+    expect(mocks.moveSessionToProject).not.toHaveBeenCalled();
+
+    useRuntimeStore.setState({ runningSessions: {} });
+    mocks.moveSessionToProject.mockRejectedValueOnce("opencode import: disk full");
+    expect(await useRuntimeStore.getState().moveSessionToProject("ses_1", "p1")).toBe(false);
+    expect(useRuntimeStore.getState().sessions[0]!.directory).toBe("/work/sessions/a");
+    expect(useToastStore.getState().toasts.slice(-1)[0]?.message).toContain("disk full");
   });
 });
 

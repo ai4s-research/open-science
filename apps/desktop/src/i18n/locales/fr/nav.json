@@ -94,7 +94,13 @@
     "exportDone_one": "{{count}} conversation exportée.",
     "exportDone_other": "{{count}} conversations exportées.",
     "exportDonePartial_one": "{{count}} conversation exportée ; {{failed}} n’a pas pu être lue.",
-    "exportDonePartial_other": "{{count}} conversations exportées ; {{failed}} n’ont pas pu être lues."
+    "exportDonePartial_other": "{{count}} conversations exportées ; {{failed}} n’ont pas pu être lues.",
+    "draft": "Nouvelle session",
+    "moved": "Déplacée vers « {{project}} ».",
+    "moveBusy": "Arrêtez cette session avant de la déplacer : un tour en cours continue d’écrire dans son dossier actuel.",
+    "moveFailed": "Impossible de déplacer la session : {{detail}}",
+    "movedLinked": "Déplacée vers « {{project}} ». Son dossier apparaît dans le projet sous « {{link}} ».",
+    "moving": "Déplacement…"
   },
   "confirmDelete": {
     "sessionTitle": "Supprimer la session ?",
@@ -194,19 +200,38 @@
   },
   "jump": {
     "ariaLabel": "Aller à",
-    "placeholder": "Aller à un projet, un écran, une session ou un terminal…",
+    "placeholder": "Rechercher projets, écrans, sessions…",
     "noResults": "Aucun résultat",
     "sections": {
       "actions": "Actions",
       "projects": "Projets",
       "screens": "Écrans",
       "panes": "Panneaux ouverts",
-      "sessions": "Sessions"
+      "sessions": "Sessions",
+      "recent": "Récents",
+      "newIn": "Nouvelle session dans…"
     },
     "actions": {
       "newSession": "Nouvelle session dans {{project}}",
-      "newTerminal": "Nouveau terminal dans {{project}}",
-      "newScreen": "Nouvel écran dans {{project}}"
+      "newTerminal": "Nouveau terminal dans {{project}}"
+    },
+    "projectDetail_one": "{{count}} session · {{ago}}",
+    "projectDetail_other": "{{count}} sessions · {{ago}}",
+    "projectEmpty": "Pas encore de session",
+    "hints": {
+      "open": "ouvrir",
+      "beside": "ouvrir à côté",
+      "close": "fermer"
     }
+  },
+  "newPicker": {
+    "title": "Nouvelle session",
+    "subtitle": "Choisissez le projet auquel elle appartient",
+    "search": "Rechercher des projets…",
+    "current": "Actuel",
+    "noProject": "Hors projet",
+    "newProject": "Nouveau projet…",
+    "hintCreate": "créer",
+    "hintQuick": "ici même, sans demander"
   }
 }

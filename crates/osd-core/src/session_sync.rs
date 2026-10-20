@@ -261,6 +261,119 @@ pub fn import_session(env: &Env, dir: &Path, session_id: &str) -> Result<(), Str
     Ok(())
 }
 
+/// What moving a session into a project did.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveOutcome {
+    /// The folder the conversation now lives in: the project's.
+    pub directory: String,
+    /// The link to the session's own folder now in the project folder — when
+    /// it had one with something in it.
+    pub link: Option<String>,
+}
+
+/// The session's own folder — the dated one the app made for it under
+/// `sessions/` — when `dir` is that and it holds anything besides its `.git`.
+/// A project's folder is shared by all its sessions, and an empty folder has
+/// nothing to keep track of; neither is indexed.
+fn own_folder(env: &Env, dir: &Path) -> Option<PathBuf> {
+    let dir = dir.canonicalize().ok()?;
+    let sessions = crate::runtime::sessions_dir(env).ok()?.canonicalize().ok()?;
+    if dir.parent() != Some(sessions.as_path()) {
+        return None;
+    }
+    let has_work = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .any(|e| e.file_name() != ".git");
+    has_work.then_some(dir)
+}
+
+/// Move a conversation into a project, for real: from then on it lives in the
+/// project's folder, and the agent works there.
+///
+/// The runtime's own "move session" refuses to cross repositories, and every
+/// session folder and project here is its own repository — so it can never do
+/// this. `import` can: it files an EXISTING session in the importing process's
+/// working directory, keeping its id and messages (see `import_dir`; measured
+/// again against the pinned 1.18.32 across two repositories: same id, same
+/// messages, new directory and project). So: export, then import from inside
+/// the project.
+///
+/// The files do NOT move or get copied. The session's own folder stays where
+/// it is, and the project folder gains ONE entry: a link to it, named after
+/// the session (see `project::link_folder`). That is how the user finds the
+/// session's files in the project, and how the agent still reaches what its
+/// earlier turns made. Linked BEFORE the import and unlinked again if the
+/// import fails, so a failure leaves no half move behind.
+///
+/// The project is named by id, never by a raw path, like every other project
+/// command: a caller cannot point a conversation at an arbitrary folder.
+pub fn move_session_to_project(env: &Env, session_id: &str, project_id: &str) -> Result<MoveOutcome, String> {
+    if !valid_session_id(session_id) {
+        return Err(format!("not a session id: {session_id}"));
+    }
+    let project = crate::project::project_folder(env, project_id)?
+        .canonicalize()
+        .map_err(|e| format!("project folder: {e}"))?;
+
+    let out = runtime_cli(env)?
+        .args(["export", session_id])
+        .output()
+        .map_err(|e| format!("run opencode export: {e}"))?;
+    if !out.status.success() || out.stdout.iter().all(u8::is_ascii_whitespace) {
+        return Err(format!(
+            "opencode export {session_id}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let info = serde_json::from_slice::<serde_json::Value>(&out.stdout)
+        .map(|v| v["info"].clone())
+        .unwrap_or_default();
+    let recorded = info["directory"].as_str().map(PathBuf::from);
+    if recorded.as_deref().and_then(|d| d.canonicalize().ok()).as_deref() == Some(project.as_path()) {
+        return Ok(MoveOutcome { directory: project.to_string_lossy().to_string(), link: None });
+    }
+
+    let linked = match recorded.as_deref().and_then(|d| own_folder(env, d)) {
+        Some(folder) => {
+            let title = info["title"].as_str().unwrap_or_default();
+            Some(crate::project::link_folder(env, project_id, &folder, session_id, title)?)
+        }
+        None => None,
+    };
+
+    // The export is the user's conversation: kept in the app's own folder, and
+    // only for as long as the import needs it.
+    let file = runtime_root(env)?.join(format!("move-{session_id}.json"));
+    let imported = std::fs::write(&file, &out.stdout)
+        .map_err(|e| format!("write {}: {e}", file.display()))
+        .and_then(|_| {
+            let res = runtime_cli(env)?
+                .current_dir(&project)
+                .arg("import")
+                .arg(&file)
+                .output()
+                .map_err(|e| format!("run opencode import: {e}"))?;
+            if res.status.success() {
+                Ok(())
+            } else {
+                Err(format!("opencode import: {}", String::from_utf8_lossy(&res.stderr).trim()))
+            }
+        });
+    let _ = std::fs::remove_file(&file);
+    if let Err(e) = imported {
+        if let Some(l) = &linked {
+            let _ = crate::project::unlink_folder(env, project_id, &l.path);
+        }
+        return Err(e);
+    }
+    Ok(MoveOutcome {
+        directory: project.to_string_lossy().to_string(),
+        link: linked.map(|l| l.link),
+    })
+}
+
 /// What the mirror directory holds right now. A missing directory is an empty
 /// list, not an error — the other machine may simply not have synced yet, and a
 /// cloud client creates the folder late.
@@ -319,6 +432,139 @@ pub fn default_dir(workspace: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A throwaway base workspace with one project and one dated session folder.
+    fn move_fixture(tag: &str) -> (PathBuf, crate::env::Env, crate::project::ProjectInfo, PathBuf) {
+        let root = std::env::temp_dir().join(format!("os-move-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let base = root.join("base");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::create_dir_all(root.join("runtime")).unwrap();
+        let env = crate::env::Env::new(root.clone(), root.join("res"), None, "0.0.0".into());
+        crate::runtime::set_workspace_base(&env, base.to_string_lossy().to_string()).unwrap();
+        let project = crate::project::create_project(&env, "Target").unwrap();
+        let dated = crate::runtime::sessions_dir(&env).unwrap().join("2026-10-18-0900");
+        std::fs::create_dir_all(dated.join(".git")).unwrap();
+        std::fs::create_dir_all(dated.join("figures")).unwrap();
+        std::fs::write(dated.join(".git").join("HEAD"), "ref: refs/heads/main").unwrap();
+        std::fs::write(dated.join("analysis.ipynb"), "{}").unwrap();
+        std::fs::write(dated.join("figures").join("fig1.png"), "png").unwrap();
+        (root, env, project, dated)
+    }
+
+    #[test]
+    fn only_a_sessions_own_folder_with_work_in_it_is_indexed() {
+        let (root, env, project, dated) = move_fixture("own");
+        assert_eq!(own_folder(&env, &dated), Some(dated.canonicalize().unwrap()));
+        // A project's folder is every one of its sessions' — leaving takes nothing.
+        assert_eq!(own_folder(&env, Path::new(&project.path)), None);
+        // Nor the sessions folder itself, its parent, or something inside a session folder.
+        let sessions = crate::runtime::sessions_dir(&env).unwrap();
+        assert_eq!(own_folder(&env, &sessions), None);
+        assert_eq!(own_folder(&env, sessions.parent().unwrap()), None);
+        assert_eq!(own_folder(&env, &dated.join("figures")), None);
+        // A session folder holding nothing but its repository has nothing to keep.
+        let empty = sessions.join("2026-10-18-1000");
+        std::fs::create_dir_all(empty.join(".git")).unwrap();
+        assert_eq!(own_folder(&env, &empty), None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn linking_adds_one_entry_to_the_project_folder_and_unlinking_removes_only_it() {
+        let (root, env, project, dated) = move_fixture("index");
+        let project_dir = PathBuf::from(&project.path);
+        let entry = crate::project::link_folder(&env, &project.id, &dated, "ses_a", "Spike sorting: v2").unwrap();
+        // One entry, named after the session, pointing at the folder where it is.
+        let link = PathBuf::from(&entry.link);
+        assert_eq!(link, project_dir.canonicalize().unwrap().join("Spike sorting v2"));
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(link.join("figures").join("fig1.png").is_file());
+        // Linking it again does not add a second one.
+        crate::project::link_folder(&env, &project.id, &dated, "ses_a", "Spike sorting: v2").unwrap();
+        let listed = crate::project::list_projects(&env).unwrap();
+        assert_eq!(listed.iter().find(|p| p.id == project.id).unwrap().linked.len(), 1);
+
+        crate::project::unlink_folder(&env, &project.id, &entry.path).unwrap();
+        assert!(std::fs::symlink_metadata(&link).is_err());
+        assert!(dated.join("analysis.ipynb").is_file());
+        assert!(crate::project::list_projects(&env).unwrap().iter().find(|p| p.id == project.id).unwrap().linked.is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn deleting_the_link_in_the_folder_unlinks_it_and_a_real_folder_is_never_removed() {
+        let (root, env, project, dated) = move_fixture("finder");
+        let entry = crate::project::link_folder(&env, &project.id, &dated, "ses_a", "probe").unwrap();
+        // The user deletes the link in Finder: the project no longer lists it.
+        std::fs::remove_file(&entry.link).unwrap();
+        assert!(crate::project::list_projects(&env).unwrap().iter().find(|p| p.id == project.id).unwrap().linked.is_empty());
+
+        // Something real now sits where the link was: unlinking must refuse to
+        // touch it rather than delete the user's folder.
+        std::fs::create_dir_all(PathBuf::from(&entry.link).join("mine")).unwrap();
+        assert!(crate::project::unlink_folder(&env, &project.id, &entry.path).is_err());
+        assert!(PathBuf::from(&entry.link).join("mine").is_dir());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The whole move against the real runtime CLI: the conversation keeps its
+    /// id and ends up filed in the project, and the project folder gains exactly
+    /// one entry — a link to the session's folder, which stays where it was.
+    /// Needs the bundled binary next to the test executable; skipped (not
+    /// passed vacuously) without it.
+    #[test]
+    fn moving_a_session_files_it_in_the_project_and_links_its_folder() {
+        if sidecar_bin("opencode").is_none() {
+            eprintln!("skipped: no bundled opencode next to the test binary");
+            return;
+        }
+        let (root, env, project, dated) = move_fixture("e2e");
+        let id = "ses_0123456789abcdefMoveProbe01";
+        let seed = root.join("seed.json");
+        let info = serde_json::json!({
+            "id": id, "slug": "move-probe", "projectID": "global",
+            "directory": dated.to_string_lossy(), "path": "", "title": "move probe",
+            "version": "1.18.32", "time": { "created": 1, "updated": 1 },
+        });
+        std::fs::write(&seed, serde_json::json!({ "info": info, "messages": [] }).to_string()).unwrap();
+        let seeded = runtime_cli(&env).unwrap().current_dir(&dated).arg("import").arg(&seed).output().unwrap();
+        assert!(seeded.status.success(), "{}", String::from_utf8_lossy(&seeded.stderr));
+
+        let project_dir = PathBuf::from(&project.path).canonicalize().unwrap();
+        let before: Vec<_> = std::fs::read_dir(&project_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+
+        let moved = move_session_to_project(&env, id, &project.id).unwrap();
+        assert_eq!(PathBuf::from(&moved.directory), project_dir);
+        let link = PathBuf::from(moved.link.expect("its own folder is linked"));
+        assert_eq!(link, project_dir.join("move probe"));
+        assert_eq!(link.canonicalize().unwrap(), dated.canonicalize().unwrap());
+
+        // Exactly one new entry in the project folder; the files are where they were.
+        let mut after: Vec<_> = std::fs::read_dir(&project_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        after.retain(|n| !before.contains(n));
+        assert_eq!(after, vec![std::ffi::OsString::from("move probe")]);
+        assert!(dated.join("figures").join("fig1.png").is_file());
+        // And the index says so, under the session's title.
+        let listed = crate::project::list_projects(&env).unwrap();
+        let entry = &listed.iter().find(|p| p.id == project.id).unwrap().linked;
+        assert_eq!(entry.len(), 1);
+        assert_eq!((entry[0].session_id.as_str(), entry[0].title.as_str()), (id, "move probe"));
+
+        // What the runtime itself now says about the session.
+        let out = runtime_cli(&env).unwrap().args(["export", id]).output().unwrap();
+        let exported: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(exported["info"]["id"], id);
+        assert_eq!(
+            PathBuf::from(exported["info"]["directory"].as_str().unwrap()).canonicalize().unwrap(),
+            project_dir
+        );
+        assert!(!runtime_root(&env).unwrap().join(format!("move-{id}.json")).exists());
+
+        // Moving it again is a no-op.
+        assert_eq!(move_session_to_project(&env, id, &project.id).unwrap().link, None);
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn only_runtime_session_ids_reach_the_command_line() {

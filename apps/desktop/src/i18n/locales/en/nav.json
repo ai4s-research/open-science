@@ -94,7 +94,13 @@
     "exportDone_one": "Exported {{count}} conversation.",
     "exportDone_other": "Exported {{count}} conversations.",
     "exportDonePartial_one": "Exported {{count}} conversation; {{failed}} could not be read.",
-    "exportDonePartial_other": "Exported {{count}} conversations; {{failed}} could not be read."
+    "exportDonePartial_other": "Exported {{count}} conversations; {{failed}} could not be read.",
+    "draft": "New session",
+    "moved": "Moved to “{{project}}”.",
+    "moveBusy": "Stop this session before moving it — a running turn keeps writing into its current folder.",
+    "moveFailed": "Could not move the session: {{detail}}",
+    "movedLinked": "Moved to “{{project}}”. Its folder is in the project as “{{link}}”.",
+    "moving": "Moving…"
   },
   "confirmDelete": {
     "sessionTitle": "Delete session?",
@@ -194,19 +200,38 @@
   },
   "jump": {
     "ariaLabel": "Jump to",
-    "placeholder": "Jump to a project, screen, session or terminal…",
+    "placeholder": "Search projects, screens, sessions…",
     "noResults": "No matches",
     "sections": {
       "actions": "Actions",
       "projects": "Projects",
       "screens": "Screens",
       "panes": "Open panes",
-      "sessions": "Sessions"
+      "sessions": "Sessions",
+      "recent": "Recent",
+      "newIn": "New session in…"
     },
     "actions": {
       "newSession": "New session in {{project}}",
-      "newTerminal": "New terminal in {{project}}",
-      "newScreen": "New screen in {{project}}"
+      "newTerminal": "New terminal in {{project}}"
+    },
+    "projectDetail_one": "{{count}} session · {{ago}}",
+    "projectDetail_other": "{{count}} sessions · {{ago}}",
+    "projectEmpty": "No sessions yet",
+    "hints": {
+      "open": "open",
+      "beside": "open beside",
+      "close": "close"
     }
+  },
+  "newPicker": {
+    "title": "New session",
+    "subtitle": "Choose the project it belongs to",
+    "search": "Search projects…",
+    "current": "Current",
+    "noProject": "In no project",
+    "newProject": "New project…",
+    "hintCreate": "create",
+    "hintQuick": "new here, without asking"
   }
 }

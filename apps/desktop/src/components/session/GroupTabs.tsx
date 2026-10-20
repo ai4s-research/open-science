@@ -26,7 +26,7 @@ import {
 } from "@/lib/layout";
 import { createMarkdown, createNotebook } from "@/lib/newFile";
 import { toast } from "@/lib/toast";
-import { useRuntimeStore } from "@/lib/runtime";
+import { startSessionScreen, useRuntimeStore } from "@/lib/runtime";
 import { detectCliAgents, selectCliAgent, type CliAgent } from "@/lib/cliAgents";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
@@ -121,7 +121,7 @@ function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
             className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
           >
             <Plus size={13} className="shrink-0 text-muted" />
-            {t("group.newTab")}
+            {t("nav:projects.newSession")}
           </DropdownMenu.Item>
           <DropdownMenu.Item
             // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
@@ -275,7 +275,6 @@ export function GroupTabs() {
   const activeGroupId = useLayoutStore((s) => s.activeGroupId);
   const ephemeralGroupId = useLayoutStore((s) => s.ephemeralGroupId);
   const setActiveGroup = useLayoutStore((s) => s.setActiveGroup);
-  const addGroup = useLayoutStore((s) => s.addGroup);
   const closeGroup = useLayoutStore((s) => s.closeGroup);
   const renameGroup = useLayoutStore((s) => s.renameGroup);
 
@@ -356,12 +355,15 @@ export function GroupTabs() {
                 label={t("group.tabMenu")}
                 items={
                   <>
-                    <ContextMenuItem
-                      icon={<Pencil size={14} />}
-                      onSelect={() => requestAnimationFrame(() => setEditingId(g.id))}
-                    >
-                      {t("group.rename")}
-                    </ContextMenuItem>
+                    {/* A home is named for what it is; a name given there would never show. */}
+                    {g.tree && (
+                      <ContextMenuItem
+                        icon={<Pencil size={14} />}
+                        onSelect={() => requestAnimationFrame(() => setEditingId(g.id))}
+                      >
+                        {t("group.rename")}
+                      </ContextMenuItem>
+                    )}
                     <ContextMenuItem
                       icon={<X size={14} />}
                       danger
@@ -376,7 +378,7 @@ export function GroupTabs() {
                 // Dock-drag target: hovering this tab mid-drag switches screens (#4).
                 data-group-tab={g.id}
                 onClick={() => setActiveGroup(g.id)}
-                onDoubleClick={() => setEditingId(g.id)}
+                onDoubleClick={() => g.tree && setEditingId(g.id)}
                 className={cn(
                   "group/tab flex h-7 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors",
                   active ? "bg-surface-2 text-text" : "text-muted hover:bg-surface-2/60",
@@ -388,7 +390,7 @@ export function GroupTabs() {
                 {editingId === g.id ? (
                   <InlineName
                     initial={g.name}
-                    placeholder={groupLabel(g, i, fallback, describe, sessionTitle)}
+                    placeholder={groupLabel(g, i, fallback, describe, sessionTitle, t("nav:history.draft"), t("home.tab"))}
                     onCommit={(name) => {
                       renameGroup(g.id, name);
                       setEditingId(null);
@@ -396,9 +398,11 @@ export function GroupTabs() {
                     onCancel={() => setEditingId(null)}
                   />
                 ) : (
-                  <span className="max-w-[160px] truncate">{groupLabel(g, i, fallback, describe, sessionTitle)}</span>
+                  <span className="max-w-[160px] truncate">{groupLabel(g, i, fallback, describe, sessionTitle, t("nav:history.draft"), t("home.tab"))}</span>
                 )}
-                {/* Close is always available — closing the last group empties it. */}
+                {/* Close empties a project's last Screen, so on one already
+                    empty — its home — it would do nothing: no button. */}
+                {!(groups.length === 1 && !g.tree) && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -413,11 +417,14 @@ export function GroupTabs() {
                 >
                   <X size={12} />
                 </button>
+                )}
               </div>
               </ContextMenu>
             );
           })}
-          <NewScreenButton onNewScreen={() => addGroup()} />
+          {/* A new Screen is a new conversation in this project — never an
+              empty Screen the user then has to fill. */}
+          <NewScreenButton onNewScreen={() => void startSessionScreen(projectId)} />
         </div>
       </div>
       {confirmCloseId && (

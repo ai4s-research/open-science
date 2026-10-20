@@ -198,33 +198,6 @@ describe("OpenCodeClient session edits", () => {
     ]);
   });
 
-  it("moves a session's conversation without moving its workspace files", async () => {
-    const seen: Array<{ url: string; body?: unknown }> = [];
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      seen.push({
-        url: String(input),
-        body: init?.body ? JSON.parse(String(init.body)) : undefined,
-      });
-      return new Response(null, { status: 204 });
-    });
-    const client = new OpenCodeClient({
-      baseUrl: BASE,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    await client.moveSession("ses_1", "/work/projects/bci");
-
-    expect(seen).toEqual([
-      {
-        url: `${BASE}/experimental/control-plane/move-session`,
-        body: {
-          sessionID: "ses_1",
-          destination: { directory: "/work/projects/bci" },
-          moveChanges: false,
-        },
-      },
-    ]);
-  });
 
   it("reports a failed rename instead of pretending it worked", async () => {
     const fetchImpl = vi.fn(

@@ -5,7 +5,7 @@ import { useRuntimeStore } from "@/lib/runtime";
 import { renderAt } from "@/test/render";
 
 const setSessionArchived = vi.fn(async () => true);
-const moveSessionToWorkspace = vi.fn(async () => true);
+const moveSessionToProject = vi.fn(async () => true);
 const renameSession = vi.fn(async () => true);
 const setProjectPinned = vi.fn(async () => {});
 
@@ -16,12 +16,12 @@ async function menuOn(text: string) {
 }
 
 beforeEach(() => {
-  [setSessionArchived, moveSessionToWorkspace, renameSession, setProjectPinned].forEach((m) =>
+  [setSessionArchived, moveSessionToProject, renameSession, setProjectPinned].forEach((m) =>
     m.mockClear(),
   );
   useRuntimeStore.setState({
     setSessionArchived,
-    moveSessionToWorkspace,
+    moveSessionToProject,
     renameSession,
     setProjectPinned,
     projects: [

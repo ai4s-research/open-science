@@ -45,3 +45,13 @@ export function samePath(a: string | null | undefined, b: string | null | undefi
   if (!a || !b) return false;
   return pathKey(a) === pathKey(b);
 }
+
+/** Whether `path` is `folder` or sits anywhere below it — compared as path
+ *  SEGMENTS of `pathKey`s, so `/w/data-old` is not inside `/w/data`. A path with
+ *  a `..` segment is never inside anything: it could climb back out. */
+export function isWithin(path: string, folder: string): boolean {
+  const p = pathKey(path).split("/");
+  const f = pathKey(folder).split("/");
+  if (p.includes("..") || f.length === 0 || f.length > p.length) return false;
+  return f.every((seg, i) => seg === p[i]);
+}

@@ -58,6 +58,13 @@
       "copyRelativePath": "复制相对路径",
       "relativePathLabel": "相对路径",
       "openInDefaultApp": "用默认应用打开"
+    },
+    "linked": {
+      "tag": "关联",
+      "unlink": "解除关联",
+      "unlinkTitle": "解除这个文件夹的关联？",
+      "unlinkBody": "项目里的这个链接会被移除。它指向的文件夹和里面的文件都原样不动；之后 AI 要用到它们时会重新征求你的同意。",
+      "outsideBase": "这个文件夹已不在工作区文件夹里：{{path}}"
     }
   },
   "skills": {

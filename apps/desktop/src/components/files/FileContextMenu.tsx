@@ -1,5 +1,5 @@
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Copy, ExternalLink, FolderOpen } from "lucide-react";
+import { Copy, ExternalLink, FolderOpen, Unlink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { FileRoot } from "@ai4s/shared";
 import {
@@ -36,10 +36,13 @@ async function copy(text: string, what: string) {
 export function FileContextMenu({
   entry,
   root,
+  onUnlink,
   children,
 }: {
   entry: DirEntry;
   root: FileRoot;
+  /** For a project's linked folder: unlink it (the caller asks first). */
+  onUnlink?: () => void;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation(["pages", "common"]);
@@ -78,6 +81,11 @@ export function FileContextMenu({
           {!entry.isDir && (
             <Item icon={<ExternalLink size={14} />} onSelect={() => void openArtifactExternally(entry.path, root)}>
               {t("files.contextMenu.openInDefaultApp")}
+            </Item>
+          )}
+          {onUnlink && (
+            <Item icon={<Unlink size={14} />} onSelect={onUnlink}>
+              {t("files.linked.unlink")}
             </Item>
           )}
         </ContextMenu.Content>

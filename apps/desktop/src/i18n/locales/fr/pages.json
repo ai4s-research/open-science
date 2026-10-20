@@ -58,6 +58,13 @@
       "copyRelativePath": "Copier le chemin relatif",
       "relativePathLabel": "Chemin relatif",
       "openInDefaultApp": "Ouvrir dans l'application par défaut"
+    },
+    "linked": {
+      "tag": "Lié",
+      "unlink": "Délier",
+      "unlinkTitle": "Délier ce dossier ?",
+      "unlinkBody": "Le lien quitte le projet. Le dossier vers lequel il pointe et tous ses fichiers restent où ils sont ; l’agent redemandera avant de les utiliser.",
+      "outsideBase": "Ce dossier n’est plus dans le dossier de travail : {{path}}"
     }
   },
   "skills": {

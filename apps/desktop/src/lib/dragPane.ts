@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { leaves, useLayoutStore, type DockEdge } from "@/lib/layout";
+import { useRuntimeStore } from "@/lib/runtime";
+import { samePath } from "@/lib/workspacePath";
 
 /**
  * Pointer-based drag-to-dock for split panes. Kept OUT of the layout store so
@@ -8,7 +10,8 @@ import { leaves, useLayoutStore, type DockEdge } from "@/lib/layout";
  *
  * Two sources: a session row in the sidebar, or an existing pane (its header).
  * On drop, the pointer's quadrant over the target leaf picks an edge; the layout
- * store docks/moves there and re-equalizes siblings.
+ * store docks/moves there and re-equalizes siblings. A sidebar session dropped
+ * on a project in the sidebar is filed into that project instead.
  *
  * Pointer events (window-level listeners), NOT HTML5 DnD — the app's native OS
  * drag-drop handler swallows DOM drops and the codebase standardizes on pointer
@@ -18,12 +21,14 @@ export type DragSource =
   | { kind: "session"; sessionId: string }
   | { kind: "pane"; leafId: string; sessionId: string | null };
 
-/** Where the pointer is hovering: a leaf's edge, an empty group's fill zone, or
- *  a screen tab (a switch hint — dwelling there flips to that screen, #4). */
+/** Where the pointer is hovering: a leaf's edge, an empty group's fill zone,
+ *  a screen tab (a switch hint — dwelling there flips to that screen, #4), or a
+ *  sidebar project the dragged session would move into. */
 export type DragTarget =
   | { leafId: string; edge: DockEdge }
   | { empty: true }
-  | { groupTab: string };
+  | { groupTab: string }
+  | { projectId: string; name: string };
 
 interface DragPaneState {
   active: null | {
@@ -55,9 +60,19 @@ export function edgeOf(rect: DOMRect, x: number, y: number): DockEdge {
 }
 
 /** Resolve the drop target under the pointer: a leaf's edge, or the empty-group
- *  fill zone, or nothing. */
-function hitTest(x: number, y: number): DragTarget | null {
+ *  fill zone, or a project for a sidebar session, or nothing. A project the
+ *  session already lives in is no target — dropping there would do nothing. */
+function hitTest(x: number, y: number, source: DragSource): DragTarget | null {
   const under = document.elementFromPoint(x, y);
+  const projectEl = under?.closest<HTMLElement>("[data-drop-project]");
+  if (projectEl) {
+    if (source.kind !== "session") return null;
+    const { projects, sessions } = useRuntimeStore.getState();
+    const project = projects.find((p) => p.id === projectEl.dataset.dropProject);
+    const dir = sessions.find((s) => s.id === source.sessionId)?.directory;
+    if (!project || samePath(project.path, dir)) return null;
+    return { projectId: project.id, name: project.name };
+  }
   const leafEl = under?.closest<HTMLElement>("[data-leaf-id]");
   if (leafEl?.dataset.leafId) {
     return { leafId: leafEl.dataset.leafId, edge: edgeOf(leafEl.getBoundingClientRect(), x, y) };
@@ -139,7 +154,7 @@ export function startPaneDrag(
       useDragPane.getState().begin(source, title, ev.clientX, ev.clientY);
     }
     window.getSelection()?.removeAllRanges();
-    const target = hitTest(ev.clientX, ev.clientY);
+    const target = hitTest(ev.clientX, ev.clientY, source);
     // Over a screen tab: after a short dwell, switch to that screen so its panes
     // become drop targets below. Leaving the tab (or moving to another) resets.
     if (target && "groupTab" in target) {
@@ -190,6 +205,16 @@ function commitPaneDrag(): void {
   // Released over a screen tab (not a pane): the dwell already switched screens,
   // and there's no pane to dock against — the user should drop onto a pane.
   if ("groupTab" in target) return;
+
+  // Released over a sidebar project: file the session there, the same move as
+  // its "Add to project" menu.
+  if ("projectId" in target) {
+    if (src.kind !== "session") return;
+    const runtime = useRuntimeStore.getState();
+    const project = runtime.projects.find((p) => p.id === target.projectId);
+    if (project) void runtime.moveSessionToProject(src.sessionId, project.id);
+    return;
+  }
 
   // Drop onto an empty group's onboarding zone → fill that (active) group.
   if ("empty" in target) {

@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useRef, useState, type HTMLAttributes, type Reac
 import { useTranslation } from "react-i18next";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useShallow } from "zustand/react/shallow";
 import {
   Archive,
   FolderInput,
@@ -34,11 +35,12 @@ import {
 } from "@/components/icons/dsh";
 import { StateDot } from "@/components/icons/dsh/StateDot";
 import css from "./Sidebar.module.css";
+import { NewSessionPicker } from "./NewSessionPicker";
 import { useTitleMarquee } from "./useTitleMarquee";
 import { timeAgo } from "@/lib/relativeTime";
 import type { Project } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
-import { draftKeyFor, rootSessionOf, useRuntimeStore } from "@/lib/runtime";
+import { DRAFT_KEY, draftKeyFor, openDraftScreen, rootSessionOf, useRuntimeStore } from "@/lib/runtime";
 import {
   openProjectFolder,
   pickFolder,
@@ -58,8 +60,8 @@ import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { visibleSections, resolveSection } from "@/components/settings/sections";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useDragDivider } from "@/lib/useDragDivider";
-import { DEFAULT_PROJECT, selectActiveProjectId, useLayoutStore } from "@/lib/layout";
-import { startPaneDrag } from "@/lib/dragPane";
+import { DEFAULT_PROJECT, draftLeafOf, projectOf, selectActiveProjectId, useLayoutStore } from "@/lib/layout";
+import { startPaneDrag, useDragPane } from "@/lib/dragPane";
 import { isGatewayWeb } from "@/lib/webMode";
 import { pathKey, samePath } from "@/lib/workspacePath";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -84,6 +86,16 @@ interface Row {
   projectId?: string;
   /** Last activity (ms), shown as the row's compact time. */
   updated?: number;
+}
+
+/** A new conversation nobody has sent anything in yet, shown as a row so the
+ *  user sees where it went. `groupId` is its Screen (null in the single-pane
+ *  web/phone layout, where the draft is simply the bare /live view);
+ *  `projectId` is where its session will land, null for no project. */
+interface DraftRow {
+  key: string;
+  groupId: string | null;
+  projectId: string | null;
 }
 
 /** Dragging the divider below this pointer x collapses the sidebar; dragging
@@ -126,6 +138,9 @@ export function Sidebar({ project }: { project: Project }) {
   // top, one row per section, and NO collapse affordance — a collapsed sidebar
   // would strand the user with no way back.
   const inSettings = location.pathname.startsWith("/settings");
+  const isMobile = useIsMobile();
+  // Phone and web show one pane at a time — no Screens to place new work in.
+  const singlePane = isMobile || isGatewayWeb;
   const activeSection = resolveSection(location.pathname.split("/")[2]);
   // Select each field individually: a bare `useRuntimeStore()` subscribes to the
   // whole store, re-rendering the sidebar on every SSE fold during a session (#34).
@@ -140,7 +155,7 @@ export function Sidebar({ project }: { project: Project }) {
   const refreshProjects = useRuntimeStore((s) => s.refreshProjects);
   const deleteSession = useRuntimeStore((s) => s.deleteSession);
   const renameSession = useRuntimeStore((s) => s.renameSession);
-  const moveSessionToWorkspace = useRuntimeStore((s) => s.moveSessionToWorkspace);
+  const moveSessionToProject = useRuntimeStore((s) => s.moveSessionToProject);
   const setSessionArchived = useRuntimeStore((s) => s.setSessionArchived);
   const setProjectPinned = useRuntimeStore((s) => s.setProjectPinned);
   const deleteProject = useRuntimeStore((s) => s.deleteProject);
@@ -197,8 +212,11 @@ export function Sidebar({ project }: { project: Project }) {
 
   const startNew = () => {
     // Desktop: "New" is new work — it gets its own Screen with its own draft
-    // pane, never the focused pane (which is a conversation in progress).
-    if (!isMobile && !isGatewayWeb) useLayoutStore.getState().openInNewGroup(null);
+    // pane, never the focused pane (which is a conversation in progress). It
+    // belongs to no project (a project's own "+" is for that), so its Screen
+    // opens under Default, where its session will land — not under whichever
+    // project happened to be on display.
+    if (!singlePane) openDraftScreen(DEFAULT_PROJECT);
     startDraft();
     navigate("/live");
   };
@@ -222,6 +240,10 @@ export function Sidebar({ project }: { project: Project }) {
     setCollapsedProjects(projects.map((p) => p.id));
   }, [projects]);
   const [namingProject, setNamingProject] = useState(false);
+  // The New button asks where the conversation goes (NewSessionPicker); a
+  // project created from there opens with that conversation in it.
+  const [picking, setPicking] = useState(false);
+  const [sessionAfterProject, setSessionAfterProject] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [pendingImportPath, setPendingImportPath] = useState<string | null>(null);
@@ -261,7 +283,10 @@ export function Sidebar({ project }: { project: Project }) {
     const created = await createProject(trimmed);
     setCreateBusy(false);
     setNamingProject(false);
-    if (created) navigate("/live");
+    const thenSession = sessionAfterProject;
+    setSessionAfterProject(false);
+    if (created && thenSession) await openProjectScreen(created);
+    else if (created) navigate("/live");
   };
 
   // Entering a project — "new session in project X", or just having imported
@@ -270,10 +295,10 @@ export function Sidebar({ project }: { project: Project }) {
   // own draft slot is what the composer sends under, and that is the slot the
   // project folder has to be aimed at (#69).
   const openProjectScreen = async (p: ProjectInfo) => {
-    const leafId =
-      !isMobile && !isGatewayWeb
-        ? useLayoutStore.getState().openInNewGroup(null, p.id)
-        : null;
+    const leafId = singlePane ? null : openDraftScreen(p.id, p.path);
+    // The new session's row appears in this project, so the project must be
+    // open for the user to see it.
+    if (collapsedProjects.includes(p.id)) toggleProject(p.id);
     await startDraftInWorkspace(p.path, leafId ? draftKeyFor(leafId) : undefined);
     navigate("/live");
   };
@@ -324,6 +349,10 @@ export function Sidebar({ project }: { project: Project }) {
   // Subagent child sessions are internals of their parent conversation —
   // their asks and progress surface there, so they get no row of their own.
   const topSessions = sessions.filter((s) => !s.parentId);
+  // A session being moved shows in the project it is going to from the moment
+  // it is dropped — the move takes seconds, and a row that stayed put read as
+  // a drop that did nothing.
+  const movingSessions = useRuntimeStore((s) => s.movingSessions);
   // Keyed by comparison key, not the raw string: a project's path comes from Rust
   // and a session's `directory` from the sidecar, and on Windows those spell the
   // same folder differently (#76).
@@ -340,7 +369,12 @@ export function Sidebar({ project }: { project: Project }) {
       kind: "session",
       updated: s.updated ?? s.created,
     };
-    const owner = s.directory ? projectByPath.get(pathKey(s.directory)) : undefined;
+    const movingTo = movingSessions[s.id];
+    const owner = movingTo
+      ? projects.find((p) => p.id === movingTo)
+      : s.directory
+        ? projectByPath.get(pathKey(s.directory))
+        : undefined;
     if (owner) {
       row.project = owner.name;
       row.projectId = owner.id;
@@ -356,13 +390,48 @@ export function Sidebar({ project }: { project: Project }) {
       updatedByProject.set(owner.id, Math.max(updatedByProject.get(owner.id) ?? 0, s.updated));
   }
   const recencyOf = (p: ProjectInfo) => updatedByProject.get(p.id) ?? p.createdAt;
+
+  // New conversations: a row the moment one is started, at the top of where
+  // its session will land — the project it is aimed at, else no project.
+  // Without it a new session showed up only as a Screen tab, and the sidebar
+  // looked as if nothing had happened.
+  const draftScreens = useLayoutStore(useShallow((s) => s.groups.filter((g) => draftLeafOf(g))));
+  const activeGroupId = useLayoutStore((s) => s.activeGroupId);
+  const currentId = useRuntimeStore((s) => s.currentId);
+  const draftWorkspaces = useRuntimeStore((s) => s.draftWorkspaces);
+  const projectOfFolder = (path: string | undefined) =>
+    path ? (projectByPath.get(pathKey(path))?.id ?? null) : null;
+  const draftRows: DraftRow[] = [];
+  if (singlePane) {
+    if (location.pathname === "/live" && !currentId)
+      draftRows.push({ key: DRAFT_KEY, groupId: null, projectId: projectOfFolder(draftWorkspaces[DRAFT_KEY]) });
+  } else {
+    for (const g of draftScreens) {
+      // The focused draft follows `currentId` once its first send has created
+      // the session (see SessionView): that session's own row takes over.
+      if (g.id === activeGroupId && currentId) continue;
+      const key = draftKeyFor(draftLeafOf(g)!.id);
+      const aim = draftWorkspaces[key];
+      // Not aimed yet (the folder is set a moment after the Screen opens): the
+      // Screen's project is where it is going.
+      const owner = aim ? projectOfFolder(aim) : projectOf(g);
+      draftRows.push({ key, groupId: g.id, projectId: owner && sessionsByProject.has(owner) ? owner : null });
+    }
+  }
+  const draftsIn = (projectId: string | null) => draftRows.filter((d) => d.projectId === projectId);
+
   // The sidebar shows every pinned project plus the few most-recent others; the
-  // full list (search, delete, …) lives on the Projects page.
+  // full list (search, delete, …) lives on the Projects page. A project with a
+  // new conversation in it is shown too, or the conversation would have no row.
   const RECENT_LIMIT = 5;
   const byRecency = [...projects].sort((a, b) => recencyOf(b) - recencyOf(a));
-  const visibleProjects = [
+  const shownProjects = [
     ...byRecency.filter((p) => p.pinned),
     ...byRecency.filter((p) => !p.pinned).slice(0, RECENT_LIMIT),
+  ];
+  const visibleProjects = [
+    ...shownProjects,
+    ...byRecency.filter((p) => !shownProjects.includes(p) && draftsIn(p.id).length > 0),
   ];
   const hiddenProjectCount = projects.length - visibleProjects.length;
   const exampleRows: Row[] = project.sessions
@@ -420,7 +489,6 @@ export function Sidebar({ project }: { project: Project }) {
   const overlayTitlebar = useOverlayTitlebar();
 
   const width = dragWidth ?? sidebarWidth;
-  const isMobile = useIsMobile();
   // On mobile the sidebar is an off-canvas overlay drawer (both app AND settings,
   // opened via the hamburger in AppShell), never sharing horizontal space; on
   // desktop it stays an inline column (settings can't collapse). Capped width so
@@ -464,8 +532,45 @@ export function Sidebar({ project }: { project: Project }) {
     navigate(row.to);
   };
 
+  /** A new conversation's row: accent-tinted, so the one just made is the one
+   *  the eye lands on. Clicking it goes back to its Screen. */
+  const draftRow = (d: DraftRow) => {
+    const selected = d.groupId === null || (d.groupId === activeGroupId && location.pathname === "/live");
+    return (
+      <div key={d.key} className={css.item}>
+        <button
+          type="button"
+          onClick={() => {
+            if (d.groupId) useLayoutStore.getState().setActiveGroup(d.groupId);
+            navigate("/live");
+          }}
+          aria-current={selected ? "page" : undefined}
+          className={cn(css.sessionRow, css.draftRow, selected && css.selected)}
+        >
+          <span className={css.slot}>
+            <span className={css.draftDot} aria-hidden="true" />
+          </span>
+          <span className={css.title}>{t("history.draft")}</span>
+        </button>
+      </div>
+    );
+  };
+
+  // Dragging a session over a project: that project lights up as the drop, and
+  // a folded one springs open after a moment so the user sees the row land.
+  const dropProjectId = useDragPane((s) =>
+    s.active?.target && "projectId" in s.active.target ? s.active.target.projectId : null,
+  );
+  useEffect(() => {
+    if (!dropProjectId || !collapsedProjects.includes(dropProjectId)) return;
+    const timer = window.setTimeout(() => toggleProject(dropProjectId), 500);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-arm only when the hovered project changes
+  }, [dropProjectId]);
+
   const sessionRow = (row: Row) => {
     const running = row.kind === "session" && activeRoots.has(row.id);
+    const moving = row.kind === "session" && !!movingSessions[row.id];
     // A session the runtime never auto-titled stays "New session - <stamp>"
     // (#63); double-clicking the row is the way out, matching project rename.
     if (renamingSession === row.id)
@@ -501,20 +606,23 @@ export function Sidebar({ project }: { project: Project }) {
             >
               {t("history.rename")}
             </ContextMenuItem>
-            <ContextMenuSub icon={<FolderInput size={14} />} label={t("history.moveTo")}>
-              {projects.length === 0 && (
-                <ContextMenuEmpty>{t("history.moveToNone")}</ContextMenuEmpty>
-              )}
-              {projects.map((p) => (
-                <ContextMenuItem
-                  key={p.id}
-                  disabled={samePath(p.path, sessionDirOf(row.id))}
-                  onSelect={() => void moveSessionToWorkspace(row.id, p.path)}
-                >
-                  {p.name}
-                </ContextMenuItem>
-              ))}
-            </ContextMenuSub>
+            {/* Moving runs the runtime's CLI on this machine — desktop only. */}
+            {!isGatewayWeb && (
+              <ContextMenuSub icon={<FolderInput size={14} />} label={t("history.moveTo")}>
+                {projects.length === 0 && (
+                  <ContextMenuEmpty>{t("history.moveToNone")}</ContextMenuEmpty>
+                )}
+                {projects.map((p) => (
+                  <ContextMenuItem
+                    key={p.id}
+                    disabled={samePath(p.path, sessionDirOf(row.id))}
+                    onSelect={() => void moveSessionToProject(row.id, p.id)}
+                  >
+                    {p.name}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSub>
+            )}
             <ContextMenuItem
               icon={<Archive size={14} />}
               disabled={webReadOnly}
@@ -547,20 +655,22 @@ export function Sidebar({ project }: { project: Project }) {
         onDragStart={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           // Drag a session row into the pane area to dock it (desktop only).
-          if (row.kind === "session" && !isMobile && !isGatewayWeb) {
+          if (row.kind === "session" && !moving && !isMobile && !isGatewayWeb) {
             // eslint-disable-next-line i18next/no-literal-string -- DragSource kind, not UI copy
             startPaneDrag(e, { kind: "session", sessionId: row.id }, row.title);
           }
         }}
         onClick={(e) => openRow(row, e)}
-        className={cn(css.sessionRow, location.pathname === row.to && css.selected)}
+        className={cn(css.sessionRow, location.pathname === row.to && css.selected, moving && css.moving)}
+        aria-busy={moving || undefined}
       >
         {/* DSH session cell: pad 8, a 16px status slot (empty while idle),
             the title, then the time — which hover swaps for the buttons. */}
         <span className={css.slot}>
           {/* eslint-disable-next-line i18next/no-literal-string -- StateDot state, not UI copy */}
-          {running && <StateDot state="ongoing" />}
+          {(running || moving) && <StateDot state="ongoing" />}
           {running && <span className="sr-only">{t("history.running")}</span>}
+          {moving && <span className="sr-only">{t("history.moving")}</span>}
         </span>
         <span
           ref={titleRef}
@@ -702,7 +812,7 @@ export function Sidebar({ project }: { project: Project }) {
 
         {/* A read-only web token can't create sessions — hide the entry. */}
         {!webReadOnly && (
-          <button className={css.newSession} onClick={startNew} aria-label={t("items.new")}>
+          <button className={css.newSession} onClick={() => setPicking(true)} aria-label={t("items.new")}>
             <span className={css.newSessionLabelMask}>
               <span className={css.newSessionContent}>
                 <IconNewChatOutlineMedium size={14} />
@@ -838,6 +948,27 @@ export function Sidebar({ project }: { project: Project }) {
               </DropdownMenu.Root>
             </div>
           </div>
+          {picking && (
+            <NewSessionPicker
+              onClose={() => setPicking(false)}
+              onPick={(id) => {
+                setPicking(false);
+                const p = projects.find((x) => x.id === id);
+                if (p) void openProjectScreen(p);
+                else startNew();
+              }}
+              // Creating a project needs the local filesystem — not on the web.
+              onNewProject={
+                isGatewayWeb
+                  ? undefined
+                  : () => {
+                      setPicking(false);
+                      setSessionAfterProject(true);
+                      setNamingProject(true);
+                    }
+              }
+            />
+          )}
           {namingProject && (
             <NameProjectDialog
               defaultName={t("projects.new")}
@@ -847,7 +978,9 @@ export function Sidebar({ project }: { project: Project }) {
               busy={createBusy}
               onSave={(v) => void submitNewProject(v)}
               onCancel={() => {
-                if (!createBusy) setNamingProject(false);
+                if (createBusy) return;
+                setNamingProject(false);
+                setSessionAfterProject(false);
               }}
             />
           )}
@@ -907,8 +1040,15 @@ export function Sidebar({ project }: { project: Project }) {
             const open = !collapsedProjects.includes(p.id);
             const active = !isMobile && !isGatewayWeb ? activeProjectId === p.id : samePath(p.path, workspace);
             const rows = sessionsByProject.get(p.id) ?? [];
+            const drafts = draftsIn(p.id);
             return (
-              <div key={p.id}>
+              // The whole block — the row and its sessions — takes a dragged
+              // session, so the drop does not demand aiming at one 34px row.
+              <div
+                key={p.id}
+                data-drop-project={p.id}
+                className={cn(css.dropZone, dropProjectId === p.id && css.dropActive)}
+              >
                 {renamingId === p.id ? (
                   <div className="py-0.5 pl-[26px] pr-1">
                     <InlineNameInput
@@ -1015,9 +1155,10 @@ export function Sidebar({ project }: { project: Project }) {
                   )}
                 >
                   <div className="overflow-hidden">
-                    {rows.length === 0 && (
+                    {rows.length === 0 && drafts.length === 0 && (
                       <div className={css.empty}>{t("projects.noSessions")}</div>
                     )}
+                    {drafts.map(draftRow)}
                     {rows.slice(0, ROW_LIMIT).map(sessionRow)}
                     {rows.length > ROW_LIMIT && (
                       <MoreRow
@@ -1059,9 +1200,10 @@ export function Sidebar({ project }: { project: Project }) {
               </button>
             </div>
           </div>
-          {looseRows.length === 0 && exampleRows.length === 0 && (
+          {looseRows.length === 0 && exampleRows.length === 0 && draftsIn(null).length === 0 && (
             <div className={css.empty}>{t("history.empty")}</div>
           )}
+          {draftsIn(null).map(draftRow)}
           {looseRows.slice(0, ROW_LIMIT).map(sessionRow)}
           {looseRows.length > ROW_LIMIT && (
             <MoreRow

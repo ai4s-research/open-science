@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pathKey, samePath } from "./workspacePath";
+import { pathKey, samePath, isWithin } from "./workspacePath";
 
 describe("pathKey", () => {
   it("matches a Windows project path against the sidecar's session directory", () => {
@@ -55,5 +55,19 @@ describe("samePath", () => {
     expect(samePath(null, null)).toBe(false);
     expect(samePath(undefined, "/w/a")).toBe(false);
     expect(samePath("/w/a", "")).toBe(false);
+  });
+});
+
+describe("isWithin", () => {
+  it("is the folder itself or anything below it, by segment", () => {
+    expect(isWithin("/w/data", "/w/data")).toBe(true);
+    expect(isWithin("/w/data/fig/a.png", "/w/data")).toBe(true);
+    expect(isWithin("/w/data-old/a.png", "/w/data")).toBe(false);
+    expect(isWithin("/w", "/w/data")).toBe(false);
+  });
+
+  it("matches across the two Windows spellings, and never through ..", () => {
+    expect(isWithin("d:/Docs/sessions/s1/x", "D:\\Docs\\sessions\\s1")).toBe(true);
+    expect(isWithin("/w/data/../secrets", "/w/data")).toBe(false);
   });
 });

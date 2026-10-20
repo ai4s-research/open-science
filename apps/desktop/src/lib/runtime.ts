@@ -32,6 +32,7 @@ import {
   createProject as createProjectFolder,
   importProject as importProjectFolder,
   setProjectPinned as setProjectPinnedCmd,
+  moveSessionToProject as moveSessionToProjectCmd,
   deleteProject as deleteProjectCmd,
   getAgentModels,
   getAgentVariants,
@@ -62,11 +63,12 @@ import {
 import { isGatewayWeb, gatewayToken, gatewayOrigin } from "./webMode";
 import { activeAcpAgent } from "./acpAgents";
 import { acpTransport } from "./acpTransport";
-import { samePath } from "./workspacePath";
+import { hasParkedDraft } from "./composerStash";
+import { isWithin, samePath } from "./workspacePath";
 import { kernelReset } from "./kernel";
 import { moveScrollMemory } from "./scrollMemory";
 import { deriveArtifact, deriveArtifactPresentation } from "./artifacts";
-import { DEFAULT_PROJECT, useLayoutStore } from "./layout";
+import { DEFAULT_PROJECT, draftLeafOf, projectOf, useLayoutStore, type LayoutGroup } from "./layout";
 import { provenanceInputsFromEvent, recordProvenance } from "./provenance";
 import { clearResolvedPaths } from "./artifactFile";
 import { imageAttachmentParts } from "./promptAttachments";
@@ -555,7 +557,12 @@ interface RuntimeState {
   renameSession: (id: string, title: string) => Promise<boolean>;
   /** File an existing conversation under a project folder (#62): the session
    *  moves, its workspace files stay put. Resolves false on failure. */
-  moveSessionToWorkspace: (id: string, directory: string) => Promise<boolean>;
+  /** Move a conversation into a project — history, files and working folder
+   *  (see `move_session_to_project`). Reports the outcome as a toast. */
+  moveSessionToProject: (id: string, projectId: string) => Promise<boolean>;
+  /** Sessions being moved right now → the project they are going to. The move
+   *  takes a few seconds; the sidebar shows the row there at once, marked. */
+  movingSessions: Record<string, string>;
   /** Archive a conversation (or restore it). Nothing is deleted — archiving
    *  only takes it out of the sidebar and the default history view. */
   setSessionArchived: (id: string, archived: boolean) => Promise<boolean>;
@@ -759,6 +766,33 @@ function teardownStreamClients() {
  *  stream, else the foreground client. Session-scoped calls (send/abort/history)
  *  work through any client, but the directory-scoped interactive replies
  *  (question/permission) must go to the matching per-directory instance. */
+/**
+ * Is this ask only for folders in the session's project index? The agent works
+ * in the project; reaching outside it is an `external_directory` ask, and the
+ * ones that land inside a folder the project indexed (a moved-in session's own
+ * folder) need no question. Every resource must be inside one — a single path
+ * anywhere else and the user is asked, as before. Subagent asks resolve to
+ * their root session, whose folder is the project's.
+ */
+export function withinLinkedFolders(
+  event: { action: string; resources: string[]; sessionId: string },
+  sessions: Array<{ id: string; directory?: string }>,
+  projects: Array<{ path: string; linked?: Array<{ path: string }> }>,
+  parents: Record<string, string>,
+): boolean {
+  if (event.action !== "external_directory" || event.resources.length === 0) return false;
+  const root = rootSessionOf(parents, event.sessionId);
+  const dir = sessions.find((s) => s.id === root)?.directory;
+  const linked = projects.find((p) => samePath(p.path, dir))?.linked ?? [];
+  if (linked.length === 0) return false;
+  // OpenCode asks with a glob over the target's folder (`<dir>/*`); the folder
+  // is what has to be inside.
+  return event.resources.every((r) => {
+    const folder = r.replace(/[\\/]\*+$/, "");
+    return !folder.includes("*") && linked.some((l) => isWithin(folder, l.path));
+  });
+}
+
 function clientForSession(get: StoreGet, sid: string): AgentRuntime | null {
   // Subagent asks carry the CHILD sid (which may not be listed in `sessions`
   // yet); resolve to the root session to find the owning folder, mirroring how
@@ -899,6 +933,52 @@ export function adoptSourceFolder(
   const runtime = useRuntimeStore.getState();
   const folder = inheritedDraftFolder(source, runtime);
   if (folder) runtime.aimDraft(draftKeyFor(newLeafId), folder);
+}
+
+/**
+ * Open a new conversation in its own Screen of `projectId` and return its pane
+ * — the one way every "new session" entry starts new work.
+ *
+ * A blank draft Screen of that project is reused instead of stacking another:
+ * pressing New twice should not leave two empty "New session" rows behind.
+ * Blank means nothing sent, nothing sending, and not aimed anywhere else —
+ * `path` is the folder the caller is about to aim it at (none for Default).
+ */
+export function openDraftScreen(projectId: string, path?: string): string {
+  const layout = useLayoutStore.getState();
+  const { threads, sendingSessions, draftWorkspaces } = useRuntimeStore.getState();
+  // An empty Screen on display is where it goes (`openInNewGroup` fills it):
+  // switching to a blank draft elsewhere would strand the empty one as a tab.
+  const active = layout.groups.find((g) => g.id === layout.activeGroupId);
+  if (active && !active.tree && projectOf(active) === projectId) return layout.openInNewGroup(null, projectId);
+  for (const g of layout.groups) {
+    const leaf = draftLeafOf(g);
+    if (!leaf || projectOf(g) !== projectId) continue;
+    const key = draftKeyFor(leaf.id);
+    const aim = draftWorkspaces[key];
+    if (threads[key]?.blocks.length || sendingSessions[key]) continue;
+    if (aim && !(path && samePath(aim, path))) continue;
+    layout.setActiveGroup(g.id);
+    return leaf.id;
+  }
+  return layout.openInNewGroup(null, projectId);
+}
+
+/**
+ * New conversation in `projectId` — a project's, aimed at its folder so the
+ * session lands there; Default's, in a fresh dated folder. What a new Screen
+ * is: a Screen with nothing in it is never what the user wanted.
+ */
+export async function startSessionScreen(projectId: string): Promise<void> {
+  const runtime = useRuntimeStore.getState();
+  const project = runtime.projects.find((p) => p.id === projectId);
+  if (!project) {
+    openDraftScreen(DEFAULT_PROJECT);
+    runtime.startDraft();
+    return;
+  }
+  const leafId = openDraftScreen(project.id, project.path);
+  await runtime.startDraftInWorkspace(project.path, draftKeyFor(leafId));
 }
 
 /** The composer's agent switch: "build" edits and runs; "plan" is OpenCode's
@@ -2604,6 +2684,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   webWorkspace: null,
   webReadOnly: false,
   draftWorkspaces: {},
+  movingSessions: {},
   switching: false,
   sending: false,
   sendingSessions: {},
@@ -3254,6 +3335,21 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           set((s) => ({ questions: s.questions.filter((q) => q.requestId !== event.requestId) }));
           return;
         case "permission.asked":
+          // A folder the session's project has indexed is part of its work —
+          // the user already said so by moving the session in. Answered here,
+          // once per ask, never saved as a standing rule; anything else, or a
+          // reply that fails, still reaches the user.
+          if (withinLinkedFolders(event, get().sessions, get().projects, get().sessionParents)) {
+            const c = clientForSession(get, event.sessionId);
+            if (c) {
+              void c.replyPermission(event.requestId, "once").catch(() =>
+                set((s) => ({
+                  permissions: [...s.permissions.filter((p) => p.requestId !== event.requestId), event],
+                })),
+              );
+              return;
+            }
+          }
           if (!notifiedPermissions.has(event.requestId)) {
             remember(notifiedPermissions, event.requestId);
             void notifyPermissionRequest({ action: event.action, resources: event.resources });
@@ -4604,22 +4700,42 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     return true;
   },
 
-  moveSessionToWorkspace: async (id, directory) => {
-    const oc = getClient();
-    // Re-homing a session is OpenCode control-plane surface, not part of the
-    // runtime-agnostic port — go through the concrete client.
-    if (!oc) return false;
-    try {
-      await oc.moveSession(id, directory);
-    } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) });
+  moveSessionToProject: async (id, projectId) => {
+    const project = get().projects.find((p) => p.id === projectId);
+    if (!project) return false;
+    // A turn in flight keeps writing into the folder it started in; moving the
+    // conversation under it would split its work across two folders.
+    if (get().runningSessions[id]) {
+      toast.error(i18n.t("nav:history.moveBusy"));
       return false;
     }
-    set((s) => ({
-      sessions: s.sessions.map((x) => (x.id === id ? { ...x, directory } : x)),
-    }));
-    // The move also re-parents the session's own children; re-list so their
-    // grouping follows instead of pointing at the old folder.
+    if (get().movingSessions[id]) return false;
+    const settle = () =>
+      set((s) => {
+        const movingSessions = { ...s.movingSessions };
+        delete movingSessions[id];
+        return { movingSessions };
+      });
+    set((s) => ({ movingSessions: { ...s.movingSessions, [id]: projectId } }));
+    try {
+      const moved = await moveSessionToProjectCmd(id, projectId);
+      set((s) => ({
+        sessions: s.sessions.map((x) => (x.id === id ? { ...x, directory: moved.directory } : x)),
+      }));
+      settle();
+      const link = moved.link?.split(/[\\/]/).pop();
+      toast.success(
+        link
+          ? i18n.t("nav:history.movedLinked", { project: project.name, link })
+          : i18n.t("nav:history.moved", { project: project.name }),
+      );
+      // The project's index changed with the move; the project list carries it.
+      if (moved.link) void get().refreshProjects();
+    } catch (err) {
+      settle();
+      toast.error(i18n.t("nav:history.moveFailed", { detail: err instanceof Error ? err.message : String(err) }));
+      return false;
+    }
     void get().refreshSessions();
     return true;
   },
@@ -4762,6 +4878,47 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Is this Screen a new conversation nobody has touched — nothing sent or
+ * sending, nothing typed or attached in its composer? Such a Screen is a
+ * leftover the moment the user goes elsewhere (see `discardUntouchedDraft`).
+ *
+ * `active`: whether it is the Screen on display. A focused draft whose first
+ * send just created its session shows that session (`currentId`, see
+ * SessionView) before the pane is re-bound — it is not untouched, whatever its
+ * empty draft slot says.
+ */
+export function isUntouchedDraft(group: LayoutGroup, active: boolean): boolean {
+  const leaf = draftLeafOf(group);
+  if (!leaf) return false;
+  const key = draftKeyFor(leaf.id);
+  const { threads, sendingSessions, currentId } = useRuntimeStore.getState();
+  if (active && group.focusedLeafId === leaf.id && currentId) return false;
+  return !threads[key]?.blocks.length && !sendingSessions[key] && !hasParkedDraft(key);
+}
+
+/** Leaving a new conversation nobody touched discards it: its Screen closes
+ *  (or, as its project's only Screen, becomes the project's home), and its
+ *  "New session" row goes with it. Anything typed, attached or sent keeps it. */
+useLayoutStore.subscribe((s, prev) => {
+  if (s.activeGroupId === prev.activeGroupId) return;
+  const left = prev.groups.find((g) => g.id === prev.activeGroupId);
+  if (left && s.groups.some((g) => g.id === left.id) && isUntouchedDraft(left, true)) {
+    useLayoutStore.getState().closeGroup(left.id);
+  }
+});
+
+/** At launch, untouched new conversations saved with the layout are dropped —
+ *  an unsent draft only ever lived in memory, so none of them hold anything.
+ *  The Screen on display stays: it is where the user is. */
+export function pruneUntouchedDrafts(): void {
+  const { groups, activeGroupId, closeGroup } = useLayoutStore.getState();
+  for (const g of groups) {
+    if (g.id !== activeGroupId && isUntouchedDraft(g, false)) closeGroup(g.id);
+  }
+}
+pruneUntouchedDrafts();
 
 /** Dated folder name like `2026-07-04-1615` for a fresh per-session workspace. */
 export function datedWorkspaceName(now = new Date()): string {

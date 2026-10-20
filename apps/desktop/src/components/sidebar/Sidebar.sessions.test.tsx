@@ -57,6 +57,9 @@ describe("Sidebar sessions, away from the session route", () => {
   it("New opens its own Screen instead of replacing the pane in use", async () => {
     renderAt("/skills");
     await userEvent.click(await screen.findByRole("button", { name: "New" }));
+    // New asks where first; the project on display is already chosen.
+    await screen.findByRole("dialog", { name: "New session" });
+    await userEvent.keyboard("{Enter}");
 
     expect(navigateSpy).toHaveBeenCalledWith("/live");
     const layout = useLayoutStore.getState();

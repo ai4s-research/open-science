@@ -92,7 +92,13 @@
     "exportBodyFiltered": "「{{query}}」に一致する会話を Markdown ファイルとして、選んだフォルダに目次付きで書き出します。削除や変更は行いません。",
     "exportConfirm": "フォルダを選択",
     "exportDone_other": "{{count}} 件の会話をエクスポートしました。",
-    "exportDonePartial_other": "{{count}} 件をエクスポートしました（{{failed}} 件は読み取れませんでした）。"
+    "exportDonePartial_other": "{{count}} 件をエクスポートしました（{{failed}} 件は読み取れませんでした）。",
+    "draft": "新しいセッション",
+    "moved": "「{{project}}」に移動しました。",
+    "moveBusy": "移動する前にこのセッションを停止してください。実行中のターンは元のフォルダーに書き込み続けます。",
+    "moveFailed": "セッションを移動できませんでした：{{detail}}",
+    "movedLinked": "「{{project}}」に移動しました。フォルダーはプロジェクト内に「{{link}}」として表示されます。",
+    "moving": "移動中…"
   },
   "confirmDelete": {
     "sessionTitle": "セッションを削除しますか？",
@@ -192,19 +198,37 @@
   },
   "jump": {
     "ariaLabel": "ジャンプ",
-    "placeholder": "プロジェクト・スクリーン・セッション・ターミナルへジャンプ…",
+    "placeholder": "プロジェクト・画面・セッションを検索…",
     "noResults": "一致するものがありません",
     "sections": {
       "actions": "操作",
       "projects": "プロジェクト",
       "screens": "スクリーン",
       "panes": "開いているペイン",
-      "sessions": "セッション"
+      "sessions": "セッション",
+      "recent": "最近",
+      "newIn": "新しいセッション"
     },
     "actions": {
       "newSession": "「{{project}}」で新しいセッション",
-      "newTerminal": "「{{project}}」で新しいターミナル",
-      "newScreen": "「{{project}}」で新しいスクリーン"
+      "newTerminal": "「{{project}}」で新しいターミナル"
+    },
+    "projectDetail_other": "{{count}} 件 · {{ago}}",
+    "projectEmpty": "セッションなし",
+    "hints": {
+      "open": "開く",
+      "beside": "横に開く",
+      "close": "閉じる"
     }
+  },
+  "newPicker": {
+    "title": "新しいセッション",
+    "subtitle": "どのプロジェクトに入れるか選んでください",
+    "search": "プロジェクトを検索…",
+    "current": "現在",
+    "noProject": "プロジェクト外",
+    "newProject": "新しいプロジェクト…",
+    "hintCreate": "作成",
+    "hintQuick": "確認なしで現在のプロジェクトに作成"
   }
 }

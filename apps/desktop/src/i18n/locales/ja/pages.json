@@ -58,6 +58,13 @@
       "copyRelativePath": "相対パスをコピー",
       "relativePathLabel": "相対パス",
       "openInDefaultApp": "デフォルトのアプリで開く"
+    },
+    "linked": {
+      "tag": "関連",
+      "unlink": "関連付けを解除",
+      "unlinkTitle": "このフォルダーの関連付けを解除しますか？",
+      "unlinkBody": "プロジェクトからリンクが削除されます。リンク先のフォルダーとファイルはそのまま残ります。AI が使う前には再度確認します。",
+      "outsideBase": "このフォルダーは作業フォルダーの外にあります：{{path}}"
     }
   },
   "skills": {

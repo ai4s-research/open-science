@@ -490,6 +490,66 @@ button.sectionLabel:hover {
   gap: 0;
 }
 
+/* A new conversation nobody has sent anything in yet. Accent title and dot,
+   an accent tint while it is the one on display, and a short fade-in so the
+   row the user just made is where the eye lands. */
+.draftRow {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  animation: draftIn 700ms var(--ds-ease-in-out) both;
+}
+
+.draftRow .title {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.item > .draftRow.selected,
+.item:hover > .draftRow.selected {
+  background: var(--dsw-alias-state-business-tertiary);
+}
+
+.draftDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+@keyframes draftIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .draftRow {
+    animation: none;
+  }
+}
+
+/* A session on its way into a project: already shown there, dimmed until the
+   move lands. */
+.moving .title {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* A project block while a dragged session hovers it: dropping files the
+   session there. */
+.dropZone {
+  border-radius: var(--dsw-radius-md);
+  transition: background-color 120ms, box-shadow 120ms;
+}
+
+.dropActive {
+  background: var(--dsw-alias-state-business-tertiary);
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
 .sessionRow .title {
   margin: 0 6px 0 6px;
 }

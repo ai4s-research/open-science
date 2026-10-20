@@ -92,7 +92,13 @@
     "exportBodyFiltered": "「{{query}}」과(와) 일치하는 대화를 선택한 폴더에 Markdown 파일과 목차로 저장합니다. 삭제하거나 변경하지 않습니다.",
     "exportConfirm": "폴더 선택",
     "exportDone_other": "대화 {{count}}개를 내보냈습니다.",
-    "exportDonePartial_other": "대화 {{count}}개를 내보냈고, {{failed}}개는 읽지 못했습니다."
+    "exportDonePartial_other": "대화 {{count}}개를 내보냈고, {{failed}}개는 읽지 못했습니다.",
+    "draft": "새 세션",
+    "moved": "‘{{project}}’(으)로 옮겼습니다.",
+    "moveBusy": "옮기기 전에 이 세션을 중지하세요. 실행 중인 작업은 원래 폴더에 계속 씁니다.",
+    "moveFailed": "세션을 옮기지 못했습니다: {{detail}}",
+    "movedLinked": "‘{{project}}’(으)로 옮겼습니다. 폴더는 프로젝트 안에 ‘{{link}}’(으)로 표시됩니다.",
+    "moving": "옮기는 중…"
   },
   "confirmDelete": {
     "sessionTitle": "세션을 삭제하시겠습니까?",
@@ -192,19 +198,37 @@
   },
   "jump": {
     "ariaLabel": "이동",
-    "placeholder": "프로젝트, 스크린, 세션, 터미널로 이동…",
+    "placeholder": "프로젝트, 화면, 세션 검색…",
     "noResults": "일치하는 항목 없음",
     "sections": {
       "actions": "작업",
       "projects": "프로젝트",
       "screens": "스크린",
       "panes": "열린 패널",
-      "sessions": "세션"
+      "sessions": "세션",
+      "recent": "최근",
+      "newIn": "새 세션"
     },
     "actions": {
       "newSession": "'{{project}}'에서 새 세션",
-      "newTerminal": "'{{project}}'에서 새 터미널",
-      "newScreen": "'{{project}}'에서 새 스크린"
+      "newTerminal": "'{{project}}'에서 새 터미널"
+    },
+    "projectDetail_other": "세션 {{count}}개 · {{ago}}",
+    "projectEmpty": "세션 없음",
+    "hints": {
+      "open": "열기",
+      "beside": "옆에 열기",
+      "close": "닫기"
     }
+  },
+  "newPicker": {
+    "title": "새 세션",
+    "subtitle": "어느 프로젝트에 넣을지 고르세요",
+    "search": "프로젝트 검색…",
+    "current": "현재",
+    "noProject": "프로젝트 밖",
+    "newProject": "새 프로젝트…",
+    "hintCreate": "만들기",
+    "hintQuick": "묻지 않고 현재 프로젝트에 만들기"
   }
 }

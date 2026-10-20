@@ -22,11 +22,6 @@
       "action": "화면 닫기"
     },
     "zoom": "이 창 확대/축소",
-    "empty": {
-      "title": "빈 화면",
-      "hint": "시작하려면 사이드바에서 세션을 여기로 드래그하거나 ⌘D를 눌러 분할하세요.",
-      "newSession": "새 세션"
-    },
     "rename": "화면 이름 변경",
     "tabMenu": "화면 작업",
     "runAgent": "에이전트 실행",
@@ -563,5 +558,25 @@
     "steps_one": "{{count}}단계",
     "steps_other": "{{count}}단계",
     "close": "궤적 닫기"
+  },
+  "drag": {
+    "moveInto": "‘{{name}}’(으)로 이동"
+  },
+  "home": {
+    "tab": "홈",
+    "openFolder": "폴더 열기",
+    "recent": "최근 세션",
+    "seeAll": "전체 {{count}}개",
+    "emptyProject": "아직 비어 있어요. 이 프로젝트의 첫 대화를 시작해 보세요.",
+    "emptyDefault": "아직 흩어진 세션이 없어요. 새로 시작하거나 왼쪽에서 프로젝트를 여세요.",
+    "greeting": {
+      "morning": "좋은 아침이에요",
+      "noon": "좋은 점심이에요",
+      "afternoon": "좋은 오후예요",
+      "evening": "좋은 저녁이에요",
+      "night": "늦은 밤이에요"
+    },
+    "count_other": "세션 {{count}}개",
+    "countDefault_other": "프로젝트 밖 세션 {{count}}개"
   }
 }

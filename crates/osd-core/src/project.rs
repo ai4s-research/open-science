@@ -34,6 +34,28 @@ pub struct ProjectMeta {
     /// recent few). Absent = not pinned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,
+    /// Folders outside the project that belong to it — a session's own folder,
+    /// kept where it was when the session was moved in. Each shows up in the
+    /// project folder as a link named after the session: one more entry there,
+    /// never a copy. The files stay put, and the agent may reach them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub linked: Vec<LinkedFolder>,
+}
+
+/// One entry of a project's folder index.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LinkedFolder {
+    /// Absolute folder, native form.
+    pub path: String,
+    /// The link to it inside the project folder — what the user sees there.
+    pub link: String,
+    /// The session whose folder this was, and its title then — what the folder
+    /// is, in words the user recognises.
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    pub title: String,
+    #[serde(rename = "linkedAt")]
+    pub linked_at: u64,
 }
 
 /// What the frontend consumes: the metadata plus the folder it lives in.
@@ -61,6 +83,8 @@ pub struct ProjectInfo {
     pub import_mode: Option<String>,
     /// Whether this project is pinned to the sidebar.
     pub pinned: bool,
+    /// Its folder index (see `ProjectMeta::linked`).
+    pub linked: Vec<LinkedFolder>,
 }
 
 fn meta_file(dir: &Path) -> PathBuf {
@@ -147,6 +171,75 @@ fn info_of(meta: ProjectMeta, dir: &Path) -> ProjectInfo {
         imported_from,
         import_mode,
         pinned: meta.pinned.unwrap_or(false),
+        // The link in the folder is what the user sees and can delete in
+        // Finder; an entry whose link is gone (or now points elsewhere) is no
+        // longer linked, whatever the metadata still says.
+        linked: meta.linked.into_iter().filter(link_intact).collect(),
+    }
+}
+
+/// Whether an index entry's link is still in the project folder, pointing at
+/// its folder.
+fn link_intact(l: &LinkedFolder) -> bool {
+    let link = Path::new(&l.link);
+    let is_link = std::fs::symlink_metadata(link)
+        .map(|m| m.file_type().is_symlink() || is_junction(&m))
+        .unwrap_or(false);
+    let target = link.canonicalize().ok();
+    is_link && target.is_some() && target == Path::new(&l.path).canonicalize().ok()
+}
+
+#[cfg(windows)]
+fn is_junction(m: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+#[cfg(not(windows))]
+fn is_junction(_: &std::fs::Metadata) -> bool {
+    false
+}
+
+/// A link to the folder `target` at `link`. On Windows a symlink needs
+/// Developer Mode or elevation, so a directory junction — which needs neither
+/// and works the same for a folder — is the fallback.
+fn link_dir(target: &Path, link: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    let res = std::os::unix::fs::symlink(target, link).map_err(|e| e.to_string());
+    #[cfg(windows)]
+    let res = std::os::windows::fs::symlink_dir(target, link).or_else(|_| {
+        let out = crate::runtime::quiet_command("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    });
+    res.map_err(|e| format!("link {} in the project: {e}", link.display()))
+}
+
+/// The link's name: the session's title as a folder name — what the user knows
+/// it as — else the folder's own name. Characters no filesystem accepts become
+/// spaces, a leading dot (a hidden file) is dropped, and it is kept short.
+fn link_name(title: &str, folder: &Path) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| if "/\\:*?\"<>|".contains(c) || c.is_control() { ' ' } else { c })
+        .collect();
+    let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cleaned: String = cleaned.trim_start_matches('.').chars().take(60).collect();
+    let cleaned = cleaned.trim().to_string();
+    if cleaned.is_empty() {
+        folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "session".into())
+    } else {
+        cleaned
     }
 }
 
@@ -177,6 +270,7 @@ fn create_in(base: &Path, name: &str) -> Result<(PathBuf, ProjectMeta), String> 
         source_path: None,
         imported_from: None,
         pinned: None,
+        linked: Vec::new(),
     };
     write_meta(&dir, &meta)?;
     Ok((dir, meta))
@@ -496,6 +590,7 @@ fn adopt_in_base(base: &Path, source: &Path) -> Result<ProjectInfo, String> {
         source_path: None,
         imported_from: None,
         pinned: None,
+        linked: Vec::new(),
     };
     write_meta(source, &meta)?;
     Ok(info_of(meta, source))
@@ -618,6 +713,69 @@ fn set_pinned_in(base: &Path, id: &str, pinned: bool) -> Result<(), String> {
     let dir = project_dir_by_id(base, id).ok_or("project not found")?;
     let mut meta = read_meta(&dir).ok_or("not a project folder")?;
     meta.pinned = if pinned { Some(true) } else { None };
+    write_meta(&dir, &meta)
+}
+
+/// Link `folder` into a project: a link named after the session appears in the
+/// project folder, and the index records it (see `ProjectMeta::linked`). The
+/// folder itself is not touched. Linking a folder already linked returns its
+/// entry as it is.
+pub fn link_folder(env: &Env, id: &str, folder: &Path, session_id: &str, title: &str) -> Result<LinkedFolder, String> {
+    let dir = project_dir_by_id(&base_workspace_dir(env)?, id).ok_or("project not found")?;
+    let mut meta = read_meta(&dir).ok_or("not a project folder")?;
+    let workspace = project_folder(env, id)?;
+    let path = crate::artifact_file::native_path(folder);
+    if let Some(existing) = meta.linked.iter().find(|l| l.path == path && link_intact(l)) {
+        return Ok(existing.clone());
+    }
+    meta.linked.retain(|l| l.path != path);
+    let name = link_name(title, folder);
+    let link = (1..1000)
+        .map(|n| if n == 1 { workspace.join(&name) } else { workspace.join(format!("{name} ({n})")) })
+        .find(|p| std::fs::symlink_metadata(p).is_err())
+        .ok_or_else(|| format!("no free name for {name} in the project"))?;
+    link_dir(folder, &link)?;
+    let entry = LinkedFolder {
+        path,
+        link: crate::artifact_file::native_path(&link),
+        session_id: session_id.to_string(),
+        title: title.to_string(),
+        linked_at: now_ms(),
+    };
+    meta.linked.push(entry.clone());
+    if let Err(e) = write_meta(&dir, &meta) {
+        let _ = remove_link(&link);
+        return Err(e);
+    }
+    Ok(entry)
+}
+
+/// Remove a link — only ever the link itself, never what it points at. Refuses
+/// anything that is not a link, so a stale index can never delete real files.
+fn remove_link(link: &Path) -> Result<(), String> {
+    let m = std::fs::symlink_metadata(link).map_err(|e| e.to_string())?;
+    if !(m.file_type().is_symlink() || is_junction(&m)) {
+        return Err(format!("{} is not a link", link.display()));
+    }
+    // A Windows directory symlink or junction is removed as a directory; a
+    // Unix symlink as a file. Neither call follows it.
+    std::fs::remove_file(link)
+        .or_else(|_| std::fs::remove_dir(link))
+        .map_err(|e| e.to_string())
+}
+
+/// Unlink `path` from a project: its link leaves the project folder and its
+/// index entry goes. The folder and everything in it stay where they are.
+pub fn unlink_folder(env: &Env, id: &str, path: &str) -> Result<(), String> {
+    let dir = project_dir_by_id(&base_workspace_dir(env)?, id).ok_or("project not found")?;
+    let mut meta = read_meta(&dir).ok_or("not a project folder")?;
+    for l in meta.linked.iter().filter(|l| l.path == path) {
+        // Already gone (deleted in Finder) is fine; a non-link is left alone.
+        if std::fs::symlink_metadata(&l.link).is_ok() {
+            remove_link(Path::new(&l.link))?;
+        }
+    }
+    meta.linked.retain(|l| l.path != path);
     write_meta(&dir, &meta)
 }
 

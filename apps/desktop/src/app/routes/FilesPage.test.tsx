@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DirEntry } from "@/lib/artifactFile";
+import { MemoryRouter } from "react-router-dom";
 import { FilesPage, SessionFilesPane } from "./FilesPage";
 
 const listDir = vi.fn();
@@ -88,6 +89,7 @@ describe("FilesPage", () => {
         sessionDir="/workspace/session-1"
         onClose={() => {}}
       />,
+      { wrapper: MemoryRouter },
     );
     await userEvent.click(await screen.findByText("data"));
     expect(await screen.findByText("genes.bed")).toBeInTheDocument();
@@ -99,6 +101,7 @@ describe("FilesPage", () => {
         sessionDir="/workspace/session-1"
         onClose={() => {}}
       />,
+      { wrapper: MemoryRouter },
     );
     expect(await screen.findByText("genes.bed")).toBeInTheDocument();
     expect(listDir).toHaveBeenLastCalledWith("data", "workspace");

@@ -1,5 +1,6 @@
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { FolderInput } from "lucide-react";
 import { useDragPane } from "@/lib/dragPane";
 
 /**
@@ -11,6 +12,7 @@ export function PaneDragGhost() {
   const { t } = useTranslation("session");
   const active = useDragPane((s) => s.active);
   if (typeof document === "undefined" || !active) return null;
+  const into = active.target && "projectId" in active.target ? active.target.name : null;
   return createPortal(
     <div
       className="pointer-events-none fixed left-0 top-0 z-[100]"
@@ -24,11 +26,20 @@ export function PaneDragGhost() {
             {active.title || t("starters.newSession")}
           </span>
         </div>
-        <div className="space-y-1.5 p-2.5">
-          <div className="h-2 w-11/12 rounded bg-surface-2" />
-          <div className="h-2 w-3/5 rounded bg-surface-2" />
-          <div className="ml-auto h-6 w-4/5 rounded-card bg-surface-2/70" />
-        </div>
+        {/* Over a sidebar project the drop files the session there, so the
+            card says where it is going instead of miming a pane. */}
+        {into ? (
+          <div className="flex items-center gap-1.5 px-2.5 py-2 text-[12px] text-accent">
+            <FolderInput size={13} className="shrink-0" />
+            <span className="truncate">{t("drag.moveInto", { name: into })}</span>
+          </div>
+        ) : (
+          <div className="space-y-1.5 p-2.5">
+            <div className="h-2 w-11/12 rounded bg-surface-2" />
+            <div className="h-2 w-3/5 rounded bg-surface-2" />
+            <div className="ml-auto h-6 w-4/5 rounded-card bg-surface-2/70" />
+          </div>
+        )}
       </div>
     </div>,
     document.body,

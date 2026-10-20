@@ -680,22 +680,6 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     if (!res.ok) throw await this.apiError(res, "Failed to rename session");
   }
 
-  /** Re-home an existing session into another workspace folder, so a
-   *  conversation that started loose can be filed under a project (#62).
-   *  `moveChanges: false` — the session's workspace files stay where they are;
-   *  only the conversation moves, which is what "add to project" means here. */
-  async moveSession(sessionId: string, directory: string): Promise<void> {
-    const res = await this.fetchWithTimeout(
-      `${this.baseUrl}/experimental/control-plane/move-session`,
-      {
-        method: "POST",
-        headers: this.headers(true),
-        body: JSON.stringify({ sessionID: sessionId, destination: { directory }, moveChanges: false }),
-      },
-    );
-    if (!res.ok) throw await this.apiError(res, "Failed to move session");
-  }
-
   /** Delete a session. */
   async deleteSession(sessionId: string): Promise<void> {
     const res = await this.fetchImpl(`${this.baseUrl}/session/${encodeURIComponent(sessionId)}`, {

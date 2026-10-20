@@ -394,6 +394,14 @@ export function selectActiveProjectId(s: { groups: LayoutGroup[]; activeGroupId:
   return active ? projectOf(active) : DEFAULT_PROJECT;
 }
 
+/** The draft pane of a Screen that holds nothing else — a new conversation
+ *  nobody has sent anything in yet. Every "new session" entry opens one, and
+ *  the sidebar and the Screen bar both show it as that new session. */
+export function draftLeafOf(group: LayoutGroup): PaneLeaf | null {
+  const t = group.tree;
+  return t && t.kind === "leaf" && !t.sessionId && !t.content && !t.artifact ? t : null;
+}
+
 /** One project's Screens, in tab order. */
 export function projectGroups(groups: LayoutGroup[], projectId: string): LayoutGroup[] {
   return groups.filter((g) => projectOf(g) === projectId);
@@ -874,9 +882,10 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
         if (!closing) return {};
         const siblings = projectGroups(s.groups, projectOf(closing));
         if (siblings.length <= 1) {
-          // A project never has zero Screens — empty its last one instead.
+          // A project never has zero Screens — empty its last one instead. Its
+          // name went with what it held: an empty Screen is the project's home.
           const groups = s.groups.map((g) =>
-            g.id === groupId ? { ...g, tree: null, focusedLeafId: null, zoomedLeafId: null } : g,
+            g.id === groupId ? { ...g, name: "", tree: null, focusedLeafId: null, zoomedLeafId: null } : g,
           );
           const active = groups.find((g) => g.id === s.activeGroupId)!;
           return {
@@ -1333,9 +1342,18 @@ export function groupLabel(
   fallback: (n: number) => string,
   describe?: (content: PaneContent) => string | null,
   sessionTitle?: (sessionId: string) => string | null,
+  draftName?: string,
+  homeName?: string,
 ): string {
+  // An empty Screen shows its project's home (EmptyGroup), and says so —
+  // whatever it was once named: that name was for what it held. (A Screen
+  // saved before closing cleared names could still carry one.)
+  if (homeName && !group.tree) return homeName;
   const named = group.name.trim();
   if (named) return named;
+  // A Screen holding only a new conversation is that new conversation — the
+  // same name its row has in the sidebar, not "Screen 4".
+  if (draftName && draftLeafOf(group)) return draftName;
   // Otherwise the Screen says what its first pane holds: "Terminal", a file's
   // name, or the conversation's title once it has one — not "Screen 4". The
   // label is derived rather than stored, so it follows the pane: a document

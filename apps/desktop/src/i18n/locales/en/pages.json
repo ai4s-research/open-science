@@ -58,6 +58,13 @@
       "copyRelativePath": "Copy relative path",
       "relativePathLabel": "Relative path",
       "openInDefaultApp": "Open in default app"
+    },
+    "linked": {
+      "tag": "Linked",
+      "unlink": "Unlink",
+      "unlinkTitle": "Unlink this folder?",
+      "unlinkBody": "The link leaves the project. The folder it points to and all its files stay exactly where they are; the agent will ask again before using them.",
+      "outsideBase": "That folder is outside the workspace folder now: {{path}}"
     }
   },
   "skills": {

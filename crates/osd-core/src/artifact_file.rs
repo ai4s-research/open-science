@@ -384,6 +384,10 @@ pub struct DirEntry {
     size: u64,
     /// Seconds since the epoch.
     modified: u64,
+    /// For a link to a folder (a project's linked session folder): where it
+    /// really is — absolute, native form. Listed as the folder it points at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link: Option<String>,
 }
 
 /// List one directory under the chosen root (non-recursive) for the file
@@ -391,6 +395,18 @@ pub struct DirEntry {
 /// entries and heavy build dirs are skipped; directories sort first, then by name.
 pub fn list_dir(env: &Env, rel: String, root: Option<String>) -> Result<Vec<DirEntry>, String> {
     dir_entries(&scope_root(env, root.as_deref())?, &rel)
+}
+
+/// A Windows junction reports as neither a symlink nor a plain folder to
+/// `file_type`; its reparse-point attribute is what marks it.
+#[cfg(windows)]
+fn is_reparse_point(entry: &std::fs::DirEntry) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    entry.metadata().map(|m| m.file_attributes() & 0x400 != 0).unwrap_or(false)
+}
+#[cfg(not(windows))]
+fn is_reparse_point(_: &std::fs::DirEntry) -> bool {
+    false
 }
 
 pub fn dir_entries(root: &Path, rel: &str) -> Result<Vec<DirEntry>, String> {
@@ -407,7 +423,19 @@ pub fn dir_entries(root: &Path, rel: &str) -> Result<Vec<DirEntry>, String> {
             continue;
         }
         let Ok(ft) = entry.file_type() else { continue };
-        let meta = entry.metadata().ok();
+        // Follow a link for what it IS (a folder, a file); remember that it was
+        // one and where it leads. A dangling link has nothing to show.
+        let link = if ft.is_symlink() || is_reparse_point(&entry) {
+            match entry.path().canonicalize() {
+                Ok(target) => Some(native_path(&target)),
+                Err(_) => continue,
+            }
+        } else {
+            None
+        };
+        let meta = if link.is_some() { std::fs::metadata(entry.path()).ok() } else { entry.metadata().ok() };
+        let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let is_file = meta.as_ref().map(|m| m.is_file()).unwrap_or(false);
         let modified = meta
             .as_ref()
             .and_then(|m| m.modified().ok())
@@ -425,9 +453,10 @@ pub fn dir_entries(root: &Path, rel: &str) -> Result<Vec<DirEntry>, String> {
         out.push(DirEntry {
             path: rel_path,
             name,
-            is_dir: ft.is_dir(),
-            size: if ft.is_file() { meta.as_ref().map(|m| m.len()).unwrap_or(0) } else { 0 },
+            is_dir,
+            size: if is_file { meta.as_ref().map(|m| m.len()).unwrap_or(0) } else { 0 },
             modified,
+            link,
         });
     }
     out.sort_by(|a, b| match (a.is_dir, b.is_dir) {
@@ -686,8 +715,34 @@ mod tests {
         attach_paths, base64_decode, base64_encode, dir_entries, encode_for_preview,
         is_discardable_name, Attached,
         exceeds_preview_cap, locate_local, locate_under, mime_for, strip_windows_verbatim,
-        unique_name, workspace_relative, LocalPath,
+        native_path, unique_name, workspace_relative, LocalPath,
     };
+
+    /// A project's linked session folder is a link in the project folder: it
+    /// lists as the folder it points at, saying where that really is.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_folder_lists_as_that_folder() {
+        let root = std::env::temp_dir().join(format!("os-list-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let real = root.join("sessions").join("2026-10-18-0900");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("fig.png"), "png").unwrap();
+        let project = root.join("projects").join("bci");
+        std::fs::create_dir_all(&project).unwrap();
+        std::os::unix::fs::symlink(&real, project.join("Spike sorting")).unwrap();
+        std::os::unix::fs::symlink(root.join("nowhere"), project.join("dangling")).unwrap();
+
+        let entries = dir_entries(&root, "projects/bci").unwrap();
+        assert_eq!(entries.len(), 1, "a dangling link has nothing to show");
+        assert!(entries[0].is_dir);
+        assert_eq!(entries[0].name, "Spike sorting");
+        assert_eq!(entries[0].link.as_deref(), Some(native_path(&real.canonicalize().unwrap()).as_str()));
+        // And it opens as that folder, under the same root.
+        let inside = dir_entries(&root, "projects/bci/Spike sorting").unwrap();
+        assert_eq!(inside[0].name, "fig.png");
+        let _ = std::fs::remove_dir_all(root);
+    }
     use std::path::{Path, PathBuf};
 
     #[test]

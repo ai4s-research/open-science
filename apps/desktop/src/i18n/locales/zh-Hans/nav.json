@@ -92,7 +92,13 @@
     "exportBodyFiltered": "匹配「{{query}}」的会话会写成 Markdown 文件，保存到你选择的文件夹，并附带索引。不会删除或修改任何内容。",
     "exportConfirm": "选择文件夹",
     "exportDone_other": "已导出 {{count}} 个会话。",
-    "exportDonePartial_other": "已导出 {{count}} 个会话，{{failed}} 个无法读取。"
+    "exportDonePartial_other": "已导出 {{count}} 个会话，{{failed}} 个无法读取。",
+    "draft": "新会话",
+    "moved": "已移到「{{project}}」。",
+    "moveBusy": "请先停止这个会话再移动：运行中的任务会继续写入原来的文件夹。",
+    "moveFailed": "移动会话失败：{{detail}}",
+    "movedLinked": "已移到「{{project}}」。它的文件夹以「{{link}}」出现在项目里。",
+    "moving": "移动中…"
   },
   "confirmDelete": {
     "sessionTitle": "删除会话？",
@@ -192,19 +198,37 @@
   },
   "jump": {
     "ariaLabel": "跳转",
-    "placeholder": "跳转到项目、屏幕、会话或终端…",
+    "placeholder": "搜索项目、屏幕、会话…",
     "noResults": "没有匹配项",
     "sections": {
       "actions": "操作",
       "projects": "项目",
       "screens": "屏幕",
       "panes": "已打开的面板",
-      "sessions": "会话"
+      "sessions": "会话",
+      "recent": "最近",
+      "newIn": "新建会话"
     },
     "actions": {
       "newSession": "在「{{project}}」新建会话",
-      "newTerminal": "在「{{project}}」新建终端",
-      "newScreen": "在「{{project}}」新建屏幕"
+      "newTerminal": "在「{{project}}」新建终端"
+    },
+    "projectDetail_other": "{{count}} 个会话 · {{ago}}",
+    "projectEmpty": "暂无会话",
+    "hints": {
+      "open": "打开",
+      "beside": "在旁边打开",
+      "close": "关闭"
     }
+  },
+  "newPicker": {
+    "title": "新建会话",
+    "subtitle": "选择它属于哪个项目",
+    "search": "搜索项目…",
+    "current": "当前",
+    "noProject": "不属于任何项目",
+    "newProject": "新建项目…",
+    "hintCreate": "新建",
+    "hintQuick": "直接在当前项目新建"
   }
 }

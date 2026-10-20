@@ -22,11 +22,6 @@
       "action": "Cerrar pantalla"
     },
     "zoom": "Zoom de este panel",
-    "empty": {
-      "title": "Pantalla vacía",
-      "hint": "Arrastra una sesión desde la barra lateral aquí para empezar, o pulsa ⌘D para dividir.",
-      "newSession": "Nueva sesión"
-    },
     "rename": "Cambiar nombre de la pantalla",
     "tabMenu": "Acciones de la pantalla",
     "runAgent": "Ejecutar un agente",
@@ -574,5 +569,27 @@
     "steps_one": "{{count}} paso",
     "steps_other": "{{count}} pasos",
     "close": "Cerrar trayectoria"
+  },
+  "drag": {
+    "moveInto": "Mover a «{{name}}»"
+  },
+  "home": {
+    "tab": "Inicio",
+    "openFolder": "Abrir la carpeta",
+    "recent": "Sesiones recientes",
+    "seeAll": "Las {{count}}",
+    "emptyProject": "Aún no hay nada: empieza la primera conversación de este proyecto.",
+    "emptyDefault": "Aún no hay sesiones sueltas: crea una o abre un proyecto a la izquierda.",
+    "greeting": {
+      "morning": "Buenos días",
+      "noon": "Buen mediodía",
+      "afternoon": "Buenas tardes",
+      "evening": "Buenas noches",
+      "night": "Trabajando tarde"
+    },
+    "count_one": "{{count}} sesión",
+    "count_other": "{{count}} sesiones",
+    "countDefault_one": "{{count}} sesión fuera de proyectos",
+    "countDefault_other": "{{count}} sesiones fuera de proyectos"
   }
 }

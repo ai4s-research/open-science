@@ -166,6 +166,9 @@ export interface DirEntry {
   size: number;
   /** Seconds since the epoch. */
   modified: number;
+  /** A link to a folder (a project's linked session folder): where it really
+   *  is, absolute. Listed as the folder it points at. */
+  link?: string;
 }
 
 /** List one directory under the root (non-recursive; "" = the root). Desktop only. */

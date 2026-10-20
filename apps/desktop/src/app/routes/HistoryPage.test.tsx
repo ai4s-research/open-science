@@ -47,19 +47,19 @@ vi.mock("@/lib/runtime", async (importOriginal) => {
 
 const setSessionArchived = vi.fn(async () => true);
 const renameSession = vi.fn(async () => true);
-const moveSessionToWorkspace = vi.fn(async () => true);
+const moveSessionToProject = vi.fn(async () => true);
 
 beforeEach(() => {
   vi.setSystemTime(NOW);
   queries_seen.length = 0;
-  [querySessions, getMessages, setSessionArchived, renameSession, moveSessionToWorkspace].forEach(
+  [querySessions, getMessages, setSessionArchived, renameSession, moveSessionToProject].forEach(
     (m) => m.mockClear(),
   );
   useRuntimeStore.setState({
     status: "ready",
     setSessionArchived,
     renameSession,
-    moveSessionToWorkspace,
+    moveSessionToProject,
     projects: [
       {
         id: "p1",
@@ -165,6 +165,6 @@ describe("HistoryPage", () => {
     const submenu = await screen.findByRole("menu", { name: "Add to project" });
     await userEvent.click(within(submenu).getByText("BCI trends"));
 
-    expect(moveSessionToWorkspace).toHaveBeenCalledWith("s2", "/work/projects/bci");
+    expect(moveSessionToProject).toHaveBeenCalledWith("s2", "p1");
   });
 });

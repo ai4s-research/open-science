@@ -22,11 +22,6 @@
       "action": "画面を閉じる"
     },
     "zoom": "このペインをズーム",
-    "empty": {
-      "title": "空の画面",
-      "hint": "サイドバーからセッションをここにドラッグして開始するか、⌘D で分割します。",
-      "newSession": "新しいセッション"
-    },
     "rename": "スクリーン名を変更",
     "tabMenu": "スクリーンの操作",
     "runAgent": "エージェントを起動",
@@ -563,5 +558,25 @@
     "steps_one": "{{count}} ステップ",
     "steps_other": "{{count}} ステップ",
     "close": "トラジェクトリを閉じる"
+  },
+  "drag": {
+    "moveInto": "「{{name}}」に移動"
+  },
+  "home": {
+    "tab": "ホーム",
+    "openFolder": "フォルダーを開く",
+    "recent": "最近のセッション",
+    "seeAll": "すべて（{{count}}）",
+    "emptyProject": "まだ何もありません。このプロジェクト最初の会話を始めましょう。",
+    "emptyDefault": "未分類のセッションはまだありません。新しく始めるか、左でプロジェクトを開いてください。",
+    "greeting": {
+      "morning": "おはようございます",
+      "noon": "こんにちは",
+      "afternoon": "こんにちは",
+      "evening": "こんばんは",
+      "night": "夜更かしですね"
+    },
+    "count_other": "{{count}} 件のセッション",
+    "countDefault_other": "プロジェクト外のセッション {{count}} 件"
   }
 }

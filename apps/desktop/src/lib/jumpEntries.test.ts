@@ -58,7 +58,7 @@ describe("what ⌘J offers", () => {
     screen: (n) => `Screen ${n}`,
     newSession: (p) => `New session in ${p}`,
     newTerminal: (p) => `New terminal in ${p}`,
-    newScreen: (p) => `New screen in ${p}`,
+    projectDetail: (n) => `${n} sessions`,
   };
   const groups = [
     group("d1", "", leaf("a", "s2")),
@@ -69,15 +69,38 @@ describe("what ⌘J offers", () => {
   const bySection = (section: string) => entries.filter((e) => e.section === section);
 
   it("its actions act on the active project", () => {
-    expect(bySection("actions").map((e) => e.label)).toEqual([
+    expect(bySection("actions").map((e) => e.label)).toEqual(["New session in Protein", "New terminal in Protein"]);
+  });
+
+  it("lists Default and every project, the one used last first, saying how much is in it", () => {
+    const rows = bySection("projects");
+    expect(rows.map((e) => e.label).sort()).toEqual(["Default", "Nested", "Protein"]);
+    expect(rows.every((e) => e.detail?.endsWith("sessions"))).toBe(true);
+    const lastUsed = (label: string) => rows.findIndex((e) => e.label === label);
+    // Protein holds the newest session of the fixture.
+    expect(lastUsed("Protein")).toBe(0);
+  });
+
+  it("the empty palette's recent rows are the newest conversations, open ones going to their pane", () => {
+    const recent = bySection("recent");
+    expect(recent.length).toBeGreaterThan(0);
+    const open = recent.find((e) => e.target.kind === "pane");
+    expect(open?.target).toMatchObject({ groupId: "p2", leafId: "b", sessionId: "s1" });
+  });
+
+  it("offers a new session in every project, by name", () => {
+    expect(bySection("newIn").map((e) => e.label).sort()).toEqual([
+      "New session in Default",
+      "New session in Nested",
       "New session in Protein",
-      "New terminal in Protein",
-      "New screen in Protein",
     ]);
   });
 
-  it("lists Default and every project", () => {
-    expect(bySection("projects").map((e) => e.label)).toEqual(["Default", "Nested", "Protein"]);
+  it("does not list a one-pane Screen twice", () => {
+    const panes = bySection("panes").map((e) => e.label);
+    expect(panes).not.toContain("build · protein · Claude Code");
+    // A Screen named apart from its pane keeps both: they say different things.
+    expect(bySection("screens").map((e) => e.label)).toContain("Folding");
   });
 
   it("lists the active project's Screens first, each saying where it lives", () => {
@@ -89,9 +112,8 @@ describe("what ⌘J offers", () => {
   });
 
   it("finds a terminal by what is running in it", () => {
-    const term = bySection("panes").find((e) => e.target.kind === "pane" && e.target.leafId === "t");
+    const term = bySection("screens").find((e) => e.target.kind === "screen" && e.target.groupId === "p1");
     expect(term?.label).toContain("Claude Code");
-    expect(term?.target).toMatchObject({ groupId: "p1", sessionId: null });
   });
 
   it("offers the sessions not open anywhere, newest first, without subagents", () => {

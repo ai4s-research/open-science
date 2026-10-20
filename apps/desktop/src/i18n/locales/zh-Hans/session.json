@@ -22,11 +22,6 @@
       "action": "关闭屏幕"
     },
     "zoom": "缩放此面板",
-    "empty": {
-      "title": "空屏幕",
-      "hint": "从左侧栏拖一个会话到这里开始，或按 ⌘D 分屏。",
-      "newSession": "新建会话"
-    },
     "rename": "重命名屏幕",
     "tabMenu": "屏幕操作",
     "runAgent": "运行一个 Agent",
@@ -563,5 +558,25 @@
     "steps_one": "{{count}} 步",
     "steps_other": "{{count}} 步",
     "close": "关闭轨迹"
+  },
+  "drag": {
+    "moveInto": "移到「{{name}}」"
+  },
+  "home": {
+    "tab": "首页",
+    "openFolder": "打开文件夹",
+    "recent": "最近的会话",
+    "seeAll": "全部 {{count}} 个",
+    "emptyProject": "这里还空着——开始这个项目的第一个会话吧。",
+    "emptyDefault": "还没有零散会话——新建一个，或在左侧打开一个项目。",
+    "greeting": {
+      "morning": "早上好",
+      "noon": "中午好",
+      "afternoon": "下午好",
+      "evening": "晚上好",
+      "night": "夜深了"
+    },
+    "count_other": "{{count}} 个会话",
+    "countDefault_other": "{{count}} 个不属于任何项目的会话"
   }
 }

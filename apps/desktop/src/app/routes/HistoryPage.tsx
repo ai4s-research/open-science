@@ -22,6 +22,7 @@ import { exportIndex, sessionToMarkdown } from "@/lib/exportSession";
 import { isTauri, pickFolder, writeExportFile } from "@/lib/tauri";
 import { toast } from "@/lib/toast";
 import { pathKey, samePath } from "@/lib/workspacePath";
+import { isGatewayWeb } from "@/lib/webMode";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 /** Rows fetched per request. The server answers a 200-row page in ~10 ms at
@@ -55,7 +56,7 @@ export function HistoryPage() {
   const webReadOnly = useRuntimeStore((s) => s.webReadOnly);
   const status = useRuntimeStore((s) => s.status);
   const renameSession = useRuntimeStore((s) => s.renameSession);
-  const moveSessionToWorkspace = useRuntimeStore((s) => s.moveSessionToWorkspace);
+  const moveSessionToProject = useRuntimeStore((s) => s.moveSessionToProject);
   const setSessionArchived = useRuntimeStore((s) => s.setSessionArchived);
   const deleteSession = useRuntimeStore((s) => s.deleteSession);
 
@@ -353,6 +354,8 @@ export function HistoryPage() {
                                 <Pencil size={14} className="shrink-0 text-muted" />
                                 {t("history.rename")}
                               </DropdownMenu.Item>
+                              {/* Moving runs the runtime's CLI on this machine — desktop only. */}
+                              {!isGatewayWeb && (
                               <DropdownMenu.Sub>
                                 <DropdownMenu.SubTrigger className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2 data-[state=open]:bg-surface-2">
                                   <FolderInput size={14} className="shrink-0 text-muted" />
@@ -373,8 +376,11 @@ export function HistoryPage() {
                                         key={p.id}
                                         disabled={samePath(p.path, s.directory)}
                                         onSelect={() => {
+                                          const before = s.directory;
                                           patchRow(s.id, { directory: p.path });
-                                          void moveSessionToWorkspace(s.id, p.path);
+                                          void moveSessionToProject(s.id, p.id).then((ok) => {
+                                            if (!ok) patchRow(s.id, { directory: before });
+                                          });
                                         }}
                                         className={cn(
                                           "flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2",
@@ -388,6 +394,7 @@ export function HistoryPage() {
                                   </DropdownMenu.SubContent>
                                 </DropdownMenu.Portal>
                               </DropdownMenu.Sub>
+                              )}
                               <DropdownMenu.Item
                                 onSelect={() => void toggleArchived(s)}
                                 className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"

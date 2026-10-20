@@ -58,6 +58,13 @@
       "copyRelativePath": "상대 경로 복사",
       "relativePathLabel": "상대 경로",
       "openInDefaultApp": "기본 앱으로 열기"
+    },
+    "linked": {
+      "tag": "연결됨",
+      "unlink": "연결 해제",
+      "unlinkTitle": "이 폴더의 연결을 해제할까요?",
+      "unlinkBody": "프로젝트에서 링크만 제거됩니다. 링크가 가리키는 폴더와 모든 파일은 그대로 있으며, 이후 AI가 사용할 때는 다시 확인을 요청합니다.",
+      "outsideBase": "이 폴더는 이제 작업 폴더 밖에 있습니다: {{path}}"
     }
   },
   "skills": {

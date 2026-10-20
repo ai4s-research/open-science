@@ -12,7 +12,7 @@ import { StatusBar } from "@/components/status-bar/StatusBar";
 import { Toaster } from "@/components/ui/Toaster";
 import { SshSignInDialog } from "@/components/ui/SshSignInDialog";
 import { mockProject } from "@/lib/mock";
-import { adoptSourceFolder, useRuntimeStore } from "@/lib/runtime";
+import { adoptSourceFolder, startSessionScreen, useRuntimeStore } from "@/lib/runtime";
 import { useHoverTracking } from "@/lib/hoverTracking";
 import { ensureSetupProgressListener } from "@/lib/setup";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
@@ -94,9 +94,9 @@ export function AppShell() {
         e.preventDefault();
         void doSplit(e.shiftKey ? "col" : "row");
       } else if (key === "t") {
-        // Cmd+T opens a new (empty) group.
+        // Cmd+T opens a new Screen holding a new conversation in this project.
         e.preventDefault();
-        layout.addGroup();
+        void startSessionScreen(selectActiveProjectId(layout));
       } else if (e.shiftKey && (key === "]" || key === "[")) {
         // Cmd+Shift+] / [ cycles the active project's Screens — the ones the
         // bar shows; another project's are a ⌘J away.

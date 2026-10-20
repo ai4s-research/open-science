@@ -29,6 +29,12 @@ pub fn rename_project(app: AppHandle, id: String, name: String) -> Result<(), St
     osd_core::project::rename_project(&env_of(&app), &id, &name)
 }
 
+/// Drop a folder from a project's index. The folder itself is left alone.
+#[tauri::command(async)]
+pub fn unlink_project_folder(app: AppHandle, id: String, path: String) -> Result<(), String> {
+    osd_core::project::unlink_folder(&env_of(&app), &id, &path)
+}
+
 #[tauri::command(async)]
 pub fn set_project_pinned(app: AppHandle, id: String, pinned: bool) -> Result<(), String> {
     osd_core::project::set_project_pinned(&env_of(&app), &id, pinned)

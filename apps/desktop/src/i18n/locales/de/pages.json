@@ -58,6 +58,13 @@
       "copyRelativePath": "Relativen Pfad kopieren",
       "relativePathLabel": "Relativer Pfad",
       "openInDefaultApp": "In Standard-App öffnen"
+    },
+    "linked": {
+      "tag": "Verknüpft",
+      "unlink": "Verknüpfung lösen",
+      "unlinkTitle": "Verknüpfung dieses Ordners lösen?",
+      "unlinkBody": "Die Verknüpfung verschwindet aus dem Projekt. Der Ordner, auf den sie zeigt, und alle Dateien bleiben unverändert; der Agent fragt vor der Nutzung wieder nach.",
+      "outsideBase": "Dieser Ordner liegt nicht mehr im Arbeitsordner: {{path}}"
     }
   },
   "skills": {

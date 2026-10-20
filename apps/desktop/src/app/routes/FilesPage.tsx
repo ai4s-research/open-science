@@ -7,6 +7,7 @@ import {
   Film,
   FlaskConical,
   Folder,
+  FolderSymlink,
   Image as ImageIcon,
   Highlighter,
   Loader2,
@@ -16,10 +17,15 @@ import {
 } from "lucide-react";
 import { extOf, extToKind, previewKindForName, type PreviewKind } from "@/lib/artifacts";
 import { listDir, type DirEntry } from "@/lib/artifactFile";
-import { isTauri, workspaceBase } from "@/lib/tauri";
+import { isTauri, unlinkProjectFolder, workspaceBase } from "@/lib/tauri";
 import { isGatewayWeb } from "@/lib/webMode";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useRuntimeStore } from "@/lib/runtime";
+import { useLayoutStore } from "@/lib/layout";
+import { isWithin, pathKey, samePath } from "@/lib/workspacePath";
+import { toast } from "@/lib/toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useNavigate } from "react-router-dom";
 import { baseName } from "@/components/thread/WorkspaceChip";
 import { NotebookEditor } from "@/components/notebook/NotebookEditor";
 import { FilePreviewInspector } from "@/components/inspector/FilePreviewInspector";
@@ -69,6 +75,7 @@ function rememberDirectory(key: string, dir: string): void {
 }
 
 function iconFor(entry: DirEntry) {
+  if (entry.link) return <FolderSymlink size={15} className="text-accent" />;
   if (entry.isDir) return <Folder size={15} className="text-accent" />;
   const kind = previewKindForName(entry.name);
   const cls = "text-muted";
@@ -80,6 +87,62 @@ function iconFor(entry: DirEntry) {
   if (kind === "genome") return <Dna size={15} className={cls} />;
   if (kind === "qcode") return <Highlighter size={15} className={cls} />;
   return <FileText size={15} className={cls} />;
+}
+
+/**
+ * Unlinking a project's linked folder from its row: the link the move put in
+ * the project folder (see `LinkedFolder`). Asks first; only the link and its
+ * index entry go — the folder it points at is never touched. A link the app did
+ * not make has no owner and offers nothing.
+ */
+function useUnlinkFolder(onDone: () => void) {
+  const { t } = useTranslation("pages");
+  const projects = useRuntimeStore((s) => s.projects);
+  const refreshProjects = useRuntimeStore((s) => s.refreshProjects);
+  const [pending, setPending] = useState<{ projectId: string; path: string } | null>(null);
+  const ownerOf = (entry: DirEntry) => {
+    if (!entry.link || !isTauri) return null;
+    for (const p of projects) {
+      const l = p.linked?.find((x) => samePath(x.path, entry.link) && x.link.split(/[\\/]/).pop() === entry.name);
+      if (l) return { projectId: p.id, path: l.path };
+    }
+    return null;
+  };
+  const dialog = pending && (
+    <ConfirmDialog
+      title={t("files.linked.unlinkTitle")}
+      body={t("files.linked.unlinkBody")}
+      confirmLabel={t("files.linked.unlink")}
+      // eslint-disable-next-line i18next/no-literal-string -- dialog tone, not UI copy
+      tone="default"
+      onConfirm={() => {
+        const { projectId, path } = pending;
+        setPending(null);
+        void unlinkProjectFolder(projectId, path)
+          .then(refreshProjects)
+          .then(onDone)
+          .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
+      }}
+      onCancel={() => setPending(null)}
+    />
+  );
+  return { ownerOf, request: setPending, dialog };
+}
+
+/** A row's name, and — for a linked folder — a quiet tag saying so, with where
+ *  it really is on hover. */
+function EntryName({ entry }: { entry: DirEntry }) {
+  const { t } = useTranslation("pages");
+  return (
+    <>
+      <span className="flex-1 truncate">{entry.name}</span>
+      {entry.link && (
+        <span className="shrink-0 rounded px-1 text-[11px] text-muted" title={entry.link}>
+          {t("files.linked.tag")}
+        </span>
+      )}
+    </>
+  );
 }
 
 function humanSize(n: number): string {
@@ -144,6 +207,7 @@ export function FilesPage({
   useEffect(() => {
     void load(dir);
   }, [dir, load]);
+  const unlink = useUnlinkFolder(() => void load(dir));
 
   const open = (entry: DirEntry) => {
     if (entry.isDir) {
@@ -232,7 +296,12 @@ export function FilesPage({
             </div>
           )}
           {entries?.map((entry) => (
-            <FileContextMenu key={entry.path} entry={entry} root="base">
+            <FileContextMenu
+              key={entry.path}
+              entry={entry}
+              root="base"
+              onUnlink={unlink.ownerOf(entry) ? () => unlink.request(unlink.ownerOf(entry)) : undefined}
+            >
               <button
                 onClick={() => open(entry)}
                 className={cn(
@@ -241,7 +310,7 @@ export function FilesPage({
                 )}
               >
                 {iconFor(entry)}
-                <span className="flex-1 truncate">{entry.name}</span>
+                <EntryName entry={entry} />
                 {!entry.isDir && <span className="shrink-0 text-[11px] text-muted">{humanSize(entry.size)}</span>}
                 {entry.isDir && <ChevronRight size={14} className="shrink-0 text-muted" />}
               </button>
@@ -250,6 +319,7 @@ export function FilesPage({
         </div>
       </div>
 
+      {unlink.dialog}
       {!isTree && (
         <div className={cn("min-h-0 flex-1", isMobile && !selected && "hidden")}>
           {selected ? (
@@ -316,11 +386,14 @@ export function SessionFilesPane({
 }) {
   const { t } = useTranslation(["pages", "common"]);
   const workspace = useRuntimeStore((s) => s.workspace);
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
   const locationKey = `session:${sessionId}`;
   const [dir, setDirState] = useState(() => rememberedDirectory(locationKey));
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<DirEntry | null>(null);
+  const [reloads, setReloads] = useState(0);
 
   const setDir = (next: string) => {
     setSelected(null);
@@ -350,7 +423,26 @@ export function SessionFilesPane({
     return () => {
       cancelled = true;
     };
-  }, [dir, locationKey, sessionDir]);
+  }, [dir, locationKey, sessionDir, reloads]);
+  const unlink = useUnlinkFolder(() => setReloads((n) => n + 1));
+
+  // A linked folder lives outside this session's folder — this pane cannot go
+  // there — so it opens where it really is, in the Files explorer: beside the
+  // conversation on desktop, as the page on phone and web.
+  const [base, setBase] = useState<string | null>(null);
+  useEffect(() => {
+    void workspaceBase().then(setBase).catch(() => {});
+  }, []);
+  const openLinked = (target: string) => {
+    if (!base || !isWithin(target, base) || samePath(target, base)) {
+      toast.error(t("files.linked.outsideBase", { path: target }));
+      return;
+    }
+    rememberDirectory(GLOBAL_FILES_LOCATION, pathKey(target).slice(pathKey(base).length + 1));
+    // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
+    if (!isMobile && !isGatewayWeb) useLayoutStore.getState().openContentPane({ kind: "files" });
+    else navigate("/files");
+  };
 
   if (selected) {
     return (
@@ -366,6 +458,7 @@ export function SessionFilesPane({
   const crumbs = dir ? dir.split("/") : [];
   return (
     <div className="flex h-full flex-col">
+      {unlink.dialog}
       <div className={PANE_HEADER}>
         <PaneTitlebarInset />
         <Folder size={13} strokeWidth={1.5} className="shrink-0 text-muted" />
@@ -417,13 +510,20 @@ export function SessionFilesPane({
           <div className="p-2 text-sm text-muted">{t("files.folderEmpty")}</div>
         )}
         {entries?.map((entry) => (
-          <FileContextMenu key={entry.path} entry={entry} root="workspace">
+          <FileContextMenu
+            key={entry.path}
+            entry={entry}
+            root="workspace"
+            onUnlink={unlink.ownerOf(entry) ? () => unlink.request(unlink.ownerOf(entry)) : undefined}
+          >
             <button
-              onClick={() => (entry.isDir ? setDir(entry.path) : setSelected(entry))}
+              onClick={() =>
+                entry.link ? openLinked(entry.link) : entry.isDir ? setDir(entry.path) : setSelected(entry)
+              }
               className="flex w-full items-center gap-2 rounded-input px-2 py-1.5 text-left text-[13px] text-text/90 hover:bg-surface-2"
             >
               {iconFor(entry)}
-              <span className="flex-1 truncate">{entry.name}</span>
+              <EntryName entry={entry} />
               {!entry.isDir && <span className="shrink-0 text-[11px] text-muted">{humanSize(entry.size)}</span>}
               {entry.isDir && <ChevronRight size={14} className="shrink-0 text-muted" />}
             </button>

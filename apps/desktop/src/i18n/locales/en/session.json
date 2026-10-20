@@ -22,11 +22,6 @@
       "action": "Close Screen"
     },
     "zoom": "Zoom this pane",
-    "empty": {
-      "title": "Empty screen",
-      "hint": "Drag a session from the sidebar here to start, or press ⌘D to split.",
-      "newSession": "New session"
-    },
     "rename": "Rename screen",
     "tabMenu": "Screen actions",
     "runAgent": "Run an agent",
@@ -574,5 +569,27 @@
     "steps_one": "{{count}} step",
     "steps_other": "{{count}} steps",
     "close": "Close trajectory"
+  },
+  "drag": {
+    "moveInto": "Move to “{{name}}”"
+  },
+  "home": {
+    "tab": "Home",
+    "openFolder": "Open the folder",
+    "recent": "Recent sessions",
+    "seeAll": "All {{count}}",
+    "emptyProject": "Nothing here yet — start the first conversation of this project.",
+    "emptyDefault": "No loose sessions yet — start one, or open a project in the sidebar.",
+    "greeting": {
+      "morning": "Good morning",
+      "noon": "Good afternoon",
+      "afternoon": "Good afternoon",
+      "evening": "Good evening",
+      "night": "Working late"
+    },
+    "count_one": "{{count}} session",
+    "count_other": "{{count}} sessions",
+    "countDefault_one": "{{count}} session in no project",
+    "countDefault_other": "{{count}} sessions in no project"
   }
 }
