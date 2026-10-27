@@ -72,6 +72,7 @@ import {
   setActiveAcpAgentId,
   type AcpSessionRecord,
 } from "./acpAgents";
+import { accountKindOf, splitAgentId } from "./agentAccounts";
 import { acpTransport } from "./acpTransport";
 import { hasParkedDraft } from "./composerStash";
 import { isWithin, samePath } from "./workspacePath";
@@ -913,18 +914,22 @@ async function startAcpRuntime(agentId: string, cwd: string): Promise<AcpRuntime
   }
   const pending = acpStarts.get(agentId);
   if (pending) return pending;
-  const agent = loadAcpAgents().find((a) => a.id === agentId);
+  // The conversation's account rides in its agent id (`lib/agentAccounts.ts`).
+  const { base, account } = splitAgentId(agentId);
+  const agent = loadAcpAgents().find((a) => a.id === base);
   if (!agent) {
     throw new Error(
-      `The agent this conversation runs on is no longer configured (${agentId}). Add it again in Settings → Agent.`,
+      `The agent this conversation runs on is no longer configured (${base}). Add it again in Settings → Agents.`,
     );
   }
+  const accountKind = accountKindOf(base);
+  const runAs = account && accountKind ? { kind: accountKind, id: account } : undefined;
   const start = (async () => {
     if (live) {
       live.close();
       acpRuntimes.delete(agentId);
     }
-    const transport = await acpTransport(agent.id, agent.command, agent.args);
+    const transport = await acpTransport(agentId, agent.command, agent.args, runAs);
     const rt = new AcpRuntime({ transport, cwd, name: agent.name });
     try {
       if (sharedEventHandler) rt.onEvent(sharedEventHandler);
@@ -947,10 +952,12 @@ async function startAcpRuntime(agentId: string, cwd: string): Promise<AcpRuntime
 /** Stop an agent's process (its command changed, or it was removed). Its
  *  conversations stay listed; the next message starts the agent again. */
 export function stopAcpAgent(agentId: string): void {
-  const rt = acpRuntimes.get(agentId);
-  if (!rt) return;
-  acpRuntimes.delete(agentId);
-  rt.close();
+  // Every account of the agent runs the same command.
+  for (const [id, rt] of [...acpRuntimes]) {
+    if (splitAgentId(id).base !== agentId && id !== agentId) continue;
+    acpRuntimes.delete(id);
+    rt.close();
+  }
 }
 
 /** The runtime that owns `sid`, starting its ACP agent when it is not running. */
@@ -1644,16 +1651,16 @@ export function explainRuntimeError(message: string, action?: RetryAction): stri
     return (
       `${message} — the free allowance of ${providerLabel(action.provider)} is spent for this ` +
       `account; this is not a quota in this app. Pick a model from a provider you have your own ` +
-      `key for in Settings → Models, or add credits.`
+      `key for in Settings → Agents, or add credits.`
     );
   }
   if (action?.reason === "account_rate_limit") {
-    return `${message} — until it resets, pick a model from another provider in Settings → Models.`;
+    return `${message} — until it resets, pick a model from another provider in Settings → Agents.`;
   }
   // A dangling default model (its provider removed or renamed) fails every send
   // the same way — point at where the fix lives.
   if (/model not found/i.test(message)) {
-    return `${message} Pick an available model in Settings → Models.`;
+    return `${message} Pick an available model in Settings → Agents.`;
   }
   // OpenAI answers `invalid_prompt` / "Request blocked." when its content filter
   // rejects the PROMPT — and a prompt is the whole conversation, resent on every

@@ -19,6 +19,7 @@ mod preview_server;
 mod project;
 mod provenance;
 mod acp;
+mod agent_accounts;
 mod runs;
 mod runs_index;
 mod runtime;
@@ -140,6 +141,7 @@ pub fn run() {
         .manage(status_bar::AwakeState::default())
         .manage(terminal::TerminalState::default())
         .manage(acp::AcpState::default())
+        .manage(agent_accounts::AccountsState::default())
         .setup(|app| {
             // Every core call needs this, so nothing else may run before it.
             app.manage(EnvState(build_env(app.handle())?));
@@ -317,6 +319,12 @@ pub fn run() {
             acp::acp_send,
             acp::acp_stop,
             acp::acp_running,
+            agent_accounts::agent_accounts,
+            agent_accounts::agent_account_login,
+            agent_accounts::agent_account_login_input,
+            agent_accounts::agent_account_login_cancel,
+            agent_accounts::agent_account_remove,
+            agent_accounts::agent_account_home,
             modal::modal_status,
             preview_server::preview_url,
             large_file::probe_large_file,
@@ -342,6 +350,7 @@ pub fn run() {
                 ssh_session::shutdown(app);
                 // An ACP agent child must not outlive the window that started it.
                 acp::shutdown(app);
+                agent_accounts::shutdown(app);
                 // Terminals are left running on purpose: they live in the
                 // terminal host, and the next app reattaches them (terminal.rs).
                 status_bar::shutdown(&app.state::<status_bar::AwakeState>());

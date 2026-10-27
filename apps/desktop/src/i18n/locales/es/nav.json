@@ -117,16 +117,9 @@
       "tokens": "tokens",
       "today": "hoy",
       "days7": "7 d",
-      "workbench": "OSD",
-      "cliNote": "Se ejecuta en tu propio terminal; aquí solo se registra el consumo.",
-      "allAgents": "todos los agentes",
-      "detailed": "Detallado",
-      "compact": "Compacto",
-      "detailedHint": "Todas las ventanas, con barras y porcentajes",
-      "compactHint": "Solo la ventana más cerca de su límite",
-      "detailAria": "Detalle de uso",
       "resetsIn": "Se restablece en {{duration}}",
-      "asOf": "hace {{age}}"
+      "asOf": "hace {{age}}",
+      "otherAccount": "Casi agotado. Empieza una conversación nueva con otra cuenta para seguir."
     },
     "awake": {
       "title": "Mantener activo",

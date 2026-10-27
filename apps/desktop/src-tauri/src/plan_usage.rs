@@ -24,6 +24,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use std::path::Path;
+
+use osd_core::agent_accounts::{self, AgentKind};
 use osd_core::usage::{iso8601_to_epoch_ms, RateLimitWindow};
 
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -43,6 +46,21 @@ pub struct PlanUsage {
     /// first attempt looked like when the requests were going out unproxied.
     pub claude_error: Option<String>,
     pub codex_error: Option<String>,
+    /// The same for every account added in Settings → Agents.
+    #[serde(default)]
+    pub accounts: Vec<AccountPlan>,
+}
+
+/// One added account's windows, or why it has none.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountPlan {
+    /// `claude` or `codex`.
+    pub kind: String,
+    pub id: String,
+    pub email: Option<String>,
+    pub windows: Vec<RateLimitWindow>,
+    pub error: Option<String>,
 }
 
 /// Both plans' current windows. Either half may be empty — not signed in, no
@@ -58,14 +76,35 @@ pub async fn plan_usage(app: tauri::AppHandle) -> PlanUsage {
     // reachable. Both plans then showed no bars at all, which read as "the
     // feature does not work" rather than "the network did not answer".
     let proxy = proxy_url(&app);
+    let data = crate::env_of(&app).data_dir().to_path_buf();
     tauri::async_runtime::spawn_blocking(move || {
-        let claude = claude_windows(proxy.as_deref());
-        let codex = codex_windows(proxy.as_deref());
+        let claude = claude_windows(proxy.as_deref(), None);
+        let codex = codex_windows(proxy.as_deref(), None);
+        let mut accounts = Vec::new();
+        for kind in [AgentKind::Claude, AgentKind::Codex] {
+            for account in agent_accounts::list(&data, kind) {
+                let Ok(home) = agent_accounts::home_dir(&data, kind, &account.id) else {
+                    continue;
+                };
+                let windows = match kind {
+                    AgentKind::Claude => claude_windows(proxy.as_deref(), Some(&home)),
+                    AgentKind::Codex => codex_windows(proxy.as_deref(), Some(&home)),
+                };
+                accounts.push(AccountPlan {
+                    kind: if kind == AgentKind::Claude { "claude" } else { "codex" }.to_string(),
+                    id: account.id,
+                    email: account.identity.email,
+                    error: windows.as_ref().err().cloned(),
+                    windows: windows.unwrap_or_default(),
+                });
+            }
+        }
         PlanUsage {
             claude_error: claude.as_ref().err().cloned(),
             codex_error: codex.as_ref().err().cloned(),
             claude: claude.unwrap_or_default(),
             codex: codex.unwrap_or_default(),
+            accounts,
         }
     })
     .await
@@ -110,9 +149,14 @@ fn client(proxy: Option<&str>) -> Option<reqwest::blocking::Client> {
 /// keychain rather than as a thing this build never did. Worse, the empty
 /// result then fell through to the spend figures, so a subscriber saw a dollar
 /// amount computed at API rates where their quota bars belonged.
-fn claude_token() -> Result<String, String> {
+///
+/// `folder`: an added account's config folder; None is the default account.
+/// An account's keychain entry is named after its folder, and an account never
+/// falls back to the default's: that would report one account's plan as another's.
+fn claude_token(folder: Option<&Path>) -> Result<String, String> {
+    let service = folder.map_or_else(|| "Claude Code-credentials".to_string(), agent_accounts::claude_keychain_service);
     let keychain = cfg!(target_os = "macos")
-        .then(read_claude_keychain)
+        .then(|| read_claude_keychain(&service))
         .and_then(Result::ok);
     if let Some(token) = keychain {
         return Ok(token);
@@ -123,8 +167,10 @@ fn claude_token() -> Result<String, String> {
     // than observed on disk. If the CLI writes something else, this returns the
     // same "not signed in" it would have anyway — it cannot report a wrong
     // number, only fail to find one.
-    let home = dirs_home().ok_or("no home directory")?;
-    let path = home.join(".claude").join(".credentials.json");
+    let path = match folder {
+        Some(folder) => folder.join(".credentials.json"),
+        None => dirs_home().ok_or("no home directory")?.join(".claude").join(".credentials.json"),
+    };
     let raw = std::fs::read(&path).map_err(|_| {
         if cfg!(target_os = "macos") {
             "Claude Code is not signed in on this machine".to_string()
@@ -135,9 +181,9 @@ fn claude_token() -> Result<String, String> {
     claude_token_from(&raw).ok_or_else(|| "no Claude access token in ~/.claude".into())
 }
 
-fn read_claude_keychain() -> Result<String, String> {
+fn read_claude_keychain(service: &str) -> Result<String, String> {
     let out = crate::runtime::quiet_command("security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .args(["find-generic-password", "-s", service, "-w"])
         .output()
         .map_err(|e| format!("could not read the keychain: {e}"))?;
     if !out.status.success() {
@@ -157,8 +203,8 @@ fn claude_token_from(raw: &[u8]) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn claude_windows(proxy: Option<&str>) -> Result<Vec<RateLimitWindow>, String> {
-    let token = claude_token()?;
+fn claude_windows(proxy: Option<&str>, folder: Option<&Path>) -> Result<Vec<RateLimitWindow>, String> {
+    let token = claude_token(folder)?;
     let body = client(proxy)
         .ok_or("could not create an HTTP client")?
         .get(CLAUDE_USAGE_URL)
@@ -234,9 +280,12 @@ fn parse_reset(value: &Value) -> Option<i64> {
 
 // ─── Codex ──────────────────────────────────────────────────────────
 
-fn codex_windows(proxy: Option<&str>) -> Result<Vec<RateLimitWindow>, String> {
-    let home = dirs_home().ok_or("no home directory")?;
-    let raw = std::fs::read(home.join(".codex").join("auth.json"))
+fn codex_windows(proxy: Option<&str>, folder: Option<&Path>) -> Result<Vec<RateLimitWindow>, String> {
+    let path = match folder {
+        Some(folder) => folder.join("auth.json"),
+        None => dirs_home().ok_or("no home directory")?.join(".codex").join("auth.json"),
+    };
+    let raw = std::fs::read(path)
         .map_err(|_| "Codex is not signed in on this machine".to_string())?;
     let auth: Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
     let tokens = auth.get("tokens").ok_or("no Codex tokens on this machine")?;

@@ -6,12 +6,18 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { useRuntimeStore } from "@/lib/runtime";
+import { useAccountsStore } from "@/lib/agentAccounts";
 import { ModelPicker, type AgentControl } from "./ModelPicker";
 
-vi.mock("@/lib/cliAgents", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/cliAgents")>()),
-  detectCliAgentsOnce: async () => [],
-}));
+// What this machine has installed: Claude Code, not Codex.
+const installed = vi.hoisted(() => ({ ids: ["cli-claude-code"] }));
+vi.mock("@/lib/cliAgents", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/cliAgents")>();
+  return {
+    ...real,
+    useInstalledAgents: () => real.CLI_AGENTS.filter((a) => installed.ids.includes(a.id)),
+  };
+});
 
 const MODEL = {
   id: "model",
@@ -45,6 +51,51 @@ describe("ModelPicker with an agent", () => {
       JSON.stringify([{ id: "cli-claude-code", name: "Claude Code", command: "npx", args: [] }]),
     );
     useRuntimeStore.setState({ providers: [], defaultModel: null });
+    useAccountsStore.setState({ byKind: {} });
+  });
+
+  it("offers only the agents installed here, and a way to the rest", async () => {
+    const user = userEvent.setup();
+    // Codex was configured once, and is not on this machine any more.
+    window.localStorage.setItem(
+      "ai4s.acp.agents.v1",
+      JSON.stringify([{ id: "cli-codex", name: "Codex", command: "npx", args: ["-y", "@agentclientprotocol/codex-acp"] }]),
+    );
+    renderPicker(control());
+    await user.click(screen.getByRole("button", { name: /switch model/i }));
+
+    expect(screen.getByRole("tab", { name: "Claude Code" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Codex" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More agents…" })).toBeInTheDocument();
+  });
+
+  it("picks the account a new conversation runs as, when there is more than one", async () => {
+    const user = userEvent.setup();
+    useAccountsStore.setState({
+      byKind: {
+        claude: {
+          default: { email: "me@lab.org" },
+          accounts: [{ id: "acct-1", kind: "claude", email: "second@lab.org", addedAtMs: 1 }],
+        },
+      },
+    });
+    const agent = control({ value: "cli-claude-code" });
+    renderPicker(agent);
+    await user.click(screen.getByRole("button", { name: /switch model/i }));
+
+    expect(screen.getByRole("tab", { name: "me@lab.org" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("tab", { name: "second@lab.org" }));
+    expect(agent.onChange).toHaveBeenCalledWith("cli-claude-code~acct-1");
+  });
+
+  it("names the account of an existing conversation on the chip", () => {
+    useAccountsStore.setState({
+      byKind: {
+        claude: { default: null, accounts: [{ id: "acct-1", kind: "claude", email: "second@lab.org", addedAtMs: 1 }] },
+      },
+    });
+    renderPicker(control({ value: "cli-claude-code~acct-1", locked: true, options: [MODEL] }));
+    expect(screen.getByRole("button", { name: /switch model/i })).toHaveTextContent("Claude Code (second) · Opus");
   });
 
   it("offers the agents in a new conversation and switches on a pick", async () => {

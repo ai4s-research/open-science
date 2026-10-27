@@ -3,8 +3,8 @@
     "back": "Back to app",
     "general": "General",
     "appearance": "Appearance",
-    "models": "Models",
-    "runtime": "Runtime",
+    "agents": "Agents",
+    "network": "Network",
     "connectors": "Connectors",
     "compute": "Compute",
     "privacy": "Privacy",
@@ -46,8 +46,8 @@
     "subtitle": "Everything here configures the bundled OpenCode runtime — one config, no copies."
   },
   "runtime": {
-    "title": "Agent runtime",
-    "hint": "opencode serve, driven over its HTTP + SSE API",
+    "title": "Network",
+    "hint": "How agents and tools reach the internet, and where Python tools are downloaded from.",
     "connect": "Connect",
     "disconnect": "Disconnect",
     "serverLabel": "Server",
@@ -70,13 +70,11 @@
     "mirrorPython": "Python download",
     "mirrorPypiPlaceholder": "https://pypi.tuna.tsinghua.edu.cn/simple",
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
-    "mirrorHint": "Optional mirrors, used only when setting up Python tools (Jupyter, science databases) on networks where pypi.org / github.com are slow. Leave blank for defaults."
+    "mirrorHint": "Optional mirrors, used only when setting up Python tools (Jupyter, science databases) on networks where pypi.org / github.com are slow. Leave blank for defaults.",
+    "serverTitle": "OpenCode server",
+    "serverHint": "The OpenCode the app drives. The built-in one starts by itself; enter an address only to use your own opencode serve."
   },
   "acp": {
-    "title": "Agent",
-    "hint": "The agents a conversation can run on, and which one a new conversation starts on. Pick per conversation in the composer.",
-    "bundled": "OpenCode (bundled)",
-    "bundledHint": "The bundled runtime, with providers, skills, plan mode and saved conversations.",
     "add": "Add an agent",
     "edit": "Edit",
     "remove": "Remove",
@@ -110,8 +108,8 @@
     "privacy": "Only the public GitHub Releases API is contacted. No workspace files or API keys are sent."
   },
   "model": {
-    "title": "Model",
-    "hint": "The model every new conversation starts on. Providers below supply what you can pick.",
+    "title": "OpenCode default model",
+    "hint": "The model a new OpenCode conversation starts on. The providers below supply what you can pick.",
     "connectPrompt": "Connect the runtime to configure models.",
     "notSet": "Not set — pick a default model",
     "providersDivider": "Providers",
@@ -139,7 +137,7 @@
     "noProvidersHint": "Connect a provider below."
   },
   "providers": {
-    "title": "Providers",
+    "title": "OpenCode providers",
     "hint": "Authentication, custom endpoints, and imported OpenCode logins",
     "webHint": "Connected providers — read-only from the browser",
     "webNote": "API keys and custom endpoints are set on the machine running the workbench — in the desktop app, or with `osd auth set` when it runs headless. Credentials never cross the gateway.",
@@ -555,8 +553,8 @@
     "disabledNote": "Memory is switched off, so this file is not loaded right now."
   },
   "agentModels": {
-    "title": "Model and effort per agent",
-    "hint": "Run a reviewer or explorer on a fast model while the main agent reasons on a strong one, and pin how hard each one thinks.",
+    "title": "OpenCode model and effort per role",
+    "hint": "Run a reviewer or explorer role on a fast model while the main role reasons on a strong one, and set how hard each one thinks.",
     "noModels": "Connect a provider to choose models.",
     "followDefault": "Follow default",
     "modelFor": "Model for {{agent}}",
@@ -565,7 +563,7 @@
     "retiredOption": "{{model}} — no longer served",
     "primaryHint": "build and plan run the messages you send. A model set here applies unless you pick one inside a conversation, which wins for that conversation only.",
     "group": {
-      "conversation": "Agents you talk to",
+      "conversation": "Roles you talk to",
       "utility": "Run by the workbench"
     },
     "utilityHint": "Short mechanical work the runtime does on its own — a fast model here is a pure win.",
@@ -611,5 +609,37 @@
     "reachable": "Installed and reachable. The agent will ask before the first use in a conversation.",
     "notReachable": "Installed, but its command-line tool is not on this machine, so the agent cannot reach it. Run ego lite's own setup to add it.",
     "tradeoff": "This is not the browser connector above. That one drives a separate browser this app owns, with an isolated profile. This one is your everyday browser and carries your real logged-in sessions — which is what makes it useful, and why it asks first. macOS only."
+  },
+  "agents": {
+    "title": "Agents",
+    "hint": "The agents a conversation can run on. The one marked here is where a new conversation starts; the composer can pick another for each conversation.",
+    "builtIn": "Built in",
+    "opencodeHint": "Uses the providers and models set below.",
+    "availableTitle": "Available to install",
+    "availableHint": "Agents this app can run once they are on this computer.",
+    "detecting": "Looking for installed agents…",
+    "allInstalled": "Every agent this app knows is installed.",
+    "detectHint": "After installing one, look again.",
+    "detectAgain": "Look again",
+    "copy": "Copy command",
+    "copied": "Command copied",
+    "copyFailed": "Could not copy the command",
+    "install": "Install in terminal"
+  },
+  "accounts": {
+    "reading": "Reading the sign-in…",
+    "defaultSignedOut": "Signed out",
+    "default": "default",
+    "remove": "Remove account",
+    "removeConfirm": "Remove {{account}}? Its conversations stay in your history.",
+    "add": "Add account",
+    "sharedHint": "Every account shares this agent's history, skills, commands and settings. Each conversation keeps the account it started on.",
+    "waiting": "Waiting for the sign-in to finish in your browser",
+    "openLink": "Open sign-in page",
+    "privateHint": "For another account, open the link in a private window. If the page shows a code, paste it below.",
+    "codePlaceholder": "Code from the sign-in page",
+    "submitCode": "Send",
+    "added": "Added {{account}}",
+    "failed": "Sign-in did not finish"
   }
 }

@@ -25,6 +25,7 @@ import {
 import { agentForTurn, useRuntimeStore, type AcpOptionsProbe } from "@/lib/runtime";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useAgentChoices } from "@/lib/agentChoices";
+import { accountKindOf, accountLabel, splitAgentId, useAccountsStore, withAccount } from "@/lib/agentAccounts";
 import { cn } from "@/lib/cn";
 import {
   flattenModelOptions,
@@ -403,8 +404,21 @@ export function ModelPicker({
   };
 
   const acp = agent?.value != null;
-  const { choices, pick } = useAgentChoices(agent?.value ?? null);
-  const agentName = choices.find((c) => c.id === (agent?.value ?? null))?.name ?? "";
+  // The account rides in the agent id (`lib/agentAccounts.ts`): the tabs pick
+  // the agent, the row under them its account.
+  const split = agent?.value ? splitAgentId(agent.value) : null;
+  const baseAgent = split?.base ?? null;
+  const accountKind = baseAgent ? accountKindOf(baseAgent) : null;
+  const accounts = useAccountsStore((s) => (accountKind ? s.byKind[accountKind] : undefined));
+  const loadAccounts = useAccountsStore((s) => s.load);
+  useEffect(() => {
+    if (open && accountKind && !accounts) void loadAccounts(accountKind).catch(() => {});
+  }, [open, accountKind, accounts, loadAccounts]);
+  const chosenAccount = split?.account ? accounts?.accounts.find((a) => a.id === split.account) : undefined;
+  const accountName = split?.account ? accountLabel(chosenAccount, split.account) : null;
+  const { choices, pick } = useAgentChoices(baseAgent);
+  const baseName = choices.find((c) => c.id === baseAgent)?.name ?? "";
+  const agentName = accountName ? `${baseName} (${accountName.split("@")[0]})` : baseName;
   const acpOptions = (agent?.options ?? []).filter(
     (o) => o.type !== "boolean" && (o.options?.length ?? 0) > 0,
   );
@@ -623,7 +637,7 @@ export function ModelPicker({
           className="shrink-0 border-t border-faint px-3 py-2 text-left hover:bg-hover"
           onClick={() => {
             setOpen(false);
-            navigate("/settings/models");
+            navigate("/settings/agents");
           }}
         >
           <span className="flex items-start gap-1.5">
@@ -645,7 +659,7 @@ export function ModelPicker({
         className="shrink-0 border-t border-faint px-3 py-2 text-left text-xs text-accent hover:underline"
         onClick={() => {
           setOpen(false);
-          navigate("/settings/models");
+          navigate("/settings/agents");
         }}
       >
         {t("composer.model.manage")}
@@ -668,7 +682,7 @@ export function ModelPicker({
       ) : (
         <div role="tablist" aria-label={t("composer.agent.aria")} className="no-scrollbar flex min-w-0 flex-1 gap-4 overflow-x-auto">
           {choices.map((c) => {
-            const selected = c.id === agent.value;
+            const selected = c.id === baseAgent;
             return (
               <button
                 key={c.id ?? "opencode"}
@@ -688,6 +702,15 @@ export function ModelPicker({
               </button>
             );
           })}
+          <button
+            className="shrink-0 border-b-[1.5px] border-transparent pb-2 text-xs text-muted transition-colors hover:text-text"
+            onClick={() => {
+              setOpen(false);
+              navigate("/settings/agents");
+            }}
+          >
+            {t("composer.agent.more")}
+          </button>
         </div>
       )}
       {isMobile && <div className="pb-1.5">{closeButton}</div>}
@@ -757,7 +780,7 @@ export function ModelPicker({
         className="shrink-0 border-t border-faint px-3 py-2 text-left text-xs text-accent hover:underline"
         onClick={() => {
           setOpen(false);
-          navigate("/settings/runtime");
+          navigate("/settings/agents");
         }}
       >
         {t("composer.agent.manage")}
@@ -765,9 +788,44 @@ export function ModelPicker({
     </div>
   );
 
+  // Which account a new conversation runs as. Shown only when there is a
+  // choice: one login is the common case and needs no row.
+  const accountRow = agent && !agent.locked && accountKind && baseAgent && (accounts?.accounts.length ?? 0) > 0 && (
+    <div
+      role="tablist"
+      aria-label={t("composer.agent.accountAria")}
+      className="no-scrollbar flex shrink-0 gap-3 overflow-x-auto border-b border-faint px-3 py-1.5"
+    >
+      {[null, ...(accounts?.accounts ?? []).map((a) => a.id)].map((id) => {
+        const selected = (split?.account ?? null) === id;
+        const label =
+          id === null
+            ? accountLabel(accounts?.default, t("composer.agent.defaultAccount"))
+            : accountLabel(accounts?.accounts.find((a) => a.id === id), id);
+        return (
+          <button
+            key={id ?? "default"}
+            role="tab"
+            aria-selected={selected}
+            className={cn(
+              "shrink-0 rounded-input px-1.5 py-0.5 text-[11px] transition-colors",
+              selected ? "bg-surface-2 text-text" : "text-muted hover:text-text",
+            )}
+            onClick={() => {
+              if (!selected) agent.onChange(withAccount(baseAgent, id));
+            }}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const body = (
     <div className="flex min-h-0 flex-1 flex-col">
       {agentRow}
+      {accountRow}
       {acp ? acpBody : opencodeBody}
     </div>
   );

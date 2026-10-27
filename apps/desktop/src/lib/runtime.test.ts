@@ -835,7 +835,7 @@ describe("runtime error explanations", () => {
     expect(out).toContain("Free usage exceeded"); // upstream's words survive
     expect(out).toMatch(/OpenCode Zen/);
     expect(out).toMatch(/not a quota in this app/i);
-    expect(out).toContain("Settings → Models");
+    expect(out).toContain("Settings → Agents");
   });
 
   it("does not claim Zen for another provider's spent allowance", () => {
@@ -861,10 +861,10 @@ describe("runtime error explanations", () => {
     const out = explainRuntimeError(
       "Weekly usage limit reached. It will reset in 3 days 2 hours - https://opencode.ai/workspace/w/go",
     );
-    expect(out).toContain("Settings → Models");
+    expect(out).toContain("Settings → Agents");
     expect(
       explainRuntimeError("Overloaded", { reason: "account_rate_limit" }),
-    ).toContain("Settings → Models");
+    ).toContain("Settings → Agents");
   });
 
   it("separates a request that never reached the provider from a provider error", () => {
@@ -880,7 +880,7 @@ describe("runtime error explanations", () => {
 
   it("keeps the dangling-model hint and passes anything else through", () => {
     expect(explainRuntimeError("model not found: openai/gone")).toContain(
-      "Settings → Models",
+      "Settings → Agents",
     );
     // Not a blanket match: an error that merely mentions blocking is untouched.
     const other = "Upstream blocked the connection at the proxy";

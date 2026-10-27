@@ -121,7 +121,7 @@
       "followAgent": "Suivre l'agent {{agent}}",
       "useDefault": "Utiliser le modèle par défaut global",
       "unknownContextTitle": "Fenêtre de contexte inconnue",
-      "unknownContextBody": "La compaction automatique reste désactivée pour ce modèle : la conversation grossit sans limite et les tours longs finissent par se bloquer. Définissez la fenêtre dans Réglages → Modèles.",
+      "unknownContextBody": "La compaction automatique reste désactivée pour ce modèle : la conversation grossit sans limite et les tours longs finissent par se bloquer. Définissez la fenêtre dans Réglages → Agents.",
       "retiredTitle": "Modèle retiré par son fournisseur",
       "retiredBody": "{{model}} est toujours configuré, mais le fournisseur ne le sert plus : chaque tour échoue. Choisissez un autre modèle ci-dessus."
     },
@@ -168,7 +168,10 @@
       "manage": "Gérer les agents",
       "optionsLoading": "Lecture des modèles de {{agent}}…",
       "optionsNone": "{{agent}} ne propose aucun modèle au choix.",
-      "optionsFailed": "{{agent}} n’a pas démarré : {{error}}"
+      "optionsFailed": "{{agent}} n’a pas démarré : {{error}}",
+      "more": "Plus d’agents…",
+      "accountAria": "Compte",
+      "defaultAccount": "Compte par défaut"
     }
   },
   "localCommand": {

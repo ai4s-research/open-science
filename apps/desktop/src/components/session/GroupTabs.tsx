@@ -33,7 +33,7 @@ import { isTauri } from "@/lib/tauri";
 import { isGatewayWeb, layoutSource, type LayoutSource } from "@/lib/webMode";
 import { switchLayoutSource } from "@/lib/layoutSync";
 import { startSessionScreen, useRuntimeStore } from "@/lib/runtime";
-import { detectCliAgentsOnce, ensureCliAgent, type CliAgent } from "@/lib/cliAgents";
+import { ensureCliAgent, useInstalledAgents, type CliAgent } from "@/lib/cliAgents";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { cn } from "@/lib/cn";
@@ -61,25 +61,13 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
  */
 function NewScreenButton({ onNewScreen }: { onNewScreen: (agentId?: string) => void }) {
   const { t } = useTranslation(["session", "nav"]);
-  const [agents, setAgents] = useState<CliAgent[]>([]);
+  const agents = useInstalledAgents() ?? [];
   const [busy, setBusy] = useState(false);
   const addGroup = useLayoutStore((s) => s.addGroup);
   // A terminal opens where the work is: the active project's folder, or for
   // Default the runtime's workspace. Without it every shell starts in the app's
   // own working directory, which is never where the user's files are.
   const cwd = useActiveProjectPath();
-
-  // Once per mount: an install does not appear mid-session, and probing PATH on
-  // every open would put a filesystem walk behind a menu.
-  useEffect(() => {
-    let cancelled = false;
-    void detectCliAgentsOnce().then((found) => {
-      if (!cancelled) setAgents(found);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   /** Every item here opens a NEW Screen holding the thing. The Screen bar owns
    *  Screens; splitting the current layout belongs to the pane's own controls. */

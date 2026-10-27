@@ -40,6 +40,8 @@ export async function acpTransport(
   agentId: string,
   command: string,
   args: string[] = [],
+  /** The account to run as; Rust checks it is still signed in before starting. */
+  account?: { kind: string; id: string },
 ): Promise<JsonRpcTransport> {
   if (!isTauri) throw new Error("ACP agents run on the desktop host, not in the browser client");
   const { listen } = await import("@tauri-apps/api/event");
@@ -73,7 +75,7 @@ export async function acpTransport(
     await call("acp_stop", { agentId }).catch(() => {
       /* nothing was running */
     });
-    await call("acp_start", { agentId, command, args });
+    await call("acp_start", { agentId, command, args, account: account ?? null });
   } catch (err) {
     detach();
     throw err;

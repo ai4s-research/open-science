@@ -115,16 +115,9 @@
       "tokens": "tokens",
       "today": "今日",
       "days7": "7 天",
-      "workbench": "OSD",
-      "cliNote": "在你自己的终端里跑的，这里只记录消耗。",
-      "allAgents": "全部 agent",
-      "detailed": "详细",
-      "compact": "精简",
-      "detailedHint": "显示每个窗口，含进度条与百分比",
-      "compactHint": "只显示最接近上限的那个窗口",
-      "detailAria": "用量显示密度",
       "resetsIn": "{{duration}} 后重置",
-      "asOf": "{{age}}前的数据"
+      "asOf": "{{age}}前的数据",
+      "otherAccount": "额度快用完了。换一个账号开新对话即可继续。"
     },
     "awake": {
       "title": "保持唤醒",

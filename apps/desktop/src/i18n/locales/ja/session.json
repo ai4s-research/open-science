@@ -121,7 +121,7 @@
       "followAgent": "{{agent}} エージェントの設定に従う",
       "useDefault": "グローバル既定を使用",
       "unknownContextTitle": "コンテキストウィンドウが不明です",
-      "unknownContextBody": "このモデルでは自動圧縮が働かないため、会話が際限なく大きくなり、長いターンは最終的に停止します。「設定 → モデル」でウィンドウサイズを設定してください。",
+      "unknownContextBody": "このモデルでは自動圧縮が働かないため、会話が際限なく大きくなり、長いターンは最終的に停止します。「設定 → エージェント」でウィンドウサイズを設定してください。",
       "retiredTitle": "モデルはプロバイダーが提供を終了しました",
       "retiredBody": "{{model}} は設定されたままですが、プロバイダーが提供を終了したため、すべてのターンが失敗します。上から別のモデルを選んでください。"
     },
@@ -168,7 +168,10 @@
       "manage": "エージェントを管理",
       "optionsLoading": "{{agent}} のモデルを読み込んでいます…",
       "optionsNone": "{{agent}} には選べるモデルがありません。",
-      "optionsFailed": "{{agent}} を起動できませんでした：{{error}}"
+      "optionsFailed": "{{agent}} を起動できませんでした：{{error}}",
+      "more": "その他のエージェント…",
+      "accountAria": "アカウント",
+      "defaultAccount": "既定のアカウント"
     }
   },
   "localCommand": {

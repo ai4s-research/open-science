@@ -117,16 +117,9 @@
       "tokens": "tokens",
       "today": "today",
       "days7": "7d",
-      "workbench": "OSD",
-      "cliNote": "Run in your own terminal — only the usage is recorded here.",
-      "allAgents": "all agents",
-      "detailed": "Detailed",
-      "compact": "Compact",
-      "detailedHint": "Every window, with bars and percentages",
-      "compactHint": "Only the window nearest its limit",
-      "detailAria": "Usage detail",
       "resetsIn": "Resets in {{duration}}",
-      "asOf": "as of {{age}} ago"
+      "asOf": "as of {{age}} ago",
+      "otherAccount": "Nearly used up. Start a new conversation on another account to keep going."
     },
     "awake": {
       "title": "Keep awake",

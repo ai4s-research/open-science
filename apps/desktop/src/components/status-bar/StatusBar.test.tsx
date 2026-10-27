@@ -158,9 +158,7 @@ describe("StatusBar", () => {
     expect(popover.queryByText(/cannot price/)).not.toBeInTheDocument();
   });
 
-  it("names which tool spent it — the app, or a CLI run elsewhere", async () => {
-    // The reported confusion: rows labelled "Claude" and "Codex" read as if this
-    // app had spent them, when they came from those CLIs in a terminal.
+  it("names each row after its agent, as Settings → Agents does", async () => {
     showUsage({
       agents: [
         agent("workbench", { today: totals({ inputTokens: 3_000_000, unpricedTurns: 62 }),
@@ -171,18 +169,12 @@ describe("StatusBar", () => {
     });
     render(<StatusBar />);
 
-    expect(screen.getByText("OSD")).toBeInTheDocument();
-    expect(screen.getByText("Claude Code CLI")).toBeInTheDocument();
-    expect(screen.queryByText("Claude")).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Usage" }));
-    // Said once, on the rows it applies to.
-    expect(
-      await screen.findByText("Run in your own terminal — only the usage is recorded here."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("OpenCode")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code")).toBeInTheDocument();
+    expect(screen.queryByText("OSD")).not.toBeInTheDocument();
   });
 
-  it("leads with this app's own spend", () => {
+  it("leads with OpenCode, in the order Settings → Agents lists them", () => {
     showUsage({
       agents: [
         agent("workbench", { today: totals({ costUsd: 3, pricedTurns: 2 }) }),
@@ -191,8 +183,8 @@ describe("StatusBar", () => {
     });
     render(<StatusBar />);
 
-    const labels = screen.getAllByText(/OSD|Claude Code CLI/).map((el) => el.textContent);
-    expect(labels[0]).toBe("OSD");
+    const labels = screen.getAllByText(/OpenCode|Claude Code/).map((el) => el.textContent);
+    expect(labels).toEqual(["OpenCode", "Claude Code"]);
   });
 });
 
@@ -250,40 +242,40 @@ describe("StatusBar · the usage popover, as Orca lays it out", () => {
     expect(screen.getByText(/· pro/)).toBeInTheDocument();
   });
 
-  it("collapses to the window nearest its limit when asked", async () => {
-    showUsage({ agents: [agent("codex")], codexRateLimits: [FIVE_HOURS, WEEKLY] });
+  it("lists each added account under its agent, with its own windows", async () => {
+    showUsage({
+      agents: [agent("claude")],
+      plan: {
+        claude: [FIVE_HOURS],
+        codex: [],
+        accounts: [
+          { kind: "claude", id: "acct-1", email: "second@lab.org", windows: [{ ...WEEKLY, usedPercent: 91 }], error: null },
+          { kind: "claude", id: "acct-2", email: "third@lab.org", windows: [], error: "Claude Code is not signed in on this machine" },
+        ],
+      },
+    });
     const popover = await openPopover();
 
-    await userEvent.click(screen.getByRole("radio", { name: "Compact" }));
-
-    // Compact keeps only the tightest — 45% weekly, not the 8% hourly.
-    expect(popover.getByText("45%")).toBeInTheDocument();
-    expect(popover.queryByText("8%")).not.toBeInTheDocument();
+    expect(popover.getByText("Claude Code · second")).toBeInTheDocument();
+    expect(popover.getByText("91%")).toBeInTheDocument();
+    // A signed-out account stays listed, with the reason.
+    expect(popover.getByText("Claude Code · third")).toBeInTheDocument();
+    expect(popover.getByText("Claude Code is not signed in on this machine")).toBeInTheDocument();
+    // Nearly full: the way on is a new conversation on another account.
+    expect(popover.getByText(/another account/)).toBeInTheDocument();
   });
 
-  it("remembers the density the reader chose", async () => {
+  it("puts every window in the popover and only the tightest on the bar", async () => {
     showUsage({ agents: [agent("codex")], codexRateLimits: [FIVE_HOURS, WEEKLY] });
-    await openPopover();
-    await userEvent.click(screen.getByRole("radio", { name: "Compact" }));
+    render(<StatusBar />);
+    const bar = screen.getByRole("button", { name: "Usage" });
 
-    // A preference about the reader, not about the data: it outlives the popover.
-    expect(window.localStorage.getItem("ai4s.usage.mode.v1")).toBe("compact");
-  });
-
-  it("leads with this app's own spend, then the CLI nearest a limit", async () => {
-    showUsage({
-      agents: [
-        agent("workbench", { today: totals({ costUsd: 3, pricedTurns: 2 }) }),
-        agent("codex"),
-      ],
-      codexRateLimits: [WEEKLY],
-    });
-    await openPopover();
-
-    // This app's own spend leads whatever the CLIs are doing: it is the one the
-    // reader is responsible for.
-    const names = screen.getAllByText(/OSD|Codex CLI/).map((el) => el.textContent);
-    expect(names[0]).toBe("OSD");
+    expect(within(bar).getByText("45%")).toBeInTheDocument();
+    expect(within(bar).queryByText("8%")).not.toBeInTheDocument();
+    await userEvent.click(bar);
+    const popover = within(await screen.findByRole("dialog"));
+    expect(popover.getByText("8%")).toBeInTheDocument();
+    expect(popover.getByText("45%")).toBeInTheDocument();
   });
 });
 

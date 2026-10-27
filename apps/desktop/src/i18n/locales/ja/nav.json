@@ -115,16 +115,9 @@
       "tokens": "トークン",
       "today": "本日",
       "days7": "7日",
-      "workbench": "OSD",
-      "cliNote": "ご自身のターミナルでの実行です。ここには使用量だけが記録されます。",
-      "allAgents": "全エージェント",
-      "detailed": "詳細",
-      "compact": "簡易",
-      "detailedHint": "すべてのウィンドウをバーと割合付きで表示",
-      "compactHint": "上限に最も近いウィンドウのみ",
-      "detailAria": "使用量の表示密度",
       "resetsIn": "{{duration}} 後にリセット",
-      "asOf": "{{age}}前の値"
+      "asOf": "{{age}}前の値",
+      "otherAccount": "もうすぐ上限です。別のアカウントで新しい会話を始めると続けられます。"
     },
     "awake": {
       "title": "スリープ防止",

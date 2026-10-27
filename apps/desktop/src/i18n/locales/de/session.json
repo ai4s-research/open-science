@@ -121,7 +121,7 @@
       "followAgent": "Dem Agenten {{agent}} folgen",
       "useDefault": "Globale Vorgabe verwenden",
       "unknownContextTitle": "Kontextfenster unbekannt",
-      "unknownContextBody": "Die automatische Komprimierung bleibt für dieses Modell aus, das Gespräch wächst unbegrenzt und lange Durchläufe bleiben irgendwann hängen. Fenstergröße unter Einstellungen → Modelle setzen.",
+      "unknownContextBody": "Die automatische Komprimierung bleibt für dieses Modell aus, das Gespräch wächst unbegrenzt und lange Durchläufe bleiben irgendwann hängen. Fenstergröße unter Einstellungen → Agenten setzen.",
       "retiredTitle": "Modell vom Anbieter eingestellt",
       "retiredBody": "{{model}} ist weiterhin konfiguriert, wird vom Anbieter aber nicht mehr bereitgestellt, daher schlägt jeder Durchlauf fehl. Oben ein anderes Modell wählen."
     },
@@ -168,7 +168,10 @@
       "manage": "Agenten verwalten",
       "optionsLoading": "Modelle von {{agent}} werden gelesen…",
       "optionsNone": "{{agent}} bietet keine Modelle zur Auswahl.",
-      "optionsFailed": "{{agent}} ist nicht gestartet: {{error}}"
+      "optionsFailed": "{{agent}} ist nicht gestartet: {{error}}",
+      "more": "Weitere Agenten…",
+      "accountAria": "Konto",
+      "defaultAccount": "Standardkonto"
     }
   },
   "localCommand": {

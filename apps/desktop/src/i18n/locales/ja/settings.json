@@ -3,8 +3,8 @@
     "back": "アプリに戻る",
     "general": "一般",
     "appearance": "外観",
-    "models": "モデル",
-    "runtime": "ランタイム",
+    "agents": "エージェント",
+    "network": "ネットワーク",
     "connectors": "コネクタ",
     "compute": "コンピューティング",
     "privacy": "プライバシー",
@@ -46,8 +46,8 @@
     "subtitle": "ここでの設定はすべて、バンドルされた OpenCode ランタイムに対するものです — 設定は一つだけで、コピーはありません。"
   },
   "runtime": {
-    "title": "エージェントランタイム",
-    "hint": "opencode serve を、その HTTP + SSE API 経由で操作します",
+    "title": "ネットワーク",
+    "hint": "エージェントとツールがインターネットに接続する方法と、Python ツールのダウンロード元。",
     "connect": "接続",
     "disconnect": "切断",
     "serverLabel": "サーバー",
@@ -70,13 +70,11 @@
     "mirrorPython": "Python ダウンロード",
     "mirrorPypiPlaceholder": "https://pypi.tuna.tsinghua.edu.cn/simple",
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
-    "mirrorHint": "任意のミラー。Python ツール(Jupyter・科学データベース)のセットアップ時のダウンロードにのみ使用され、pypi.org / github.com が遅いネットワーク向けです。空欄でデフォルト。"
+    "mirrorHint": "任意のミラー。Python ツール(Jupyter・科学データベース)のセットアップ時のダウンロードにのみ使用され、pypi.org / github.com が遅いネットワーク向けです。空欄でデフォルト。",
+    "serverTitle": "OpenCode サーバー",
+    "serverHint": "アプリが操作する OpenCode。内蔵のものは自動で起動します。自分の opencode serve を使う場合のみアドレスを入力してください。"
   },
   "acp": {
-    "title": "エージェント",
-    "hint": "会話を実行できるエージェントと、新しい会話が使うエージェント。会話ごとの選択は入力欄で行えます。",
-    "bundled": "OpenCode（同梱）",
-    "bundledHint": "同梱のランタイム。プロバイダー、スキル、プランモード、保存された会話を備えます。",
     "add": "エージェントを追加",
     "edit": "編集",
     "remove": "削除",
@@ -110,8 +108,8 @@
     "privacy": "公開 GitHub Releases API だけに接続します。ワークスペースのファイルや API キーは送信しません。"
   },
   "model": {
-    "title": "モデル",
-    "hint": "新しい会話が既定で使うモデル。選べる範囲は下の Providers が決めます。",
+    "title": "OpenCode の既定モデル",
+    "hint": "新しい OpenCode の会話で最初に使うモデル。選べるモデルは下のプロバイダーから提供されます。",
     "connectPrompt": "モデルを設定するには、ランタイムに接続してください。",
     "notSet": "未設定 — デフォルトモデルを選択",
     "providersDivider": "プロバイダー",
@@ -139,7 +137,7 @@
     "noProvidersHint": "下の Providers で接続してください。"
   },
   "providers": {
-    "title": "プロバイダー",
+    "title": "OpenCode のプロバイダー",
     "hint": "認証、カスタムエンドポイント、インポートした OpenCode ログイン",
     "webHint": "接続済みのプロバイダー — ブラウザからは読み取り専用",
     "webNote": "API キーとカスタムエンドポイントは、ワークベンチを動かしているマシン上で設定します。デスクトップアプリ、またはウィンドウなしで動かしている場合は `osd auth set` を使います。認証情報がゲートウェイを通ることはありません。",
@@ -529,8 +527,8 @@
     "disabledNote": "メモリはオフのため、このファイルは現在読み込まれていません。"
   },
   "agentModels": {
-    "title": "エージェントごとのモデルと推論の強度",
-    "hint": "メインのエージェントが強力なモデルで推論する一方、レビューや探索のエージェントは高速なモデルで動かし、それぞれの考える強度も指定できます。",
+    "title": "OpenCode のロールごとのモデルと推論強度",
+    "hint": "メインのロールは強いモデルで推論させ、レビューや探索のロールは速いモデルで動かし、それぞれの推論強度を設定します。",
     "noModels": "モデルを選ぶにはプロバイダーを接続してください。",
     "followDefault": "デフォルトに従う",
     "modelFor": "{{agent}} のモデル",
@@ -539,7 +537,7 @@
     "retiredOption": "{{model}} — 提供終了",
     "primaryHint": "build と plan は送信したメッセージを実行します。ここで設定したモデルが適用されますが、会話内でモデルを選ぶとその会話でのみ優先されます。",
     "group": {
-      "conversation": "あなたが話しかけるエージェント",
+      "conversation": "会話するロール",
       "utility": "ワークベンチが内部で使うもの"
     },
     "utilityHint": "ランタイムが自前で行う短い機械的な作業——ここは速いモデルが純粋に有利です。",
@@ -609,5 +607,37 @@
     "reachable": "インストール済みで利用可能。会話ごとに最初の使用前へ確認を求めます。",
     "notReachable": "インストールされていますが、このマシンにコマンドラインツールがないためエージェントからは届きません。ego lite 自身のセットアップを実行してください。",
     "tradeoff": "上のブラウザコネクタとは別物です。あちらは本アプリが管理する独立したブラウザを隔離プロファイルで動かします。こちらは普段づかいのブラウザで、実際のログイン状態を持っています — 便利な理由であり、先に確認を求める理由でもあります。macOS のみ。"
+  },
+  "agents": {
+    "title": "エージェント",
+    "hint": "会話を実行できるエージェント。ここで選んだものが新しい会話の既定になり、入力欄で会話ごとに選び直せます。",
+    "builtIn": "内蔵",
+    "opencodeHint": "下で設定したプロバイダーとモデルを使います。",
+    "availableTitle": "インストール可能",
+    "availableHint": "このコンピューターにインストールすると、アプリから実行できるエージェントです。",
+    "detecting": "インストール済みのエージェントを探しています…",
+    "allInstalled": "アプリが対応するエージェントはすべてインストール済みです。",
+    "detectHint": "インストール後にもう一度検出してください。",
+    "detectAgain": "再検出",
+    "copy": "コマンドをコピー",
+    "copied": "コマンドをコピーしました",
+    "copyFailed": "コマンドをコピーできませんでした",
+    "install": "ターミナルでインストール"
+  },
+  "accounts": {
+    "reading": "サインイン情報を読み取っています…",
+    "defaultSignedOut": "サインアウト中",
+    "default": "既定",
+    "remove": "アカウントを削除",
+    "removeConfirm": "{{account}} を削除しますか？ 会話は履歴に残ります。",
+    "add": "アカウントを追加",
+    "sharedHint": "すべてのアカウントがこのエージェントの履歴、スキル、コマンド、設定を共有します。各会話は開始時のアカウントを使い続けます。",
+    "waiting": "ブラウザーでのサインイン完了を待っています",
+    "openLink": "サインインページを開く",
+    "privateHint": "別のアカウントにはプライベートウィンドウでリンクを開いてください。ページにコードが表示されたら下に貼り付けます。",
+    "codePlaceholder": "サインインページのコード",
+    "submitCode": "送信",
+    "added": "{{account}} を追加しました",
+    "failed": "サインインが完了しませんでした"
   }
 }

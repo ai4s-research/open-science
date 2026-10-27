@@ -56,7 +56,7 @@ describe("Providers in the gateway web client", () => {
     vi.spyOn(runtime, "getClient").mockReturnValue(webClient());
     useRuntimeStore.setState({ status: "ready", defaultModel: "openai/gpt-5.2", switching: false });
     await i18n.changeLanguage("en");
-    await renderAt("/settings/models");
+    await renderAt("/settings/agents");
   });
 
   afterEach(() => {
@@ -68,7 +68,7 @@ describe("Providers in the gateway web client", () => {
 
   it("shows what is connected and where to change it", async () => {
     // Scoped to the card: the provider names also appear in the model browser.
-    const card = screen.getByRole("heading", { level: 2, name: "Providers" }).closest("section")!;
+    const card = screen.getByRole("heading", { level: 2, name: "OpenCode providers" }).closest("section")!;
     expect(await within(card).findByText("OpenCode Zen")).toBeInTheDocument();
     expect(within(card).getByText("OpenAI")).toBeInTheDocument();
     expect(within(card).getByText(/osd auth set/)).toBeInTheDocument();
@@ -117,10 +117,10 @@ describe("a desktop-only settings route reached by URL in the web client", () =>
   });
 
   it("still serves the sections the web client does support", async () => {
-    // Only the hidden ones are answered this way — Models must be untouched.
-    await renderAt("/settings/models");
+    // Only the hidden ones are answered this way: Agents must be untouched.
+    await renderAt("/settings/agents");
 
-    expect(screen.getByRole("heading", { level: 1, name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Agents" })).toBeInTheDocument();
     expect(
       screen.queryByText("This section is available in the desktop app."),
     ).not.toBeInTheDocument();

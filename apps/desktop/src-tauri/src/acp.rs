@@ -42,6 +42,13 @@ pub struct AcpExit {
     pub reason: String,
 }
 
+/// The account an agent runs as: which agent's accounts, and which one.
+#[derive(serde::Deserialize)]
+pub struct AccountRef {
+    pub kind: String,
+    pub id: String,
+}
+
 struct Agent {
     child: Child,
     stdin: ChildStdin,
@@ -117,12 +124,28 @@ pub(crate) fn take_lines(buffer: &mut String) -> Vec<String> {
 ///
 /// Idempotent per `agent_id`: a second call while one is running is a no-op, so
 /// a double click cannot leave an orphan child holding a model session.
+///
+/// Async because starting as an account first asks the agent who is signed in
+/// (about a second): a sync command would hold the main thread meanwhile.
 #[tauri::command]
-pub fn acp_start(
+pub async fn acp_start(
     app: AppHandle,
     agent_id: String,
     command: String,
     args: Vec<String>,
+    account: Option<AccountRef>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || start_blocking(app, agent_id, command, args, account))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn start_blocking(
+    app: AppHandle,
+    agent_id: String,
+    command: String,
+    args: Vec<String>,
+    account: Option<AccountRef>,
 ) -> Result<(), String> {
     if command.trim().is_empty() {
         return Err("an ACP agent needs a command to run".into());
@@ -142,6 +165,15 @@ pub fn acp_start(
         }
     }
     let cwd = crate::runtime::workspace_dir(&app)?;
+    // Run as the conversation's account, checked before anything starts.
+    let account_env = match &account {
+        Some(a) => Some(crate::agent_accounts::launch_env(
+            &app,
+            osd_core::agent_accounts::AgentKind::parse(&a.kind)?,
+            &a.id,
+        )?),
+        None => None,
+    };
     // quiet_command: an ACP agent is a console-subsystem binary, and a console
     // window opening beside the app for it is noise the user never asked for.
     let mut command_line = crate::runtime::quiet_command(&command);
@@ -156,6 +188,14 @@ pub fn acp_start(
     for (k, v) in crate::runtime::sidecar_proxy_env(&app) {
         command_line.env(k, v);
     }
+    if let Some((set, unset)) = account_env {
+        for (k, v) in set {
+            command_line.env(k, v);
+        }
+        for k in unset {
+            command_line.env_remove(k);
+        }
+    }
     let mut child = command_line
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -163,7 +203,7 @@ pub fn acp_start(
         .spawn()
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => format!(
-                "{command} is not installed, or not on your shell's PATH. Install it, or give its full path in Settings → Agent."
+                "{command} is not installed, or not on your shell's PATH. Install it, or give its full path in Settings → Agents."
             ),
             _ => format!("could not start {command}: {e}"),
         })?;

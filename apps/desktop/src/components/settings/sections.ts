@@ -21,10 +21,12 @@ import {
 export const SETTINGS_SECTIONS = [
   { key: "general", icon: IconSettingsOutlineRegular },
   { key: "appearance", icon: IconPersonalizationOutlineRegular },
-  { key: "models", icon: IconDatabaseOutlineRegular },
+  { key: "agents", icon: IconDatabaseOutlineRegular },
   // Memory is edited as files in the app profile / project folder — Tauri IPC.
   { key: "memory", icon: IconContextInjectionOutlineRegular, desktopOnly: true },
-  { key: "runtime", icon: IconApiOutlineRegular, desktopOnly: true },
+  // Proxy, download mirrors and Python: how this machine reaches the network
+  // and runs tools. Which agent answers is under Agents.
+  { key: "network", icon: IconApiOutlineRegular, desktopOnly: true },
   { key: "connectors", icon: IconCordisPluginOutlineRegular, desktopOnly: true },
   { key: "browser", icon: IconGlobeOutlineRegular, desktopOnly: true },
   // Driving the apps on THIS machine: native permission state and a
@@ -50,6 +52,10 @@ export function isDesktopOnlySection(key: SettingsSection): boolean {
   return SETTINGS_SECTIONS.some((s) => s.key === key && "desktopOnly" in s && s.desktopOnly);
 }
 
+/** Sections that were renamed, so old links and bookmarks still land. */
+const RENAMED: Record<string, SettingsSection> = { models: "agents", runtime: "network" };
+
 export function resolveSection(raw: string | undefined): SettingsSection {
+  if (raw && RENAMED[raw]) return RENAMED[raw];
   return (SETTINGS_SECTIONS.find((s) => s.key === raw)?.key ?? "general") as SettingsSection;
 }

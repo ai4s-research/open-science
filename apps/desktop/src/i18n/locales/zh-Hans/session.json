@@ -121,7 +121,7 @@
       "followAgent": "跟随 {{agent}} 智能体设置",
       "useDefault": "使用全局默认模型",
       "unknownContextTitle": "上下文窗口未知",
-      "unknownContextBody": "该模型的自动压缩不会生效，对话会无限增长，长回合最终会卡住。请在“设置 → 模型”里填写窗口大小。",
+      "unknownContextBody": "该模型的自动压缩不会生效，对话会无限增长，长回合最终会卡住。请在“设置 → 智能体”里填写窗口大小。",
       "retiredTitle": "该模型已被供应商下架",
       "retiredBody": "{{model}} 仍在配置中，但供应商已不再提供，每个回合都会失败。请在上方另选一个模型。"
     },
@@ -168,7 +168,10 @@
       "manage": "管理智能体",
       "optionsLoading": "正在读取 {{agent}} 的模型…",
       "optionsNone": "{{agent}} 没有提供可选的模型。",
-      "optionsFailed": "{{agent}} 没能启动：{{error}}"
+      "optionsFailed": "{{agent}} 没能启动：{{error}}",
+      "more": "更多智能体…",
+      "accountAria": "账号",
+      "defaultAccount": "默认账号"
     }
   },
   "localCommand": {

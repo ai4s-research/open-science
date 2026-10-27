@@ -3,8 +3,8 @@
     "back": "Retour à l'app",
     "general": "Général",
     "appearance": "Apparence",
-    "models": "Modèles",
-    "runtime": "Environnement d'exécution",
+    "agents": "Agents",
+    "network": "Réseau",
     "connectors": "Connecteurs",
     "compute": "Calcul",
     "privacy": "Confidentialité",
@@ -46,8 +46,8 @@
     "subtitle": "Tout ici configure le runtime OpenCode intégré — une seule configuration, aucune copie."
   },
   "runtime": {
-    "title": "Runtime de l'agent",
-    "hint": "opencode serve, piloté via son API HTTP + SSE",
+    "title": "Réseau",
+    "hint": "Comment les agents et les outils accèdent à Internet, et d’où les outils Python sont téléchargés.",
     "connect": "Connecter",
     "disconnect": "Déconnecter",
     "serverLabel": "Serveur",
@@ -70,13 +70,11 @@
     "mirrorPython": "Téléchargement Python",
     "mirrorPypiPlaceholder": "https://pypi.tuna.tsinghua.edu.cn/simple",
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
-    "mirrorHint": "Miroirs facultatifs, utilisés uniquement lors de l’installation d’outils Python (Jupyter, bases de données scientifiques) sur les réseaux où pypi.org / github.com sont lents. Laisser vide pour les valeurs par défaut."
+    "mirrorHint": "Miroirs facultatifs, utilisés uniquement lors de l’installation d’outils Python (Jupyter, bases de données scientifiques) sur les réseaux où pypi.org / github.com sont lents. Laisser vide pour les valeurs par défaut.",
+    "serverTitle": "Serveur OpenCode",
+    "serverHint": "L’OpenCode piloté par l’application. Celui intégré démarre seul ; saisissez une adresse seulement pour utiliser votre propre opencode serve."
   },
   "acp": {
-    "title": "Agent",
-    "hint": "Les agents sur lesquels une conversation peut tourner, et celui que prend une nouvelle conversation. Le choix par conversation se fait dans la zone de saisie.",
-    "bundled": "OpenCode (fourni)",
-    "bundledHint": "L’environnement intégré, avec fournisseurs, compétences, mode plan et conversations enregistrées.",
     "add": "Ajouter un agent",
     "edit": "Modifier",
     "remove": "Supprimer",
@@ -110,8 +108,8 @@
     "privacy": "Seule l'API publique GitHub Releases est contactée. Aucun fichier de workspace ni clé API n'est envoyé."
   },
   "model": {
-    "title": "Modèle",
-    "hint": "Le modèle avec lequel démarre chaque nouvelle conversation. Les fournisseurs ci-dessous déterminent les choix.",
+    "title": "Modèle OpenCode par défaut",
+    "hint": "Le modèle avec lequel démarre une nouvelle conversation OpenCode. Les fournisseurs ci-dessous proposent les choix.",
     "connectPrompt": "Connectez le runtime pour configurer les modèles.",
     "notSet": "Non défini — choisissez un modèle par défaut",
     "providersDivider": "Fournisseurs",
@@ -139,7 +137,7 @@
     "noProvidersHint": "Connectez un fournisseur ci-dessous."
   },
   "providers": {
-    "title": "Fournisseurs",
+    "title": "Fournisseurs OpenCode",
     "hint": "Authentification, points de terminaison personnalisés et connexions OpenCode importées",
     "webHint": "Fournisseurs connectés — lecture seule depuis le navigateur",
     "webNote": "Les clés d'API et les points de terminaison personnalisés se définissent sur la machine qui fait tourner le workbench : dans l'app de bureau, ou avec `osd auth set` si elle tourne sans fenêtre. Les identifiants ne transitent jamais par la passerelle.",
@@ -531,8 +529,8 @@
     "disabledNote": "La mémoire est désactivée : ce fichier n’est pas chargé pour l’instant."
   },
   "agentModels": {
-    "title": "Modèle et effort par agent",
-    "hint": "Faites tourner un relecteur ou un explorateur sur un modèle rapide pendant que l’agent principal raisonne sur un modèle puissant, et fixez l’intensité de réflexion de chacun.",
+    "title": "Modèle et effort OpenCode par rôle",
+    "hint": "Le rôle principal raisonne avec un modèle puissant, les rôles de relecture et d’exploration tournent sur un modèle rapide, chacun avec son niveau d’effort.",
     "noModels": "Connectez un fournisseur pour choisir des modèles.",
     "followDefault": "Suivre le défaut",
     "modelFor": "Modèle pour {{agent}}",
@@ -541,7 +539,7 @@
     "retiredOption": "{{model}} — plus disponible",
     "primaryHint": "build et plan exécutent les messages que vous envoyez. Le modèle défini ici s'applique, sauf si vous en choisissez un dans une conversation, qui l'emporte pour cette conversation uniquement.",
     "group": {
-      "conversation": "Agents auxquels vous parlez",
+      "conversation": "Rôles avec qui vous parlez",
       "utility": "Utilisés par l'atelier lui-même"
     },
     "utilityHint": "Travail mécanique et court que le runtime effectue seul — un modèle rapide n'a ici que des avantages.",
@@ -611,5 +609,37 @@
     "reachable": "Installé et atteignable. L'agent demandera votre accord avant la première utilisation de chaque conversation.",
     "notReachable": "Installé, mais son outil en ligne de commande est absent de cette machine, donc l'agent ne peut pas l'atteindre. Lancez la configuration propre à ego lite pour l'ajouter.",
     "tradeoff": "Ce n'est pas le connecteur de navigateur ci-dessus. Celui-là pilote un navigateur distinct que cette application possède, avec un profil isolé. Celui-ci est votre navigateur de tous les jours et porte vos sessions réellement connectées — ce qui fait son intérêt, et pourquoi il demande d'abord. macOS uniquement."
+  },
+  "agents": {
+    "title": "Agents",
+    "hint": "Les agents sur lesquels une conversation peut tourner. Celui coché ici est le choix par défaut ; la zone de saisie permet d’en choisir un autre par conversation.",
+    "builtIn": "Intégré",
+    "opencodeHint": "Utilise les fournisseurs et modèles réglés plus bas.",
+    "availableTitle": "À installer",
+    "availableHint": "Agents que l’application peut lancer une fois installés sur cet ordinateur.",
+    "detecting": "Recherche des agents installés…",
+    "allInstalled": "Tous les agents connus de l’application sont installés.",
+    "detectHint": "Après une installation, relancez la recherche.",
+    "detectAgain": "Rechercher à nouveau",
+    "copy": "Copier la commande",
+    "copied": "Commande copiée",
+    "copyFailed": "Impossible de copier la commande",
+    "install": "Installer dans le terminal"
+  },
+  "accounts": {
+    "reading": "Lecture de la connexion…",
+    "defaultSignedOut": "Déconnecté",
+    "default": "par défaut",
+    "remove": "Retirer le compte",
+    "removeConfirm": "Retirer {{account}} ? Ses conversations restent dans l’historique.",
+    "add": "Ajouter un compte",
+    "sharedHint": "Tous les comptes partagent l’historique, les skills, les commandes et les réglages de cet agent. Chaque conversation garde le compte avec lequel elle a commencé.",
+    "waiting": "En attente de la connexion dans le navigateur",
+    "openLink": "Ouvrir la page de connexion",
+    "privateHint": "Pour un autre compte, ouvrez le lien dans une fenêtre privée. Si la page affiche un code, collez-le ci-dessous.",
+    "codePlaceholder": "Code de la page de connexion",
+    "submitCode": "Envoyer",
+    "added": "{{account}} ajouté",
+    "failed": "La connexion n’a pas abouti"
   }
 }

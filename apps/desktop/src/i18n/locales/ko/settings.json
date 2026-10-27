@@ -3,8 +3,8 @@
     "back": "앱으로 돌아가기",
     "general": "일반",
     "appearance": "화면 모드",
-    "models": "모델",
-    "runtime": "런타임",
+    "agents": "에이전트",
+    "network": "네트워크",
     "connectors": "커넥터",
     "compute": "컴퓨팅",
     "privacy": "개인정보",
@@ -46,8 +46,8 @@
     "subtitle": "여기서 내장된 OpenCode 런타임을 구성합니다 — 하나의 설정, 복사본 없음."
   },
   "runtime": {
-    "title": "에이전트 런타임",
-    "hint": "opencode serve — HTTP + SSE API로 제어",
+    "title": "네트워크",
+    "hint": "에이전트와 도구가 인터넷에 연결하는 방식, 그리고 Python 도구를 내려받는 곳.",
     "connect": "연결",
     "disconnect": "연결 해제",
     "serverLabel": "서버",
@@ -70,13 +70,11 @@
     "mirrorPython": "Python 다운로드",
     "mirrorPypiPlaceholder": "https://pypi.tuna.tsinghua.edu.cn/simple",
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
-    "mirrorHint": "선택적 미러로, Python 도구(Jupyter, 과학 데이터베이스)를 설정할 때 pypi.org / github.com이 느린 네트워크에서 다운로드에만 사용됩니다. 비워 두면 기본값을 사용합니다."
+    "mirrorHint": "선택적 미러로, Python 도구(Jupyter, 과학 데이터베이스)를 설정할 때 pypi.org / github.com이 느린 네트워크에서 다운로드에만 사용됩니다. 비워 두면 기본값을 사용합니다.",
+    "serverTitle": "OpenCode 서버",
+    "serverHint": "앱이 구동하는 OpenCode입니다. 내장 서버는 자동으로 시작되며, 직접 실행한 opencode serve를 쓸 때만 주소를 입력하세요."
   },
   "acp": {
-    "title": "에이전트",
-    "hint": "대화를 실행할 수 있는 에이전트와 새 대화가 시작할 에이전트입니다. 대화별 선택은 입력창에서 합니다.",
-    "bundled": "OpenCode(내장)",
-    "bundledHint": "내장 런타임으로, 제공자, 스킬, 계획 모드, 저장된 대화를 갖추고 있습니다.",
     "add": "에이전트 추가",
     "edit": "편집",
     "remove": "삭제",
@@ -110,8 +108,8 @@
     "privacy": "공개 GitHub Releases API에만 연결합니다. 워크스페이스 파일이나 API 키는 전송하지 않습니다."
   },
   "model": {
-    "title": "모델",
-    "hint": "새 대화가 기본으로 사용하는 모델. 선택 범위는 아래 Providers가 정합니다.",
+    "title": "OpenCode 기본 모델",
+    "hint": "새 OpenCode 대화가 처음 사용하는 모델입니다. 아래 공급자가 선택 가능한 모델을 제공합니다.",
     "connectPrompt": "모델을 구성하려면 런타임을 연결하세요.",
     "notSet": "설정 안 됨 — 기본 모델을 선택하세요",
     "providersDivider": "제공자",
@@ -139,7 +137,7 @@
     "noProvidersHint": "아래에서 제공자를 연결하세요."
   },
   "providers": {
-    "title": "공급자",
+    "title": "OpenCode 공급자",
     "hint": "인증, 사용자 지정 엔드포인트 및 가져온 OpenCode 로그인",
     "webHint": "연결된 공급자 — 브라우저에서는 읽기 전용",
     "webNote": "API 키와 사용자 지정 엔드포인트는 워크벤치를 실행하는 머신에서 설정합니다. 데스크톱 앱에서, 또는 창 없이 실행 중이라면 `osd auth set`으로 하세요. 자격 증명은 게이트웨이를 지나지 않습니다.",
@@ -529,8 +527,8 @@
     "disabledNote": "메모리가 꺼져 있어 이 파일은 지금 불러오지 않습니다."
   },
   "agentModels": {
-    "title": "에이전트별 모델과 추론 강도",
-    "hint": "메인 에이전트가 강력한 모델로 추론하는 동안 검토·탐색 에이전트는 빠른 모델로 실행하고, 각자 얼마나 깊이 생각할지도 고정하세요.",
+    "title": "OpenCode 역할별 모델과 추론 강도",
+    "hint": "주 역할은 강한 모델로 추론하고, 검토와 탐색 역할은 빠른 모델로 실행하며, 각각의 추론 강도를 정합니다.",
     "noModels": "모델을 고르려면 공급자를 연결하세요.",
     "followDefault": "기본값 따르기",
     "modelFor": "{{agent}}의 모델",
@@ -539,7 +537,7 @@
     "retiredOption": "{{model}} — 제공 중단",
     "primaryHint": "build와 plan은 보낸 메시지를 실행합니다. 여기서 설정한 모델이 적용되며, 대화 안에서 모델을 고르면 그 대화에서만 우선합니다.",
     "group": {
-      "conversation": "직접 대화하는 에이전트",
+      "conversation": "대화하는 역할",
       "utility": "워크벤치가 내부적으로 쓰는 것"
     },
     "utilityHint": "런타임이 스스로 처리하는 짧고 기계적인 작업 — 여기서는 빠른 모델이 무조건 이득입니다.",
@@ -609,5 +607,37 @@
     "reachable": "설치되어 있고 사용할 수 있습니다. 대화마다 처음 사용하기 전에 승인을 요청합니다.",
     "notReachable": "설치되어 있지만 이 기기에 명령줄 도구가 없어 에이전트가 닿을 수 없습니다. ego lite 자체 설정을 실행해 추가하세요.",
     "tradeoff": "위의 브라우저 커넥터와는 다릅니다. 그쪽은 이 앱이 소유한 별도 브라우저를 격리된 프로필로 구동합니다. 이쪽은 평소 쓰는 브라우저이고 실제 로그인 상태를 가지고 있습니다 — 그래서 유용하고, 그래서 먼저 묻습니다. macOS 전용."
+  },
+  "agents": {
+    "title": "에이전트",
+    "hint": "대화를 실행할 수 있는 에이전트입니다. 여기서 선택한 것이 새 대화의 기본값이며, 입력창에서 대화마다 다시 고를 수 있습니다.",
+    "builtIn": "내장",
+    "opencodeHint": "아래에서 설정한 공급자와 모델을 사용합니다.",
+    "availableTitle": "설치 가능",
+    "availableHint": "이 컴퓨터에 설치하면 앱에서 실행할 수 있는 에이전트입니다.",
+    "detecting": "설치된 에이전트를 찾는 중…",
+    "allInstalled": "앱이 지원하는 에이전트가 모두 설치되어 있습니다.",
+    "detectHint": "설치한 뒤 다시 검색하세요.",
+    "detectAgain": "다시 검색",
+    "copy": "명령 복사",
+    "copied": "명령을 복사했습니다",
+    "copyFailed": "명령을 복사하지 못했습니다",
+    "install": "터미널에서 설치"
+  },
+  "accounts": {
+    "reading": "로그인 정보를 읽는 중…",
+    "defaultSignedOut": "로그아웃됨",
+    "default": "기본",
+    "remove": "계정 제거",
+    "removeConfirm": "{{account}} 계정을 제거할까요? 대화는 기록에 남습니다.",
+    "add": "계정 추가",
+    "sharedHint": "모든 계정이 이 에이전트의 기록, 스킬, 명령, 설정을 함께 씁니다. 각 대화는 시작할 때의 계정을 계속 사용합니다.",
+    "waiting": "브라우저에서 로그인이 끝나기를 기다리는 중",
+    "openLink": "로그인 페이지 열기",
+    "privateHint": "다른 계정은 시크릿 창에서 링크를 여세요. 페이지에 코드가 보이면 아래에 붙여 넣으세요.",
+    "codePlaceholder": "로그인 페이지의 코드",
+    "submitCode": "보내기",
+    "added": "{{account}} 계정을 추가했습니다",
+    "failed": "로그인이 완료되지 않았습니다"
   }
 }

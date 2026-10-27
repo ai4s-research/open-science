@@ -3,8 +3,8 @@
     "back": "Zurück zur App",
     "general": "Allgemein",
     "appearance": "Erscheinungsbild",
-    "models": "Modelle",
-    "runtime": "Laufzeit",
+    "agents": "Agenten",
+    "network": "Netzwerk",
     "connectors": "Konnektoren",
     "compute": "Rechenleistung",
     "privacy": "Datenschutz",
@@ -46,8 +46,8 @@
     "subtitle": "Hier wird ausschließlich die gebündelte OpenCode-Runtime konfiguriert — eine Konfiguration, keine Kopien."
   },
   "runtime": {
-    "title": "Agent-Runtime",
-    "hint": "opencode serve, gesteuert über dessen HTTP- + SSE-API",
+    "title": "Netzwerk",
+    "hint": "Wie Agenten und Werkzeuge ins Internet gelangen und woher Python-Werkzeuge geladen werden.",
     "connect": "Verbinden",
     "disconnect": "Trennen",
     "serverLabel": "Server",
@@ -70,13 +70,11 @@
     "mirrorPython": "Python-Download",
     "mirrorPypiPlaceholder": "https://pypi.tuna.tsinghua.edu.cn/simple",
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
-    "mirrorHint": "Optionale Spiegelserver, nur beim Einrichten von Python-Tools (Jupyter, Wissenschaftsdatenbanken) in Netzwerken verwendet, in denen pypi.org / github.com langsam sind. Leer lassen für Standardwerte."
+    "mirrorHint": "Optionale Spiegelserver, nur beim Einrichten von Python-Tools (Jupyter, Wissenschaftsdatenbanken) in Netzwerken verwendet, in denen pypi.org / github.com langsam sind. Leer lassen für Standardwerte.",
+    "serverTitle": "OpenCode-Server",
+    "serverHint": "Das OpenCode, das die App steuert. Das integrierte startet von selbst; eine Adresse nur eintragen, um ein eigenes opencode serve zu nutzen."
   },
   "acp": {
-    "title": "Agent",
-    "hint": "Die Agenten, auf denen eine Unterhaltung laufen kann, und der Standard für neue Unterhaltungen. Pro Unterhaltung wählst du im Eingabefeld.",
-    "bundled": "OpenCode (mitgeliefert)",
-    "bundledHint": "Die mitgelieferte Laufzeit, mit Anbietern, Skills, Planmodus und gespeicherten Unterhaltungen.",
     "add": "Agenten hinzufügen",
     "edit": "Bearbeiten",
     "remove": "Entfernen",
@@ -110,8 +108,8 @@
     "privacy": "Es wird nur die öffentliche GitHub-Releases-API kontaktiert. Workspace-Dateien und API-Schlüssel werden nicht gesendet."
   },
   "model": {
-    "title": "Modell",
-    "hint": "Das Modell, mit dem jedes neue Gespräch startet. Die Auswahl liefern die Provider unten.",
+    "title": "OpenCode-Standardmodell",
+    "hint": "Das Modell, mit dem ein neues OpenCode-Gespräch beginnt. Die Anbieter unten liefern die Auswahl.",
     "connectPrompt": "Verbinden Sie die Runtime, um Modelle zu konfigurieren.",
     "notSet": "Nicht festgelegt — Standardmodell wählen",
     "providersDivider": "Anbieter",
@@ -139,7 +137,7 @@
     "noProvidersHint": "Verbinden Sie unten einen Provider."
   },
   "providers": {
-    "title": "Anbieter",
+    "title": "OpenCode-Anbieter",
     "hint": "Authentifizierung, benutzerdefinierte Endpunkte und importierte OpenCode-Anmeldungen",
     "webHint": "Verbundene Anbieter — im Browser nur lesbar",
     "webNote": "API-Schlüssel und eigene Endpunkte werden auf der Maschine gesetzt, die die Workbench betreibt — in der Desktop-App oder mit `osd auth set`, wenn sie ohne Fenster läuft. Zugangsdaten passieren niemals das Gateway.",
@@ -531,8 +529,8 @@
     "disabledNote": "Das Gedächtnis ist ausgeschaltet, diese Datei wird derzeit nicht geladen."
   },
   "agentModels": {
-    "title": "Modell und Denkaufwand je Agent",
-    "hint": "Lassen Sie Prüf- oder Rechercheagenten auf einem schnellen Modell laufen, während der Hauptagent auf einem starken denkt, und legen Sie je Agent fest, wie intensiv er denkt.",
+    "title": "OpenCode-Modell und Denkaufwand je Rolle",
+    "hint": "Die Hauptrolle denkt mit einem starken Modell, Prüf- und Erkundungsrollen laufen auf einem schnellen; der Denkaufwand ist je Rolle einstellbar.",
     "noModels": "Verbinden Sie einen Anbieter, um Modelle zu wählen.",
     "followDefault": "Standard folgen",
     "modelFor": "Modell für {{agent}}",
@@ -541,7 +539,7 @@
     "retiredOption": "{{model}} — nicht mehr verfügbar",
     "primaryHint": "build und plan führen die Nachrichten aus, die du sendest. Ein hier gesetztes Modell gilt, sofern du nicht innerhalb einer Unterhaltung eines wählst — das gewinnt nur dort.",
     "group": {
-      "conversation": "Agenten, mit denen Sie sprechen",
+      "conversation": "Rollen, mit denen du sprichst",
       "utility": "Von der Workbench selbst genutzt"
     },
     "utilityHint": "Kurze mechanische Arbeit, die die Laufzeit selbst erledigt — ein schnelles Modell ist hier reiner Gewinn.",
@@ -611,5 +609,37 @@
     "reachable": "Installiert und erreichbar. Der Agent fragt vor der ersten Nutzung in jeder Unterhaltung.",
     "notReachable": "Installiert, aber sein Kommandozeilenwerkzeug fehlt auf diesem Rechner, also kommt der Agent nicht heran. Führe die Einrichtung von ego lite aus, um es nachzurüsten.",
     "tradeoff": "Das ist nicht der Browser-Connector oben. Jener steuert einen eigenen Browser, den diese App besitzt, mit einem isolierten Profil. Dieser ist dein Alltagsbrowser und trägt deine echten angemeldeten Sitzungen — was ihn nützlich macht und weshalb er vorher fragt. Nur macOS."
+  },
+  "agents": {
+    "title": "Agenten",
+    "hint": "Die Agenten, auf denen ein Gespräch laufen kann. Der hier markierte ist der Standard für neue Gespräche; im Eingabefeld lässt sich je Gespräch ein anderer wählen.",
+    "builtIn": "Integriert",
+    "opencodeHint": "Nutzt die unten eingestellten Anbieter und Modelle.",
+    "availableTitle": "Installierbar",
+    "availableHint": "Agenten, die die App ausführen kann, sobald sie auf diesem Computer installiert sind.",
+    "detecting": "Suche installierte Agenten…",
+    "allInstalled": "Alle Agenten, die die App kennt, sind installiert.",
+    "detectHint": "Nach einer Installation erneut suchen.",
+    "detectAgain": "Erneut suchen",
+    "copy": "Befehl kopieren",
+    "copied": "Befehl kopiert",
+    "copyFailed": "Befehl konnte nicht kopiert werden",
+    "install": "Im Terminal installieren"
+  },
+  "accounts": {
+    "reading": "Anmeldung wird gelesen…",
+    "defaultSignedOut": "Abgemeldet",
+    "default": "Standard",
+    "remove": "Konto entfernen",
+    "removeConfirm": "{{account}} entfernen? Die Gespräche bleiben im Verlauf.",
+    "add": "Konto hinzufügen",
+    "sharedHint": "Alle Konten teilen Verlauf, Skills, Befehle und Einstellungen dieses Agenten. Jedes Gespräch behält das Konto, mit dem es begann.",
+    "waiting": "Warte auf die Anmeldung im Browser",
+    "openLink": "Anmeldeseite öffnen",
+    "privateHint": "Für ein weiteres Konto den Link in einem privaten Fenster öffnen. Zeigt die Seite einen Code, hier einfügen.",
+    "codePlaceholder": "Code von der Anmeldeseite",
+    "submitCode": "Senden",
+    "added": "{{account}} hinzugefügt",
+    "failed": "Anmeldung wurde nicht abgeschlossen"
   }
 }

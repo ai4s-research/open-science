@@ -47,7 +47,7 @@ async function renderSettings() {
   await act(async () => {
     view = render(
       // Models and Providers live in the "models" settings section.
-      <MemoryRouter initialEntries={["/settings/models"]}>
+      <MemoryRouter initialEntries={["/settings/agents"]}>
         <Routes>
           <Route path="/settings/:section" element={<SettingsPage />} />
         </Routes>

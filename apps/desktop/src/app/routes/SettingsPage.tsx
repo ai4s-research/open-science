@@ -68,7 +68,7 @@ import { WebSignedIn } from "@/components/web/WebSignedIn";
 import { RemoteAccessCard } from "@/components/settings/RemoteAccessCard";
 import { TerminalCliCard } from "@/components/settings/TerminalCliCard";
 import { ConversationSyncCard } from "@/components/settings/ConversationSyncCard";
-import { AcpAgentsCard } from "@/components/settings/AcpAgentsCard";
+import { AgentsCard } from "@/components/settings/AgentsCard";
 import { ModalCard } from "@/components/settings/ModalCard";
 import { DataFlowCard } from "@/components/settings/DataFlowCard";
 import { ComputerUseCard } from "@/components/settings/ComputerUseCard";
@@ -920,59 +920,10 @@ export function SettingsPage() {
       <div className="mx-auto max-w-2xl px-4 pb-16 pt-4 sm:px-8">
         <h1 className="font-serif text-2xl text-text">{t(`nav.${section}`)}</h1>
 
-        {/* ---- Agent runtime (server + proxy + mirrors, one grouped card) ---- */}
-        {section === "runtime" && (
+        {/* ---- Network and environment (proxy + mirrors) ---- */}
+        {section === "network" && (
         <Section title={t("runtime.title")} hint={t("runtime.hint")} flush>
           <div className="divide-y divide-faint">
-            {/* Server URL + connection status */}
-            <Row
-              title={t("runtime.serverLabel")}
-              hint={
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      connected ? "bg-ok" : status === "error" ? "bg-error" : "bg-muted",
-                    )}
-                  />
-                  <span className="capitalize">{status}</span>
-                  {connected && defaultModel && (
-                    <>
-                      <span className="text-border">·</span>
-                      <span className="font-mono">{defaultModel}</span>
-                    </>
-                  )}
-                  {/* The bundled agent runtime, so a user with their own OpenCode
-                      install can tell the two apart (#74). Shown on the desktop
-                      only: the web client talks to whatever the host bundles. */}
-                  {isTauri && (
-                    <>
-                      <span className="text-border">·</span>
-                      <span className="font-mono">{`OpenCode ${OPENCODE_VERSION}`}</span>
-                    </>
-                  )}
-                </span>
-              }
-            >
-              <div className="mt-2.5 flex items-center gap-2">
-                <input
-                  value={serverUrl}
-                  onChange={(e) => setServerUrl(e.target.value)}
-                  placeholder={t("runtime.serverUrlPlaceholder")}
-                  className={inputCls("flex-1 font-mono")}
-                />
-                {connected ? (
-                  <button onClick={disconnect} className={btnGhost()}>
-                    {t("runtime.disconnect")}
-                  </button>
-                ) : (
-                  <button onClick={connect} className={btnAccent()}>
-                    {t("runtime.connect")}
-                  </button>
-                )}
-              </div>
-            </Row>
-
             {/* Network proxy: follow system / custom / direct. Mode is a right-side
                 chip; a custom URL field appears below only when "custom" is picked. */}
             {isTauri && proxy && (
@@ -1096,8 +1047,11 @@ export function SettingsPage() {
         </Section>
         )}
 
-        {/* ---- Models ---- */}
-        {section === "models" && (
+        {/* ---- Agents: which ones run conversations, their accounts ---- */}
+        {section === "agents" && <AgentsCard />}
+
+        {/* ---- OpenCode: default model ---- */}
+        {section === "agents" && (
         <Section title={t("model.title")} hint={t("model.hint")} flush>
           {!modelSurfaceAvailable ? (
             <p className="px-4 py-3 text-[13px] text-muted">{t("model.connectPrompt")}</p>
@@ -1151,7 +1105,7 @@ export function SettingsPage() {
         {section === "memory" && <MemoryCard />}
 
         {/* ---- Providers ---- */}
-        {section === "models" && (
+        {section === "agents" && (
         <ProviderManagerCard
           providers={providers}
           // The web client can only read this surface, so say so up front
@@ -1525,7 +1479,64 @@ export function SettingsPage() {
         {/* ---- One model per agent (a fast reviewer, a strong main agent) ----
              After Providers on purpose: those supply the models these rows pick
              from, so a reader meets the supply before the assignment. */}
-        {section === "models" && isTauri && <AgentModelsCard providers={providers} />}
+        {section === "agents" && isTauri && <AgentModelsCard providers={providers} />}
+
+        {/* ---- OpenCode: the server the app drives ---- */}
+        {section === "agents" && (
+        <Section title={t("runtime.serverTitle")} hint={t("runtime.serverHint")} flush>
+          <div className="divide-y divide-faint">
+            {/* Server URL + connection status */}
+            <Row
+              title={t("runtime.serverLabel")}
+              hint={
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      connected ? "bg-ok" : status === "error" ? "bg-error" : "bg-muted",
+                    )}
+                  />
+                  <span className="capitalize">{status}</span>
+                  {connected && defaultModel && (
+                    <>
+                      <span className="text-border">·</span>
+                      <span className="font-mono">{defaultModel}</span>
+                    </>
+                  )}
+                  {/* The bundled agent runtime, so a user with their own OpenCode
+                      install can tell the two apart (#74). Shown on the desktop
+                      only: the web client talks to whatever the host bundles. */}
+                  {isTauri && (
+                    <>
+                      <span className="text-border">·</span>
+                      <span className="font-mono">{`OpenCode ${OPENCODE_VERSION}`}</span>
+                    </>
+                  )}
+                </span>
+              }
+            >
+              <div className="mt-2.5 flex items-center gap-2">
+                <input
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  placeholder={t("runtime.serverUrlPlaceholder")}
+                  className={inputCls("flex-1 font-mono")}
+                />
+                {connected ? (
+                  <button onClick={disconnect} className={btnGhost()}>
+                    {t("runtime.disconnect")}
+                  </button>
+                ) : (
+                  <button onClick={connect} className={btnAccent()}>
+                    {t("runtime.connect")}
+                  </button>
+                )}
+              </div>
+            </Row>
+
+          </div>
+        </Section>
+        )}
 
         {/* ---- MCP servers ---- */}
         {section === "connectors" && (
@@ -2026,11 +2037,8 @@ export function SettingsPage() {
             offering a control that cannot work. */}
         {section === "general" && isTauri && <ConversationSyncCard />}
 
-        {/* ---- Which agent this app drives: OpenCode, or an ACP agent (#14) ---- */}
-        {section === "runtime" && <AcpAgentsCard />}
-
         {/* ---- Local Python kernel ---- */}
-        {section === "runtime" && isTauri && (
+        {section === "network" && isTauri && (
           <Section title={t("python.title")} hint={t("python.hint")}>
             <div className="flex items-center gap-2 text-[13px]">
               <span

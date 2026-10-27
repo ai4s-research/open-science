@@ -48,6 +48,17 @@ export interface PlanUsage {
    *  proxy that refused, an expired token. */
   claudeError?: string | null;
   codexError?: string | null;
+  /** The same for each account added in Settings → Agents. */
+  accounts?: AccountPlan[];
+}
+
+/** One added account's plan windows, or why it has none. */
+export interface AccountPlan {
+  kind: string;
+  id: string;
+  email: string | null;
+  windows: RateLimitWindow[];
+  error: string | null;
 }
 
 /** Why this agent has no LIVE plan figure, or undefined when it has one.

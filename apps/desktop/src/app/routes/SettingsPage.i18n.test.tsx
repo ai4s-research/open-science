@@ -34,16 +34,17 @@ describe("Settings page strings (i18n)", () => {
   });
 
   it("renders each section's own title and disconnected-runtime prompt", async () => {
-    const runtime = renderAt("/settings/runtime");
-    expect(await screen.findByText("Agent runtime")).toBeInTheDocument();
-    runtime.unmount();
+    // An old link still lands: Runtime is now Network.
+    const network = renderAt("/settings/runtime");
+    expect(await screen.findByRole("heading", { level: 1, name: "Network" })).toBeInTheDocument();
+    network.unmount();
 
     const connectors = renderAt("/settings/connectors");
     expect(await screen.findByText("MCP servers")).toBeInTheDocument();
     expect(screen.getByText("Connect the runtime to configure MCP servers.")).toBeInTheDocument();
     connectors.unmount();
 
-    renderAt("/settings/models");
+    renderAt("/settings/agents");
     expect(await screen.findByText("Connect the runtime to configure models.")).toBeInTheDocument();
   });
 
@@ -60,11 +61,11 @@ describe("Settings page strings (i18n)", () => {
     let view: ReturnType<typeof renderAt> | undefined;
     try {
       useRuntimeStore.setState({ status: "ready", defaultModel: null });
-      view = renderAt("/settings/models");
+      view = renderAt("/settings/agents");
       // No client behind this render: the Models card sits in its loading
       // state while the separate Providers card is already on screen.
       expect(await screen.findByText("Loading the model catalog…")).toBeInTheDocument();
-      expect(screen.getByRole("heading", { level: 2, name: "Providers" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 2, name: "OpenCode providers" })).toBeInTheDocument();
       // The Providers card shows its content outright — adding a provider is
       // the common task here and used to sit behind a "Manage" click.
       expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();

@@ -115,16 +115,9 @@
       "tokens": "토큰",
       "today": "오늘",
       "days7": "7일",
-      "workbench": "OSD",
-      "cliNote": "직접 쓰는 터미널에서 실행된 작업입니다. 여기에는 사용량만 기록됩니다.",
-      "allAgents": "모든 에이전트",
-      "detailed": "자세히",
-      "compact": "간단히",
-      "detailedHint": "모든 기간을 막대와 백분율로 표시",
-      "compactHint": "한도에 가장 가까운 기간만",
-      "detailAria": "사용량 표시 밀도",
       "resetsIn": "{{duration}} 후 초기화",
-      "asOf": "{{age}} 전 기준"
+      "asOf": "{{age}} 전 기준",
+      "otherAccount": "곧 한도에 도달합니다. 다른 계정으로 새 대화를 시작하면 계속할 수 있습니다."
     },
     "awake": {
       "title": "절전 방지",

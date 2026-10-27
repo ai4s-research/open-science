@@ -3,8 +3,8 @@
     "back": "返回应用",
     "general": "通用",
     "appearance": "外观",
-    "models": "模型",
-    "runtime": "运行时",
+    "agents": "智能体",
+    "network": "网络",
     "connectors": "连接器",
     "compute": "计算",
     "privacy": "隐私",
@@ -46,8 +46,8 @@
     "subtitle": "此处的所有设置都配置内置的 OpenCode 运行时——一份配置，无需重复。"
   },
   "runtime": {
-    "title": "代理运行时",
-    "hint": "opencode serve，通过其 HTTP + SSE API 驱动",
+    "title": "网络",
+    "hint": "智能体和工具怎样连到互联网，以及 Python 工具从哪里下载。",
     "connect": "连接",
     "disconnect": "断开连接",
     "serverLabel": "服务器",
@@ -70,13 +70,11 @@
     "mirrorPython": "Python 下载",
     "mirrorPypiPlaceholder": "https://pypi.tuna.tsinghua.edu.cn/simple",
     "mirrorPythonPlaceholder": "https://mirror.example.com/python-build-standalone",
-    "mirrorHint": "可选镜像,仅在设置 Python 工具(Jupyter、科学数据库)下载时使用,适合 pypi.org / github.com 访问缓慢的网络。留空则使用默认源。"
+    "mirrorHint": "可选镜像,仅在设置 Python 工具(Jupyter、科学数据库)下载时使用,适合 pypi.org / github.com 访问缓慢的网络。留空则使用默认源。",
+    "serverTitle": "OpenCode 服务",
+    "serverHint": "应用驱动的 OpenCode。内置的会自动启动；只有使用自己的 opencode serve 时才填写地址。"
   },
   "acp": {
-    "title": "智能体",
-    "hint": "对话可以由哪些智能体运行，以及新对话默认用哪个。在输入框里可以为每个对话单独选。",
-    "bundled": "OpenCode（内置）",
-    "bundledHint": "内置运行时，含模型供应商、技能、计划模式与已保存的会话。",
     "add": "添加智能体",
     "edit": "编辑",
     "remove": "删除",
@@ -110,8 +108,8 @@
     "privacy": "仅访问公开的 GitHub Releases API。不会发送工作区文件或 API 密钥。"
   },
   "model": {
-    "title": "模型",
-    "hint": "每个新会话默认使用的模型。可选范围由下方的 Providers 提供。",
+    "title": "OpenCode 默认模型",
+    "hint": "新的 OpenCode 对话默认使用的模型。可选范围由下方的供应商提供。",
     "connectPrompt": "连接运行时以配置模型。",
     "notSet": "未设置——选择一个默认模型",
     "providersDivider": "供应商",
@@ -139,7 +137,7 @@
     "noProvidersHint": "在下方连接一个 Provider。"
   },
   "providers": {
-    "title": "供应商",
+    "title": "OpenCode 供应商",
     "hint": "登录认证、自定义端点和导入的 OpenCode 登录信息",
     "webHint": "已连接的供应商 — 浏览器端只读",
     "webNote": "API 密钥和自定义端点在运行 workbench 的那台机器上设置：桌面应用里，或者无窗口运行时用 `osd auth set`。凭据不会经过网关。",
@@ -529,8 +527,8 @@
     "disabledNote": "记忆已关闭，该文件当前不会被加载。"
   },
   "agentModels": {
-    "title": "各智能体的模型与思考强度",
-    "hint": "让主智能体用强模型推理，同时把审阅、探索类子智能体放在快模型上，并分别固定各自的思考强度。",
+    "title": "OpenCode 各角色的模型与思考强度",
+    "hint": "让主角色用强模型推理，同时把审阅、探索类角色放在快模型上，并分别设定各自的思考强度。",
     "noModels": "请先接入一个供应商再选择模型。",
     "followDefault": "跟随默认",
     "modelFor": "{{agent}} 使用的模型",
@@ -539,7 +537,7 @@
     "retiredOption": "{{model}} — 已下架",
     "primaryHint": "build 与 plan 负责运行你发出的消息。这里设定的模型会生效，除非你在某个会话内单独选择了模型——那个选择只对该会话生效。",
     "group": {
-      "conversation": "你会对话的 Agent",
+      "conversation": "你会对话的角色",
       "utility": "工作台自己调用的"
     },
     "utilityHint": "运行时自己做的短小机械活——这里用快模型有百利无一害。",
@@ -609,5 +607,37 @@
     "reachable": "已安装且可用。每个会话首次使用前会先请求你确认。",
     "notReachable": "已安装，但这台机器上没有它的命令行工具，智能体够不着。运行 ego lite 自带的安装流程即可补上。",
     "tradeoff": "它不是上面那个浏览器连接器。上面那个驱动的是本应用自己管理的独立浏览器、用的是隔离的配置；而它是你日常用的浏览器，带着你真实的登录态——这正是它好用的原因，也是它要先问一句的原因。仅 macOS。"
+  },
+  "agents": {
+    "title": "智能体",
+    "hint": "对话可以由哪些智能体运行。这里选中的是新对话的默认值，输入框里可以为每个对话另选。",
+    "builtIn": "内置",
+    "opencodeHint": "使用下方设置的供应商和模型。",
+    "availableTitle": "可安装",
+    "availableHint": "安装到本机后，应用就能运行这些智能体。",
+    "detecting": "正在查找已安装的智能体…",
+    "allInstalled": "应用支持的智能体都已安装。",
+    "detectHint": "安装完成后，重新检测一次。",
+    "detectAgain": "重新检测",
+    "copy": "复制命令",
+    "copied": "命令已复制",
+    "copyFailed": "命令复制失败",
+    "install": "在终端里安装"
+  },
+  "accounts": {
+    "reading": "正在读取登录信息…",
+    "defaultSignedOut": "未登录",
+    "default": "默认",
+    "remove": "移除账号",
+    "removeConfirm": "移除 {{account}}？它的对话仍保留在历史记录里。",
+    "add": "添加账号",
+    "sharedHint": "所有账号共用这个智能体的历史记录、技能、命令和设置。每个对话固定使用它创建时选的账号。",
+    "waiting": "等待你在浏览器里完成登录",
+    "openLink": "打开登录页面",
+    "privateHint": "登录另一个账号时，请在无痕窗口里打开链接。页面给出代码的话，粘贴到下面。",
+    "codePlaceholder": "登录页面给出的代码",
+    "submitCode": "发送",
+    "added": "已添加 {{account}}",
+    "failed": "登录没有完成"
   }
 }
