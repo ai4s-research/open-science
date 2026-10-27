@@ -30,6 +30,7 @@ import { TerminalSearch } from "./TerminalSearch";
 import { isJumpChord } from "@/components/jump-palette/JumpPalette";
 import { createKeyTranslator, isModifierKey, releaseImeGate } from "./terminalKeys";
 import { readRepaint, spliceRepaint, type Repaint } from "./terminalResize";
+import { openEscape } from "./terminalScreen";
 
 /**
  * A real shell in a pane.
@@ -123,12 +124,14 @@ export function TerminalPane({
         { Terminal },
         { FitAddon },
         { SearchAddon },
+        { SerializeAddon },
         { Unicode11Addon },
         { WebglAddon },
       ] = await Promise.all([
         import("@xterm/xterm"),
         import("@xterm/addon-fit"),
         import("@xterm/addon-search"),
+        import("@xterm/addon-serialize"),
         import("@xterm/addon-unicode11"),
         import("@xterm/addon-webgl"),
         import("@xterm/xterm/css/xterm.css"),
@@ -137,8 +140,11 @@ export function TerminalPane({
       if (disposed) return;
 
       const container = document.createElement("div");
-      // Clips the old grid while a resize waits to be applied.
-      container.className = "h-full w-full overflow-hidden";
+      // Clips the old grid while a resize waits to be applied. Clip, not
+      // hidden: a hidden box still scrolls, and the browser scrolls it to keep
+      // an input method's composition in view, shifting the whole grid left
+      // under the text being typed at the right edge.
+      container.className = "h-full w-full overflow-clip";
       parent.appendChild(container);
 
       const term = new Terminal({
@@ -149,8 +155,10 @@ export function TerminalPane({
       });
       const fit = new FitAddon();
       const search = new SearchAddon();
+      const serialize = new SerializeAddon();
       term.loadAddon(fit);
       term.loadAddon(search);
+      term.loadAddon(serialize);
       // xterm's default width table is Unicode 6, where emoji and many symbols
       // are one cell; Claude Code and Codex lay out with current Unicode, where
       // they are two. Every such glyph would shift the rest of its line by one.
@@ -222,7 +230,54 @@ export function TerminalPane({
         return cwd ?? null;
       });
 
-      const created = await terminalTransport.open(leafId, cwd, term.cols, term.rows);
+      const opened = await terminalTransport.open(leafId, cwd, term.cols, term.rows);
+      const created = opened.created;
+      // A running shell's recent output was drawn at the shell's size: the
+      // pane starts there, and the resize below takes it to its own.
+      if (!created && opened.cols && opened.rows) term.resize(opened.cols, opened.rows);
+      // Drawn in place of the output it covers (see terminal.rs), if the
+      // output after it is still there to follow on with.
+      let screen = created ? null : (opened.screen ?? null);
+      let first = true;
+
+      // How far into the shell's output the pane has got (desktop): `received`
+      // up to the last chunk in, `written` up to the last one xterm has drawn.
+      // The pane's screen is saved at a moment the two agree.
+      let received: number | undefined;
+      let written: number | undefined;
+      // The escape sequence the output so far ends inside, if any.
+      let cutOff = "";
+      let saveTimer: ReturnType<typeof setTimeout> | undefined;
+      const writeOut = (text: string) => {
+        const upTo = received;
+        term.write(text, () => {
+          written = upTo;
+          scheduleSave(SAVE_SCREEN_MS);
+        });
+      };
+      const scheduleSave = (delay: number) => {
+        if (!terminalTransport.saveScreen || saveTimer || written === undefined) return;
+        saveTimer = setTimeout(saveScreen, delay);
+      };
+      const saveScreen = () => {
+        saveTimer = undefined;
+        // Mid-resize, output not drawn yet, inside an escape sequence, or a
+        // wrap pending at the end of a full row: a saved screen would not
+        // carry on from that offset as the live one does.
+        const buffer = term.buffer.active;
+        if (reply || written === undefined || written !== received || cutOff || buffer.cursorX >= term.cols) {
+          return scheduleSave(SAVE_RETRY_MS);
+        }
+        void terminalTransport
+          .saveScreen?.(leafId, {
+            end: written,
+            cols: term.cols,
+            rows: term.rows,
+            data: serialize.serialize({ scrollback: TERMINAL_OPTIONS.scrollback }),
+          })
+          .catch(() => {});
+      };
+
       // Output that answers a resize the pane is still applying; see below.
       let reply: {
         cols: number;
@@ -232,17 +287,28 @@ export function TerminalPane({
         /** The repaint is being written; later output only queues. */
         writing: boolean;
       } | null = null;
-      const unsubscribe = await terminalTransport.subscribe(leafId, {
-        onData: (chunk) => {
-          if (!reply) return term.write(chunk);
-          reply.data += chunk;
-          if (reply.writing) return;
-          const repaint = readRepaint(reply.data, reply.rows);
-          if (repaint) applyResize(repaint);
+      const unsubscribe = await terminalTransport.subscribe(
+        leafId,
+        {
+          onData: (chunk, at) => {
+            if (first) {
+              first = false;
+              if (screen && at?.from === screen.end) term.write(screen.data);
+              screen = null;
+            }
+            if (at?.end !== undefined) received = at.end;
+          cutOff = openEscape(cutOff + chunk);
+            if (!reply) return writeOut(chunk);
+            reply.data += chunk;
+            if (reply.writing) return;
+            const repaint = readRepaint(reply.data, reply.rows);
+            if (repaint) applyResize(repaint);
+          },
+          onExit: () => term.write(`\r\n${t("terminal.exited")}\r\n`),
+          onReset: () => term.reset(),
         },
-        onExit: () => term.write(`\r\n${t("terminal.exited")}\r\n`),
-        onReset: () => term.reset(),
-      });
+        screen?.end,
+      );
       const input = term.onData((data) => {
         // The first keystroke is what makes this terminal worth asking about
         // before it is closed.
@@ -273,7 +339,7 @@ export function TerminalPane({
         const resizeAndWrite = (text: string) => {
           reply = null;
           term.resize(cols, rows);
-          term.write(text);
+          writeOut(text);
         };
         if (repaint === null) return resizeAndWrite(data);
         // Output arriving meanwhile queues behind the repaint.
@@ -356,6 +422,7 @@ export function TerminalPane({
           themeWatch.disconnect();
           if (queued) cancelAnimationFrame(queued);
           clearTimeout(settle);
+          clearTimeout(saveTimer);
           if (reply) clearTimeout(reply.timer);
         },
       });
@@ -524,6 +591,13 @@ const findControls = new Map<string, FindControls>();
 /** How long the pane must hold still before the shell is told its new size:
  *  longer than a frame, shorter than a person notices after letting go. */
 const RESIZE_SETTLE_MS = 150;
+
+/** How often, at most, a pane saves its screen while output comes in: the
+ *  output since is replayed on a reopen, so it only has to be well within the
+ *  host's 256 KB of recent output. */
+const SAVE_SCREEN_MS = 10_000;
+/** Retry delay when the screen could not be saved just then. */
+const SAVE_RETRY_MS = 500;
 
 /** How long a resize waits for Claude Code's repaint before xterm resizes
  *  anyway. Claude Code answers within 10ms; a shell waits this long. */

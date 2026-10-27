@@ -9,14 +9,22 @@
 //
 // This module is the host's client. It keeps, per terminal it has attached,
 // the output stream the window and web clients read.
+//
+// A reopened pane does not get the shell's raw recent output: that was drawn
+// for whatever widths the pane had over time, with the cursor moves of the
+// programs that drew it, so replayed into one size it lands in the wrong
+// places and the resize repaints the pane once spliced in come back as
+// copies. The window saves its screen instead (`terminal_save_screen`), with
+// the offset into the output it covers; a reopen draws that screen at the size
+// it was saved at and replays only the output after it.
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
-use osd_core::termd::{self, Client, Output, Spawn};
+use osd_core::termd::{self, strip_queries, Client, Output, Spawn};
 use portable_pty::CommandBuilder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 
@@ -110,25 +118,64 @@ pub fn terminal_open(
     cwd: Option<String>,
     cols: u16,
     rows: u16,
-) -> Result<bool, String> {
+) -> Result<Opened, String> {
     open(&app, id, cwd, cols, rows)
 }
 
-/// True when a new shell was started; false when `id` was already running
-/// (a remount, a web client sharing these Screens, or a shell that outlived
-/// the last app). Only a new shell may be sent the pane's startup command.
-fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) -> Result<bool, String> {
+#[derive(Serialize)]
+pub struct Opened {
+    /// True when a new shell was started; false when `id` was already running
+    /// (a remount, a web client sharing these Screens, or a shell that
+    /// outlived the last app). Only a new shell may be sent the pane's
+    /// startup command.
+    pub created: bool,
+    /// The size the shell runs at: what its recent output was drawn for. A
+    /// pane reopening on a running shell starts at it and resizes from there.
+    pub cols: u16,
+    pub rows: u16,
+    /// The pane's saved screen, when it fits this shell at this size.
+    pub screen: Option<Screen>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Screen {
+    /// The offset into the shell's output that the screen covers up to.
+    pub end: u64,
+    /// The screen, as escape sequences that redraw it.
+    pub data: String,
+}
+
+fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) -> Result<Opened, String> {
     let state = app.state::<TerminalState>();
     let mut inner = state.0.lock().map_err(|_| "terminal state poisoned")?;
-    if inner.terminals.contains_key(&id) {
-        return Ok(false);
+    if let Some(t) = inner.terminals.get(&id) {
+        let (rows, cols) = t.size;
+        return Ok(Opened { created: false, cols, rows, screen: load_screen(app, &id, t.pid, cols, rows) });
     }
 
+    // A running shell keeps its size: opening it at the pane's would make its
+    // program repaint before the pane has drawn what came before.
+    let running = inner.call(app, |host| host.list())?.into_iter().find(|t| t.id == id);
+    let (cols, rows) = running.map_or((cols, rows), |t| (t.cols, t.rows));
     let spawn = Spawn::from_command(&shell_command(app, &id, cwd), cols, rows);
     let (created, pid) = inner.call(app, |host| host.open(&id, &spawn))?;
-    let stream = inner.host.as_ref().ok_or("terminal host gone")?.attach(&id)?;
+    let screen = if created {
+        forget_screen(app, &id);
+        None
+    } else {
+        load_screen(app, &id, pid, cols, rows)
+    };
+    let host = inner.host.as_ref().ok_or("terminal host gone")?;
+    let (output, stream) = if host.welcome.offsets {
+        let (recent, from, stream) = host.attach_from(&id, screen.as_ref().map_or(0, |s| s.end))?;
+        let mut output = Output::starting_at(from);
+        output.push(&recent);
+        (output, stream)
+    } else {
+        (Output::default(), host.attach(&id)?)
+    };
 
-    let output = Arc::new(Mutex::new(Output::default()));
+    let output = Arc::new(Mutex::new(output));
     let reader_output = output.clone();
     let reader_app = app.clone();
     let reader_id = id.clone();
@@ -152,8 +199,56 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
         }
     });
 
-    inner.terminals.insert(id, Attached { output, pid, size: (rows.max(1), cols.max(1)) });
-    Ok(created)
+    let size = (rows.max(1), cols.max(1));
+    inner.terminals.insert(id, Attached { output, pid, size });
+    Ok(Opened { created, cols: size.1, rows: size.0, screen })
+}
+
+/// Where a pane's screen is saved. Only plain ids name a file.
+fn screen_path(app: &AppHandle, id: &str) -> Option<PathBuf> {
+    let plain = !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    plain.then(|| Some(data_dir(app).ok()?.join("terminal-screens").join(format!("{id}.json"))))?
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedScreen {
+    /// The shell it shows: an id is reused once its shell has exited.
+    pid: Option<u32>,
+    cols: u16,
+    rows: u16,
+    #[serde(flatten)]
+    screen: Screen,
+}
+
+/// The saved screen of `id`, if it shows this shell at this size.
+fn load_screen(app: &AppHandle, id: &str, pid: Option<u32>, cols: u16, rows: u16) -> Option<Screen> {
+    let text = std::fs::read_to_string(screen_path(app, id)?).ok()?;
+    let saved: SavedScreen = serde_json::from_str(&text).ok()?;
+    (pid.is_some() && saved.pid == pid && saved.cols == cols && saved.rows == rows).then_some(saved.screen)
+}
+
+fn forget_screen(app: &AppHandle, id: &str) {
+    if let Some(path) = screen_path(app, id) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// The window's screen of `id` as of offset `end` of its output, drawn at
+/// `cols` x `rows`: what a reopen draws instead of replaying that output.
+#[tauri::command(async)]
+pub fn terminal_save_screen(app: AppHandle, id: String, end: u64, cols: u16, rows: u16, data: String) -> Result<(), String> {
+    let pid = {
+        let state = app.state::<TerminalState>();
+        let inner = state.0.lock().map_err(|_| "terminal state poisoned")?;
+        inner.terminals.get(&id).ok_or("no such terminal")?.pid
+    };
+    let path = screen_path(&app, &id).ok_or("not a pane id")?;
+    let dir = path.parent().ok_or("no folder")?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let saved = SavedScreen { pid, cols, rows, screen: Screen { end, data } };
+    let tmp = dir.join(format!(".{id}.tmp"));
+    std::fs::write(&tmp, serde_json::to_vec(&saved).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
 /// The command a pane's shell starts with. Built here, not in the host: the
@@ -187,28 +282,53 @@ fn shell_command(app: &AppHandle, id: &str, cwd: Option<String>) -> CommandBuild
     command
 }
 
-/// A terminal's output, for the window: recent output first (all of it that a
-/// reattached pane missed), then live, then `exit`.
-#[derive(Clone, Serialize)]
-#[serde(tag = "kind", content = "data", rename_all = "lowercase")]
+/// A terminal's output, for the window: recent output first (from `since`, or
+/// all of it when that is no longer held), then live, then `exit`. Each chunk
+/// says the offset it ends at, and the first where it starts, when known.
+#[derive(Clone, Serialize, Debug, PartialEq)]
+#[serde(tag = "kind", rename_all = "lowercase")]
 pub enum TerminalEvent {
-    Data(String),
+    Data {
+        data: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        from: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        end: Option<u64>,
+    },
     Exit,
 }
 
 #[tauri::command]
-pub fn terminal_subscribe(app: AppHandle, id: String, on_event: Channel<TerminalEvent>) {
-    let rx = subscribe(&app, &id);
+pub fn terminal_subscribe(app: AppHandle, id: String, since: Option<u64>, on_event: Channel<TerminalEvent>) {
+    let followed = follow(&app, &id, since.unwrap_or(0));
     std::thread::spawn(move || {
-        if let Some(rx) = rx {
-            for chunk in rx {
-                if on_event.send(TerminalEvent::Data(chunk)).is_err() {
+        if let Some((recent, from, rx)) = followed {
+            for event in output_events(recent, from, rx) {
+                if on_event.send(event).is_err() {
                     return; // The window is gone.
                 }
             }
         }
         let _ = on_event.send(TerminalEvent::Exit);
     });
+}
+
+/// The recent output, its queries taken out (see `strip_queries`), then each
+/// live chunk, every one with the offset it ends at.
+fn output_events(recent: String, from: Option<u64>, rx: Receiver<String>) -> impl Iterator<Item = TerminalEvent> {
+    let mut end = from.map(|f| f + recent.len() as u64);
+    let first = TerminalEvent::Data { data: strip_queries(&recent), from, end };
+    std::iter::once(first).chain(rx.into_iter().map(move |chunk| {
+        end = end.map(|e| e + chunk.len() as u64);
+        TerminalEvent::Data { data: chunk, from: None, end }
+    }))
+}
+
+fn follow(app: &AppHandle, id: &str, since: u64) -> Option<(String, Option<u64>, Receiver<String>)> {
+    let state = app.state::<TerminalState>();
+    let inner = state.0.lock().ok()?;
+    let mut output = inner.terminals.get(id)?.output.lock().ok()?;
+    Some(output.follow(since))
 }
 
 fn subscribe(app: &AppHandle, id: &str) -> Option<Receiver<String>> {
@@ -284,6 +404,7 @@ fn close(app: &AppHandle, id: &str) -> Result<(), String> {
     inner.terminals.remove(id);
     let result = inner.call(app, |host| host.close(id));
     crate::terminal_env::forget(app, id);
+    forget_screen(app, id);
     result
 }
 
@@ -307,6 +428,7 @@ pub fn prune(app: &AppHandle, open: &[String]) {
     for t in running {
         if !t.id.starts_with('w') && !open.contains(t.id.as_str()) && !inner.terminals.contains_key(&t.id) {
             let _ = inner.call(app, |host| host.close(&t.id));
+            forget_screen(app, &t.id);
         }
     }
 }
@@ -317,7 +439,7 @@ pub struct GatewayTerminals(pub AppHandle);
 
 impl osd_core::gateway::Terminals for GatewayTerminals {
     fn open(&self, id: &str, cwd: Option<String>, cols: u16, rows: u16) -> Result<bool, String> {
-        open(&self.0, id.to_string(), cwd, cols, rows)
+        open(&self.0, id.to_string(), cwd, cols, rows).map(|o| o.created)
     }
     fn write(&self, id: &str, data: &str) -> Result<(), String> {
         write(&self.0, id, data)
@@ -350,9 +472,27 @@ mod tests {
 
     #[test]
     fn the_window_hears_data_then_exit() {
-        let data = serde_json::to_value(TerminalEvent::Data("$ ".into())).unwrap();
-        assert_eq!(data, serde_json::json!({ "kind": "data", "data": "$ " }));
+        let data = TerminalEvent::Data { data: "$ ".into(), from: None, end: Some(9) };
+        assert_eq!(serde_json::to_value(data).unwrap(), serde_json::json!({ "kind": "data", "data": "$ ", "end": 9 }));
         let exit = serde_json::to_value(TerminalEvent::Exit).unwrap();
         assert_eq!(exit, serde_json::json!({ "kind": "exit" }));
+    }
+
+    #[test]
+    fn each_chunk_says_where_it_ends_and_the_replay_where_it_starts() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send("中".to_string()).unwrap();
+        drop(tx);
+        let events: Vec<_> = output_events("\x1b[6n$ ".into(), Some(10), rx).collect();
+        assert_eq!(
+            events,
+            [
+                TerminalEvent::Data { data: "$ ".into(), from: Some(10), end: Some(16) },
+                TerminalEvent::Data { data: "中".into(), from: None, end: Some(19) },
+            ]
+        );
+        let (_tx, rx) = std::sync::mpsc::channel::<String>();
+        let unknown: Vec<_> = output_events("$ ".into(), None, rx).take(1).collect();
+        assert_eq!(unknown, [TerminalEvent::Data { data: "$ ".into(), from: None, end: None }]);
     }
 }

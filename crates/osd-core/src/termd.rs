@@ -10,7 +10,10 @@
 // token from the host's state file (owner-only, in the app's data folder).
 // A control connection then sends requests and reads one reply each; an
 // `attach` turns its connection into that terminal's output stream: recent
-// output first, then live output, then `{"exit":true}`.
+// output first, then live output, then `{"exit":true}`. An attach that names
+// `since` (an offset into the terminal's output, in bytes) gets the output
+// from there on when it is still held, unaltered, with `from` saying where it
+// starts; a host that can do this says `offsets` in its welcome.
 //
 // Compatibility: a host outlives the app that started it, so a newer app talks
 // to an older host. Requests and replies only ever gain optional fields; a
@@ -52,10 +55,18 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct Output {
     recent: VecDeque<String>,
     recent_len: usize,
+    /// Where `recent` starts in the terminal's whole output, in bytes. None in
+    /// a copy that joined the stream at an unknown point (from an older host).
+    start: Option<u64>,
     readers: Vec<Sender<String>>,
 }
 
 impl Output {
+    /// The output of a terminal that has printed `at` bytes before it.
+    pub fn starting_at(at: u64) -> Output {
+        Output { start: Some(at), ..Output::default() }
+    }
+
     pub fn push(&mut self, chunk: &str) {
         self.readers.retain(|tx| tx.send(chunk.to_string()).is_ok());
         self.recent_len += chunk.len();
@@ -63,8 +74,29 @@ impl Output {
         while self.recent_len > RECENT_BYTES && self.recent.len() > 1 {
             if let Some(old) = self.recent.pop_front() {
                 self.recent_len -= old.len();
+                if let Some(start) = &mut self.start {
+                    *start += old.len() as u64;
+                }
             }
         }
+    }
+
+    /// Output from offset `since` on, unaltered, and the offset it starts at;
+    /// all recent output when `since` is no longer held. Then live output.
+    pub fn follow(&mut self, since: u64) -> (String, Option<u64>, Receiver<String>) {
+        let (tx, rx) = channel();
+        let recent = self.recent.iter().map(String::as_str).collect::<String>();
+        let skip = self
+            .start
+            .and_then(|start| since.checked_sub(start))
+            .and_then(|skip| usize::try_from(skip).ok())
+            .filter(|&skip| skip <= recent.len() && recent.is_char_boundary(skip));
+        let (text, from) = match (skip, self.start) {
+            (Some(skip), _) => (recent[skip..].to_string(), Some(since)),
+            (None, start) => (recent, start),
+        };
+        self.readers.push(tx);
+        (text, from, rx)
     }
 
     /// Recent output, then everything after it. Closes when the shell exits.
@@ -245,7 +277,11 @@ enum Request {
     Resize { id: String, cols: u16, rows: u16 },
     Close { id: String },
     List,
-    Attach { id: String },
+    Attach {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<u64>,
+    },
     Quit,
 }
 
@@ -273,6 +309,9 @@ pub struct Welcome {
     pub version: String,
     pub protocol: u32,
     pub pid: u32,
+    /// The host takes `since` on attach (see the top of this file).
+    #[serde(default)]
+    pub offsets: bool,
 }
 
 /// Where a running host can be reached. Written by the host, owner-only.
@@ -419,7 +458,7 @@ impl Host {
             return send(&mut out, &json!({ "error": "not authorized" }));
         }
         out.set_read_timeout(None)?;
-        send(&mut out, &Welcome { version: VERSION.into(), protocol: PROTOCOL, pid: std::process::id() })?;
+        send(&mut out, &Welcome { version: VERSION.into(), protocol: PROTOCOL, pid: std::process::id(), offsets: true })?;
         loop {
             let request: Request = match receive(&mut input) {
                 Ok(Some(r)) => r,
@@ -431,7 +470,7 @@ impl Host {
                 Err(e) => return Err(e),
             };
             match request {
-                Request::Attach { id } => return self.stream(&id, out),
+                Request::Attach { id, since } => return self.stream(&id, since, out),
                 Request::Quit => {
                     if self.terms.lock().map(|t| t.is_empty()).unwrap_or(false) {
                         if read_state(&self.dir).is_ok_and(|s| s.port == self.port) {
@@ -514,7 +553,7 @@ impl Host {
         drop(pair.slave);
         let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-        let output = Arc::new(Mutex::new(Output::default()));
+        let output = Arc::new(Mutex::new(Output::starting_at(0)));
 
         let host = self.clone();
         let reader_output = output.clone();
@@ -554,12 +593,19 @@ impl Host {
 
     /// Serve one terminal's output on this connection until the shell exits
     /// or the reader goes away.
-    fn stream(&self, id: &str, mut out: TcpStream) -> std::io::Result<()> {
-        let rx = self
-            .terms
-            .lock()
-            .ok()
-            .and_then(|terms| terms.get(id).and_then(|t| t.output.lock().ok().map(|mut o| o.subscribe())));
+    fn stream(&self, id: &str, since: Option<u64>, mut out: TcpStream) -> std::io::Result<()> {
+        let output = self.terms.lock().ok().and_then(|terms| terms.get(id).map(|t| t.output.clone()));
+        let rx = match (output, since) {
+            (Some(output), Some(since)) => {
+                let Ok(mut output) = output.lock() else { return send(&mut out, &json!({ "exit": true })) };
+                let (text, from, rx) = output.follow(since);
+                drop(output);
+                send(&mut out, &json!({ "data": text, "from": from }))?;
+                Some(rx)
+            }
+            (Some(output), None) => output.lock().ok().map(|mut o| o.subscribe()),
+            (None, _) => None,
+        };
         if let Some(rx) = rx {
             for chunk in rx {
                 send(&mut out, &json!({ "data": chunk }))?;
@@ -673,8 +719,21 @@ impl Client {
     pub fn attach(&self, id: &str) -> Result<Attached, String> {
         let (input, mut out, _) = dial(self.port, &self.token)?;
         out.set_read_timeout(None).map_err(|e| e.to_string())?;
-        send(&mut out, &Request::Attach { id: id.into() }).map_err(|e| e.to_string())?;
+        send(&mut out, &Request::Attach { id: id.into(), since: None }).map_err(|e| e.to_string())?;
         Ok(Attached(input))
+    }
+
+    /// Like `attach`, from offset `since` of `id`'s output (see `Output::follow`):
+    /// that output, where it starts, then live output. Only for a host that
+    /// says `offsets`, which answers at once.
+    pub fn attach_from(&self, id: &str, since: u64) -> Result<(String, u64, Attached), String> {
+        let (mut input, mut out, _) = dial(self.port, &self.token)?;
+        send(&mut out, &Request::Attach { id: id.into(), since: Some(since) }).map_err(|e| e.to_string())?;
+        let first: Value = receive(&mut input).map_err(|e| e.to_string())?.ok_or("terminal host closed")?;
+        out.set_read_timeout(None).map_err(|e| e.to_string())?;
+        let text = first.get("data").and_then(Value::as_str).ok_or("no such terminal")?;
+        let from = first.get("from").and_then(Value::as_u64).ok_or("terminal host sent no offset")?;
+        Ok((text.to_string(), from, Attached(input)))
     }
 }
 
@@ -813,6 +872,34 @@ mod tests {
     }
 
     #[test]
+    fn a_reader_can_follow_on_from_an_offset_it_has_seen() {
+        let mut out = Output::starting_at(0);
+        out.push("\x1b[6n$ ls\r\n");
+        out.push("a.txt\r\n");
+        // From where an earlier reader left off: the rest, unaltered.
+        let (text, from, rx) = out.follow(10);
+        assert_eq!((text.as_str(), from), ("a.txt\r\n", Some(10)));
+        out.push("$ ");
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), ["$ "]);
+        // From where nothing is held any more, or mid-character: everything.
+        let (text, from, _) = out.follow(99);
+        assert_eq!((text.as_str(), from), ("\x1b[6n$ ls\r\na.txt\r\n$ ", Some(0)));
+        let mut wide = Output::starting_at(7);
+        wide.push("中");
+        assert_eq!(wide.follow(8).1, Some(7));
+        assert_eq!(wide.follow(10).0, "");
+        // Offsets move with what is dropped from the front.
+        let mut long = Output::starting_at(0);
+        let chunk = "x".repeat(100 * 1024);
+        for _ in 0..5 {
+            long.push(&chunk);
+        }
+        assert_eq!(long.follow(0).1, Some(5 * chunk.len() as u64 - long.recent_len as u64));
+        // A copy that joined at an unknown point knows no offsets.
+        assert_eq!(Output::default().follow(0).1, None);
+    }
+
+    #[test]
     fn recent_output_is_capped_in_whole_chunks() {
         let mut out = Output::default();
         let chunk = "x".repeat(100 * 1024);
@@ -930,6 +1017,14 @@ mod tests {
         second.write("t1", "echo still-$((6*7))\n").unwrap();
         let seen = read_until(replay, "still-42");
         assert!(seen.contains("kept-42"), "recent output is replayed: {seen:?}");
+        // From an offset: the output after it, and where that is.
+        assert!(second.welcome.offsets);
+        let (all, from, _) = second.attach_from("t1", 0).unwrap();
+        assert_eq!(from, 0);
+        let at = all.find("still-42").unwrap() as u64;
+        let (rest, from, _) = second.attach_from("t1", at).unwrap();
+        assert_eq!(from, at);
+        assert!(rest.starts_with("still-42"), "{rest:?}");
 
         // Closing ends it, and its stream ends with it.
         let ending = second.attach("t1").unwrap();

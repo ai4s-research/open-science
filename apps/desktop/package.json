@@ -40,6 +40,7 @@
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@xterm/addon-fit": "^0.10",
     "@xterm/addon-search": "^0.16.0",
+    "@xterm/addon-serialize": "^0.13.0",
     "@xterm/addon-unicode11": "^0.8.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5",

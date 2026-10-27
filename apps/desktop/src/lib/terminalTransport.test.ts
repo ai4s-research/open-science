@@ -62,7 +62,7 @@ describe("the web transport", () => {
     who.account = null;
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    expect(await terminalTransport.open("p3", undefined, 80, 24)).toBe(true);
+    expect(await terminalTransport.open("p3", undefined, 80, 24)).toEqual({ created: true });
     expect(gatewayPost).toHaveBeenLastCalledWith("/v1/terminals/p3", { cwd: null, cols: 80, rows: 24 });
     await terminalTransport.close("p3");
     expect(fetchMock).not.toHaveBeenCalled();

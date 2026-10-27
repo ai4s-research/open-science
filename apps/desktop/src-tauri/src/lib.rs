@@ -288,6 +288,7 @@ pub fn run() {
             terminal::terminal_resize,
             terminal::terminal_close,
             terminal::terminal_subscribe,
+            terminal::terminal_save_screen,
             terminal::terminal_probe,
             terminal_env::terminal_env_prune,
             runs::record_run,

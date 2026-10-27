@@ -6,8 +6,10 @@ import { TerminalPane } from "./TerminalPane";
 vi.mock("@/lib/tauri", () => ({ isTauri: true, isMacUA: () => true }));
 vi.mock("./terminalLinks", () => ({ registerTerminalLinks: () => ({ dispose() {} }) }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
+// What `terminal_open` answers; a test sets a running shell's instead.
+const opened = vi.hoisted(() => ({ value: { created: true } as Record<string, unknown> }));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async () => null),
+  invoke: vi.fn(async (cmd: string) => (cmd === "terminal_open" ? opened.value : null)),
   Channel: class {
     onmessage: (message: unknown) => void = () => {};
   },
@@ -18,7 +20,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 const xterm = vi.hoisted(() => ({
   keyHandler: null as ((e: KeyboardEvent) => boolean) | null,
   cols: 80,
-  last: null as { options: Record<string, unknown> } | null,
+  last: null as { options: Record<string, unknown>; cols: number; rows: number } | null,
+  writes: [] as string[],
 }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -40,7 +43,10 @@ vi.mock("@xterm/xterm", () => ({
     }
     open() {}
     focus() {}
-    write() {}
+    write(data: string, done?: () => void) {
+      xterm.writes.push(data);
+      done?.();
+    }
     onData() {
       return { dispose() {} };
     }
@@ -64,9 +70,13 @@ const addon = class {
     return false;
   }
   clearDecorations() {}
+  serialize() {
+    return "<screen>";
+  }
 };
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: addon }));
 vi.mock("@xterm/addon-search", () => ({ SearchAddon: addon }));
+vi.mock("@xterm/addon-serialize", () => ({ SerializeAddon: addon }));
 vi.mock("@xterm/addon-unicode11", () => ({ Unicode11Addon: addon }));
 vi.mock("@xterm/addon-webgl", () => ({ WebglAddon: addon }));
 
@@ -185,5 +195,38 @@ describe("TerminalPane theme", () => {
     );
     delete root.dataset.theme;
     root.style.removeProperty("--surface");
+  });
+});
+
+describe("TerminalPane reopen", () => {
+  /** The output channel the pane subscribed with, and what it asked for. */
+  const subscribed = () => {
+    const call = vi.mocked(invoke).mock.calls.find(([cmd]) => cmd === "terminal_subscribe")!;
+    const args = call[1] as { since: number | null; onEvent: { onmessage: (m: unknown) => void } };
+    return { since: args.since, send: (m: unknown) => args.onEvent.onmessage(m) };
+  };
+  const reopen = async (leafId: string, screen: { end: number; data: string }) => {
+    opened.value = { created: false, cols: 61, rows: 22, screen };
+    vi.mocked(invoke).mockClear();
+    xterm.writes = [];
+    render(<TerminalPane leafId={leafId} />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_subscribe", expect.anything()));
+    opened.value = { created: true };
+  };
+
+  it("starts at the running shell's size, draws its saved screen, then the output after it", async () => {
+    await reopen("reopen-1", { end: 500, data: "<saved>" });
+    expect([xterm.last!.cols, xterm.last!.rows]).toEqual([61, 22]);
+    const { since, send } = subscribed();
+    expect(since).toBe(500);
+    send({ kind: "data", data: "after", from: 500, end: 505 });
+    send({ kind: "data", data: "live", end: 509 });
+    expect(xterm.writes).toEqual(["<saved>", "after", "live"]);
+  });
+
+  it("drops a saved screen the output no longer follows on from", async () => {
+    await reopen("reopen-2", { end: 500, data: "<saved>" });
+    subscribed().send({ kind: "data", data: "everything", from: 120, end: 900 });
+    expect(xterm.writes).toEqual(["everything"]);
   });
 });

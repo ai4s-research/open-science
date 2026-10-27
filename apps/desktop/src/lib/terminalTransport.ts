@@ -8,8 +8,16 @@ import { isTauri } from "./tauri";
 import { follow } from "./gatewayMux";
 import { gatewayOrigin, gatewayPost, gatewayToken, isGatewayWeb, layoutSource, signedInAccount } from "./webMode";
 
+/** Where a chunk sits in the shell's output, in bytes, when known (desktop). */
+export interface OutputOffsets {
+  /** Where the chunk starts: on the first chunk only. */
+  from?: number;
+  /** Where it ends. */
+  end?: number;
+}
+
 export interface TerminalOutput {
-  onData: (chunk: string) => void;
+  onData: (chunk: string, at?: OutputOffsets) => void;
   /** The shell exited. */
   onExit: () => void;
   /** The stream was re-established and will replay the shell's recent output:
@@ -17,21 +25,41 @@ export interface TerminalOutput {
   onReset: () => void;
 }
 
-export interface TerminalTransport {
+/** A pane's screen as of offset `end` of its shell's output. */
+export interface SavedScreen {
+  end: number;
+  data: string;
+}
+
+export interface Opened {
   /** True when a new shell was started; false when it was already running —
    *  then nothing may be typed into it on the pane's behalf. */
-  open(id: string, cwd: string | undefined, cols: number, rows: number): Promise<boolean>;
+  created: boolean;
+  /** The size the shell runs at, when known (desktop): its recent output was
+   *  drawn for it, so a pane reopening on it starts there. */
+  cols?: number;
+  rows?: number;
+  /** The pane's saved screen, when it fits that shell at that size. */
+  screen?: SavedScreen | null;
+}
+
+export interface TerminalTransport {
+  open(id: string, cwd: string | undefined, cols: number, rows: number): Promise<Opened>;
   write(id: string, data: string): Promise<void>;
   resize(id: string, cols: number, rows: number): Promise<void>;
   close(id: string): Promise<void>;
-  /** Start reading output; the returned function stops. */
-  subscribe(id: string, output: TerminalOutput): Promise<() => void>;
+  /** Start reading output (recent output first, from offset `since` when
+   *  that is still held); the returned function stops. */
+  subscribe(id: string, output: TerminalOutput, since?: number): Promise<() => void>;
+  /** Keep the pane's screen, drawn at `cols` x `rows`, for its next open.
+   *  Desktop only. */
+  saveScreen?(id: string, screen: SavedScreen & { cols: number; rows: number }): Promise<void>;
 }
 
 const desktop: TerminalTransport = {
   async open(id, cwd, cols, rows) {
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<boolean>("terminal_open", { id, cwd, cols, rows });
+    return invoke<Opened>("terminal_open", { id, cwd, cols, rows });
   },
   async write(id, data) {
     const { invoke } = await import("@tauri-apps/api/core");
@@ -47,19 +75,23 @@ const desktop: TerminalTransport = {
   },
   // Recent output first: a shell that outlived the last app (it lives in the
   // terminal host) comes back with its screen, not blank.
-  async subscribe(id, { onData, onExit }) {
+  async subscribe(id, { onData, onExit }, since) {
     const { invoke, Channel } = await import("@tauri-apps/api/core");
     let stopped = false;
-    const onEvent = new Channel<{ kind: "data"; data: string } | { kind: "exit" }>();
+    const onEvent = new Channel<({ kind: "data"; data: string } & OutputOffsets) | { kind: "exit" }>();
     onEvent.onmessage = (event) => {
       if (stopped) return;
-      if (event.kind === "data") onData(event.data);
+      if (event.kind === "data") onData(event.data, { from: event.from, end: event.end });
       else onExit();
     };
-    await invoke("terminal_subscribe", { id, onEvent });
+    await invoke("terminal_subscribe", { id, since: since ?? null, onEvent });
     return () => {
       stopped = true;
     };
+  },
+  async saveScreen(id, { end, cols, rows, data }) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("terminal_save_screen", { id, end, cols, rows, data });
   },
 };
 
@@ -118,7 +150,7 @@ const web: TerminalTransport = {
     const shell = shellOf(id);
     opened.set(id, shell);
     const res = await gatewayPost<{ created?: boolean }>(path(id), { cwd: cwd ?? null, cols, rows });
-    return res?.created === true;
+    return { created: res?.created === true };
   },
   async write(id, data) {
     await gatewayPost(path(id, "/input"), { data });
