@@ -68,10 +68,16 @@ impl Output {
     }
 
     /// Recent output, then everything after it. Closes when the shell exits.
+    ///
+    /// The replay has its queries taken out (see `strip_queries`): a fresh
+    /// screen would answer each one, and the answers would reach whatever runs
+    /// in the shell NOW as typed text: a prompt full of `rgb:1f1f/…` after the
+    /// app reopens on a shell where Claude Code once started.
     pub fn subscribe(&mut self) -> Receiver<String> {
         let (tx, rx) = channel();
-        for chunk in &self.recent {
-            let _ = tx.send(chunk.clone());
+        let replay = strip_queries(&self.recent.iter().map(String::as_str).collect::<String>());
+        if !replay.is_empty() {
+            let _ = tx.send(replay);
         }
         self.readers.push(tx);
         rx
@@ -81,6 +87,76 @@ impl Output {
     pub fn end(&mut self) {
         self.readers.clear();
     }
+}
+
+/// `text` without the sequences that ask the terminal something: device
+/// attributes and status (`CSI … c`, `CSI … n`), window reports (`CSI … t`),
+/// mode and version queries (`CSI … $ p`, `CSI > … q`, `CSI ? u`), colour
+/// queries (an OSC ending in `?`) and DCS setting queries (`$q`, `+q`). They
+/// draw nothing, so dropping them from a replay changes nothing on screen.
+pub fn strip_queries(text: &str) -> String {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut i, mut kept) = (0, 0);
+    while i < b.len() {
+        if b[i] != 0x1b || i + 1 >= b.len() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let (end, query) = match b[i + 1] {
+            b'[' => {
+                let mut j = i + 2;
+                while j < b.len() && (0x20..=0x3f).contains(&b[j]) {
+                    j += 1;
+                }
+                if j >= b.len() {
+                    break; // cut off at the end: leave it
+                }
+                let body = &text[i + 2..j];
+                let query = match b[j] {
+                    b'c' | b'n' | b't' => true,
+                    b'p' => body.ends_with('$'),
+                    b'q' => body.starts_with('>'),
+                    b'u' => body == "?",
+                    _ => false,
+                };
+                (j + 1, query)
+            }
+            kind @ (b']' | b'P') => {
+                // Up to BEL (OSC only) or ST.
+                let mut j = i + 2;
+                let mut end = None;
+                while j < b.len() {
+                    if b[j] == 0x07 && kind == b']' {
+                        end = Some((j, j + 1));
+                        break;
+                    }
+                    if b[j] == 0x1b && b.get(j + 1) == Some(&b'\\') {
+                        end = Some((j, j + 2));
+                        break;
+                    }
+                    j += 1;
+                }
+                let Some((body_end, end)) = end else { break };
+                let body = &text[i + 2..body_end];
+                let query = if kind == b']' {
+                    body.ends_with('?')
+                } else {
+                    body.starts_with("$q") || body.starts_with("+q")
+                };
+                (end, query)
+            }
+            _ => (i + 2, false),
+        };
+        if query {
+            out.push_str(&text[kept..start]);
+            kept = end;
+        }
+        i = end;
+    }
+    out.push_str(&text[kept..]);
+    out
 }
 
 /// Decode everything in `pending` except a trailing, still-incomplete UTF-8
@@ -716,11 +792,24 @@ mod tests {
         out.push("a.txt\r\n");
         let late = out.subscribe();
         assert_eq!(early.try_iter().collect::<Vec<_>>(), ["$ ls\r\n", "a.txt\r\n"]);
-        assert_eq!(late.try_iter().collect::<Vec<_>>(), ["$ ls\r\n", "a.txt\r\n"]);
+        assert_eq!(late.try_iter().collect::<Vec<_>>(), ["$ ls\r\na.txt\r\n"]);
         drop(early);
         out.push("$ ");
         assert_eq!(out.readers.len(), 1);
         assert_eq!(late.try_iter().collect::<Vec<_>>(), ["$ "]);
+    }
+
+    #[test]
+    fn a_replay_asks_the_new_screen_nothing() {
+        let mut out = Output::default();
+        // What Claude Code sends as it starts, split across reads.
+        out.push("\x1b[c\x1b]10;?\x1b\\\x1b]11;?\x07\x1b]4;0;?;1");
+        out.push(";?\x1b\\\x1b[6n\x1b[>q\x1b[?u\x1b[?2004$p\x1bP$q m\x1b\\");
+        out.push("\x1b[1;31mhi\x1b[0m\x1b]0;title\x07\x1b[?2004h$ ");
+        let replay = out.subscribe().try_iter().collect::<Vec<_>>();
+        assert_eq!(replay, ["\x1b[1;31mhi\x1b[0m\x1b]0;title\x07\x1b[?2004h$ "]);
+        assert_eq!(strip_queries("a\x1b[6"), "a\x1b[6");
+        assert_eq!(strip_queries("中\x1b[c文"), "中文");
     }
 
     #[test]
