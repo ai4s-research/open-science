@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Check, Copy, Pencil, Plus, RefreshCw, SquareTerminal, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { copyText } from "@/lib/clipboard";
 import { Section } from "./Section";
 import { inputCls } from "./inputCls";
 import { cn } from "@/lib/cn";
@@ -134,8 +135,6 @@ export function AgentsCard() {
             <div key={agent.id}>
               <AgentRow
                 title={agent.name}
-                subtitle={[agent.command, formatCommandArgs(agent.args)].join(" ")}
-                mono
                 selected={isSelected(agent.id)}
                 onSelect={() => selectCatalog(agent)}
               />
@@ -239,7 +238,7 @@ function InstallRow({ agent, onInstall }: { agent: CliAgent; onInstall: () => vo
   const command = installCommand(agent, isWindows);
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(command);
+      await copyText(command);
       toast.success(t("agents.copied"));
     } catch {
       toast.error(t("agents.copyFailed"));
@@ -274,7 +273,7 @@ function AgentRow({
 }: {
   title: string;
   badge?: string;
-  subtitle: string;
+  subtitle?: string;
   mono?: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -300,7 +299,7 @@ function AgentRow({
           {title}
           {badge && <span className="text-[11px] font-normal text-muted">{badge}</span>}
         </div>
-        <div className={cn("mt-0.5 truncate text-xs text-muted", mono && "font-mono")}>{subtitle}</div>
+        {subtitle && <div className={cn("mt-0.5 truncate text-xs text-muted", mono && "font-mono")}>{subtitle}</div>}
       </button>
       {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
     </div>

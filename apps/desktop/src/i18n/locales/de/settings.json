@@ -627,19 +627,36 @@
     "install": "Im Terminal installieren"
   },
   "accounts": {
-    "reading": "Anmeldung wird gelesen…",
     "defaultSignedOut": "Abgemeldet",
-    "default": "Standard",
     "remove": "Konto entfernen",
     "removeConfirm": "{{account}} entfernen? Die Gespräche bleiben im Verlauf.",
     "add": "Konto hinzufügen",
     "sharedHint": "Alle Konten teilen Verlauf, Skills, Befehle und Einstellungen dieses Agenten. Jedes Gespräch behält das Konto, mit dem es begann.",
-    "waiting": "Warte auf die Anmeldung im Browser",
-    "openLink": "Anmeldeseite öffnen",
-    "privateHint": "Für ein weiteres Konto den Link in einem privaten Fenster öffnen. Zeigt die Seite einen Code, hier einfügen.",
-    "codePlaceholder": "Code von der Anmeldeseite",
-    "submitCode": "Senden",
+    "waiting": "Geht hier weiter, sobald die Anmeldung im Browser fertig ist",
+    "openLink": "Öffnen",
+    "codePlaceholder": "Code von der Seite",
     "added": "{{account}} hinzugefügt",
-    "failed": "Anmeldung wurde nicht abgeschlossen"
+    "reading": "Anmeldung wird gelesen…",
+    "title": "{{agent}}-Konten",
+    "ownLogin": "eigene Anmeldung",
+    "addTitle": "{{agent}}-Konto hinzufügen",
+    "step1": "Anmeldeseite öffnen",
+    "step1Hint": "Ist der Browser mit einem anderen Konto angemeldet, ein privates Fenster nutzen.",
+    "copyLink": "Link kopieren",
+    "copied": "Kopiert",
+    "preparing": "Anmeldelink wird vorbereitet…",
+    "step2Code": "Code von der Seite einfügen",
+    "step2Browser": "Anmeldung im Browser abschließen",
+    "finish": "Fertig",
+    "verifying": "Wird geprüft…",
+    "codeRefused": "Den Code bitte erneut von der Seite kopieren und einfügen.",
+    "retry": "Neu beginnen",
+    "error": {
+      "duplicateDefault": "{{account}} ist bereits die eigene Anmeldung dieses Agenten. Mit einem anderen Konto anmelden.",
+      "duplicate": "{{account}} steht bereits in der Liste.",
+      "notSignedIn": "Anmeldung unvollständig. Neu beginnen und im Browser abschließen.",
+      "notSignedInSaid": "Anmeldung unvollständig: {{said}}",
+      "failed": "Anmeldung abgebrochen: {{detail}}"
+    }
   }
 }

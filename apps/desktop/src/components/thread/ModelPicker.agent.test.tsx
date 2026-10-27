@@ -51,7 +51,7 @@ describe("ModelPicker with an agent", () => {
       JSON.stringify([{ id: "cli-claude-code", name: "Claude Code", command: "npx", args: [] }]),
     );
     useRuntimeStore.setState({ providers: [], defaultModel: null });
-    useAccountsStore.setState({ byKind: {} });
+    useAccountsStore.setState({ byKind: {}, defaults: {} });
   });
 
   it("offers only the agents installed here, and a way to the rest", async () => {
@@ -83,8 +83,8 @@ describe("ModelPicker with an agent", () => {
     renderPicker(agent);
     await user.click(screen.getByRole("button", { name: /switch model/i }));
 
-    expect(screen.getByRole("tab", { name: "me@lab.org" })).toHaveAttribute("aria-selected", "true");
-    await user.click(screen.getByRole("tab", { name: "second@lab.org" }));
+    expect(screen.getByRole("radio", { name: "me@lab.org" })).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByRole("radio", { name: "second@lab.org" }));
     expect(agent.onChange).toHaveBeenCalledWith("cli-claude-code~acct-1");
   });
 

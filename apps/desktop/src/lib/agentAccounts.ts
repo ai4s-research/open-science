@@ -62,14 +62,39 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   return invoke<T>(command, args);
 }
 
+const DEFAULT_ACCOUNT_KEY = "ai4s.acp.defaultAccount.v1";
+
+function readDefaults(): Record<string, string> {
+  try {
+    const raw: unknown = JSON.parse(window.localStorage.getItem(DEFAULT_ACCOUNT_KEY) ?? "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    return Object.fromEntries(Object.entries(raw).filter((e): e is [string, string] => typeof e[1] === "string"));
+  } catch {
+    return {};
+  }
+}
+
+function writeDefaults(defaults: Record<string, string>) {
+  try {
+    window.localStorage.setItem(DEFAULT_ACCOUNT_KEY, JSON.stringify(defaults));
+  } catch {
+    /* remembered for this run only */
+  }
+}
+
 interface AccountsStore {
   byKind: Partial<Record<AccountKind, AccountsView>>;
+  /** The account a new conversation on each agent runs as, by catalog agent
+   *  id; absent is the agent's own login. Chosen in Settings → Agents. */
+  defaults: Record<string, string>;
   load: (kind: AccountKind) => Promise<void>;
   remove: (kind: AccountKind, id: string) => Promise<void>;
+  setDefault: (baseAgentId: string, account: string | null) => void;
 }
 
 export const useAccountsStore = create<AccountsStore>((set, get) => ({
   byKind: {},
+  defaults: typeof window === "undefined" ? {} : readDefaults(),
   load: async (kind) => {
     if (!isTauri) return;
     const view = await call<AccountsView>("agent_accounts", { kind });
@@ -77,14 +102,39 @@ export const useAccountsStore = create<AccountsStore>((set, get) => ({
   },
   remove: async (kind, id) => {
     await call("agent_account_remove", { kind, id });
+    // A removed account cannot stay the default.
+    for (const [base, account] of Object.entries(get().defaults)) {
+      if (account === id && accountKindOf(base) === kind) get().setDefault(base, null);
+    }
     await get().load(kind);
   },
+  setDefault: (baseAgentId, account) => {
+    const defaults = { ...get().defaults };
+    if (account) defaults[baseAgentId] = account;
+    else delete defaults[baseAgentId];
+    writeDefaults(defaults);
+    set({ defaults });
+  },
 }));
+
+/** The agent id a new conversation on `baseAgentId` starts with: its default
+ *  account attached. */
+export function withDefaultAccount(baseAgentId: string): string {
+  return withAccount(baseAgentId, useAccountsStore.getState().defaults[baseAgentId] ?? null);
+}
 
 /** One sign-in in progress: what the command printed, and how it ended. */
 export interface LoginHandlers {
   onLine: (line: string) => void;
-  onDone: (result: { account?: AgentAccount; error?: string }) => void;
+  onDone: (result: LoginResult) => void;
+}
+
+/** How a sign-in ended. `error` is a code the UI words (`settings:accounts.error.*`);
+ *  `detail` is what the agent itself last said, or the email of a duplicate. */
+export interface LoginResult {
+  account?: AgentAccount;
+  error?: "duplicate-default" | "duplicate" | "not-signed-in" | "failed";
+  detail?: string;
 }
 
 /** Start `claude auth login` / `codex login` in a new account's folder. */
@@ -103,14 +153,12 @@ export async function startLogin(
   const unlistenLine = await listen<{ loginId: string; line: string }>("agent-login:line", ({ payload }) =>
     route(payload.loginId, () => handlers.onLine(payload.line)),
   );
-  const unlistenDone = await listen<{ loginId: string; account?: AgentAccount; error?: string }>(
-    "agent-login:done",
-    ({ payload }) =>
-      route(payload.loginId, () => {
-        unlistenLine();
-        unlistenDone();
-        handlers.onDone({ account: payload.account, error: payload.error });
-      }),
+  const unlistenDone = await listen<LoginResult & { loginId: string }>("agent-login:done", ({ payload }) =>
+    route(payload.loginId, () => {
+      unlistenLine();
+      unlistenDone();
+      handlers.onDone({ account: payload.account, error: payload.error, detail: payload.detail });
+    }),
   );
   try {
     loginId = await call<string>("agent_account_login", { kind });

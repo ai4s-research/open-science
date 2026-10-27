@@ -625,19 +625,36 @@
     "install": "在终端里安装"
   },
   "accounts": {
-    "reading": "正在读取登录信息…",
     "defaultSignedOut": "未登录",
-    "default": "默认",
     "remove": "移除账号",
     "removeConfirm": "移除 {{account}}？它的对话仍保留在历史记录里。",
     "add": "添加账号",
     "sharedHint": "所有账号共用这个智能体的历史记录、技能、命令和设置。每个对话固定使用它创建时选的账号。",
-    "waiting": "等待你在浏览器里完成登录",
-    "openLink": "打开登录页面",
-    "privateHint": "登录另一个账号时，请在无痕窗口里打开链接。页面给出代码的话，粘贴到下面。",
-    "codePlaceholder": "登录页面给出的代码",
-    "submitCode": "发送",
+    "waiting": "在浏览器完成后，这里会自动继续",
+    "openLink": "打开",
+    "codePlaceholder": "授权码",
     "added": "已添加 {{account}}",
-    "failed": "登录没有完成"
+    "reading": "正在读取登录信息…",
+    "title": "{{agent}} 账号",
+    "ownLogin": "本机登录",
+    "addTitle": "添加 {{agent}} 账号",
+    "step1": "打开登录页面",
+    "step1Hint": "浏览器已登录其他账号时，请用无痕窗口打开。",
+    "copyLink": "复制链接",
+    "copied": "已复制",
+    "preparing": "正在准备登录链接…",
+    "step2Code": "粘贴页面上显示的授权码",
+    "step2Browser": "在浏览器里完成登录",
+    "finish": "完成",
+    "verifying": "验证中…",
+    "codeRefused": "请从页面重新复制授权码再粘贴。",
+    "retry": "重新开始",
+    "error": {
+      "duplicateDefault": "{{account}} 已经是本机登录的账号，请换一个账号登录。",
+      "duplicate": "{{account}} 已在列表里。",
+      "notSignedIn": "登录尚未完成。请重新开始，并在浏览器里完成登录。",
+      "notSignedInSaid": "登录尚未完成：{{said}}",
+      "failed": "登录中断：{{detail}}"
+    }
   }
 }

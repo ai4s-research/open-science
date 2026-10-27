@@ -5,6 +5,7 @@
 // entry for it does not bring it back.
 import { loadAcpAgents, type AcpAgentConfig } from "./acpAgents";
 import { CLI_AGENTS, catalogAgent, ensureCliAgent, useInstalledAgents } from "./cliAgents";
+import { withDefaultAccount } from "./agentAccounts";
 
 /** True for an entry that starts one of the catalog agents. */
 export function runsCatalogCommand(agent: AcpAgentConfig): boolean {
@@ -41,10 +42,11 @@ export function useAgentChoices(current: string | null): {
     choices.push({ id: current, name: name ?? current });
   }
 
+  // A picked agent starts on the account chosen for it in Settings → Agents.
   const pick = (id: string | null) => {
     const cli = id ? installed.find((d) => d.id === id) : undefined;
     if (cli) ensureCliAgent(cli);
-    return id;
+    return id && withDefaultAccount(id);
   };
   return { choices, pick };
 }

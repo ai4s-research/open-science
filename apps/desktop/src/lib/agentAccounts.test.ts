@@ -39,3 +39,25 @@ it("finds the sign-in link in what the command printed", () => {
   );
   expect(linkIn("Opening browser to sign in…")).toBeNull();
 });
+
+describe("the account a new conversation starts on", () => {
+  it("is the one chosen for the agent in Settings, and forgets a removed one", async () => {
+    const { useAccountsStore, withDefaultAccount } = await import("./agentAccounts");
+    const { acpAgentFor } = await import("./runtime");
+    useAccountsStore.getState().setDefault("cli-claude-code", "acct-1");
+
+    expect(withDefaultAccount("cli-claude-code")).toBe("cli-claude-code~acct-1");
+    expect(withDefaultAccount("cli-codex")).toBe("cli-codex");
+    // A draft with no pick of its own follows the default agent, on its account.
+    expect(acpAgentFor({ acpSessions: {}, draftRuntimes: {}, defaultRuntime: "cli-claude-code" }, "draft:x")).toBe(
+      "cli-claude-code~acct-1",
+    );
+    // A pick made in the composer stands as made.
+    expect(
+      acpAgentFor({ acpSessions: {}, draftRuntimes: { "draft:x": "cli-claude-code" }, defaultRuntime: null }, "draft:x"),
+    ).toBe("cli-claude-code");
+
+    useAccountsStore.getState().setDefault("cli-claude-code", null);
+    expect(withDefaultAccount("cli-claude-code")).toBe("cli-claude-code");
+  });
+});

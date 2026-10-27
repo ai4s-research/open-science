@@ -791,34 +791,38 @@ export function ModelPicker({
   // Which account a new conversation runs as. Shown only when there is a
   // choice: one login is the common case and needs no row.
   const accountRow = agent && !agent.locked && accountKind && baseAgent && (accounts?.accounts.length ?? 0) > 0 && (
-    <div
-      role="tablist"
-      aria-label={t("composer.agent.accountAria")}
-      className="no-scrollbar flex shrink-0 gap-3 overflow-x-auto border-b border-faint px-3 py-1.5"
-    >
-      {[null, ...(accounts?.accounts ?? []).map((a) => a.id)].map((id) => {
-        const selected = (split?.account ?? null) === id;
-        const label =
-          id === null
-            ? accountLabel(accounts?.default, t("composer.agent.defaultAccount"))
-            : accountLabel(accounts?.accounts.find((a) => a.id === id), id);
-        return (
-          <button
-            key={id ?? "default"}
-            role="tab"
-            aria-selected={selected}
-            className={cn(
-              "shrink-0 rounded-input px-1.5 py-0.5 text-[11px] transition-colors",
-              selected ? "bg-surface-2 text-text" : "text-muted hover:text-text",
-            )}
-            onClick={() => {
-              if (!selected) agent.onChange(withAccount(baseAgent, id));
-            }}
-          >
-            {label}
-          </button>
-        );
-      })}
+    <div className="flex shrink-0 items-center gap-3 border-b border-faint px-3 py-2">
+      <span className="shrink-0 text-[11px] text-muted">{t("composer.agent.accountAria")}</span>
+      <div
+        role="radiogroup"
+        aria-label={t("composer.agent.accountAria")}
+        className="no-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto"
+      >
+        {[null, ...(accounts?.accounts ?? []).map((a) => a.id)].map((id) => {
+          const selected = (split?.account ?? null) === id;
+          const label =
+            id === null
+              ? accountLabel(accounts?.default, t("composer.agent.defaultAccount"))
+              : accountLabel(accounts?.accounts.find((a) => a.id === id), id);
+          return (
+            <button
+              key={id ?? "default"}
+              role="radio"
+              aria-checked={selected}
+              title={label}
+              className={cn(
+                "max-w-[11rem] shrink-0 truncate rounded-input px-2 py-1 text-xs transition-colors",
+                selected ? "bg-surface-2 font-medium text-text" : "text-muted hover:text-text",
+              )}
+              onClick={() => {
+                if (!selected) agent.onChange(withAccount(baseAgent, id));
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 

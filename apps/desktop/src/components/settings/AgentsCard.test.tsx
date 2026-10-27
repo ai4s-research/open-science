@@ -145,3 +145,30 @@ describe("Settings → Agents", () => {
     expect(screen.getByRole("radio", { name: "Claude Code" })).toHaveAttribute("aria-checked", "true");
   });
 });
+
+describe("Settings → Agents → accounts", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "agent_accounts")
+        return {
+          default: { email: "me@lab.org", plan: "max" },
+          accounts: [{ id: "acct-1", kind: "claude", email: "second@lab.org", plan: "pro", addedAtMs: 1 }],
+        };
+      return null;
+    });
+    useAccountsStore.setState({ defaults: {} });
+  });
+
+  it("chooses which account new conversations on the agent start on", async () => {
+    const user = userEvent.setup();
+    renderCard();
+
+    expect(await screen.findByRole("radio", { name: /second@lab\.org/ })).toHaveAttribute("aria-checked", "false");
+    await user.click(screen.getByRole("radio", { name: /second@lab\.org/ }));
+
+    expect(useAccountsStore.getState().defaults).toEqual({ "cli-claude-code": "acct-1" });
+    expect(screen.getByRole("radio", { name: /second@lab\.org/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /me@lab\.org/ })).toHaveAttribute("aria-checked", "false");
+  });
+});

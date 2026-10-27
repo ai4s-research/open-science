@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use osd_core::agent_accounts::{self, Account, AgentKind, Identity};
@@ -37,8 +37,13 @@ struct LoginDone {
     login_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     account: Option<Account>,
+    /// `duplicate-default`, `duplicate`, `not-signed-in` or `failed`; the UI
+    /// words it.
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    error: Option<&'static str>,
+    /// The email of a duplicate, or the agent's own last words on a failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
 }
 
 struct Login {
@@ -152,10 +157,16 @@ pub fn agent_account_login(app: AppHandle, kind: String) -> Result<String, Strin
     let (id, home) = agent_accounts::create(&data, kind)?;
     let mut cmd = agent_command(&app, kind, Some(&home));
     match kind {
-        // The browser opens on its own (localhost callback); the printed link
-        // is the fallback for another browser, which answers with a code to
-        // paste — hence stdin stays open.
-        AgentKind::Claude => cmd.args(["auth", "login", "--claudeai"]),
+        // One way through, the same for every account: the user opens the
+        // printed link (a private window for a second account) and pastes
+        // back the code it shows, hence stdin stays open. Claude Code would
+        // otherwise open the default browser itself, where the account
+        // already signed in would answer.
+        AgentKind::Claude => {
+            #[cfg(unix)]
+            cmd.env("BROWSER", "true");
+            cmd.args(["auth", "login", "--claudeai"])
+        }
         AgentKind::Codex => cmd.args(["login"]),
     };
     let mut child = match cmd
@@ -179,24 +190,26 @@ pub fn agent_account_login(app: AppHandle, kind: String) -> Result<String, Strin
         .unwrap()
         .insert(id.clone(), Login { kind, child, stdin });
 
+    let last_said = Arc::new(Mutex::new(String::new()));
     for stream in [stdout.map(|s| Box::new(s) as Box<dyn Read + Send>), stderr.map(|s| Box::new(s) as Box<dyn Read + Send>)]
         .into_iter()
         .flatten()
     {
         let app = app.clone();
         let login_id = id.clone();
-        std::thread::spawn(move || relay_lines(&app, &login_id, stream));
+        let last_said = last_said.clone();
+        std::thread::spawn(move || relay_lines(&app, &login_id, stream, &last_said));
     }
 
     let app2 = app.clone();
     let login_id = id.clone();
-    std::thread::spawn(move || finish_login(app2, login_id, kind, home));
+    std::thread::spawn(move || finish_login(app2, login_id, kind, home, last_said));
     Ok(id)
 }
 
 /// Relay output by line, and by prompt: "Paste code here if prompted >" has no
 /// newline and is exactly the line that matters.
-fn relay_lines(app: &AppHandle, login_id: &str, stream: Box<dyn Read + Send>) {
+fn relay_lines(app: &AppHandle, login_id: &str, stream: Box<dyn Read + Send>, last_said: &Mutex<String>) {
     let mut reader = BufReader::new(stream);
     let mut buf = Vec::new();
     let mut byte = [0u8; 1];
@@ -204,6 +217,11 @@ fn relay_lines(app: &AppHandle, login_id: &str, stream: Box<dyn Read + Send>) {
         let line = String::from_utf8_lossy(buf).trim().to_string();
         buf.clear();
         if !line.is_empty() {
+            // The last thing it said that is not a prompt or a link: on a
+            // failure, that is the reason ("Invalid code", an OAuth error).
+            if !line.ends_with('>') && !line.contains("https://") {
+                *last_said.lock().unwrap() = line.clone();
+            }
             let _ = app.emit(LINE_EVENT, LoginLine { login_id: login_id.to_string(), line });
         }
     };
@@ -223,7 +241,7 @@ fn relay_lines(app: &AppHandle, login_id: &str, stream: Box<dyn Read + Send>) {
 
 /// Wait for the sign-in command, then keep the account only if someone new is
 /// signed in.
-fn finish_login(app: AppHandle, login_id: String, kind: AgentKind, home: PathBuf) {
+fn finish_login(app: AppHandle, login_id: String, kind: AgentKind, home: PathBuf, last_said: Arc<Mutex<String>>) {
     let started = Instant::now();
     let ended = loop {
         let state = app.state::<AccountsState>();
@@ -252,34 +270,29 @@ fn finish_login(app: AppHandle, login_id: String, kind: AgentKind, home: PathBuf
         return;
     }
     let data = data_dir(&app);
-    let outcome = match identity(&app, kind, Some(&home)) {
-        None => Err("Not signed in. Try again, and finish the sign-in in the browser.".to_string()),
+    let outcome: Result<Account, (&'static str, Option<String>)> = match identity(&app, kind, Some(&home)) {
+        None => {
+            let said = last_said.lock().unwrap().clone();
+            Err(("not-signed-in", (!said.is_empty()).then_some(said)))
+        }
         Some(who) => {
             let others = agent_accounts::list(&data, kind);
             let default = identity(&app, kind, None);
             if default.as_ref().is_some_and(|d| d.same_account(&who)) {
-                Err(format!(
-                    "{} is already the default account. Sign in with another account.",
-                    who.email.clone().unwrap_or_default()
-                ))
+                Err(("duplicate-default", who.email.clone()))
             } else if others.iter().any(|a| a.identity.same_account(&who)) {
-                Err(format!("{} is already added.", who.email.clone().unwrap_or_default()))
+                Err(("duplicate", who.email.clone()))
             } else {
-                let account = Account {
-                    id: login_id.clone(),
-                    kind,
-                    identity: who,
-                    added_at_ms: now_ms(),
-                };
-                agent_accounts::save(&data, &account).map(|()| account)
+                let account = Account { id: login_id.clone(), kind, identity: who, added_at_ms: now_ms() };
+                agent_accounts::save(&data, &account).map(|()| account).map_err(|e| ("failed", Some(e)))
             }
         }
     };
     let done = match outcome {
-        Ok(account) => LoginDone { login_id, account: Some(account), error: None },
-        Err(error) => {
+        Ok(account) => LoginDone { login_id, account: Some(account), error: None, detail: None },
+        Err((error, detail)) => {
             discard(&app, kind, &login_id);
-            LoginDone { login_id, account: None, error: Some(error) }
+            LoginDone { login_id, account: None, error: Some(error), detail }
         }
     };
     let _ = app.emit(DONE_EVENT, done);

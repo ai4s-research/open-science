@@ -627,19 +627,36 @@
     "install": "Instalar en la terminal"
   },
   "accounts": {
-    "reading": "Leyendo el inicio de sesión…",
     "defaultSignedOut": "Sesión cerrada",
-    "default": "predeterminada",
     "remove": "Quitar cuenta",
     "removeConfirm": "¿Quitar {{account}}? Sus conversaciones siguen en el historial.",
     "add": "Añadir cuenta",
     "sharedHint": "Todas las cuentas comparten el historial, las skills, los comandos y los ajustes de este agente. Cada conversación conserva la cuenta con la que empezó.",
-    "waiting": "Esperando a que termine el inicio de sesión en el navegador",
-    "openLink": "Abrir la página de inicio de sesión",
-    "privateHint": "Para otra cuenta, abre el enlace en una ventana privada. Si la página muestra un código, pégalo abajo.",
-    "codePlaceholder": "Código de la página de inicio de sesión",
-    "submitCode": "Enviar",
+    "waiting": "Sigue aquí en cuanto termines en el navegador",
+    "openLink": "Abrir",
+    "codePlaceholder": "Código de la página",
     "added": "{{account}} añadida",
-    "failed": "El inicio de sesión no terminó"
+    "reading": "Leyendo el inicio de sesión…",
+    "title": "Cuentas de {{agent}}",
+    "ownLogin": "inicio de sesión de este equipo",
+    "addTitle": "Añadir una cuenta de {{agent}}",
+    "step1": "Abrir la página de inicio de sesión",
+    "step1Hint": "Si este navegador ya tiene otra cuenta abierta, usa una ventana privada.",
+    "copyLink": "Copiar enlace",
+    "copied": "Copiado",
+    "preparing": "Preparando el enlace de inicio de sesión…",
+    "step2Code": "Pega el código que muestra la página",
+    "step2Browser": "Termina el inicio de sesión en el navegador",
+    "finish": "Listo",
+    "verifying": "Comprobando…",
+    "codeRefused": "Copia de nuevo el código de la página y pégalo.",
+    "retry": "Empezar de nuevo",
+    "error": {
+      "duplicateDefault": "{{account}} ya es el inicio de sesión propio de este agente. Inicia sesión con otra cuenta.",
+      "duplicate": "{{account}} ya está en la lista.",
+      "notSignedIn": "Inicio de sesión incompleto. Empieza de nuevo y termínalo en el navegador.",
+      "notSignedInSaid": "Inicio de sesión incompleto: {{said}}",
+      "failed": "Inicio de sesión interrumpido: {{detail}}"
+    }
   }
 }

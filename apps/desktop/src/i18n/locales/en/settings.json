@@ -627,19 +627,36 @@
     "install": "Install in terminal"
   },
   "accounts": {
-    "reading": "Reading the sign-in…",
     "defaultSignedOut": "Signed out",
-    "default": "default",
     "remove": "Remove account",
     "removeConfirm": "Remove {{account}}? Its conversations stay in your history.",
     "add": "Add account",
     "sharedHint": "Every account shares this agent's history, skills, commands and settings. Each conversation keeps the account it started on.",
-    "waiting": "Waiting for the sign-in to finish in your browser",
-    "openLink": "Open sign-in page",
-    "privateHint": "For another account, open the link in a private window. If the page shows a code, paste it below.",
-    "codePlaceholder": "Code from the sign-in page",
-    "submitCode": "Send",
+    "waiting": "Continues here once you finish in the browser",
+    "openLink": "Open",
+    "codePlaceholder": "Code from the page",
     "added": "Added {{account}}",
-    "failed": "Sign-in did not finish"
+    "reading": "Reading the sign-in…",
+    "title": "{{agent}} accounts",
+    "ownLogin": "own sign-in",
+    "addTitle": "Add a {{agent}} account",
+    "step1": "Open the sign-in page",
+    "step1Hint": "If this browser is signed in to another account, use a private window.",
+    "copyLink": "Copy link",
+    "copied": "Copied",
+    "preparing": "Preparing the sign-in link…",
+    "step2Code": "Paste the code the page shows",
+    "step2Browser": "Finish signing in in the browser",
+    "finish": "Done",
+    "verifying": "Checking…",
+    "codeRefused": "Paste the code again from the page.",
+    "retry": "Start again",
+    "error": {
+      "duplicateDefault": "{{account}} is this agent's own sign-in already. Sign in with another account.",
+      "duplicate": "{{account}} is already in the list.",
+      "notSignedIn": "Sign-in incomplete. Start again and finish it in the browser.",
+      "notSignedInSaid": "Sign-in incomplete: {{said}}",
+      "failed": "Sign-in stopped: {{detail}}"
+    }
   }
 }

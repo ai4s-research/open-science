@@ -72,7 +72,7 @@ import {
   setActiveAcpAgentId,
   type AcpSessionRecord,
 } from "./acpAgents";
-import { accountKindOf, splitAgentId } from "./agentAccounts";
+import { accountKindOf, splitAgentId, withDefaultAccount } from "./agentAccounts";
 import { acpTransport } from "./acpTransport";
 import { hasParkedDraft } from "./composerStash";
 import { isWithin, samePath } from "./workspacePath";
@@ -894,7 +894,8 @@ export function acpAgentFor(
 ): string | null {
   if (!isDraftKey(key)) return s.acpSessions[key]?.agentId ?? null;
   if (key in s.draftRuntimes) return s.draftRuntimes[key];
-  return s.defaultRuntime;
+  // The default agent runs as the account chosen for it in Settings → Agents.
+  return s.defaultRuntime && withDefaultAccount(s.defaultRuntime);
 }
 
 /**
@@ -1193,8 +1194,9 @@ export async function startSessionScreen(projectId: string, agentId?: string): P
   const project = runtime.projects.find((p) => p.id === projectId);
   // `agentId`: the conversation runs on that ACP agent. Without one it starts on
   // the default — set explicitly, since a reused blank draft may hold a pick.
+  const chosen = agentId ?? runtime.defaultRuntime;
   const aim = (leafId: string) =>
-    runtime.setDraftRuntime(draftKeyFor(leafId), agentId ?? runtime.defaultRuntime);
+    runtime.setDraftRuntime(draftKeyFor(leafId), chosen && withDefaultAccount(chosen));
   if (!project) {
     aim(openDraftScreen(DEFAULT_PROJECT));
     runtime.startDraft();

@@ -627,19 +627,36 @@
     "install": "Installer dans le terminal"
   },
   "accounts": {
-    "reading": "Lecture de la connexion…",
     "defaultSignedOut": "Déconnecté",
-    "default": "par défaut",
     "remove": "Retirer le compte",
     "removeConfirm": "Retirer {{account}} ? Ses conversations restent dans l’historique.",
     "add": "Ajouter un compte",
     "sharedHint": "Tous les comptes partagent l’historique, les skills, les commandes et les réglages de cet agent. Chaque conversation garde le compte avec lequel elle a commencé.",
-    "waiting": "En attente de la connexion dans le navigateur",
-    "openLink": "Ouvrir la page de connexion",
-    "privateHint": "Pour un autre compte, ouvrez le lien dans une fenêtre privée. Si la page affiche un code, collez-le ci-dessous.",
-    "codePlaceholder": "Code de la page de connexion",
-    "submitCode": "Envoyer",
+    "waiting": "La suite se fait ici une fois la connexion terminée dans le navigateur",
+    "openLink": "Ouvrir",
+    "codePlaceholder": "Code de la page",
     "added": "{{account}} ajouté",
-    "failed": "La connexion n’a pas abouti"
+    "reading": "Lecture de la connexion…",
+    "title": "Comptes {{agent}}",
+    "ownLogin": "connexion de cet ordinateur",
+    "addTitle": "Ajouter un compte {{agent}}",
+    "step1": "Ouvrir la page de connexion",
+    "step1Hint": "Si ce navigateur est connecté à un autre compte, utilisez une fenêtre privée.",
+    "copyLink": "Copier le lien",
+    "copied": "Copié",
+    "preparing": "Préparation du lien de connexion…",
+    "step2Code": "Coller le code affiché par la page",
+    "step2Browser": "Terminer la connexion dans le navigateur",
+    "finish": "Terminé",
+    "verifying": "Vérification…",
+    "codeRefused": "Copiez à nouveau le code depuis la page, puis collez-le.",
+    "retry": "Recommencer",
+    "error": {
+      "duplicateDefault": "{{account}} est déjà la connexion propre à cet agent. Connectez-vous avec un autre compte.",
+      "duplicate": "{{account}} figure déjà dans la liste.",
+      "notSignedIn": "Connexion inachevée. Recommencez et terminez-la dans le navigateur.",
+      "notSignedInSaid": "Connexion inachevée : {{said}}",
+      "failed": "Connexion interrompue : {{detail}}"
+    }
   }
 }
