@@ -1,17 +1,9 @@
 name: core CI
 
-# The headless crates on every push to master and every PR that touches them.
+# The headless crates on every PR that touches them, and nightly on master.
 # Installers are built only on a tag (build.yml); this keeps osd-core's tests,
 # including the cross-process ledger tests, green on all three desktop platforms.
 on:
-  push:
-    branches: [master]
-    paths:
-      - .github/workflows/core-ci.yml
-      - Cargo.toml
-      - Cargo.lock
-      - crates/osd-core/**
-      - crates/osd-cli/**
   pull_request:
     paths:
       - .github/workflows/core-ci.yml
@@ -20,11 +12,14 @@ on:
       - crates/osd-core/**
       - crates/osd-cli/**
   workflow_dispatch:
+  # Agents run the tests before pushing to master; once a day catches what slipped.
+  schedule:
+    - cron: "41 18 * * *"
 
 permissions:
   contents: read
 
-# Pushes land many times an hour; only the newest commit on a ref needs a verdict.
+# Only the newest commit on a ref needs a verdict.
 concurrency:
   group: core-ci-${{ github.ref }}
   cancel-in-progress: true

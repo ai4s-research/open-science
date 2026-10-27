@@ -1,18 +1,8 @@
 name: desktop CI
 
 # Typecheck, lint and unit tests for the desktop app and its packages, on every
-# push to master and every PR that touches them.
+# PR that touches them, and nightly on master.
 on:
-  push:
-    branches: [master]
-    paths:
-      - .github/workflows/desktop-ci.yml
-      - package.json
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - apps/desktop/**
-      - packages/**
-      - "!apps/desktop/src-tauri/**"
   pull_request:
     paths:
       - .github/workflows/desktop-ci.yml
@@ -23,11 +13,14 @@ on:
       - packages/**
       - "!apps/desktop/src-tauri/**"
   workflow_dispatch:
+  # Agents run the tests before pushing to master; once a day catches what slipped.
+  schedule:
+    - cron: "47 18 * * *"
 
 permissions:
   contents: read
 
-# Pushes land many times an hour; only the newest commit on a ref needs a verdict.
+# Only the newest commit on a ref needs a verdict.
 concurrency:
   group: desktop-ci-${{ github.ref }}
   cancel-in-progress: true
