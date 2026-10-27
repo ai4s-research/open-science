@@ -132,6 +132,7 @@ export function threadAnchors(blocks: readonly ThreadBlock[]): string[] {
 }
 
 interface LocalPath {
+  root: "home" | "disk";
   rel: string;
   is_dir: boolean;
 }
@@ -211,7 +212,7 @@ async function resolveOnce(text: string, from: LinkContext): Promise<LinkTarget 
   if (!isTauri || isGatewayWeb) return null;
   if (absolute || terminal || anchors.length > 0) {
     const found = await locateLocal(path, terminal ? (from.cwd ?? undefined) : undefined, anchors);
-    if (found) return { kind: "path", path: found.rel, root: "home", isDir: found.is_dir, display: path };
+    if (found) return { kind: "path", path: found.rel, root: found.root, isDir: found.is_dir, display: path };
     if (absolute || terminal) return null;
   }
   const inWorkspace = await resolveArtifactPath(path).catch(() => null);

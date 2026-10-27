@@ -336,6 +336,7 @@ pub fn preview_url(
                 "w" => workspace_dir(&handle).ok(),
                 "b" => crate::runtime::base_workspace_dir(&handle).ok(),
                 "h" => crate::artifact_file::scope_root(&handle, Some("home")).ok(),
+                "d" => crate::artifact_file::scope_root(&handle, Some("disk")).ok(),
                 _ => None,
             })
             .map_err(|e| e.to_string())?;
@@ -347,6 +348,7 @@ pub fn preview_url(
         "workspace" => "w",
         "base" => "b",
         "home" => "h",
+        "disk" => "d",
         other => return Err(format!("unknown root scope: {other}")),
     };
     let rel = relativize(&crate::artifact_file::scope_root(&app, root.as_deref())?, &path)?;

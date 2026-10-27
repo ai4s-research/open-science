@@ -6,8 +6,10 @@ import { anchorPaths, resolveLink, threadAnchors } from "./links";
 const invoke = vi.hoisted(() =>
   vi.fn(async (_cmd: string, args: { path: string; anchors: string[] }) =>
     args.path === "packages/core/src/agent.ts" && args.anchors.includes("/Users/me/repo/README.md")
-      ? { rel: "repo/packages/core/src/agent.ts", is_dir: false }
-      : null,
+      ? { root: "home", rel: "repo/packages/core/src/agent.ts", is_dir: false }
+      : args.path === "/private/tmp/shot.png"
+        ? { root: "disk", rel: "private/tmp/shot.png", is_dir: false }
+        : null,
   ),
 );
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -38,6 +40,12 @@ describe("a relative path in an answer, against the anchors", () => {
     const anchors = ["/Users/me/repo/README.md"];
     expect(await resolveLink("packages/core/src/agent.ts", { folders: "/Users/me/OS/p", anchors })).toEqual({
       kind: "path", path: "repo/packages/core/src/agent.ts", root: "home", isDir: false, display: "packages/core/src/agent.ts",
+    });
+  });
+
+  it("opens a full path outside home where it is on disk", async () => {
+    expect(await resolveLink("/private/tmp/shot.png", { cwd: "/Users/me" })).toEqual({
+      kind: "path", path: "private/tmp/shot.png", root: "disk", isDir: false, display: "/private/tmp/shot.png",
     });
   });
 

@@ -312,9 +312,9 @@ export type Inspector =
 
 /** Folder tree a root-relative file path resolves in: the active session
  *  workspace (default), the base folder all session workspaces live under, or
- *  — desktop only — the user's home folder, for a path clicked in a
- *  conversation or a terminal (see lib/links). */
-export type FileRoot = "workspace" | "base" | "home";
+ *  — desktop only — the user's home folder, or the whole disk for a full path
+ *  outside it, for a path clicked in a conversation or a terminal (see lib/links). */
+export type FileRoot = "workspace" | "base" | "home" | "disk";
 
 /** A real .ipynb in the workspace, opened in the runnable notebook editor. */
 export interface NotebookFileInspector {

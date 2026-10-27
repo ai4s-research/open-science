@@ -1786,12 +1786,12 @@ fn fs_base(ctx: &Ctx, req: &Request) -> Result<PathBuf, String> {
         return Err("dir is outside the workspace".into());
     }
     let root = req.query_get("root");
-    // "home" is the desktop's scope for links the user clicks; a web client
-    // stays inside the workspaces.
-    if root.as_deref() == Some("home") {
-        return Err("unknown root scope: home".into());
+    // "home" and "disk" are the desktop's scopes for links the user clicks; a
+    // web client stays inside the workspaces.
+    match root.as_deref() {
+        None | Some("workspace") | Some("base") => scope_root(&ctx.env, root.as_deref()),
+        Some(other) => Err(format!("unknown root scope: {other}")),
     }
-    scope_root(&ctx.env, root.as_deref())
 }
 
 fn fs_list(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {

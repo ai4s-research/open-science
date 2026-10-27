@@ -112,24 +112,28 @@ pub fn resolve_under(root: &Path, rel: &str) -> Result<PathBuf, String> {
 
 /// The folder tree a file command operates in: the ACTIVE session workspace
 /// (default), the base folder every session workspace is created under, or —
-/// on the desktop only — the user's home folder, for a path the user clicked
-/// in a conversation or a terminal. Pages declare their scope explicitly — no
-/// fallback guessing between them, so an identical relative path can never
-/// resolve ambiguously. The gateway refuses "home" (see `fs_base`): a web
-/// client must never reach beyond the workspaces.
+/// on the desktop only — the user's home folder or (Unix) the whole disk, for a
+/// path the user clicked in a conversation or a terminal. Pages declare their
+/// scope explicitly — no fallback guessing between them, so an identical
+/// relative path can never resolve ambiguously. The gateway refuses "home" and
+/// "disk" (see `fs_base`): a web client must never reach beyond the workspaces.
 pub fn scope_root(env: &Env, root: Option<&str>) -> Result<PathBuf, String> {
     match root.unwrap_or("workspace") {
         "workspace" => workspace_dir(env),
         "base" => crate::runtime::base_workspace_dir(env),
         "home" => crate::env::home(),
+        #[cfg(unix)]
+        "disk" => Ok(PathBuf::from("/")),
         other => Err(format!("unknown root scope: {other}")),
     }
 }
 
-/// A local path the user can open from a link: home-relative (`/`-separated,
-/// for the "home" scope) and whether it is a folder.
+/// A local path the user can open from a link: its scope ("home", or "disk"
+/// for a full path outside home), the path relative to that scope
+/// (`/`-separated), and whether it is a folder.
 #[derive(serde::Serialize, Debug, PartialEq)]
 pub struct LocalPath {
+    pub root: &'static str,
     pub rel: String,
     pub is_dir: bool,
 }
@@ -141,27 +145,37 @@ pub struct LocalPath {
 /// in), most recent first. An anchor that ends with the path is the match;
 /// otherwise the path is tried under the anchor's folder and each folder above
 /// it, short of home itself. Only what exists counts, so a guess never links
-/// to the wrong file. None when nothing is found or it lies outside home.
+/// to the wrong file. None when nothing is found or it lies outside home —
+/// except a full path printed as is (`/tmp/…`, `/Volumes/…`), which on Unix
+/// opens wherever it is on disk, as in any terminal.
 pub fn locate_local(home: &Path, path: &str, cwd: Option<&str>, anchors: &[String]) -> Option<LocalPath> {
     let home = home.canonicalize().ok()?;
-    let inside = |p: &Path| -> Option<LocalPath> {
-        let full = p.canonicalize().ok()?;
-        let rel = full.strip_prefix(&home).ok()?;
+    let found = |root: &'static str, full: &Path, rel: &Path| -> Option<LocalPath> {
         let parts: Vec<String> = rel
             .components()
+            .filter(|c| matches!(c, Component::Normal(_)))
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect();
         if parts.is_empty() {
-            return None; // home itself: not a useful link
+            return None; // home or `/` itself: not a useful link
         }
-        Some(LocalPath { rel: parts.join("/"), is_dir: full.is_dir() })
+        Some(LocalPath { root, rel: parts.join("/"), is_dir: full.is_dir() })
+    };
+    let inside = |p: &Path| -> Option<LocalPath> {
+        let full = p.canonicalize().ok()?;
+        found("home", &full, full.strip_prefix(&home).ok()?)
     };
     let raw = Path::new(path);
     if let Some(rest) = path.strip_prefix("~/") {
         return inside(&home.join(rest));
     }
     if raw.is_absolute() {
-        return inside(raw);
+        let full = raw.canonicalize().ok()?;
+        return match full.strip_prefix(&home) {
+            Ok(rel) => found("home", &full, rel),
+            Err(_) if cfg!(unix) => found("disk", &full, &full),
+            Err(_) => None,
+        };
     }
     if let Some(cwd) = cwd.map(Path::new).filter(|c| c.is_absolute()) {
         if let Some(found) = inside(&cwd.join(raw)) {
@@ -815,13 +829,13 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     #[test]
-    fn local_links_resolve_under_home_only() {
+    fn local_links_resolve_under_home_or_as_full_paths() {
         let home = std::env::temp_dir().join(format!("osd-local-{}", std::process::id()));
         let outside = std::env::temp_dir().join(format!("osd-local-out-{}", std::process::id()));
         std::fs::create_dir_all(home.join("repo/src")).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(home.join("repo/src/main.rs"), "fn main() {}").unwrap();
-        let file = |rel: &str| Some(LocalPath { rel: rel.into(), is_dir: false });
+        let file = |rel: &str| Some(LocalPath { root: "home", rel: rel.into(), is_dir: false });
         let abs = home.join("repo/src/main.rs");
 
         // Absolute, relative to the terminal's directory, and a folder.
@@ -830,15 +844,23 @@ mod tests {
         assert_eq!(locate_local(&home, "src/main.rs", cwd.to_str(), &[]), file("repo/src/main.rs"));
         assert_eq!(
             locate_local(&home, "src", cwd.to_str(), &[]),
-            Some(LocalPath { rel: "repo/src".into(), is_dir: true })
+            Some(LocalPath { root: "home", rel: "repo/src".into(), is_dir: true })
         );
         // A relative path with no directory to resolve it against, a missing
-        // file, a path escaping home, and home itself: no link.
+        // file, a relative path escaping home, and home itself: no link.
         assert_eq!(locate_local(&home, "src/main.rs", None, &[]), None);
         assert_eq!(locate_local(&home, "src/nope.rs", cwd.to_str(), &[]), None);
         assert_eq!(locate_local(&home, "../../..", cwd.to_str(), &[]), None);
-        assert_eq!(locate_local(&home, outside.to_str().unwrap(), None, &[]), None);
         assert_eq!(locate_local(&home, home.to_str().unwrap(), None, &[]), None);
+        // A full path outside home opens on disk (Unix), `/` itself does not.
+        std::fs::write(outside.join("shot.png"), "x").unwrap();
+        let shot = outside.join("shot.png");
+        let expected = cfg!(unix).then(|| {
+            let full = shot.canonicalize().unwrap();
+            LocalPath { root: "disk", rel: full.to_str().unwrap()[1..].into(), is_dir: false }
+        });
+        assert_eq!(locate_local(&home, shot.to_str().unwrap(), None, &[]), expected);
+        assert_eq!(locate_local(&home, "/", None, &[]), None);
 
         let _ = std::fs::remove_dir_all(&home);
         let _ = std::fs::remove_dir_all(&outside);
@@ -853,7 +875,7 @@ mod tests {
         std::fs::write(home.join("repo/packages/core/src/agent.ts"), "x").unwrap();
         std::fs::write(home.join("repo/README.md"), "x").unwrap();
         std::fs::write(home.join("other/src/agent.ts"), "x").unwrap();
-        let file = |rel: &str| Some(LocalPath { rel: rel.into(), is_dir: false });
+        let file = |rel: &str| Some(LocalPath { root: "home", rel: rel.into(), is_dir: false });
         let s = |p: PathBuf| p.to_string_lossy().into_owned();
         // The agent read one file of the repo and ran a command in another project.
         let anchors = vec![s(home.join("repo/README.md")), s(home.join("other"))];
