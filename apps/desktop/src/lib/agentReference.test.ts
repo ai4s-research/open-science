@@ -29,6 +29,18 @@ describe("agent references", () => {
     expect(shell).toContain("press keys (menus): osd term key wabc-p3 down enter");
   });
 
+  it("a terminal is named after its agent session, unless the user named it", () => {
+    const agent = { kind: "claude" as const, sessionId: "52cadc66", running: true, title: "Fix the build" };
+    expect(terminalReference({ shellId: "p12", agent })).toContain("[OSD terminal] Fix the build · Claude Code · p12");
+    expect(terminalReference({ shellId: "p12", name: "server", agent })).toContain(
+      "[OSD terminal] server · Claude Code · p12",
+    );
+    // The agent exited: a shell again, typed into.
+    const exited = terminalReference({ shellId: "p12", agent: { ...agent, running: false } });
+    expect(exited).toContain("[OSD terminal] shell · p12");
+    expect(exited).toContain('type a line (it runs): osd term send p12 "<command>"');
+  });
+
   it("an id that is not plain is quoted for the shell", () => {
     expect(sessionReference({ id: "a b'c" })).toContain(`osd session show 'a b'\\''c'`);
   });

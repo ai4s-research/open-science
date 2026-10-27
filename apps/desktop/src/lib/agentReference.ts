@@ -3,7 +3,7 @@
 // to it — so any agent that can run a shell command can act on them, including
 // a Claude Code in a terminal that has never heard of this app. English on
 // purpose: the commands are, and so is every agent's best reading.
-import { leaves, terminalAgentName, type LayoutGroup, type PaneLeaf, type TerminalAgent } from "./layout";
+import { leaves, terminalAgentName, terminalName, type LayoutGroup, type PaneLeaf, type TerminalAgent } from "./layout";
 import { terminalShellId } from "./terminalTransport";
 import { copyText } from "./clipboard";
 import { toast } from "./toast";
@@ -36,10 +36,13 @@ export function sessionReference(s: ReferencedSession): string {
 }
 
 export function terminalReference(t: ReferencedTerminal): string {
-  const what = t.agent ? terminalAgentName(t.agent.kind) : t.name?.trim() || "shell";
+  // Named as everywhere else (see `terminalName`), then the agent running in
+  // it. An agent that has exited left a shell behind, and is not mentioned.
+  const running = t.agent?.running ? t.agent : undefined;
+  const what = [terminalName(t, ""), running && terminalAgentName(running.kind)].filter(Boolean).join(" · ") || "shell";
   const head = `[OSD terminal] ${[what, t.shellId, t.cwd].filter(Boolean).join(" · ")}`;
   // A plain shell runs what is sent; an agent in it reads it as a message.
-  const send = t.agent
+  const send = running
     ? `  send and wait for the reply: osd term send ${arg(t.shellId)} "<message>" --wait`
     : `  type a line (it runs): osd term send ${arg(t.shellId)} "<command>"`;
   // A menu or a dialog (a first run, a trust prompt) takes keys, not text.
