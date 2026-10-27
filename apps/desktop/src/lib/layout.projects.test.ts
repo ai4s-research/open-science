@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { LayoutGroup, PaneNode } from "./layout";
+import type { LayoutGroup, PaneNode, TerminalAgent } from "./layout";
 
 /** A fresh store holding `groups` (active: the first), with nothing remembered
  *  from an earlier test — the last-Screen-per-project memory is module state. */
@@ -169,6 +169,18 @@ describe("a terminal remembers where it was and what ran in it", () => {
     const { S } = await fresh([group("g1", "P", terminal({ kind: "codex", sessionId: "c-9", running: true }))]);
     S().recordTerminal("t", { cwd: "/w/start", agent: null });
     expect(S().tree).toMatchObject({ content: { agent: { kind: "codex", sessionId: "c-9", running: false } } });
+  });
+
+  it("is named after the agent session in it, unless the user named it", async () => {
+    const { S, terminalName } = await fresh([group("g1", "P", terminal())]);
+    S().recordTerminal("t", { cwd: "/w/start", agent: { kind: "claude", sessionId: "abc-1", title: "Fix the build" } });
+    const content = (S().tree as { content: { agent?: TerminalAgent } }).content;
+    expect(content).toMatchObject({ agent: { title: "Fix the build", running: true } });
+    expect(terminalName(content, "Terminal")).toBe("Fix the build");
+    expect(terminalName({ ...content, name: "server" }, "Terminal")).toBe("server");
+    // Back at the shell prompt, the session's name no longer applies.
+    S().recordTerminal("t", { cwd: "/w/start", agent: null });
+    expect(terminalName((S().tree as { content: { agent?: TerminalAgent } }).content, "Terminal")).toBe("Terminal");
   });
 
   it("an unchanged probe commits nothing (it runs every few seconds)", async () => {

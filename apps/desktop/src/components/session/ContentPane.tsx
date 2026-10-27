@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MessagesSquare, Terminal as TerminalIcon, X } from "lucide-react";
-import { useLayoutStore, type PaneContent, type TerminalAgent } from "@/lib/layout";
+import { terminalName, useLayoutStore, type PaneContent, type TerminalAgent } from "@/lib/layout";
 import { CLI_AGENTS, ensureCliAgent } from "@/lib/cliAgents";
 import { isTauri } from "@/lib/tauri";
 import { isGatewayWeb } from "@/lib/webMode";
@@ -92,6 +92,7 @@ export function ContentPane({
   switch (content.kind) {
     case "terminal": {
       const cli = cliAgentOf(content.agent);
+      const name = terminalName(content, t("terminal.title"));
       return (
         <div className="flex h-full flex-col bg-surface">
           {/* 32px, like every pane beside a conversation (see `PANE_HEADER`),
@@ -107,7 +108,7 @@ export function ContentPane({
             {renaming ? (
               <InlineName
                 initial={content.name ?? ""}
-                placeholder={t("terminal.title")}
+                placeholder={name}
                 ariaLabel={t("terminal.rename")}
                 onCommit={(name) => {
                   renamePane(leafId, name);
@@ -127,14 +128,14 @@ export function ContentPane({
                     e,
                     // eslint-disable-next-line i18next/no-literal-string -- DragSource kind, not UI copy
                     { kind: "pane", leafId, sessionId: null },
-                    content.name || t("terminal.title"),
+                    name,
                   )
                 }
                 onDoubleClick={() => setRenaming(true)}
                 title={t("group.renameHint")}
                 className="min-w-0 max-w-[15rem] cursor-grab truncate text-[13px] font-medium text-text active:cursor-grabbing"
               >
-                {content.name || t("terminal.title")}
+                {name}
               </span>
             )}
             <div className="flex-1" />

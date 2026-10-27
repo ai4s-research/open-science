@@ -14,6 +14,7 @@ import {
   projectOf,
   selectActiveProjectId,
   terminalAgentName,
+  terminalName,
   type LayoutGroup,
   type PaneContent,
   type PaneLeaf,
@@ -67,12 +68,12 @@ const SESSION_LIMIT = 100;
 
 const basename = (path: string): string => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
 
-/** What a terminal is called wherever it is listed: its name (else
- *  `fallback`), its folder, and the coding agent running in it. */
+/** What a terminal is called wherever it is listed: its name (see
+ *  `terminalName`), its folder, and the coding agent running in it. */
 export function terminalLabel(c: Extract<PaneContent, { kind: "terminal" }>, fallback: string): string {
   const where = c.cwd ? ` · ${basename(c.cwd)}` : "";
   const agent = c.agent?.running ? ` · ${terminalAgentName(c.agent.kind)}` : "";
-  return `${c.name || fallback}${where}${agent}`;
+  return `${terminalName(c, fallback)}${where}${agent}`;
 }
 
 export function jumpEntries(input: JumpInput): JumpEntry[] {

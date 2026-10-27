@@ -23,6 +23,7 @@ import {
   groupLabel,
   projectGroups,
   selectActiveProjectId,
+  terminalName,
   useLayoutStore,
   type LayoutGroup,
   type PaneContent,
@@ -363,8 +364,9 @@ export function usePaneNames() {
     switch (content.kind) {
       case "terminal":
         // The name the user gave it, when they gave it one: a Screen holding
-        // the "build" terminal should say so in the strip.
-        return content.name || t("session:terminal.title");
+        // the "build" terminal should say so in the strip. Else the agent
+        // session's title, shortened as a conversation's is.
+        return content.name || shortTitle(terminalName(content, t("session:terminal.title")));
       case "files":
         return t("nav:items.files");
       case "notebook":

@@ -26,6 +26,16 @@
 //     (`<agent dir>/sessions/--<cwd with / as ->--/<time>_<id>.jsonl`, first
 //     line `{"type":"session","id":…}`). None before its first message: pi
 //     writes nothing until then, and there is nothing to resume.
+// - title: what the agent itself calls the session in its resume list, so a
+//   terminal is named after its conversation the way a chat session is.
+//   - Claude Code: the transcript's last `custom-title` (`/rename`), else its
+//     last `ai-title`. It re-appends both near the end and lists sessions from
+//     the transcript's tail, so reading starts there too: transcripts reach
+//     hundreds of megabytes.
+//   - Codex: the session's last `thread_name` in `session_index.jsonl`.
+//   - pi: the session file's last `session_info` name (`/name`).
+//   Each file is append-only, so it is followed: every look reads only what was
+//   appended since the last one, and a name never scrolls out of view.
 //
 // Windows has neither a foreground process group nor a cheap cwd query, so
 // nothing is reported there and terminals restore as before.
@@ -40,6 +50,9 @@ pub struct AgentProbe {
     /// "claude" | "codex" | "pi"
     pub kind: &'static str,
     pub session_id: String,
+    /// The session's name in the agent, None while it has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -49,11 +62,12 @@ pub struct TerminalProbe {
     pub agent: Option<AgentProbe>,
 }
 
-/// `sessionId` from a `~/.claude/sessions/<pid>.json` record.
-fn parse_claude_session(json: &str) -> Option<String> {
+/// `sessionId` and `cwd` from a `~/.claude/sessions/<pid>.json` record.
+fn parse_claude_session(json: &str) -> Option<(String, Option<String>)> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
     let id = value.get("sessionId")?.as_str()?;
-    (!id.is_empty()).then(|| id.to_string())
+    let cwd = value.get("cwd").and_then(|c| c.as_str()).map(str::to_string);
+    (!id.is_empty()).then(|| (id.to_string(), cwd))
 }
 
 /// The session id from a Codex rollout's first line (`session_meta`).
@@ -110,12 +124,58 @@ fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-fn claude_session_of(pid: u32) -> Option<String> {
+fn claude_session_of(pid: u32) -> Option<(String, Option<String>)> {
     let record = claude_config_dir()?
         .join("sessions")
         .join(format!("{pid}.json"));
     parse_claude_session(&std::fs::read_to_string(record).ok()?)
 }
+
+/// Claude Code's folder name for a project: every character but an ASCII
+/// letter or digit becomes `-`. Very long paths get a hash suffix instead,
+/// which `claude_transcript` finds by looking in every folder.
+fn claude_project_dir_name(cwd: &str) -> String {
+    cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
+}
+
+fn claude_transcript(session_id: &str, cwd: Option<&str>) -> Option<PathBuf> {
+    let projects = claude_config_dir()?.join("projects");
+    let file = format!("{session_id}.jsonl");
+    if let Some(cwd) = cwd {
+        let path = projects.join(claude_project_dir_name(cwd)).join(&file);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    std::fs::read_dir(&projects)
+        .ok()?
+        .flatten()
+        .map(|e| e.path().join(&file))
+        .find(|p| p.is_file())
+}
+
+/// A name-bearing line of a Claude Code transcript, as (kind, name).
+fn parse_claude_title(line: &str) -> Option<(String, String)> {
+    // Most lines are messages, some of them megabytes long: skip them unparsed.
+    if !line.contains("-title\"") {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    let (kind, field) = match value.get("type")?.as_str()? {
+        "custom-title" => ("custom", "customTitle"),
+        "ai-title" => ("ai", "aiTitle"),
+        _ => return None,
+    };
+    Some((kind.to_string(), value.get(field)?.as_str()?.to_string()))
+}
+
+fn claude_title(session_id: &str, cwd: Option<&str>) -> Option<String> {
+    let names = follow(&claude_transcript(session_id, cwd)?, Some(CLAUDE_TAIL), parse_claude_title)?;
+    clean_title(names.get("custom")).or_else(|| clean_title(names.get("ai")))
+}
+
+/// How far from the end Claude Code itself reads a transcript for its title.
+const CLAUDE_TAIL: u64 = 64 * 1024;
 
 /// Codex session ids by pid. A process's session never changes while it runs,
 /// and on macOS finding it costs an `lsof`, so it is looked up once per pid.
@@ -139,6 +199,26 @@ fn codex_session_of(pid: u32) -> Option<String> {
         cache.insert(pid, id.clone());
     }
     Some(id)
+}
+
+/// `session_index.jsonl` line → (session id, thread name).
+fn parse_codex_index(line: &str) -> Option<(String, String)> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    let id = value.get("id")?.as_str()?;
+    let name = value.get("thread_name")?.as_str()?;
+    Some((id.to_string(), name.to_string()))
+}
+
+fn codex_home() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("CODEX_HOME") {
+        return Some(PathBuf::from(dir));
+    }
+    home_dir().map(|h| h.join(".codex"))
+}
+
+fn codex_title(session_id: &str) -> Option<String> {
+    let names = follow(&codex_home()?.join("session_index.jsonl"), None, parse_codex_index)?;
+    clean_title(names.get(session_id))
 }
 
 /// Whether a process name is Codex's. Measured: the Homebrew cask runs a
@@ -196,30 +276,127 @@ fn newest_pi_session(dir: &Path, since: std::time::SystemTime) -> Option<PathBuf
         .map(|(_, p)| p)
 }
 
-fn pi_session_of(pid: u32) -> Option<String> {
+/// A pi `session_info` line → ("name", name). An empty name clears it.
+fn parse_pi_name(line: &str) -> Option<(String, String)> {
+    if !line.contains("\"session_info\"") {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("type")?.as_str()? != "session_info" {
+        return None;
+    }
+    let name = value.get("name").and_then(|n| n.as_str()).unwrap_or("");
+    Some(("name".to_string(), name.to_string()))
+}
+
+/// pi's session id and the name it has, from its session file.
+fn pi_session_of(pid: u32) -> Option<(String, Option<String>)> {
     if !is_pi_args(&platform::process_args(pid)) {
         return None;
     }
     let dir = pi_session_dir(&pi_agent_dir()?, &platform::process_cwd(pid)?);
     let started = platform::process_start(pid)?;
-    parse_pi_session_head(&read_first_line(&newest_pi_session(&dir, started)?)?)
+    let file = newest_pi_session(&dir, started)?;
+    let id = parse_pi_session_head(&read_first_line(&file)?)?;
+    let title = follow(&file, None, parse_pi_name).and_then(|names| clean_title(names.get("name")));
+    Some((id, title))
+}
+
+/// A name as shown: one line, trimmed, None when nothing is left.
+fn clean_title(name: Option<&String>) -> Option<String> {
+    let name = name?.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!name.is_empty()).then_some(name)
+}
+
+/// How far an append-only file has been read, and the names seen in it.
+struct Followed {
+    offset: u64,
+    names: HashMap<String, String>,
+}
+
+fn followed() -> &'static std::sync::Mutex<HashMap<PathBuf, Followed>> {
+    static FOLLOWED: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Followed>>> =
+        std::sync::OnceLock::new();
+    FOLLOWED.get_or_init(Default::default)
+}
+
+/// The names in an append-only JSONL file, later lines winning: `parse` picks
+/// a (key, name) out of a line. Each call reads only the lines appended since
+/// the last; a file that shrank was rewritten and is read afresh. `tail`: on
+/// first sight (and after a jump too large to read), start that many bytes
+/// from the end instead of at the start.
+fn follow(
+    path: &Path,
+    tail: Option<u64>,
+    parse: fn(&str) -> Option<(String, String)>,
+) -> Option<HashMap<String, String>> {
+    use std::io::{Read, Seek, SeekFrom};
+    /// More than this appended between two looks is skipped to the tail.
+    const MAX_READ: u64 = 8 * 1024 * 1024;
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut all = followed().lock().ok()?;
+    let tail_start = tail.map_or(0, |t| len.saturating_sub(t));
+    // A look that starts at the tail lands inside a line, which is dropped;
+    // every other look starts right after a line break.
+    let mut mid_line = false;
+    let mut state = match all.remove(path).filter(|s| s.offset <= len) {
+        Some(s) => s,
+        None => {
+            mid_line = tail_start > 0;
+            Followed { offset: tail_start, names: HashMap::new() }
+        }
+    };
+    if tail.is_some() && len - state.offset > MAX_READ {
+        state.offset = tail_start;
+        mid_line = true;
+    }
+    let mut buf = Vec::new();
+    file.seek(SeekFrom::Start(state.offset)).ok()?;
+    file.take(len - state.offset).read_to_end(&mut buf).ok()?;
+    // Only whole lines: the one being written is read on the next look.
+    if let Some(end) = buf.iter().rposition(|b| *b == b'\n') {
+        let mut lines = buf[..end].split(|b| *b == b'\n');
+        if mid_line {
+            lines.next();
+        }
+        for line in lines {
+            if let Some((key, name)) = parse(&String::from_utf8_lossy(line)) {
+                state.names.insert(key, name);
+            }
+        }
+        state.offset += end as u64 + 1;
+    } else if mid_line {
+        // Still inside the line it landed in: start over at the next look.
+        return Some(state.names);
+    }
+    let names = state.names.clone();
+    // Bounded: sessions come and go over a long run.
+    if all.len() > 64 {
+        all.clear();
+    }
+    all.insert(path.to_path_buf(), state);
+    Some(names)
 }
 
 fn agent_of(pid: u32) -> Option<AgentProbe> {
-    if let Some(session_id) = claude_session_of(pid) {
+    if let Some((session_id, cwd)) = claude_session_of(pid) {
+        let title = claude_title(&session_id, cwd.as_deref());
         return Some(AgentProbe {
             kind: "claude",
             session_id,
+            title,
         });
     }
     if platform::process_name(pid).is_some_and(|name| is_codex_name(&name)) {
         return codex_session_of(pid).map(|session_id| AgentProbe {
             kind: "codex",
+            title: codex_title(&session_id),
             session_id,
         });
     }
-    if let Some(session_id) = pi_session_of(pid) {
-        return Some(AgentProbe { kind: "pi", session_id });
+    if let Some((session_id, title)) = pi_session_of(pid) {
+        return Some(AgentProbe { kind: "pi", session_id, title });
     }
     None
 }
@@ -548,12 +725,90 @@ mod tests {
         // The shape Claude Code 2.1 writes to ~/.claude/sessions/<pid>.json.
         let record = r#"{"pid":26378,"sessionId":"538c3949-2f92-4cea-8377-c6fb425b2fd7","cwd":"/w/p","kind":"interactive"}"#;
         assert_eq!(
-            parse_claude_session(record).as_deref(),
-            Some("538c3949-2f92-4cea-8377-c6fb425b2fd7")
+            parse_claude_session(record),
+            Some(("538c3949-2f92-4cea-8377-c6fb425b2fd7".into(), Some("/w/p".into())))
         );
         assert_eq!(parse_claude_session(r#"{"pid":1}"#), None);
         assert_eq!(parse_claude_session(r#"{"sessionId":""}"#), None);
         assert_eq!(parse_claude_session("not json"), None);
+    }
+
+    #[test]
+    fn names_the_claude_project_folder_the_way_claude_does() {
+        // Measured: ~/.claude/projects/-Users-asq-data-workspace-commander-entry.
+        assert_eq!(
+            claude_project_dir_name("/Users/asq/data/workspace/commander/entry"),
+            "-Users-asq-data-workspace-commander-entry"
+        );
+        assert_eq!(claude_project_dir_name("/a/.wt-x_y"), "-a--wt-x-y");
+    }
+
+    #[test]
+    fn reads_each_agents_session_name() {
+        // Shapes measured in Claude Code 2.1.311, Codex and pi's session files.
+        assert_eq!(
+            parse_claude_title(r#"{"type":"ai-title","aiTitle":"中台架构设计","sessionId":"x"}"#),
+            Some(("ai".into(), "中台架构设计".into()))
+        );
+        assert_eq!(
+            parse_claude_title(r#"{"type":"custom-title","customTitle":"build","sessionId":"x"}"#),
+            Some(("custom".into(), "build".into()))
+        );
+        // A message that merely mentions a title is not one.
+        assert_eq!(
+            parse_claude_title(r#"{"type":"user","message":{"content":""type":"ai-title""}}"#),
+            None
+        );
+        assert_eq!(
+            parse_codex_index(r#"{"id":"019f","thread_name":"代码审查","updated_at":"2026-07-12T04:03:35Z"}"#),
+            Some(("019f".into(), "代码审查".into()))
+        );
+        assert_eq!(
+            parse_pi_name(r#"{"type":"session_info","id":"a","name":"refactor"}"#),
+            Some(("name".into(), "refactor".into()))
+        );
+        assert_eq!(clean_title(Some(&"  two\nlines ".to_string())).as_deref(), Some("two lines"));
+        assert_eq!(clean_title(Some(&" ".to_string())), None);
+    }
+
+    #[test]
+    fn follows_an_append_only_file() {
+        let dir = std::env::temp_dir().join(format!("osd-follow-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.jsonl");
+        let line = |kind: &str, name: &str| {
+            format!("{{\"type\":\"{kind}-title\",\"{kind}Title\":\"{name}\"}}\n")
+        };
+        let append = |text: &str| {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path).unwrap();
+            f.write_all(text.as_bytes()).unwrap();
+        };
+        // The first look starts at the tail, inside an old line.
+        append(&line("custom", "too far back"));
+        append(&"x".repeat(100));
+        append("\n");
+        append(&line("ai", "first"));
+        let names = follow(&path, Some(60), parse_claude_title).unwrap();
+        assert_eq!(names.get("ai").map(String::as_str), Some("first"));
+        assert_eq!(names.get("custom"), None);
+        // Later looks read what was appended; a name stays known once seen,
+        // and a half-written line waits for its end.
+        append(&line("custom", "renamed"));
+        append(&"y".repeat(200));
+        append("\n{\"type\":\"ai-title\",\"aiTitle\":\"half");
+        let names = follow(&path, Some(60), parse_claude_title).unwrap();
+        assert_eq!(names.get("custom").map(String::as_str), Some("renamed"));
+        assert_eq!(names.get("ai").map(String::as_str), Some("first"));
+        append(" done\"}\n");
+        let names = follow(&path, Some(60), parse_claude_title).unwrap();
+        assert_eq!(names.get("ai").map(String::as_str), Some("half done"));
+        // A rewritten, shorter file is read afresh.
+        std::fs::write(&path, line("ai", "rewritten")).unwrap();
+        let names = follow(&path, Some(60), parse_claude_title).unwrap();
+        assert_eq!(names.get("ai").map(String::as_str), Some("rewritten"));
+        assert_eq!(names.get("custom"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -654,6 +909,20 @@ mod tests {
             std::fs::create_dir_all(d).unwrap();
         }
         std::env::set_var("CLAUDE_CONFIG_DIR", &claude_dir);
+        std::env::set_var("CODEX_HOME", root.join("codex"));
+        // Each agent's name for its session.
+        let transcripts = claude_dir.join("projects/-w-p");
+        std::fs::create_dir_all(&transcripts).unwrap();
+        std::fs::write(
+            transcripts.join("claude-e2e-id.jsonl"),
+            "{\"type\":\"ai-title\",\"aiTitle\":\"Fix the build\",\"sessionId\":\"claude-e2e-id\"}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("codex/session_index.jsonl"),
+            "{\"id\":\"codex-e2e-id\",\"thread_name\":\"Review the parser\"}\n",
+        )
+        .unwrap();
         let rollout = rollouts.join("rollout-2026-01-01T00-00-00-e2e.jsonl");
         std::fs::write(
             &rollout,
@@ -731,7 +1000,7 @@ mod tests {
         };
         std::fs::write(
             claude_dir.join("sessions").join(format!("{fg}.json")),
-            format!("{{\"pid\":{fg},\"sessionId\":\"claude-e2e-id\"}}"),
+            format!("{{\"pid\":{fg},\"sessionId\":\"claude-e2e-id\",\"cwd\":\"/w/p\"}}"),
         )
         .unwrap();
         let p = until("claude", &|p| p.agent.is_some());
@@ -739,7 +1008,8 @@ mod tests {
             p.agent,
             Some(AgentProbe {
                 kind: "claude",
-                session_id: "claude-e2e-id".into()
+                session_id: "claude-e2e-id".into(),
+                title: Some("Fix the build".into()),
             })
         );
         assert_eq!(
@@ -768,7 +1038,8 @@ mod tests {
             p.agent,
             Some(AgentProbe {
                 kind: "codex",
-                session_id: "codex-e2e-id".into()
+                session_id: "codex-e2e-id".into(),
+                title: Some("Review the parser".into()),
             })
         );
 
@@ -776,6 +1047,7 @@ mod tests {
         until("the prompt after codex", &|p| p.agent.is_none());
         let _ = child.kill();
         std::env::remove_var("CLAUDE_CONFIG_DIR");
+        std::env::remove_var("CODEX_HOME");
         let _ = std::fs::remove_dir_all(&root);
     }
 

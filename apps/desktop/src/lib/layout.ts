@@ -53,6 +53,9 @@ export interface TerminalAgent {
   kind: TerminalAgentKind;
   sessionId: string;
   running: boolean;
+  /** What the agent calls the session (Claude Code's title or `/rename`,
+   *  Codex's thread name, pi's `/name`), once it has one. */
+  title?: string;
 }
 
 /** The terminal agents whose sessions the app can resume and move. */
@@ -62,6 +65,14 @@ const TERMINAL_AGENT_KINDS: readonly string[] = ["claude", "codex", "pi"];
 /** The product name of a terminal agent, shown as-is in every language. */
 export function terminalAgentName(kind: TerminalAgentKind): string {
   return { claude: "Claude Code", codex: "Codex", pi: "pi" }[kind];
+}
+
+/** What a terminal is called: the name the user gave it, else the name of
+ *  the agent session running in it — the way a Screen takes a conversation's
+ *  title — else `fallback`. Derived, never stored, so the user's name always
+ *  wins and a session's later rename shows through. */
+export function terminalName(content: { name?: string; agent?: TerminalAgent }, fallback: string): string {
+  return content.name || (content.agent?.running && content.agent.title) || fallback;
 }
 
 /** The command that resumes `agent`'s session in a shell, or null when the
@@ -83,7 +94,7 @@ export function resumeCommand(agent: TerminalAgent): string | null {
 /** What `terminal_probe` reports for one terminal (see terminal_probe.rs). */
 export interface TerminalProbe {
   cwd: string | null;
-  agent: { kind: TerminalAgent["kind"]; sessionId: string } | null;
+  agent: { kind: TerminalAgent["kind"]; sessionId: string; title?: string } | null;
 }
 
 /** What a terminal types into its shell when it first opens: a still-running
@@ -100,7 +111,8 @@ function isTerminalAgent(v: unknown): v is TerminalAgent {
     typeof a.kind === "string" &&
     TERMINAL_AGENT_KINDS.includes(a.kind) &&
     typeof a.sessionId === "string" &&
-    typeof a.running === "boolean"
+    typeof a.running === "boolean" &&
+    (a.title === undefined || typeof a.title === "string")
   );
 }
 
@@ -631,7 +643,7 @@ function cloneForImport(node: PaneNode): PaneNode {
 
 function sameAgent(a: TerminalAgent | undefined, b: TerminalAgent | undefined): boolean {
   if (!a || !b) return a === b;
-  return a.kind === b.kind && a.sessionId === b.sessionId && a.running === b.running;
+  return a.kind === b.kind && a.sessionId === b.sessionId && a.running === b.running && a.title === b.title;
 }
 
 // ---- The Screen each project was last on ----
