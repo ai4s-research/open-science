@@ -28,12 +28,14 @@
 //     writes nothing until then, and there is nothing to resume.
 // - title: what the agent itself calls the session in its resume list, so a
 //   terminal is named after its conversation the way a chat session is.
-//   - Claude Code: the transcript's last `custom-title` (`/rename`), else its
-//     last `ai-title`. It re-appends both near the end and lists sessions from
-//     the transcript's tail, so reading starts there too: transcripts reach
-//     hundreds of megabytes.
+//   - Claude Code, in its own order: the agent name, the `/rename` title, the
+//     AI title, the summary, else the first prompt. It re-appends the names
+//     near the end and reads them from the transcript's tail, so reading
+//     starts there too (transcripts reach hundreds of megabytes); the first
+//     prompt is in the head.
 //   - Codex: the session's last `thread_name` in `session_index.jsonl`.
-//   - pi: the session file's last `session_info` name (`/name`).
+//   - pi: the session file's last `session_info` name (`/name`), else its
+//     first message.
 //   Each file is append-only, so it is followed: every look reads only what was
 //   appended since the last one, and a name never scrolls out of view.
 //
@@ -156,22 +158,122 @@ fn claude_transcript(session_id: &str, cwd: Option<&str>) -> Option<PathBuf> {
 
 /// A name-bearing line of a Claude Code transcript, as (kind, name).
 fn parse_claude_title(line: &str) -> Option<(String, String)> {
-    // Most lines are messages, some of them megabytes long: skip them unparsed.
-    if !line.contains("-title\"") {
+    // Name lines lead with their type; messages lead with `parentUuid` and run
+    // to megabytes, so they are skipped unparsed.
+    if !line.starts_with("{\"type\":\"") {
         return None;
     }
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let (kind, field) = match value.get("type")?.as_str()? {
+        "agent-name" => ("agent", "agentName"),
         "custom-title" => ("custom", "customTitle"),
         "ai-title" => ("ai", "aiTitle"),
+        "summary" => ("summary", "summary"),
         _ => return None,
     };
     Some((kind.to_string(), value.get(field)?.as_str()?.to_string()))
 }
 
+/// The first prompt of a Claude Code transcript line, picked as Claude Code
+/// picks it for a session it has no name for: a user turn the user typed,
+/// with system reminders cut out; slash commands, injected context and
+/// interruptions are passed over (Claude Code keeps a custom command that has
+/// arguments, which is left out here: telling it from a built-in one needs
+/// Claude Code's own command list).
+fn parse_claude_prompt(line: &str) -> Option<String> {
+    if !line.contains("\"type\":\"user\"") {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("type")?.as_str()? != "user"
+        || value.get("isMeta").and_then(|m| m.as_bool()) == Some(true)
+        || value.get("isCompactSummary").and_then(|m| m.as_bool()) == Some(true)
+    {
+        return None;
+    }
+    let content = value.get("message")?.get("content")?;
+    let texts: Vec<&str> = match content {
+        serde_json::Value::String(text) => vec![text.as_str()],
+        serde_json::Value::Array(blocks) => blocks
+            .iter()
+            .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+            .filter_map(|b| b.get("text")?.as_str())
+            .collect(),
+        _ => return None,
+    };
+    texts.into_iter().find_map(|text| {
+        let text = without_system_reminders(text);
+        let text = text.trim();
+        if let Some(command) = between(text, "<bash-input>", "</bash-input>") {
+            return Some(format!("! {command}"));
+        }
+        let injected = text.starts_with('<') && text[1..].starts_with(|c: char| c.is_ascii_lowercase());
+        (!text.is_empty() && !injected && !text.starts_with("[Request interrupted by user"))
+            .then(|| text.to_string())
+    })
+}
+
+fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
+    let start = text.find(open)? + open.len();
+    let end = text[start..].find(close)? + start;
+    Some(&text[start..end])
+}
+
+fn without_system_reminders(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("<system-reminder") {
+        out.push_str(&rest[..start]);
+        match rest[start..].find("</system-reminder>") {
+            Some(end) => rest = &rest[start + end + "</system-reminder>".len()..],
+            None => return out,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// First prompts found, by transcript: the head of a transcript never changes.
+fn first_prompts() -> &'static std::sync::Mutex<HashMap<PathBuf, String>> {
+    static FOUND: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, String>>> =
+        std::sync::OnceLock::new();
+    FOUND.get_or_init(Default::default)
+}
+
+fn claude_first_prompt(path: &Path) -> Option<String> {
+    use std::io::{BufRead, Read};
+    /// A session with no prompt this far in has none worth showing.
+    const MAX_HEAD: u64 = 32 * 1024 * 1024;
+    if let Some(found) = first_prompts().lock().ok()?.get(path) {
+        return Some(found.clone());
+    }
+    let file = std::fs::File::open(path).ok()?;
+    let mut reader = std::io::BufReader::new(file.take(MAX_HEAD));
+    let mut line = Vec::new();
+    let prompt = loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line).ok()? == 0 || line.last() != Some(&b'\n') {
+            return None;
+        }
+        if let Some(prompt) = parse_claude_prompt(&String::from_utf8_lossy(&line)) {
+            break prompt;
+        }
+    };
+    let mut found = first_prompts().lock().ok()?;
+    if found.len() > 64 {
+        found.clear();
+    }
+    found.insert(path.to_path_buf(), prompt.clone());
+    Some(prompt)
+}
+
 fn claude_title(session_id: &str, cwd: Option<&str>) -> Option<String> {
-    let names = follow(&claude_transcript(session_id, cwd)?, Some(CLAUDE_TAIL), parse_claude_title)?;
-    clean_title(names.get("custom")).or_else(|| clean_title(names.get("ai")))
+    let transcript = claude_transcript(session_id, cwd)?;
+    let names = follow(&transcript, Some(CLAUDE_TAIL), parse_claude_title)?;
+    ["agent", "custom", "ai", "summary"]
+        .iter()
+        .find_map(|kind| clean_title(names.get(*kind)))
+        .or_else(|| clean_title(claude_first_prompt(&transcript).as_ref()))
 }
 
 /// How far from the end Claude Code itself reads a transcript for its title.
@@ -276,17 +378,37 @@ fn newest_pi_session(dir: &Path, since: std::time::SystemTime) -> Option<PathBuf
         .map(|(_, p)| p)
 }
 
-/// A pi `session_info` line → ("name", name). An empty name clears it.
+/// A pi `session_info` line → ("name", name), an empty name clearing it; a
+/// user message → (FIRST, its text).
 fn parse_pi_name(line: &str) -> Option<(String, String)> {
-    if !line.contains("\"session_info\"") {
+    if !line.contains("\"session_info\"") && !line.contains("\"role\":\"user\"") {
         return None;
     }
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
-    if value.get("type")?.as_str()? != "session_info" {
-        return None;
+    match value.get("type")?.as_str()? {
+        "session_info" => {
+            let name = value.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            Some(("name".to_string(), name.to_string()))
+        }
+        "message" => {
+            let message = value.get("message")?;
+            if message.get("role")?.as_str()? != "user" {
+                return None;
+            }
+            let text = match message.get("content")? {
+                serde_json::Value::String(text) => text.clone(),
+                serde_json::Value::Array(blocks) => blocks
+                    .iter()
+                    .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+                    .filter_map(|b| b.get("text")?.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                _ => return None,
+            };
+            Some((FIRST.to_string(), text))
+        }
+        _ => None,
     }
-    let name = value.get("name").and_then(|n| n.as_str()).unwrap_or("");
-    Some(("name".to_string(), name.to_string()))
 }
 
 /// pi's session id and the name it has, from its session file.
@@ -298,15 +420,25 @@ fn pi_session_of(pid: u32) -> Option<(String, Option<String>)> {
     let started = platform::process_start(pid)?;
     let file = newest_pi_session(&dir, started)?;
     let id = parse_pi_session_head(&read_first_line(&file)?)?;
-    let title = follow(&file, None, parse_pi_name).and_then(|names| clean_title(names.get("name")));
+    let title = follow(&file, None, parse_pi_name)
+        .and_then(|names| clean_title(names.get("name")).or_else(|| clean_title(names.get(FIRST))));
     Some((id, title))
 }
 
-/// A name as shown: one line, trimmed, None when nothing is left.
+/// A name as shown: one line, trimmed, at most as long as Claude Code cuts a
+/// first prompt to, None when nothing is left.
 fn clean_title(name: Option<&String>) -> Option<String> {
+    const MAX_CHARS: usize = 200;
     let name = name?.split_whitespace().collect::<Vec<_>>().join(" ");
+    if name.chars().count() > MAX_CHARS {
+        return Some(format!("{}…", name.chars().take(MAX_CHARS).collect::<String>().trim_end()));
+    }
     (!name.is_empty()).then_some(name)
 }
+
+/// The key `follow` keeps the FIRST value of rather than the last: a
+/// session's first message.
+const FIRST: &str = "first";
 
 /// How far an append-only file has been read, and the names seen in it.
 struct Followed {
@@ -320,8 +452,8 @@ fn followed() -> &'static std::sync::Mutex<HashMap<PathBuf, Followed>> {
     FOLLOWED.get_or_init(Default::default)
 }
 
-/// The names in an append-only JSONL file, later lines winning: `parse` picks
-/// a (key, name) out of a line. Each call reads only the lines appended since
+/// The names in an append-only JSONL file, later lines winning (but for
+/// `FIRST`): `parse` picks a (key, name) out of a line. Each call reads only the lines appended since
 /// the last; a file that shrank was rewritten and is read afresh. `tail`: on
 /// first sight (and after a jump too large to read), start that many bytes
 /// from the end instead of at the start.
@@ -362,7 +494,11 @@ fn follow(
         }
         for line in lines {
             if let Some((key, name)) = parse(&String::from_utf8_lossy(line)) {
-                state.names.insert(key, name);
+                if key == FIRST {
+                    state.names.entry(key).or_insert(name);
+                } else {
+                    state.names.insert(key, name);
+                }
             }
         }
         state.offset += end as u64 + 1;
@@ -769,6 +905,76 @@ mod tests {
         );
         assert_eq!(clean_title(Some(&"  two\nlines ".to_string())).as_deref(), Some("two lines"));
         assert_eq!(clean_title(Some(&" ".to_string())), None);
+    }
+
+    #[test]
+    fn without_a_name_a_claude_session_is_called_by_its_first_prompt() {
+        let user = |content: &str| format!(r#"{{"parentUuid":null,"type":"user","message":{{"role":"user","content":{content}}}}}"#);
+        // Passed over: a built-in command, injected context, an interruption, meta.
+        assert_eq!(
+            parse_claude_prompt(&user(r#""<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>""#)),
+            None
+        );
+        assert_eq!(parse_claude_prompt(&user(r#""<local-command-stdout></local-command-stdout>""#)), None);
+        assert_eq!(parse_claude_prompt(&user(r#""[Request interrupted by user]""#)), None);
+        assert_eq!(
+            parse_claude_prompt(r#"{"type":"user","isMeta":true,"message":{"role":"user","content":"Caveat"}}"#),
+            None
+        );
+        // Measured: a pasted image, then the text, as Claude Code 2.1.311 writes it.
+        assert_eq!(
+            parse_claude_prompt(&user(r#"[{"type":"text","text":"[Image #1]\n\n这个，能否自动使用session的名字？"},{"type":"image","source":{"type":"base64","data":"AAAA"}}]"#))
+                .as_deref(),
+            Some("[Image #1]\n\n这个，能否自动使用session的名字？")
+        );
+        assert_eq!(
+            parse_claude_prompt(&user(r#""<system-reminder>ctx</system-reminder>\nFix the build""#)).as_deref(),
+            Some("Fix the build")
+        );
+        assert_eq!(parse_claude_prompt(&user(r#""<bash-input>ls</bash-input>""#)).as_deref(), Some("! ls"));
+        // Tool results come back as user turns with no text.
+        assert_eq!(parse_claude_prompt(&user(r#"[{"type":"tool_result","content":"ok"}]"#)), None);
+
+        let dir = std::env::temp_dir().join(format!("osd-first-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.jsonl");
+        std::fs::write(
+            &path,
+            [user(r#""<command-name>/clear</command-name>""#), user(r#""Fix the build""#), user(r#""later""#)].join("\n") + "\n",
+        )
+        .unwrap();
+        assert_eq!(claude_first_prompt(&path).as_deref(), Some("Fix the build"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn claude_names_rank_as_claude_ranks_them() {
+        assert_eq!(
+            parse_claude_title(r#"{"type":"agent-name","agentName":"step-pod","sessionId":"x"}"#),
+            Some(("agent".into(), "step-pod".into()))
+        );
+        assert_eq!(
+            parse_claude_title(r#"{"type":"summary","summary":"Old work","leafUuid":"u"}"#),
+            Some(("summary".into(), "Old work".into()))
+        );
+        let long = "字".repeat(250);
+        let cut = clean_title(Some(&long)).unwrap();
+        assert_eq!(cut.chars().count(), 201);
+        assert!(cut.ends_with('…'));
+    }
+
+    #[test]
+    fn a_pi_session_without_a_name_is_called_by_its_first_message() {
+        let dir = std::env::temp_dir().join(format!("osd-pi-first-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.jsonl");
+        let message = |text: &str| {
+            format!(r#"{{"type":"message","id":"a","message":{{"role":"user","content":[{{"type":"text","text":"{text}"}}]}}}}"#)
+        };
+        std::fs::write(&path, format!("{}\n{}\n", message("design a landing page"), message("now darker"))).unwrap();
+        let names = follow(&path, None, parse_pi_name).unwrap();
+        assert_eq!(names.get(FIRST).map(String::as_str), Some("design a landing page"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
