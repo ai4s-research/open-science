@@ -111,7 +111,8 @@
       "filter": {
         "all": "전체",
         "favorites": "즐겨찾기",
-        "recent": "최근"
+        "recent": "최근",
+        "new": "신규"
       },
       "reasoning": "추론 강도",
       "reasoningDefault": "모델 기본값",
@@ -123,7 +124,31 @@
       "unknownContextTitle": "컨텍스트 창 크기를 알 수 없음",
       "unknownContextBody": "이 모델은 자동 압축이 동작하지 않아 대화가 무한정 커지고 긴 턴은 결국 멈춥니다. 설정 → 에이전트에서 창 크기를 지정하세요.",
       "retiredTitle": "제공자가 모델 제공을 중단했습니다",
-      "retiredBody": "{{model}}은(는) 여전히 설정되어 있지만 제공자가 더 이상 제공하지 않아 모든 턴이 실패합니다. 위에서 다른 모델을 선택하세요."
+      "retiredBody": "{{model}}은(는) 여전히 설정되어 있지만 제공자가 더 이상 제공하지 않아 모든 턴이 실패합니다. 위에서 다른 모델을 선택하세요.",
+      "newBadge": "신규",
+      "catalog": {
+        "updated": "{{ago}} 전 업데이트",
+        "updatedNow": "방금 업데이트",
+        "checking": "새 모델 확인 중",
+        "loading": "새 모델 불러오는 중",
+        "upToDate": "최신 상태",
+        "added_other": "새 모델 {{count}}개",
+        "waiting_other": "이 답변이 끝나면 새 모델 {{count}}개 적용",
+        "failed": {
+          "timeout": "업데이트 시간 초과",
+          "proxy": "프록시가 업데이트를 거부함",
+          "offline": "업데이트 연결 실패",
+          "server": "업데이트 서버 오류",
+          "invalid": "업데이트 내용이 불완전함"
+        },
+        "retry": "다시 시도",
+        "staleTitle_other": "모델 목록이 {{count}}일 전 상태입니다",
+        "staleBody": "최근 업데이트가 실패했습니다. 업데이트가 되면 새 모델이 나타납니다.",
+        "proxySettings": "프록시 설정",
+        "noMatch": "{{query}} 결과 0개",
+        "listAge": "모델 목록 업데이트: {{ago}} 전",
+        "checkNow": "새 모델 확인"
+      }
     },
     "reference": {
       "filesAria": "작업 공간 파일",

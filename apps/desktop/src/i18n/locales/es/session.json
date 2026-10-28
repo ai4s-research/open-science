@@ -111,7 +111,8 @@
       "filter": {
         "all": "Todos",
         "favorites": "Favoritos",
-        "recent": "Recientes"
+        "recent": "Recientes",
+        "new": "Nuevos"
       },
       "reasoning": "Esfuerzo de razonamiento",
       "reasoningDefault": "Predeterminado del modelo",
@@ -123,7 +124,34 @@
       "unknownContextTitle": "Ventana de contexto desconocida",
       "unknownContextBody": "La compactación automática no se aplica a este modelo, la conversación crece sin límite y los turnos largos acaban bloqueándose. Define la ventana en Ajustes → Agentes.",
       "retiredTitle": "El proveedor retiró el modelo",
-      "retiredBody": "{{model}} sigue configurado, pero el proveedor ya no lo sirve, así que todos los turnos fallan. Elige otro modelo arriba."
+      "retiredBody": "{{model}} sigue configurado, pero el proveedor ya no lo sirve, así que todos los turnos fallan. Elige otro modelo arriba.",
+      "newBadge": "Nuevo",
+      "catalog": {
+        "updated": "Actualizado hace {{ago}}",
+        "updatedNow": "Actualizado ahora mismo",
+        "checking": "Buscando modelos nuevos",
+        "loading": "Cargando modelos nuevos",
+        "upToDate": "Al día",
+        "added_one": "{{count}} modelo nuevo",
+        "added_other": "{{count}} modelos nuevos",
+        "waiting_one": "{{count}} modelo nuevo tras esta respuesta",
+        "waiting_other": "{{count}} modelos nuevos tras esta respuesta",
+        "failed": {
+          "timeout": "La actualización agotó el tiempo",
+          "proxy": "El proxy rechazó la actualización",
+          "offline": "La actualización no pudo conectar",
+          "server": "Error del servidor de actualización",
+          "invalid": "Actualización incompleta"
+        },
+        "retry": "Reintentar",
+        "staleTitle_one": "La lista de modelos tiene {{count}} día",
+        "staleTitle_other": "La lista de modelos tiene {{count}} días",
+        "staleBody": "Las últimas actualizaciones han fallado. Los modelos más recientes aparecerán cuando una actualización funcione.",
+        "proxySettings": "Ajustes de proxy",
+        "noMatch": "0 resultados para {{query}}",
+        "listAge": "Lista de modelos actualizada hace {{ago}}",
+        "checkNow": "Buscar modelos nuevos"
+      }
     },
     "reference": {
       "filesAria": "Archivos del espacio de trabajo",

@@ -18,6 +18,8 @@ export type ModelFilter =
   | { kind: "all" }
   | { kind: "favorites" }
   | { kind: "recent" }
+  /** Models that arrived with a recent catalog update. */
+  | { kind: "new" }
   | { kind: "provider"; providerID: string };
 
 export function flattenModelOptions(providers: ProviderInfo[]): ModelOption[] {
@@ -73,6 +75,7 @@ function baseOptions(
   filter: ModelFilter,
   favorites: string[],
   recent: string[],
+  newKeys: string[],
 ): ModelOption[] {
   // Every list here is a list to pick from, so a retired model belongs in none
   // of them — including favorites and recents, where it is exactly the model a
@@ -82,6 +85,10 @@ function baseOptions(
   if (filter.kind === "favorites") {
     const favoriteSet = new Set(favorites);
     return options.filter((m) => favoriteSet.has(m.key));
+  }
+  if (filter.kind === "new") {
+    const fresh = new Set(newKeys);
+    return options.filter((m) => fresh.has(m.key));
   }
   if (filter.kind === "recent") {
     const byKey = new Map(options.map((model) => [model.key, model]));
@@ -99,9 +106,10 @@ export function filterModelOptions(
   query: string,
   favorites: string[],
   recent: string[],
+  newKeys: string[] = [],
 ): ModelOption[] {
   const normalized = query.trim().toLocaleLowerCase();
-  const candidates = baseOptions(options, filter, favorites, recent);
+  const candidates = baseOptions(options, filter, favorites, recent, newKeys);
   if (!normalized) return candidates;
   return candidates.filter((model) =>
     [model.modelName, model.modelID, model.providerName, model.providerID]

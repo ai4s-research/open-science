@@ -111,7 +111,8 @@
       "filter": {
         "all": "All",
         "favorites": "Favorites",
-        "recent": "Recent"
+        "recent": "Recent",
+        "new": "New"
       },
       "reasoning": "Reasoning effort",
       "reasoningDefault": "Model default",
@@ -123,7 +124,34 @@
       "unknownContextTitle": "Context window unknown",
       "unknownContextBody": "Auto-compaction stays off for this model, so the conversation grows without limit and long turns eventually stall. Set the window in Settings → Agents.",
       "retiredTitle": "Model retired by its provider",
-      "retiredBody": "{{model}} is still configured, but the provider no longer serves it, so every turn fails. Pick another model above."
+      "retiredBody": "{{model}} is still configured, but the provider no longer serves it, so every turn fails. Pick another model above.",
+      "newBadge": "New",
+      "catalog": {
+        "updated": "Updated {{ago}} ago",
+        "updatedNow": "Updated just now",
+        "checking": "Checking for new models",
+        "loading": "Loading new models",
+        "upToDate": "Up to date",
+        "added_one": "{{count}} new model",
+        "added_other": "{{count}} new models",
+        "waiting_one": "{{count}} new model after this reply",
+        "waiting_other": "{{count}} new models after this reply",
+        "failed": {
+          "timeout": "Update timed out",
+          "proxy": "Proxy refused the update",
+          "offline": "Update could not connect",
+          "server": "Update server error",
+          "invalid": "Update was incomplete"
+        },
+        "retry": "Retry",
+        "staleTitle_one": "Model list is {{count}} day old",
+        "staleTitle_other": "Model list is {{count}} days old",
+        "staleBody": "Recent updates have failed. Newer models appear once an update gets through.",
+        "proxySettings": "Proxy settings",
+        "noMatch": "0 results for {{query}}",
+        "listAge": "Model list updated {{ago}} ago",
+        "checkNow": "Check for new models"
+      }
     },
     "reference": {
       "filesAria": "Workspace files",

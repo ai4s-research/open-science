@@ -111,7 +111,8 @@
       "filter": {
         "all": "Alle",
         "favorites": "Favoriten",
-        "recent": "Zuletzt"
+        "recent": "Zuletzt",
+        "new": "Neu"
       },
       "reasoning": "Denkaufwand",
       "reasoningDefault": "Modellstandard",
@@ -123,7 +124,34 @@
       "unknownContextTitle": "Kontextfenster unbekannt",
       "unknownContextBody": "Die automatische Komprimierung bleibt für dieses Modell aus, das Gespräch wächst unbegrenzt und lange Durchläufe bleiben irgendwann hängen. Fenstergröße unter Einstellungen → Agenten setzen.",
       "retiredTitle": "Modell vom Anbieter eingestellt",
-      "retiredBody": "{{model}} ist weiterhin konfiguriert, wird vom Anbieter aber nicht mehr bereitgestellt, daher schlägt jeder Durchlauf fehl. Oben ein anderes Modell wählen."
+      "retiredBody": "{{model}} ist weiterhin konfiguriert, wird vom Anbieter aber nicht mehr bereitgestellt, daher schlägt jeder Durchlauf fehl. Oben ein anderes Modell wählen.",
+      "newBadge": "Neu",
+      "catalog": {
+        "updated": "Vor {{ago}} aktualisiert",
+        "updatedNow": "Gerade aktualisiert",
+        "checking": "Suche nach neuen Modellen",
+        "loading": "Neue Modelle werden geladen",
+        "upToDate": "Aktuell",
+        "added_one": "{{count}} neues Modell",
+        "added_other": "{{count}} neue Modelle",
+        "waiting_one": "{{count}} neues Modell nach dieser Antwort",
+        "waiting_other": "{{count}} neue Modelle nach dieser Antwort",
+        "failed": {
+          "timeout": "Aktualisierung abgelaufen",
+          "proxy": "Proxy hat die Aktualisierung abgelehnt",
+          "offline": "Aktualisierung ohne Verbindung",
+          "server": "Fehler beim Aktualisierungsserver",
+          "invalid": "Aktualisierung unvollständig"
+        },
+        "retry": "Erneut versuchen",
+        "staleTitle_one": "Modellliste ist {{count}} Tag alt",
+        "staleTitle_other": "Modellliste ist {{count}} Tage alt",
+        "staleBody": "Die letzten Aktualisierungen sind fehlgeschlagen. Neuere Modelle erscheinen, sobald eine Aktualisierung durchkommt.",
+        "proxySettings": "Proxy-Einstellungen",
+        "noMatch": "0 Ergebnisse für {{query}}",
+        "listAge": "Modellliste vor {{ago}} aktualisiert",
+        "checkNow": "Nach neuen Modellen suchen"
+      }
     },
     "reference": {
       "filesAria": "Dateien im Arbeitsbereich",

@@ -1426,6 +1426,21 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
             Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
             Err(e) => respond_json(stream, 404, &err_json(&e)),
         },
+        ("GET", ["model-catalog"]) => {
+            let st = crate::model_catalog::status(&ctx.env);
+            respond_json(stream, 200, &serde_json::to_string(&st).unwrap_or_default());
+        }
+        ("POST", ["model-catalog", "refresh"]) => {
+            let st = crate::model_catalog::refresh(&ctx.env, true);
+            respond_json(stream, 200, &serde_json::to_string(&st).unwrap_or_default());
+        }
+        ("POST", ["model-catalog", "apply"]) => match crate::model_catalog::apply(&ctx.env) {
+            Ok(outcome) => {
+                let payload = serde_json::json!({ "outcome": outcome });
+                respond_json(stream, 200, &payload.to_string());
+            }
+            Err(e) => respond_json(stream, 500, &err_json(&e)),
+        },
         ("GET", ["zen-models"]) => match crate::model_probe::fetch_zen_models() {
             Ok(ids) => {
                 let payload = serde_json::json!({ "models": ids });

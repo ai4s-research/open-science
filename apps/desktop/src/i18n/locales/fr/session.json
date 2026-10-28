@@ -111,7 +111,8 @@
       "filter": {
         "all": "Tous",
         "favorites": "Favoris",
-        "recent": "Récents"
+        "recent": "Récents",
+        "new": "Nouveaux"
       },
       "reasoning": "Effort de raisonnement",
       "reasoningDefault": "Défaut du modèle",
@@ -123,7 +124,34 @@
       "unknownContextTitle": "Fenêtre de contexte inconnue",
       "unknownContextBody": "La compaction automatique reste désactivée pour ce modèle : la conversation grossit sans limite et les tours longs finissent par se bloquer. Définissez la fenêtre dans Réglages → Agents.",
       "retiredTitle": "Modèle retiré par son fournisseur",
-      "retiredBody": "{{model}} est toujours configuré, mais le fournisseur ne le sert plus : chaque tour échoue. Choisissez un autre modèle ci-dessus."
+      "retiredBody": "{{model}} est toujours configuré, mais le fournisseur ne le sert plus : chaque tour échoue. Choisissez un autre modèle ci-dessus.",
+      "newBadge": "Nouveau",
+      "catalog": {
+        "updated": "Mis à jour il y a {{ago}}",
+        "updatedNow": "Mis à jour à l’instant",
+        "checking": "Recherche de nouveaux modèles",
+        "loading": "Chargement des nouveaux modèles",
+        "upToDate": "À jour",
+        "added_one": "{{count}} nouveau modèle",
+        "added_other": "{{count}} nouveaux modèles",
+        "waiting_one": "{{count}} nouveau modèle après cette réponse",
+        "waiting_other": "{{count}} nouveaux modèles après cette réponse",
+        "failed": {
+          "timeout": "Délai de mise à jour dépassé",
+          "proxy": "Le proxy a refusé la mise à jour",
+          "offline": "Connexion impossible pour la mise à jour",
+          "server": "Erreur du serveur de mise à jour",
+          "invalid": "Mise à jour incomplète"
+        },
+        "retry": "Réessayer",
+        "staleTitle_one": "La liste des modèles date de {{count}} jour",
+        "staleTitle_other": "La liste des modèles date de {{count}} jours",
+        "staleBody": "Les dernières mises à jour ont échoué. Les modèles récents apparaîtront dès qu’une mise à jour passera.",
+        "proxySettings": "Réglages du proxy",
+        "noMatch": "0 résultat pour {{query}}",
+        "listAge": "Liste des modèles mise à jour il y a {{ago}}",
+        "checkNow": "Rechercher de nouveaux modèles"
+      }
     },
     "reference": {
       "filesAria": "Fichiers de l’espace de travail",

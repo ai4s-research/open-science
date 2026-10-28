@@ -111,7 +111,8 @@
       "filter": {
         "all": "全部",
         "favorites": "收藏",
-        "recent": "最近"
+        "recent": "最近",
+        "new": "新增"
       },
       "reasoning": "推理强度",
       "reasoningDefault": "模型默认",
@@ -123,7 +124,31 @@
       "unknownContextTitle": "上下文窗口未知",
       "unknownContextBody": "该模型的自动压缩不会生效，对话会无限增长，长回合最终会卡住。请在“设置 → 智能体”里填写窗口大小。",
       "retiredTitle": "该模型已被供应商下架",
-      "retiredBody": "{{model}} 仍在配置中，但供应商已不再提供，每个回合都会失败。请在上方另选一个模型。"
+      "retiredBody": "{{model}} 仍在配置中，但供应商已不再提供，每个回合都会失败。请在上方另选一个模型。",
+      "newBadge": "新",
+      "catalog": {
+        "updated": "{{ago}} 前更新",
+        "updatedNow": "刚刚更新",
+        "checking": "正在检查新模型",
+        "loading": "正在载入新模型",
+        "upToDate": "已是最新",
+        "added_other": "{{count}} 个新模型",
+        "waiting_other": "本次回复结束后载入 {{count}} 个新模型",
+        "failed": {
+          "timeout": "更新超时",
+          "proxy": "代理拒绝了更新",
+          "offline": "更新时连接失败",
+          "server": "更新服务出错",
+          "invalid": "更新内容残缺"
+        },
+        "retry": "重试",
+        "staleTitle_other": "模型清单停在 {{count}} 天前",
+        "staleBody": "最近几次更新都失败了。更新成功后，新模型会出现在这里。",
+        "proxySettings": "代理设置",
+        "noMatch": "搜索 {{query}}：0 个结果",
+        "listAge": "模型清单更新于 {{ago}} 前",
+        "checkNow": "检查新模型"
+      }
     },
     "reference": {
       "filesAria": "工作区文件",

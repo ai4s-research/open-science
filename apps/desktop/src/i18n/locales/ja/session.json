@@ -111,7 +111,8 @@
       "filter": {
         "all": "すべて",
         "favorites": "お気に入り",
-        "recent": "最近"
+        "recent": "最近",
+        "new": "新着"
       },
       "reasoning": "推論の強度",
       "reasoningDefault": "モデルの既定",
@@ -123,7 +124,31 @@
       "unknownContextTitle": "コンテキストウィンドウが不明です",
       "unknownContextBody": "このモデルでは自動圧縮が働かないため、会話が際限なく大きくなり、長いターンは最終的に停止します。「設定 → エージェント」でウィンドウサイズを設定してください。",
       "retiredTitle": "モデルはプロバイダーが提供を終了しました",
-      "retiredBody": "{{model}} は設定されたままですが、プロバイダーが提供を終了したため、すべてのターンが失敗します。上から別のモデルを選んでください。"
+      "retiredBody": "{{model}} は設定されたままですが、プロバイダーが提供を終了したため、すべてのターンが失敗します。上から別のモデルを選んでください。",
+      "newBadge": "新着",
+      "catalog": {
+        "updated": "{{ago}}前に更新",
+        "updatedNow": "たった今更新",
+        "checking": "新しいモデルを確認中",
+        "loading": "新しいモデルを読み込み中",
+        "upToDate": "最新です",
+        "added_other": "新しいモデル {{count}} 件",
+        "waiting_other": "この返信のあとに新しいモデル {{count}} 件を読み込み",
+        "failed": {
+          "timeout": "更新がタイムアウトしました",
+          "proxy": "プロキシが更新を拒否しました",
+          "offline": "更新時に接続できませんでした",
+          "server": "更新サーバーのエラー",
+          "invalid": "更新内容が不完全です"
+        },
+        "retry": "再試行",
+        "staleTitle_other": "モデル一覧は {{count}} 日前のものです",
+        "staleBody": "最近の更新が失敗しています。更新が通ると新しいモデルが表示されます。",
+        "proxySettings": "プロキシ設定",
+        "noMatch": "{{query}} の結果は 0 件",
+        "listAge": "モデル一覧の更新は {{ago}}前",
+        "checkNow": "新しいモデルを確認"
+      }
     },
     "reference": {
       "filesAria": "ワークスペースのファイル",

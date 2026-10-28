@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Cpu,
   Loader2,
+  RefreshCw,
   Search,
   Star,
   TriangleAlert,
@@ -39,6 +40,32 @@ import {
   toggleFavorite,
   type ModelPreferences,
 } from "@/components/settings/modelPreferences";
+import {
+  CHECK_OFFER_AFTER_MS,
+  STALE_AFTER_MS,
+  useModelCatalog,
+  watchModelCatalog,
+} from "@/lib/modelCatalogUpdates";
+import { isTauri } from "@/lib/tauri";
+
+/** The model list's age in minutes, hours or days. Days, not weeks, so the
+ *  footer and the stale notice ("12 days old") always name the same number. */
+function listAgeLabel(ms: number): string | null {
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return null;
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
+/** Why a model-list update failed, one short line per kind (Rust `model_catalog`). */
+const FAILED_KEYS: Record<string, `composer.model.catalog.failed.${"timeout" | "proxy" | "offline" | "server" | "invalid"}`> = {
+  timeout: "composer.model.catalog.failed.timeout",
+  proxy: "composer.model.catalog.failed.proxy",
+  offline: "composer.model.catalog.failed.offline",
+  server: "composer.model.catalog.failed.server",
+  invalid: "composer.model.catalog.failed.invalid",
+};
 
 /** Display label for a reasoning-effort variant. Variant names are provider
  *  tokens (like model ids), the same in every language, so we title-case them
@@ -342,7 +369,35 @@ export function ModelPicker({
   const activeVariant =
     variantChoice && currentVariants.includes(variantChoice) ? variantChoice : null;
 
-  const visible = filterModelOptions(options, filter, query, prefs.favorites, prefs.recent);
+  // How fresh the model list is, and the models a recent update brought.
+  const catalog = useModelCatalog();
+  useEffect(() => watchModelCatalog(), []);
+  const newKeys = useMemo(() => {
+    const present = new Set(options.map((o) => o.key));
+    return (catalog.status?.newModels ?? []).map((m) => m.key).filter((k) => present.has(k));
+  }, [catalog.status, options]);
+  const newSet = useMemo(() => new Set(newKeys), [newKeys]);
+  const now = Date.now();
+  const listAge = catalog.status?.updatedAt ? now - catalog.status.updatedAt : null;
+  const lastError = catalog.status?.lastError ?? null;
+  const stale = listAge !== null && listAge > STALE_AFTER_MS && lastError !== null;
+  const updatedAgo = (ms: number) => {
+    const ago = listAgeLabel(now - ms);
+    return ago
+      ? t("composer.model.catalog.updated", { ago })
+      : t("composer.model.catalog.updatedNow");
+  };
+
+  // The New filter only exists while there is something new to show.
+  const activeFilter: ModelFilter = filter.kind === "new" && newKeys.length === 0 ? { kind: "all" } : filter;
+  const visible = filterModelOptions(
+    options,
+    activeFilter,
+    query,
+    prefs.favorites,
+    prefs.recent,
+    newKeys,
+  );
 
   // Manual outside-press dismissal — WKWebView never focuses a clicked button, so
   // relying on blur would leave the popover stuck open. (The composer's other
@@ -369,6 +424,19 @@ export function ModelPicker({
   // On open: reset the query, focus search on desktop (skip on mobile so the
   // sheet doesn't yank up the keyboard), and default Advanced open when an
   // effort is already pinned so the user sees their setting.
+  // Models that just arrived: open on them once, so the first look shows what
+  // is new. Closing the picker clears a one-off footer message.
+  const consumeOpenOnNew = catalog.consumeOpenOnNew;
+  const acknowledgeCatalog = catalog.acknowledge;
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current && newKeys.length > 0 && consumeOpenOnNew()) {
+      setFilter({ kind: "new" });
+    }
+    if (!open && wasOpen.current) acknowledgeCatalog();
+    wasOpen.current = open;
+  }, [open, newKeys.length, consumeOpenOnNew, acknowledgeCatalog]);
+
   useEffect(() => {
     if (!open) return;
     setQuery("");
@@ -442,6 +510,15 @@ export function ModelPicker({
 
   const filterChips: { key: string; label: string; icon?: typeof Star; value: ModelFilter }[] = [
     { key: "all", label: t("composer.model.filter.all"), value: { kind: "all" } },
+    ...(newKeys.length > 0
+      ? [
+          {
+            key: "new",
+            label: `${t("composer.model.filter.new")} ${newKeys.length}`,
+            value: { kind: "new" } as ModelFilter,
+          },
+        ]
+      : []),
     {
       key: "favorites",
       label: t("composer.model.filter.favorites"),
@@ -456,9 +533,74 @@ export function ModelPicker({
     })),
   ];
   const isActiveFilter = (value: ModelFilter) =>
-    value.kind === filter.kind &&
+    value.kind === activeFilter.kind &&
     (value.kind !== "provider" ||
-      (filter.kind === "provider" && value.providerID === filter.providerID));
+      (activeFilter.kind === "provider" && value.providerID === activeFilter.providerID));
+
+  const metaCls = "ml-auto flex min-w-0 items-center gap-1.5 truncate";
+  const catalogMeta = !catalog.status ? null : catalog.phase === "checking" ||
+    catalog.phase === "applying" ? (
+    <span className={cn(metaCls, "text-muted")} role="status">
+      <span className="truncate">
+        {catalog.phase === "checking"
+          ? t("composer.model.catalog.checking")
+          : t("composer.model.catalog.loading")}
+      </span>
+      <RefreshCw size={12} className="shrink-0 animate-spin" aria-hidden />
+    </span>
+  ) : catalog.phase === "upToDate" ? (
+    <span className={cn(metaCls, "text-muted")} role="status">
+      <span className="truncate">{t("composer.model.catalog.upToDate")}</span>
+      <Check size={12} className="shrink-0" aria-hidden />
+    </span>
+  ) : catalog.phase === "applied" ? (
+    <span className={cn(metaCls, "text-accent")} role="status">
+      <span className="truncate">
+        {t("composer.model.catalog.added", { count: catalog.arrived })}
+      </span>
+      <Check size={12} className="shrink-0" aria-hidden />
+    </span>
+  ) : catalog.phase === "waiting" ? (
+    <span className={cn(metaCls, "text-accent")} role="status">
+      <span className="truncate">
+        {t("composer.model.catalog.waiting", { count: catalog.arrived })}
+      </span>
+    </span>
+  ) : catalog.phase === "failed" ? (
+    <button
+      className={cn(metaCls, "text-warn hover:underline")}
+      title={lastError?.message}
+      onClick={() => void catalog.refresh()}
+    >
+      <span className="truncate">
+        {t(FAILED_KEYS[lastError?.kind ?? ""] ?? "composer.model.catalog.failed.offline")}
+        {" · "}
+        {t("composer.model.catalog.retry")}
+      </span>
+    </button>
+  ) : catalog.status.updatedAt ? (
+    <button
+      className={cn(
+        metaCls,
+        "hover:text-text",
+        listAge !== null && listAge > STALE_AFTER_MS ? "text-warn" : "text-muted",
+      )}
+      title={t("composer.model.catalog.checkNow")}
+      aria-label={`${updatedAgo(catalog.status.updatedAt)}. ${t("composer.model.catalog.checkNow")}`}
+      onClick={() => void catalog.refresh()}
+    >
+      <span className="truncate">{updatedAgo(catalog.status.updatedAt)}</span>
+      <RefreshCw size={12} className="shrink-0" aria-hidden />
+    </button>
+  ) : (
+    <button
+      className={cn(metaCls, "text-muted hover:text-text")}
+      onClick={() => void catalog.refresh()}
+    >
+      <span className="truncate">{t("composer.model.catalog.checkNow")}</span>
+      <RefreshCw size={12} className="shrink-0" aria-hidden />
+    </button>
+  );
 
   const opencodeBody = (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -526,9 +668,41 @@ export function ModelPicker({
             {t("composer.model.empty")}
           </div>
         ) : visible.length === 0 ? (
-          <div className="px-2 py-6 text-center text-xs text-muted">
-            {t("composer.model.noResults")}
-          </div>
+          query.trim() ? (
+            // Searching for a model that is not here is often a model newer
+            // than the list: say how old the list is, and offer to check.
+            <div className="px-3 py-6 text-center text-xs leading-relaxed text-muted">
+              <span className="block">
+                {t("composer.model.catalog.noMatch", { query: query.trim() })}
+              </span>
+              {/* The stale notice below already says this and offers the retry. */}
+              {listAge !== null && listAge > CHECK_OFFER_AFTER_MS && !stale && (
+                <>
+                  <span className="block">
+                    {t("composer.model.catalog.listAge", { ago: listAgeLabel(listAge) })}
+                  </span>
+                  {catalog.phase === "checking" || catalog.phase === "applying" ? (
+                    <span className="mt-2.5 inline-flex items-center gap-1.5">
+                      <Loader2 size={12} className="animate-spin" />
+                      {t("composer.model.catalog.checking")}
+                    </span>
+                  ) : (
+                    <button
+                      className="mt-2.5 inline-flex items-center gap-1.5 text-accent hover:underline"
+                      onClick={() => void catalog.refresh()}
+                    >
+                      <RefreshCw size={12} />
+                      {t("composer.model.catalog.checkNow")}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="px-2 py-6 text-center text-xs text-muted">
+              {t("composer.model.noResults")}
+            </div>
+          )
         ) : (
           visible.map((o) => {
             const isCurrent = o.key === model;
@@ -553,6 +727,11 @@ export function ModelPicker({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1">
                       <span className="truncate text-xs text-text">{o.modelName}</span>
+                      {newSet.has(o.key) && (
+                        <span className="shrink-0 pl-1 text-[10px] font-medium uppercase tracking-wide text-accent">
+                          {t("composer.model.newBadge")}
+                        </span>
+                      )}
                       {hasReasoning && (
                         <Zap size={9} className="shrink-0 text-muted" aria-hidden />
                       )}
@@ -654,16 +833,60 @@ export function ModelPicker({
         </button>
       )}
 
-      {/* Manage providers */}
-      <button
-        className="shrink-0 border-t border-faint px-3 py-2 text-left text-xs text-accent hover:underline"
-        onClick={() => {
-          setOpen(false);
-          navigate("/settings/agents");
-        }}
+      {/* The list is old because updates keep failing: the one case worth
+          interrupting for, since new models are silently missing. */}
+      {stale && catalog.phase !== "checking" && catalog.phase !== "applying" && (
+        <div className="shrink-0 border-t border-faint px-3 py-2">
+          <span className="flex items-start gap-1.5">
+            <TriangleAlert size={12} className="mt-0.5 shrink-0 text-warn" />
+            <span className="text-xs">
+              <span className="block font-medium text-text">
+                {t("composer.model.catalog.staleTitle", {
+                  count: Math.floor(listAge! / (24 * 60 * 60 * 1000)),
+                })}
+              </span>
+              <span className="mt-0.5 block text-muted" title={lastError!.message}>
+                {t("composer.model.catalog.staleBody")}
+              </span>
+              <span className="mt-1.5 flex gap-4">
+                <button className="text-accent hover:underline" onClick={() => void catalog.refresh()}>
+                  {t("composer.model.catalog.retry")}
+                </button>
+                {isTauri && (
+                  <button
+                    className="text-accent hover:underline"
+                    onClick={() => {
+                      setOpen(false);
+                      navigate("/settings/network");
+                    }}
+                  >
+                    {t("composer.model.catalog.proxySettings")}
+                  </button>
+                )}
+              </span>
+            </span>
+          </span>
+        </div>
+      )}
+
+      {/* Manage providers, and how fresh the model list is */}
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-3 border-t border-faint px-3 text-xs",
+          isMobile ? "py-3" : "py-2",
+        )}
       >
-        {t("composer.model.manage")}
-      </button>
+        <button
+          className="shrink-0 text-left text-accent hover:underline"
+          onClick={() => {
+            setOpen(false);
+            navigate("/settings/agents");
+          }}
+        >
+          {t("composer.model.manage")}
+        </button>
+        {catalogMeta}
+      </div>
     </div>
   );
 
