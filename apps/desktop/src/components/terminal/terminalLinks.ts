@@ -1,5 +1,16 @@
 import type { IBufferCell, IBufferLine, ILink, Terminal } from "@xterm/xterm";
-import { activateLink, anchorPaths, cleanPath, linkCandidates, mergeAnchors, resolveLink, type LinkSpan, type LinkTarget } from "@/lib/links";
+import {
+  IS_WINDOWS,
+  activateLink,
+  anchorPaths,
+  cleanPath,
+  hasSeparator,
+  linkCandidates,
+  mergeAnchors,
+  resolveLink,
+  type LinkSpan,
+  type LinkTarget,
+} from "@/lib/links";
 
 /** A cell's colors and attributes as one key; "" for the default style. */
 export function cellStyle(cell: IBufferCell): string {
@@ -66,8 +77,9 @@ const MAX_ROWS = 8;
 /** A row whose text ends within this many columns of the right edge "ran into
  *  it". TUIs wrap a little short of the terminal width (margins, a scrollbar). */
 const EDGE_COLUMNS = 8;
-/** Characters a path or URL can end or start a row with. */
-const LINK_CHAR = /[\w.@+\-/\\~%#=&?:\u00c0-\u2fff\u3040-\ufeff]/;
+/** Characters a path or URL can end or start a row with (`\` too on Windows,
+ *  where it separates a path). */
+const LINK_CHAR = IS_WINDOWS ? /[\w.@+\-/\\~%#=&?:\u00c0-\u2fff\u3040-\ufeff]/ : /[\w.@+\-/~%#=&?:\u00c0-\u2fff\u3040-\ufeff]/;
 
 /**
  * The line row `y` is part of. Rows join when the terminal wrapped them, or
@@ -157,7 +169,7 @@ function styleRuns(line: LogicalLine): LinkSpan[] {
         });
         joined += text.slice(at, to);
         // Without a space anywhere, the plain reading has found it already.
-        if (/\s/.test(joined) && /[\\/]/.test(joined)) spans.push({ start: from, end: to, text: joined, kind: "path" });
+        if (/\s/.test(joined) && hasSeparator(joined)) spans.push({ start: from, end: to, text: joined, kind: "path" });
       }
     }
     start = end;

@@ -11,13 +11,8 @@ describe("linkCandidates", () => {
     ]);
   });
 
-  it("finds a Windows full path with either slash, and no drive inside a word", () => {
-    expect(texts(String.raw`saved C:\Users\me\out\fig.png and D:/data/run 1.log`)).toEqual([
-      String.raw`path:C:\Users\me\out\fig.png`,
-      "path:D:/data/run",
-      "path:1.log",
-    ]);
-    expect(texts("ab:/x")).toEqual(["path:/x"]);
+  it("reads a backslash as part of a name off Windows (see links.windows.test)", () => {
+    expect(texts(String.raw`saved src\main.rs and a/b\c.txt`)).toEqual(["path:main.rs", "path:a/b", "path:c.txt"]);
   });
 
   it("trims positions and sentence punctuation, and stops at CJK punctuation", () => {

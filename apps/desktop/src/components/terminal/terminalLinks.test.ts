@@ -83,12 +83,6 @@ function screen(lines: string[], cols: number, styles: string[] = [], pad = ".")
 describe("logicalLine", () => {
   const cols = 40;
 
-  it("puts back a Windows path a TUI broke after a backslash", () => {
-    const rows = screen(["  ⎿  D:\\data\\workspace\\commander-entry\\", "     before-fix.png"], cols);
-    const spans = lineCandidates(logicalLine(rows, 2, cols)).map((s) => s.text);
-    expect(spans).toContain(String.raw`D:\data\workspace\commander-entry\before-fix.png`);
-  });
-
   it("puts back a path a TUI broke over two indented rows, from either row", () => {
     const rows = screen(
       [

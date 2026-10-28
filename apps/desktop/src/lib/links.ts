@@ -23,13 +23,21 @@ export type LinkTarget =
 // CJK punctuation (\u3000-\u303f, \uff00-\uffef) ends a URL or a path: prose
 // runs straight into them with no space.
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`)\]}\u3000-\u303f\uff00-\uffef]+/g;
-/** A path-like token: absolute (`/…`, or Windows `C:\…` with either slash),
- *  `~/`, `./`, `../`, a relative path with a slash, or a bare name with an
- *  extension. Trailing `:line:col` and sentence punctuation are trimmed by
- *  `cleanPath`. */
+/** On Windows `\` separates a path as `/` does, and a full path starts with a
+ *  drive (`C:\…`, `C:/…`). Elsewhere `\` is a character a name can hold. */
+export const IS_WINDOWS = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+const SEP_CHARS = IS_WINDOWS ? String.raw`\\/` : "/";
+const SEP = `[${SEP_CHARS}]`;
+/** Does `text` hold a path separator (see `IS_WINDOWS`)? */
+export function hasSeparator(text: string): boolean {
+  return IS_WINDOWS ? /[\\/]/.test(text) : text.includes("/");
+}
+/** A path-like token: absolute, `~/`, `./`, `../`, a relative path with a
+ *  separator, or a bare name with an extension. Trailing `:line:col` and
+ *  sentence punctuation are trimmed by `cleanPath`. */
 const NAME = String.raw`[\w.@+\-\u00c0-\u2fff\u3040-\ufeff]`;
-const WINDOWS_PATH = String.raw`(?<!\w)[A-Za-z]:[\\/]${NAME}*(?:[\\/]${NAME}*)*`;
-const PATH_RE = new RegExp(String.raw`${WINDOWS_PATH}|(?:~|\.{1,2})?\/?${NAME}+(?:\/${NAME}*)*`, "g");
+const DRIVE = IS_WINDOWS ? String.raw`(?<!\w)[A-Za-z]:(?=${SEP})|` : "";
+const PATH_RE = new RegExp(String.raw`(?:${DRIVE}~|\.{1,2})?${SEP}?${NAME}+(?:${SEP}${NAME}*)*`, "g");
 
 /** A URL, trimmed of the punctuation that closes the sentence around it. */
 export function cleanUrl(raw: string): string {
@@ -50,7 +58,7 @@ export function cleanPath(raw: string): string {
  *  word of a line is worth a disk lookup. */
 export function looksLikePath(text: string): boolean {
   if (text.length < 2 || /^\d+(\.\d+)*$/.test(text)) return false;
-  return /[\\/]/.test(text) || new RegExp(String.raw`^${NAME}+\.[A-Za-z]\w{0,7}$`).test(text);
+  return hasSeparator(text) || new RegExp(String.raw`^${NAME}+\.[A-Za-z]\w{0,7}$`).test(text);
 }
 
 export interface LinkSpan {
@@ -78,17 +86,21 @@ export function linkCandidates(line: string): LinkSpan[] {
   return spans.sort((a, b) => a.start - b.start);
 }
 
-/** Absolute paths (`/…`, `~/…`) a text names, most recent (last) first —
+/** Absolute paths (`/…`, `~/…`, on Windows `C:\…`) a text names, most recent (last) first —
  *  the anchors a relative path near them is resolved against (see
  *  `resolveLink`). Read from a conversation's messages and tool calls, or a
  *  terminal's output. */
-const ANCHOR_RE = /(?<![\w.:/~])~?\/[^\s"'`()<>[\]{},;|&*?\u3000-\u303f\uff00-\uffef]+/g;
+const ANCHOR_RE = new RegExp(
+  "(?<![\\w.:/~" + (IS_WINDOWS ? "\\\\])(?:[A-Za-z]:|" : "])(?:") + "~)?" + SEP +
+    "[^\\s\"'`()<>[\\]{},;|&*?\\u3000-\\u303f\\uff00-\\uffef]+",
+  "g",
+);
 export function anchorPaths(text: string): string[] {
   const found: string[] = [];
   for (const m of text.matchAll(ANCHOR_RE)) {
     const path = cleanPath(m[0]);
     // At least two segments: a lone "/x" is as likely an option or a route.
-    if (/^~?\/[^/]+\/./.test(path)) found.push(path);
+    if (new RegExp(String.raw`^(?:[A-Za-z]:|~)?${SEP}[^${SEP_CHARS}]+${SEP}.`).test(path)) found.push(path);
   }
   return found.reverse();
 }
@@ -188,8 +200,8 @@ export async function resolveLink(text: string, from: LinkContext = {}): Promise
   // Every piece made of path characters, and a slash somewhere: prose is not
   // glued together, and what is glued counts only if it exists.
   const pieces = text.trim().split(/\s+/);
-  const pathy = new RegExp(String.raw`^[~/\\]?${NAME}*(?:[/\\:]${NAME}*)*$`);
-  return pieces.length > 1 && /[\\/]/.test(pieces.join("")) && pieces.every((p) => pathy.test(p))
+  const pathy = new RegExp(String.raw`^(?:~|${SEP})?${NAME}*(?:(?:${SEP}|:)${NAME}*)*$`);
+  return pieces.length > 1 && hasSeparator(pieces.join("")) && pieces.every((p) => pathy.test(p))
     ? resolveOnce(pieces.join(""), from)
     : null;
 }
@@ -199,7 +211,7 @@ async function resolveOnce(text: string, from: LinkContext): Promise<LinkTarget 
   if (/^https?:\/\//.test(url)) return { kind: "url", url };
   const path = cleanPath(text);
   if (!looksLikePath(path)) return null;
-  const absolute = path.startsWith("/") || path.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(path);
+  const absolute = new RegExp(String.raw`^(?:[A-Za-z]:${SEP}|~?${SEP})`).test(path);
   const terminal = "cwd" in from;
   const anchors = from.anchors ?? [];
   if (!absolute && !terminal && from.folders) {

@@ -164,39 +164,37 @@ pub struct LocalPath {
 }
 
 /// Resolve a path as printed in a conversation or a terminal to an existing
-/// file or folder under `home`. Absolute and `~/…` paths are taken literally.
-/// A relative one is tried under `cwd`, then against `anchors`: absolute paths
-/// seen in the same context (files the agent read, folders it ran commands
-/// in), most recent first. An anchor that ends with the path is the match;
-/// otherwise the path is tried under the anchor's folder and each folder above
-/// it, short of home itself. Only what exists counts, so a guess never links
-/// to the wrong file. None when nothing is found or it lies outside home —
-/// except a full path printed as is (`/tmp/…`, `D:\data\…`), which opens
-/// wherever it is on disk, as in any terminal.
+/// file or folder: under home as "home", anywhere else as "disk". Absolute and
+/// `~/…` paths are taken literally (on Windows a WSL shell's Linux paths are
+/// translated, see `host_path`). A relative one is tried under `cwd`, then
+/// against `anchors`: absolute paths seen in the same context (files the agent
+/// read, folders it ran commands in), most recent first. An anchor that ends
+/// with the path is the match; otherwise the path is tried under the anchor's
+/// folder and each folder above it, short of home and of the folders nearest a
+/// root (`/tmp`, `/Users/me`, `C:\Users\me`): those are too broad to search.
+/// Only what exists counts, so a guess never links to the wrong file.
 pub fn locate_local(home: &Path, path: &str, cwd: Option<&str>, anchors: &[String]) -> Option<LocalPath> {
     let home = home.canonicalize().ok()?;
-    let inside = |p: &Path| -> Option<LocalPath> {
+    let local = |p: &Path| -> Option<LocalPath> {
         let full = p.canonicalize().ok()?;
-        let rel = scope_path(&home, &full).filter(|r| !r.is_empty())?; // not home itself
-        Some(LocalPath { root: "home", rel, is_dir: full.is_dir() })
+        let (root, rel) = if full.starts_with(&home) {
+            ("home", scope_path(&home, &full).filter(|r| !r.is_empty())?) // not home itself
+        } else {
+            full.parent()?; // not `/` or a drive itself
+            ("disk", scope_path(Path::new(""), &full)?)
+        };
+        Some(LocalPath { root, rel, is_dir: full.is_dir() })
     };
-    let raw = Path::new(path);
-    if let Some(rest) = path.strip_prefix("~/") {
-        return inside(&home.join(rest));
-    }
+    let full_path = |p: &str| -> PathBuf {
+        let tilde = p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\").filter(|_| cfg!(windows)));
+        tilde.map(|rest| home.join(rest)).unwrap_or_else(|| host_path(p))
+    };
+    let raw = full_path(path);
     if raw.is_absolute() {
-        let full = raw.canonicalize().ok()?;
-        if full.starts_with(&home) {
-            return inside(&full);
-        }
-        if full.parent().is_none() {
-            return None; // `/` or a drive itself: not a useful link
-        }
-        let rel = scope_path(Path::new(""), &full)?;
-        return Some(LocalPath { root: "disk", rel, is_dir: full.is_dir() });
+        return local(&raw);
     }
     if let Some(cwd) = cwd.map(Path::new).filter(|c| c.is_absolute()) {
-        if let Some(found) = inside(&cwd.join(raw)) {
+        if let Some(found) = local(&cwd.join(&raw)) {
             return Some(found);
         }
     }
@@ -208,34 +206,82 @@ pub fn locate_local(home: &Path, path: &str, cwd: Option<&str>, anchors: &[Strin
     if suffix.as_os_str().is_empty() {
         return None;
     }
+    let too_broad = |d: &Path| d == home || d.components().filter(|c| matches!(c, Component::Normal(_))).count() < 3;
     let mut tried = std::collections::HashSet::new();
     for anchor in anchors {
-        let anchor = match anchor.strip_prefix("~/") {
-            Some(rest) => home.join(rest),
-            None => PathBuf::from(anchor),
-        };
+        let anchor = full_path(anchor);
         if !anchor.is_absolute() {
             continue;
         }
         // The deepest part of it that still exists, in canonical form.
         let Some(start) = anchor.ancestors().find_map(|a| a.canonicalize().ok()) else { continue };
         if start.ends_with(&suffix) {
-            if let Some(found) = inside(&start) {
+            if let Some(found) = local(&start) {
                 return Some(found);
             }
         }
         let mut dir = if start.is_dir() { Some(start.as_path()) } else { start.parent() };
         while let Some(d) = dir {
-            if d == home || !d.starts_with(&home) || !tried.insert(d.to_path_buf()) {
-                break; // home is too broad; a folder tried before had its parents tried too
+            if too_broad(d) || !tried.insert(d.to_path_buf()) {
+                break; // a folder tried before had its parents tried too
             }
-            if let Some(found) = inside(&d.join(&suffix)) {
+            if let Some(found) = local(&d.join(&suffix)) {
                 return Some(found);
             }
             dir = d.parent();
         }
     }
     None
+}
+
+/// A full path as this machine reaches it. On Windows a Linux path printed by
+/// a WSL shell (`/mnt/c/a.png`, `/home/me/a.png`) is translated (see
+/// `wsl_path`); any other path is itself.
+fn host_path(path: &str) -> PathBuf {
+    #[cfg(windows)]
+    if path.starts_with('/') && !path.starts_with("//") {
+        if let Some(p) = wsl_path(path, wsl_distros(), |p| Path::new(p).exists()) {
+            return PathBuf::from(p);
+        }
+    }
+    PathBuf::from(path)
+}
+
+/// Where Windows reaches a WSL Linux path: `/mnt/<drive>/…` is that drive;
+/// any other is the same path in the one WSL distro (`\\wsl$\<name>`) that
+/// has it — in none, or in several, it is no path, never a guess.
+pub fn wsl_path(path: &str, distros: &[String], exists: impl Fn(&str) -> bool) -> Option<String> {
+    let parts: Vec<&str> = path.strip_prefix('/')?.split('/').filter(|s| !s.is_empty()).collect();
+    if let ["mnt", drive, rest @ ..] = parts.as_slice() {
+        if drive.len() == 1 && drive.chars().all(|c| c.is_ascii_alphabetic()) {
+            return Some(format!("{}:\\{}", drive.to_ascii_uppercase(), rest.join("\\")));
+        }
+    }
+    let mut found = distros.iter().map(|d| format!("{d}\\{}", parts.join("\\"))).filter(|p| exists(p));
+    let first = found.next()?;
+    found.next().is_none().then_some(first)
+}
+
+/// The installed WSL distros, as `\\wsl$\<name>`; listed once per run
+/// (`wsl.exe` writes UTF-16). Empty where WSL is not installed.
+#[cfg(windows)]
+fn wsl_distros() -> &'static [String] {
+    static DISTROS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    DISTROS.get_or_init(|| {
+        let Ok(out) = crate::runtime::quiet_command("wsl.exe").args(["--list", "--quiet"]).output() else {
+            return Vec::new();
+        };
+        if !out.status.success() {
+            return Vec::new();
+        }
+        let units: Vec<u16> = out.stdout.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+        String::from_utf16_lossy(&units)
+            .lines()
+            .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\0'))
+            .filter(|l| !l.is_empty())
+            .map(|name| format!(r"\\wsl$\{name}"))
+            .collect()
+    })
 }
 
 // Bounds for the basename search so a huge workspace can't stall a resolve call.
@@ -815,7 +861,7 @@ mod tests {
         attach_paths, base64_decode, base64_encode, dir_entries, encode_for_preview,
         is_discardable_name, Attached,
         exceeds_preview_cap, locate_local, locate_under, mime_for, strip_windows_verbatim,
-        native_path, resolve_under, unique_name, workspace_relative, LocalPath,
+        native_path, resolve_under, unique_name, workspace_relative, wsl_path, LocalPath,
     };
 
     /// A project's linked session folder is a link in the project folder: it
@@ -864,10 +910,10 @@ mod tests {
             Some(LocalPath { root: "home", rel: "repo/src".into(), is_dir: true })
         );
         // A relative path with no directory to resolve it against, a missing
-        // file, a relative path escaping home, and home itself: no link.
+        // file, and home itself: no link.
         assert_eq!(locate_local(&home, "src/main.rs", None, &[]), None);
         assert_eq!(locate_local(&home, "src/nope.rs", cwd.to_str(), &[]), None);
-        assert_eq!(locate_local(&home, "../../..", cwd.to_str(), &[]), None);
+        assert_eq!(locate_local(&home, "../../nope-xyz", cwd.to_str(), &[]), None);
         assert_eq!(locate_local(&home, home.to_str().unwrap(), None, &[]), None);
         // A full path outside home opens on disk as that full path, and the
         // disk scope reads it back; `/` itself is no link.
@@ -883,9 +929,34 @@ mod tests {
         let listed = dir_entries(Path::new(""), &rel[..rel.rfind('/').unwrap()]).unwrap();
         assert_eq!(listed.iter().find(|e| e.name == "shot.png").map(|e| e.path.as_str()), Some(rel.as_str()));
         assert_eq!(locate_local(&home, "/", None, &[]), None);
+        // Relative to a terminal folder outside home, and to an anchor there.
+        let disk = |p: &Path| {
+            let full = p.canonicalize().unwrap();
+            Some(LocalPath { root: "disk", rel: native_path(&full).replace(std::path::MAIN_SEPARATOR, "/"), is_dir: full.is_dir() })
+        };
+        assert_eq!(locate_local(&home, "shot.png", outside.to_str(), &[]), disk(&shot));
+        std::fs::create_dir_all(outside.join("proj/src")).unwrap();
+        std::fs::write(outside.join("proj/src/lib.rs"), "x").unwrap();
+        let anchors = vec![outside.join("proj/README.md").to_string_lossy().into_owned()];
+        assert_eq!(locate_local(&home, "src/lib.rs", None, &anchors), disk(&outside.join("proj/src/lib.rs")));
 
         let _ = std::fs::remove_dir_all(&home);
         let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn wsl_paths_are_found_where_windows_reaches_them() {
+        let distros = vec![r"\\wsl$\Ubuntu".to_string(), r"\\wsl$\Debian".to_string()];
+        // A Windows drive, mounted.
+        assert_eq!(wsl_path("/mnt/c/Users/me/a.png", &distros, |_| false).as_deref(), Some(r"C:\Users\me\a.png"));
+        // Any other path: in the one distro that has it; in none or in two, nothing.
+        let only_ubuntu = |p: &str| p.starts_with(r"\\wsl$\Ubuntu\");
+        assert_eq!(wsl_path("/home/me/a.png", &distros, only_ubuntu).as_deref(), Some(r"\\wsl$\Ubuntu\home\me\a.png"));
+        assert_eq!(wsl_path("/home/me/a.png", &distros, |_| false), None);
+        assert_eq!(wsl_path("/etc/hosts", &distros, |_| true), None);
+        // `/mnt/wsl` is no drive; a relative path is no WSL path.
+        assert_eq!(wsl_path("/mnt/wsl/x", &distros, only_ubuntu).as_deref(), Some(r"\\wsl$\Ubuntu\mnt\wsl\x"));
+        assert_eq!(wsl_path("home/me", &distros, |_| true), None);
     }
 
     #[test]
