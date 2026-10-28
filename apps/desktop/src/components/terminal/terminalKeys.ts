@@ -124,3 +124,51 @@ export function createKeyTranslator(isMac: boolean) {
     return null;
   }
 }
+
+/** A plain punctuation key: one printable character that is not a letter,
+ *  digit or space, with nothing but Shift held, outside a composition. */
+function isPunctuationKey(event: KeyboardEvent): boolean {
+  return (
+    event.key.length === 1 &&
+    !/[\p{L}\p{N}\s]/u.test(event.key) &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.isComposing &&
+    event.keyCode !== 229
+  );
+}
+
+/**
+ * Lets the input method type punctuation. Chrome on macOS reports a key that
+ * Sogou (and other Chinese input methods) turn into "。" as a plain "." key
+ * (keyCode 190, not the IME's 229); xterm sends `key` from the keydown and
+ * cancels it, so the input method never inserts "。" and the shell gets ".".
+ * Upstream: xtermjs/xterm.js#4486, open.
+ *
+ * Such a key is left to the browser instead: the keydown and keypress skip
+ * xterm, and the text the browser then inserts into xterm's textarea, "。"
+ * with the input method, "." without, is sent as typed. Call `key` with
+ * every event xterm's custom key handler sees (true: xterm must skip it) and
+ * `input` with the textarea's input events, before xterm's own listener.
+ */
+export function createPunctuationPassThrough(term: Terminal) {
+  let armed = false;
+  return {
+    key(event: KeyboardEvent): boolean {
+      if (event.type === "keydown") return (armed = isPunctuationKey(event));
+      // The keyup still reaches xterm: it is what ends xterm's "key down" state.
+      if (event.type === "keyup") return (armed = false);
+      return armed;
+    },
+    input(event: InputEvent): void {
+      if (!armed || event.inputType !== "insertText" || !event.data) return;
+      armed = false;
+      event.stopPropagation();
+      // Emptied, as xterm keeps it for keys it handles: text left behind would
+      // be sent again by xterm's next IME key (it diffs the whole value).
+      if (event.target instanceof HTMLTextAreaElement) event.target.value = "";
+      term.input(event.data);
+    },
+  };
+}

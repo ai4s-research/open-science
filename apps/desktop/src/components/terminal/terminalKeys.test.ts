@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { createKeyTranslator } from "./terminalKeys";
+import { describe, expect, it, vi } from "vitest";
+import type { Terminal } from "@xterm/xterm";
+import { createKeyTranslator, createPunctuationPassThrough } from "./terminalKeys";
 
 const key = (init: KeyboardEventInit & { type?: string }) =>
   new KeyboardEvent(init.type ?? "keydown", init);
@@ -58,5 +59,38 @@ describe("terminal keys", () => {
     const t = createKeyTranslator(true);
     expect(t(key({ key: "Alt", code: "AltLeft", altKey: true }))).toBe(false);
     expect(t(key({ key: "π", code: "KeyP", altKey: true }))).toBe("\x1bp");
+  });
+});
+
+describe("punctuation through the input method (xtermjs#4486)", () => {
+  const typed = (data: string) => new InputEvent("input", { inputType: "insertText", data });
+
+  it("sends what the browser inserts for a punctuation key, once", () => {
+    const input = vi.fn();
+    const p = createPunctuationPassThrough({ input } as unknown as Terminal);
+    // Chrome + Sogou: the keydown says ".", the input method inserts "。".
+    expect(p.key(key({ key: ".", code: "Period", keyCode: 190 } as KeyboardEventInit))).toBe(true);
+    expect(p.key(key({ type: "keypress", key: "." }))).toBe(true);
+    p.input(typed("。"));
+    p.input(typed("。"));
+    expect(input.mock.calls).toEqual([["。"]]);
+    expect(p.key(key({ type: "keyup", key: "." }))).toBe(false);
+  });
+
+  it("leaves letters, digits, modified keys and IME keys to xterm", () => {
+    const input = vi.fn();
+    const p = createPunctuationPassThrough({ input } as unknown as Terminal);
+    for (const init of [
+      { key: "a", code: "KeyA" },
+      { key: "1", code: "Digit1" },
+      { key: " ", code: "Space" },
+      { key: "Enter", code: "Enter" },
+      { key: ".", code: "Period", ctrlKey: true },
+      { key: ".", code: "Period", keyCode: 229 },
+    ]) {
+      expect(p.key(key(init as KeyboardEventInit))).toBe(false);
+      p.input(typed(init.key));
+    }
+    expect(input).not.toHaveBeenCalled();
   });
 });

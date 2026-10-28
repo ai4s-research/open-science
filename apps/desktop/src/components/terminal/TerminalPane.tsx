@@ -29,7 +29,7 @@ import {
 import { registerTerminalLinks } from "./terminalLinks";
 import { TerminalSearch } from "./TerminalSearch";
 import { isJumpChord } from "@/components/jump-palette/JumpPalette";
-import { createImeGate, createKeyTranslator } from "./terminalKeys";
+import { createImeGate, createKeyTranslator, createPunctuationPassThrough } from "./terminalKeys";
 import { readRepaint, spliceRepaint, type Repaint } from "./terminalResize";
 import { openEscape } from "./terminalScreen";
 import { readCopiedFiles } from "./terminalPaste";
@@ -169,6 +169,7 @@ export function TerminalPane({
       term.unicode.activeVersion = "11";
       const translateKey = createKeyTranslator(isMacUA());
       const imeGate = createImeGate(term);
+      const punctuation = createPunctuationPassThrough(term);
       // Set by ⌘V, cleared by the paste event it should raise (see onPaste).
       let pasteWait: ReturnType<typeof setTimeout> | undefined;
       term.attachCustomKeyEventHandler((event) => {
@@ -177,6 +178,8 @@ export function TerminalPane({
         const translated = translateKey(event);
         imeGate(event);
         if (translated === false) return false;
+        // Left to the browser, so an input method can type "。" (see terminalKeys).
+        if (translated === null && punctuation.key(event)) return false;
         if (translated !== null) {
           event.preventDefault();
           term.input(translated);
@@ -260,6 +263,9 @@ export function TerminalPane({
         void readCopiedFiles().then((paths) => term.paste(paths || text));
       };
       container.addEventListener("paste", onPaste, true);
+      // Capture on the container runs before xterm's own listener on its textarea.
+      const onInput = (event: Event) => punctuation.input(event as InputEvent);
+      container.addEventListener("input", onInput, true);
       // GPU renderer, as in VS Code and Orca: box-drawing and block characters
       // are drawn as exact cell-sized shapes instead of font glyphs, so rules
       // and borders join up as in a native terminal. Without WebGL, or once
@@ -476,6 +482,7 @@ export function TerminalPane({
         dispose: () => {
           unsubscribe();
           container.removeEventListener("paste", onPaste, true);
+          container.removeEventListener("input", onInput, true);
           clearTimeout(pasteWait);
           input.dispose();
           links.dispose();
