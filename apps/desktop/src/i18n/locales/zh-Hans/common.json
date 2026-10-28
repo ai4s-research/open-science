@@ -14,6 +14,7 @@
   "linkMenu": {
     "openFile": "打开文件",
     "openDefault": "用默认应用打开",
+    "reveal": "在文件夹中显示",
     "openLink": "打开链接",
     "copyLink": "复制链接",
     "copyPath": "复制路径",

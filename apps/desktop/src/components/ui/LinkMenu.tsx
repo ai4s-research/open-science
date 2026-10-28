@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { absoluteArtifactPath } from "@/lib/artifactFile";
+import { absoluteArtifactPath, revealArtifact } from "@/lib/artifactFile";
 import { copyText } from "@/lib/clipboard";
 import { openInApp, openWithDefaultApp, showInFiles, useLinkMenu, type LinkTarget } from "@/lib/links";
 import { isGatewayWeb } from "@/lib/webMode";
@@ -120,13 +120,24 @@ function MenuBody({ target, done }: { target: LinkTarget; done: () => void }) {
                 onSelect={run(() => showInFiles(target))}
               />
             )}
-            {/* A browser has no default apps to hand a file to. */}
+            {/* A browser has no default apps to hand a file to, and no file
+                manager to show it in. */}
             {!isGatewayWeb && (
-              <Item
-                label={t("linkMenu.openDefault")}
-                keys={target.isDir ? direct : shifted}
-                onSelect={run(() => openWithDefaultApp(target))}
-              />
+              <>
+                <Item
+                  label={t("linkMenu.openDefault")}
+                  keys={target.isDir ? direct : shifted}
+                  onSelect={run(() => openWithDefaultApp(target))}
+                />
+                <Item
+                  label={t("linkMenu.reveal")}
+                  onSelect={run(() =>
+                    void revealArtifact(target.path, target.root).catch((e: unknown) =>
+                      toast.error(e instanceof Error ? e.message : String(e)),
+                    ),
+                  )}
+                />
+              </>
             )}
             <Item label={t("linkMenu.copyPath")} onSelect={run(() => void copy())} />
           </>

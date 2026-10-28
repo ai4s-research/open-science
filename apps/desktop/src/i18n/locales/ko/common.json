@@ -14,6 +14,7 @@
   "linkMenu": {
     "openFile": "파일 열기",
     "openDefault": "기본 앱으로 열기",
+    "reveal": "폴더에서 보기",
     "openLink": "링크 열기",
     "copyLink": "링크 복사",
     "copyPath": "경로 복사",

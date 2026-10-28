@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilePreviewInspector as FilePreviewInspectorT } from "@ai4s/shared";
@@ -61,6 +61,12 @@ describe("FilePreviewInspector — markdown", () => {
       <FilePreviewInspector data={md} onClose={() => {}} compactHeader />,
     );
     expect(container.querySelector("header")).toHaveClass("h-8", "border-faint");
+  });
+
+  it("right-clicking the path offers to show the file in its folder", async () => {
+    render(<FilePreviewInspector data={md} onClose={() => {}} />);
+    fireEvent.contextMenu(screen.getByText("notes/report.md"));
+    expect(await screen.findByRole("menuitem", { name: "Show in folder" })).toBeInTheDocument();
   });
 
   it("renders markdown as a formatted document by default", async () => {

@@ -13,12 +13,6 @@ import { isTauri } from "@/lib/tauri";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 
-// The reveal action is the same everywhere; only its NAME matches the platform's
-// file manager (label-only — the Rust side reveals correctly on all three).
-const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
-const isWin = typeof navigator !== "undefined" && navigator.userAgent.includes("Win");
-const REVEAL_LABEL = isMac ? "Reveal in Finder" : isWin ? "Show in File Explorer" : "Show in File Manager";
-
 async function copy(text: string, what: string) {
   try {
     await copyText(text);
@@ -40,8 +34,8 @@ export function FileContextMenu({
   onUnlink,
   children,
 }: {
-  entry: DirEntry;
-  root: FileRoot;
+  entry: Pick<DirEntry, "path" | "isDir">;
+  root?: FileRoot;
   /** For a project's linked folder: unlink it (the caller asks first). */
   onUnlink?: () => void;
   children: React.ReactNode;
@@ -73,7 +67,7 @@ export function FileContextMenu({
           {isTauri && (
             <>
               <Item icon={<FolderOpen size={14} />} onSelect={() => void reveal()}>
-                {REVEAL_LABEL}
+                {t("common:linkMenu.reveal")}
               </Item>
               <Item icon={<Copy size={14} />} onSelect={() => void copyAbsolute()}>
                 {t("files.contextMenu.copyPath")}

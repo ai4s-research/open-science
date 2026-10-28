@@ -14,6 +14,7 @@
   "linkMenu": {
     "openFile": "Datei öffnen",
     "openDefault": "Mit Standard-App öffnen",
+    "reveal": "Im Ordner anzeigen",
     "openLink": "Link öffnen",
     "copyLink": "Link kopieren",
     "copyPath": "Pfad kopieren",

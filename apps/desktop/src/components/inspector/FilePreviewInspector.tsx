@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FileContextMenu } from "@/components/files/FileContextMenu";
 import {
   Code2,
   Download,
@@ -365,17 +366,21 @@ export function FilePreviewInspector({
         )}
       >
         <PaneTitlebarInset />
-        <span
-          onPointerDown={onTitlePointerDown}
-          className={cn(
-            "min-w-0 truncate font-medium text-text",
-            compactHeader ? "text-[13px]" : "text-sm",
-            onTitlePointerDown && "cursor-grab select-none active:cursor-grabbing",
-          )}
-          title={title ?? (data.path && data.path !== data.filename ? data.path : data.filename)}
-        >
-          {title ?? data.path ?? data.filename}
-        </span>
+        {/* Right-click the path for what the explorer's rows offer: show it in
+            the folder, copy its path, open it in its own app. */}
+        <TitleMenu path={data.path} root={data.root}>
+          <span
+            onPointerDown={onTitlePointerDown}
+            className={cn(
+              "min-w-0 truncate font-medium text-text",
+              compactHeader ? "text-[13px]" : "text-sm",
+              onTitlePointerDown && "cursor-grab select-none active:cursor-grabbing",
+            )}
+            title={title ?? (data.path && data.path !== data.filename ? data.path : data.filename)}
+          >
+            {title ?? data.path ?? data.filename}
+          </span>
+        </TitleMenu>
         {/* An artifact's kind is worth a badge next to a conversation that
             produced it. On a file the user opened themselves it is noise —
             a note they just wrote does not need labelling "report". */}
@@ -1105,5 +1110,16 @@ function ToggleBtn({
     >
       {children}
     </button>
+  );
+}
+
+/** The header title, as the trigger of the file's right-click menu — only when
+ *  there is a file on disk to act on (inline content has no path). */
+function TitleMenu({ path, root, children }: { path?: string; root?: FileRoot; children: React.ReactElement }) {
+  if (!path) return children;
+  return (
+    <FileContextMenu entry={{ path, isDir: false }} root={root}>
+      {children}
+    </FileContextMenu>
   );
 }

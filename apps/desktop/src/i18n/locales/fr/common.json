@@ -14,6 +14,7 @@
   "linkMenu": {
     "openFile": "Ouvrir le fichier",
     "openDefault": "Ouvrir avec l’app par défaut",
+    "reveal": "Afficher dans le dossier",
     "openLink": "Ouvrir le lien",
     "copyLink": "Copier le lien",
     "copyPath": "Copier le chemin",
