@@ -45,6 +45,8 @@ osd — Open Science Desktop without a window
                                     --run is typed into each new terminal)
   osd screen add <SCREEN> [SESSION_ID | --new | --terminal [--run CMD]]
                                     one more pane, beside the others
+  osd screen add --here [SESSION_ID | --new | --terminal [--run CMD]]
+                                    one more pane, right of the one you are in
   osd screen show <SCREEN>          bring it up in the desktop window
   osd screen close <SCREEN>         close it (the conversations are kept)
   osd term read <id> [--turns N] [--lines N]

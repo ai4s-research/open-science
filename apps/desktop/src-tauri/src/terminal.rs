@@ -306,6 +306,8 @@ fn shell_command(app: &AppHandle, id: &str, cwd: Option<String>) -> CommandBuild
     for (k, v) in crate::runtime::sidecar_proxy_env(app) {
         command.env(k, v);
     }
+    // Which pane this is, so `osd screen add --here` run in it finds it.
+    command.env("OSD_PANE", id);
     // The shell restores what the user exported by hand before it last ended
     // (see terminal_env.rs).
     crate::terminal_env::prepare(app, &shell, id, &mut command);

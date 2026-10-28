@@ -217,9 +217,9 @@ fn resolve(args: &Args) -> Result<(String, String, String), String> {
     if let Some((base, token)) = local_gateway(args) {
         return Ok((base, token, "a gateway running on this machine".into()));
     }
-    // The app's gateway is switched on but not listening: the app is closed,
-    // or restarting (an update). Its terminals keep running meanwhile.
-    if local_gateway_enabled(args) {
+    // The app has served this machine before but is not listening now: it is
+    // closed, or restarting (an update). Its terminals keep running meanwhile.
+    if local_gateway_known(args) {
         return Err("the Open Science app is not running, or is restarting. Its terminals keep \
                     running; retry in a few seconds once the app is open."
             .into());
@@ -259,14 +259,15 @@ fn local_gateway(args: &Args) -> Option<(String, String)> {
     Some((format!("http://127.0.0.1:{port}"), p.token))
 }
 
-/// Whether the gateway on this machine is switched on (it may not be up).
-fn local_gateway_enabled(args: &Args) -> bool {
+/// Whether a gateway has run on this machine (it may not be up now). The
+/// desktop app always runs one, so a token on record means the app was here.
+fn local_gateway_known(args: &Args) -> bool {
     osd_core::Env::headless(
         None,
         args.value("state-dir").map(PathBuf::from),
         env!("CARGO_PKG_VERSION").to_string(),
     )
-    .is_ok_and(|env| osd_core::gateway::read_persisted(&env).enabled)
+    .is_ok_and(|env| !osd_core::gateway::read_persisted(&env).token.is_empty())
 }
 
 pub fn config_file() -> PathBuf {

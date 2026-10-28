@@ -32,6 +32,7 @@ const SPA_ROOTS: &[&str] = &["live", "example", "skills", "notebooks", "files", 
 
 // ---- persisted config (app-level, under the runtime root) -------------------
 
+#[derive(Clone)]
 pub struct Persisted {
     pub enabled: bool,
     pub lan: bool,
@@ -518,17 +519,30 @@ pub fn stop(env: &Env, state: &GatewayState) {
     }
 }
 
-/// Auto-start on app launch if the user left it enabled last time.
-pub fn autostart(env: &Env, state: &GatewayState) {
-    let p = read_persisted(env);
-    if p.enabled && !p.token.is_empty() {
-        // Honour the pin here too, so a restart comes back on the port the
-        // user's firewall rule names. If that port is taken we stay down and
-        // Settings shows the gateway as not running — binding somewhere else
-        // unasked would be the worse answer, since every client pointed at the
-        // pinned port would reach nothing while the app looked healthy.
-        let _ = start_at(env, state, &p, p.preferred_port);
+/// What the listener runs with. The app's own agents reach its Screens and
+/// sessions through `osd`, which needs a gateway, so the desktop always serves
+/// this machine: with Remote access off it listens on loopback only, with full
+/// access. Remote access decides only what reaches past this machine.
+fn effective(p: &Persisted) -> Persisted {
+    if p.enabled {
+        return p.clone();
     }
+    Persisted { lan: false, mode: "full".into(), ..p.clone() }
+}
+
+/// Start on app launch: loopback always, past it if the user left Remote
+/// access on.
+pub fn autostart(env: &Env, state: &GatewayState) {
+    if ensure_token(env, None).is_err() {
+        return;
+    }
+    let p = read_persisted(env);
+    // Honour the pin here too, so a restart comes back on the port the
+    // user's firewall rule names. If that port is taken we stay down and
+    // Settings shows the gateway as not running — binding somewhere else
+    // unasked would be the worse answer, since every client pointed at the
+    // pinned port would reach nothing while the app looked healthy.
+    let _ = start_at(env, state, &effective(&p), p.preferred_port);
 }
 
 /// Stop the accept loop on app exit.
@@ -1385,7 +1399,9 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
                 Ok(p) => p,
                 Err(e) => return respond_json(stream, 400, &err_json(&e)),
             };
-            match edit_layout(ctx, who, |l| crate::screens::add_pane(l, id, &pane)) {
+            let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap_or_default();
+            let beside = body["beside"].as_str().filter(|s| !s.is_empty());
+            match edit_layout(ctx, who, |l| crate::screens::add_pane(l, id, &pane, beside)) {
                 Ok(pane) => respond_json(stream, 200, &serde_json::json!({ "pane": pane }).to_string()),
                 Err(e) => respond_json(stream, 404, &err_json(&e)),
             }
@@ -2891,14 +2907,11 @@ pub fn set_gateway_config(
     p.mode = normalize_mode(&mode);
     p.preferred_port = port.filter(|&n| n > 0);
     p.terminal = terminal;
-    if p.enabled && p.token.is_empty() {
+    if p.token.is_empty() {
         p.token = random_hex(24);
     }
     write_persisted(env, &p)?;
-    if !p.enabled {
-        stop(env, state);
-        return Ok(status_of(env, state));
-    }
+    let run = effective(&p);
     // If already running on the same binding, update token/mode IN PLACE so the
     // port never changes; only first-enable, a loopback↔LAN switch, or a pin to
     // a port we are not on rebinds. The pin is compared only when there is one:
@@ -2908,11 +2921,11 @@ pub fn set_gateway_config(
     let updated_in_place = {
         let guard = state.running.lock().unwrap();
         match guard.as_ref() {
-            Some(r) if r.lan == p.lan && p.preferred_port.is_none_or(|want| r.port == want) => {
-                *r.shared.token.lock().unwrap() = p.token.clone();
-                r.shared.read_only.store(p.mode == "read-only", Ordering::Relaxed);
-                r.shared.terminal.store(p.terminal, Ordering::Relaxed);
-                if !p.terminal || p.mode == "read-only" {
+            Some(r) if r.lan == run.lan && p.preferred_port.is_none_or(|want| r.port == want) => {
+                *r.shared.token.lock().unwrap() = run.token.clone();
+                r.shared.read_only.store(run.mode == "read-only", Ordering::Relaxed);
+                r.shared.terminal.store(run.terminal, Ordering::Relaxed);
+                if !p.enabled || !run.terminal || run.mode == "read-only" {
                     close_remote_terminals(&r.shared, state.terminals.as_ref());
                 }
                 true
@@ -2925,7 +2938,7 @@ pub fn set_gateway_config(
         // a reverse proxy, or a bookmark names that port, and quietly listening
         // somewhere else would break all three while Settings still showed the
         // port the user asked for.
-        start_at(env, state, &p, p.preferred_port)?;
+        start_at(env, state, &run, p.preferred_port)?;
     }
     Ok(status_of(env, state))
 }
@@ -3247,6 +3260,33 @@ mod tests {
         let sep = buf.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
         let body_len = buf.len() - (sep + 4);
         assert_eq!(body_len, expected, "body truncated: got {body_len} of {expected}");
+    }
+
+    /// The app's own agents need `osd`, so the desktop serves this machine with
+    /// Remote access off: loopback only, full access. Turning Remote access off
+    /// after LAN brings it back to loopback rather than stopping it.
+    #[test]
+    fn this_machine_is_served_with_remote_access_off() {
+        let (env, dir) = env_with_recorded_port("localonly", None);
+        let mut p = read_persisted(&env);
+        p.token = String::new();
+        p.mode = "read-only".into();
+        p.lan = true;
+        write_persisted(&env, &p).unwrap();
+        let state = GatewayState::default();
+        autostart(&env, &state);
+        let s = status_of(&env, &state);
+        assert!(s.running && !s.enabled && !s.token.is_empty(), "started, with a token minted");
+        assert!(!state.running.lock().unwrap().as_ref().unwrap().lan, "loopback only although LAN is on record");
+        assert!(!state.running.lock().unwrap().as_ref().unwrap().shared.read_only.load(Ordering::Relaxed));
+        set_gateway_config(&env, &state, true, true, "full".into(), None, false).unwrap();
+        assert!(state.running.lock().unwrap().as_ref().unwrap().lan);
+        set_gateway_config(&env, &state, false, true, "full".into(), None, false).unwrap();
+        let r = state.running.lock().unwrap();
+        assert!(r.as_ref().is_some_and(|r| !r.lan), "off: back to loopback, still up");
+        drop(r);
+        stop(&env, &state);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// An agent messaging other sessions and terminals through `osd` is held to

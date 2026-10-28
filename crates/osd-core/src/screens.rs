@@ -121,16 +121,25 @@ pub fn new_screen(layout: &mut Value, name: &str, panes: &[Pane], project: &str)
     Ok((id, pane_ids))
 }
 
-/// Add a pane to a Screen, beside what is there: a Screen of one row gains a
-/// column, anything else becomes the left of two. Returns the pane's id.
-pub fn add_pane(layout: &mut Value, screen: &str, pane: &Pane) -> Result<String, String> {
+/// Add a pane to a Screen. `beside` a pane of it: right of that pane, which
+/// gives up half its width. Otherwise beside what is there: a Screen of one row
+/// gains a column, anything else becomes the left of two. Returns the pane's id.
+pub fn add_pane(layout: &mut Value, screen: &str, pane: &Pane, beside: Option<&str>) -> Result<String, String> {
     let mut ids = Ids::of(layout);
     let g = groups(layout)
         .iter_mut()
         .find(|g| g["id"] == screen)
         .ok_or_else(|| format!("no Screen {screen}"))?;
     let id = ids.node();
-    let new = leaf(id.clone(), pane);
+    let mut new = Some(leaf(id.clone(), pane));
+    if let Some(at) = beside {
+        insert_right(&mut g["tree"], at, &mut new, &mut ids);
+        if new.is_some() {
+            return Err(format!("no pane {at} on Screen {screen}"));
+        }
+        return Ok(id);
+    }
+    let new = new.take().unwrap();
     let tree = g["tree"].take();
     g["tree"] = if tree.is_null() {
         new
@@ -145,6 +154,42 @@ pub fn add_pane(layout: &mut Value, screen: &str, pane: &Pane) -> Result<String,
         g["focusedLeafId"] = json!(id);
     }
     Ok(id)
+}
+
+/// Put `new` right of the leaf `at`: into its row, or a new row of the two.
+/// `new` is taken once it is placed.
+fn insert_right(node: &mut Value, at: &str, new: &mut Option<Value>, ids: &mut Ids) {
+    if node["kind"] == "leaf" {
+        if node["id"] == at {
+            if let Some(n) = new.take() {
+                *node = split(ids.node(), "row", vec![node.take(), n]);
+            }
+        }
+        return;
+    }
+    let in_row = node["dir"] == "row";
+    let Some(children) = node["children"].as_array_mut() else { return };
+    let i = children.iter().position(|c| c["kind"] == "leaf" && c["id"] == at);
+    if let (true, Some(i)) = (in_row, i) {
+        children.insert(i + 1, new.take().unwrap_or_default());
+        let n = children.len();
+        let mut sizes: Vec<f64> = node["sizes"].as_array().into_iter().flatten().filter_map(Value::as_f64).collect();
+        if sizes.len() + 1 == n {
+            let half = sizes[i] / 2.0;
+            sizes[i] = half;
+            sizes.insert(i + 1, half);
+        } else {
+            sizes = vec![1.0 / n as f64; n];
+        }
+        node["sizes"] = json!(sizes);
+        return;
+    }
+    for child in children.iter_mut() {
+        insert_right(child, at, new, ids);
+        if new.is_none() {
+            return;
+        }
+    }
 }
 
 /// Close a Screen. Its conversations and shells are not touched — closing a
@@ -236,15 +281,15 @@ mod tests {
     #[test]
     fn a_pane_is_added_beside_and_a_screen_closed() {
         let mut l = existing();
-        let id = add_pane(&mut l, "g7", &Pane::Session("ses_c".into())).unwrap();
+        let id = add_pane(&mut l, "g7", &Pane::Session("ses_c".into()), None).unwrap();
         let t = &l["groups"][0]["tree"];
         assert_eq!((t["dir"].as_str(), t["children"][1]["sessionId"].as_str()), (Some("row"), Some("ses_c")));
         assert_eq!(t["children"][0]["id"], "p12", "the old column kept whole");
         // A row gains a column rather than nesting again.
-        add_pane(&mut l, "g7", &Pane::Terminal { cwd: None, command: None }).unwrap();
+        add_pane(&mut l, "g7", &Pane::Terminal { cwd: None, command: None }, None).unwrap();
         assert_eq!(l["groups"][0]["tree"]["children"].as_array().unwrap().len(), 3);
         assert_eq!(id, "p13");
-        assert!(add_pane(&mut l, "g99", &Pane::Terminal { cwd: None, command: None }).is_err());
+        assert!(add_pane(&mut l, "g99", &Pane::Terminal { cwd: None, command: None }, None).is_err());
 
         let (g2, _) = new_screen(&mut l, "", &[Pane::Session("x".into())], "").unwrap();
         l["activeGroupId"] = json!(g2);
@@ -253,6 +298,23 @@ mod tests {
         close_screen(&mut l, "g7").unwrap();
         assert_eq!(l["groups"][0]["tree"], Value::Null, "the last Screen is emptied, not removed");
         assert!(close_screen(&mut l, "g99").is_err());
+    }
+
+    #[test]
+    fn a_pane_is_added_right_of_a_given_pane() {
+        // In a column: the pane becomes a row of itself and the new one.
+        let mut l = existing();
+        let id = add_pane(&mut l, "g7", &Pane::Session("ses_c".into()), Some("p10")).unwrap();
+        let top = &l["groups"][0]["tree"]["children"][0];
+        assert_eq!((top["dir"].as_str(), top["children"][0]["id"].as_str(), top["children"][1]["id"].as_str()), (Some("row"), Some("p10"), Some(id.as_str())));
+        assert_eq!(l["groups"][0]["tree"]["children"][1]["id"], "p11", "the other pane untouched");
+        // In a row: inserted right after it, taking half its width.
+        add_pane(&mut l, "g7", &Pane::Session("ses_d".into()), Some("p10")).unwrap();
+        let top = &l["groups"][0]["tree"]["children"][0];
+        let order: Vec<_> = top["children"].as_array().unwrap().iter().map(|c| c["sessionId"].as_str().unwrap()).collect();
+        assert_eq!(order, ["ses_a", "ses_d", "ses_c"]);
+        assert_eq!(top["sizes"], json!([0.25, 0.25, 0.5]));
+        assert!(add_pane(&mut l, "g7", &Pane::Session("x".into()), Some("p99")).is_err());
     }
 
     #[test]

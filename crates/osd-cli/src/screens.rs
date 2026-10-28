@@ -228,19 +228,53 @@ pub fn screen_new(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
-/// `osd screen add <SCREEN> [SESSION_ID | --new | --terminal] [--project P | --directory D]`
+/// The pane the caller is in: its conversation (`OSD_ORIGIN_SESSION`, set on
+/// an agent's commands) or its terminal (`OSD_PANE`, set in the app's shells).
+/// Returns the Screen, the pane and the folder it works in.
+pub fn find_me(screens: &[Screen], session: Option<&str>, pane: Option<&str>) -> Option<(String, String, Option<String>)> {
+    for s in screens {
+        for p in &s.panes {
+            let hit = match p {
+                Pane::Session { pane: id, id: ses, directory, .. } if session == Some(ses.as_str()) => Some((id, directory)),
+                Pane::Terminal { pane: id, cwd, .. } if pane == Some(id.as_str()) => Some((id, cwd)),
+                _ => None,
+            };
+            if let Some((id, dir)) = hit {
+                return Some((s.id.clone(), id.clone(), dir.clone()));
+            }
+        }
+    }
+    None
+}
+
+/// `osd screen add <SCREEN> | --here [SESSION_ID | --new | --terminal] [--project P | --directory D]`
 pub fn screen_add(args: &Args) -> Result<(), String> {
     let client = Client::connect(args)?;
-    let screen = args.at(0, "screen id")?;
-    let dir = folder(&client, args)?;
+    let here = args.has("here");
+    let (screen, beside, my_dir, first) = if here {
+        let (layout, desktop) = layout_for(&client)?;
+        let screens = screens_of(&layout, &client.get("/v1/sessions")?, desktop);
+        let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let (screen, pane, dir) = find_me(&screens, env("OSD_ORIGIN_SESSION").as_deref(), env("OSD_PANE").as_deref())
+            .ok_or("--here: you are not on any Screen (no pane shows your conversation or terminal)")?;
+        (screen, Some(pane), dir, 0)
+    } else {
+        (args.at(0, "screen id (or --here)")?, None, None, 1)
+    };
+    // New conversations and terminals start where the caller works.
+    let dir = folder(&client, args)?.or(my_dir);
     let pane = if args.has("terminal") {
         json!({ "terminal": { "cwd": dir, "command": args.value("run") } })
     } else if args.has("new") {
         json!({ "session": new_session_in(&client, &dir)?["id"] })
     } else {
-        json!({ "session": args.at(1, "session id (or --new, or --terminal)")? })
+        json!({ "session": args.at(first, "session id (or --new, or --terminal)")? })
     };
-    let added = client.post(&format!("/v1/screens/{screen}/panes"), pane.clone())?;
+    let mut body = pane.clone();
+    if let Some(b) = &beside {
+        body["beside"] = json!(b);
+    }
+    let added = client.post(&format!("/v1/screens/{screen}/panes"), body)?;
     match pane["session"].as_str() {
         Some(s) => println!("session   {s}"),
         None => println!("terminal  {}", added["pane"].as_str().unwrap_or("?")),
@@ -519,6 +553,17 @@ mod tests {
         // An account's layout: its shells are named by its browser, not here.
         let mine = screens_of(&layout, &sessions, false);
         assert!(matches!(&mine[0].panes[1], Pane::Terminal { shell: None, .. }));
+    }
+
+    #[test]
+    fn here_is_the_pane_showing_my_conversation_or_my_terminal() {
+        let layout = json!({ "groups": [{ "id": "g1", "name": "", "tree": { "kind": "split", "dir": "row", "sizes": [0.5, 0.5], "children": [
+            { "kind": "leaf", "id": "p1", "sessionId": "ses_a" },
+            { "kind": "leaf", "id": "p2", "sessionId": null, "content": { "kind": "terminal", "cwd": "/repo" } } ]}}]});
+        let s = screens_of(&layout, &json!([{ "id": "ses_a", "directory": "/w/s1" }]), true);
+        assert_eq!(find_me(&s, Some("ses_a"), None), Some(("g1".into(), "p1".into(), Some("/w/s1".into()))));
+        assert_eq!(find_me(&s, None, Some("p2")), Some(("g1".into(), "p2".into(), Some("/repo".into()))));
+        assert_eq!(find_me(&s, Some("ses_x"), Some("p9")), None);
     }
 
     #[test]

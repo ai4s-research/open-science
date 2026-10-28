@@ -23,6 +23,7 @@ osd screen new --sessions 6 --name "Six"          # a new Screen, split evenly a
 osd screen new ses_a ses_b --terminals 1          # existing conversations and a terminal, side by side
 osd screen new --terminals 3 --run claude          # three terminals, each starting Claude Code
 osd screen add g12 --new                           # one more pane: a new conversation (or a SESSION_ID, or --terminal)
+osd screen add --here --new                        # a new conversation right of you, on the Screen you are on
 osd screen show g12                                # bring it up in the user's window
 osd screen close g12                               # close it; the conversations are kept
 ```
@@ -62,6 +63,5 @@ Their folder is not yours.
   whether to go on.
 - A plain shell runs what you send as the user, outside your workspace and
   your approvals. Send it only commands the user asked for.
-- `no gateway found` means remote access is off. Ask the user to turn it on in
-  Settings › Remote access. `terminals are off` means "Allow terminal" on the
-  same page is off.
+- `terminals are off` means "Allow terminal" in Settings › Remote access is
+  off. Ask the user to turn it on.
