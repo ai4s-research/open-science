@@ -150,7 +150,8 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
     let mut inner = state.0.lock().map_err(|_| "terminal state poisoned")?;
     if let Some(t) = inner.terminals.get(&id) {
         let (rows, cols) = t.size;
-        return Ok(Opened { created: false, cols, rows, screen: load_screen(app, &id, t.pid, cols, rows) });
+        let screen = load_saved(app, &id, t.pid, cols, rows).map(|s| s.screen);
+        return Ok(Opened { created: false, cols, rows, screen });
     }
 
     // A running shell keeps its size: opening it at the pane's would make its
@@ -159,20 +160,30 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
     let (cols, rows) = running.map_or((cols, rows), |t| (t.cols, t.rows));
     let spawn = Spawn::from_command(&shell_command(app, &id, cwd), cols, rows);
     let (created, pid) = inner.call(app, |host| host.open(&id, &spawn))?;
-    let screen = if created {
+    let saved = if created {
         forget_screen(app, &id);
         None
     } else {
-        load_screen(app, &id, pid, cols, rows)
+        load_saved(app, &id, pid, cols, rows)
     };
     let host = inner.host.as_ref().ok_or("terminal host gone")?;
-    let (output, stream) = if host.welcome.offsets {
+    let (output, stream, screen): (Output, Box<dyn Iterator<Item = String> + Send>, _) = if host.welcome.offsets {
+        let screen = saved.map(|s| s.screen);
         let (recent, from, stream) = host.attach_from(&id, screen.as_ref().map_or(0, |s| s.end))?;
         let mut output = Output::starting_at(from);
         output.push(&recent);
-        (output, stream)
+        (output, Box::new(stream), screen)
     } else {
-        (Output::default(), host.attach(&id)?)
+        // An older host sends the shell's recent output raw, drawn at every
+        // size the pane has had: replayed into one, Claude Code's resize
+        // repaints in it land as copies. It gives no offsets, so the saved
+        // screen is found in it by the output that screen ended on.
+        let (recent, stream) = host.attach_recent(&id)?;
+        let recent = strip_queries(&recent); // older hosts keep them
+        let resume = saved.and_then(|s| Some((resume_at(&recent, s.tail.as_deref()?)?, s.screen)));
+        let mut output = Output::starting_at(resume.as_ref().map_or(0, |(_, screen)| screen.end));
+        output.push(&recent[resume.as_ref().map_or(0, |(at, _)| *at)..]);
+        (output, Box::new(stream.into_iter()), resume.map(|(_, screen)| screen))
     };
 
     let output = Arc::new(Mutex::new(output));
@@ -204,6 +215,20 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
     Ok(Opened { created, cols: size.1, rows: size.0, screen })
 }
 
+/// How much of the output before a saved screen is kept with it, to find the
+/// screen's place in an older host's recent output. Long enough that Claude
+/// Code's identical repaints do not repeat it (2026-10-28, 20 real terminals:
+/// 4 KB repeated at 2.5% of places, 16 KB at 0.1%).
+const TAIL_BYTES: usize = 16 * 1024;
+
+/// Where `recent` goes on after `tail`, when `tail` is in it once, and only
+/// once: a repeated tail could be the wrong place.
+fn resume_at(recent: &str, tail: &str) -> Option<usize> {
+    let tail = strip_queries(tail); // as `recent` has them stripped
+    let at = recent.find(&tail)?;
+    (!tail.is_empty() && recent.rfind(&tail) == Some(at)).then(|| at + tail.len())
+}
+
 /// Where a pane's screen is saved. Only plain ids name a file.
 fn screen_path(app: &AppHandle, id: &str) -> Option<PathBuf> {
     let plain = !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
@@ -218,13 +243,16 @@ struct SavedScreen {
     rows: u16,
     #[serde(flatten)]
     screen: Screen,
+    /// The output it ends on (see `TAIL_BYTES`).
+    #[serde(default)]
+    tail: Option<String>,
 }
 
 /// The saved screen of `id`, if it shows this shell at this size.
-fn load_screen(app: &AppHandle, id: &str, pid: Option<u32>, cols: u16, rows: u16) -> Option<Screen> {
+fn load_saved(app: &AppHandle, id: &str, pid: Option<u32>, cols: u16, rows: u16) -> Option<SavedScreen> {
     let text = std::fs::read_to_string(screen_path(app, id)?).ok()?;
     let saved: SavedScreen = serde_json::from_str(&text).ok()?;
-    (pid.is_some() && saved.pid == pid && saved.cols == cols && saved.rows == rows).then_some(saved.screen)
+    (pid.is_some() && saved.pid == pid && saved.cols == cols && saved.rows == rows).then_some(saved)
 }
 
 fn forget_screen(app: &AppHandle, id: &str) {
@@ -237,15 +265,17 @@ fn forget_screen(app: &AppHandle, id: &str) {
 /// `cols` x `rows`: what a reopen draws instead of replaying that output.
 #[tauri::command(async)]
 pub fn terminal_save_screen(app: AppHandle, id: String, end: u64, cols: u16, rows: u16, data: String) -> Result<(), String> {
-    let pid = {
+    let (pid, tail) = {
         let state = app.state::<TerminalState>();
         let inner = state.0.lock().map_err(|_| "terminal state poisoned")?;
-        inner.terminals.get(&id).ok_or("no such terminal")?.pid
+        let t = inner.terminals.get(&id).ok_or("no such terminal")?;
+        let tail = t.output.lock().ok().and_then(|o| o.before(end, TAIL_BYTES));
+        (t.pid, tail)
     };
     let path = screen_path(&app, &id).ok_or("not a pane id")?;
     let dir = path.parent().ok_or("no folder")?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let saved = SavedScreen { pid, cols, rows, screen: Screen { end, data } };
+    let saved = SavedScreen { pid, cols, rows, screen: Screen { end, data }, tail };
     let tmp = dir.join(format!(".{id}.tmp"));
     std::fs::write(&tmp, serde_json::to_vec(&saved).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
@@ -480,6 +510,17 @@ mod tests {
     fn falls_back_to_a_real_shell_when_the_environment_names_none() {
         // Never empty: an empty command would fail to spawn with no explanation.
         assert!(!default_shell().is_empty());
+    }
+
+    #[test]
+    fn an_older_hosts_replay_resumes_after_the_saved_screens_tail_found_once() {
+        let recent = "\x1b[Hrepaint\r\nA\x1b[Hrepaint\r\nB";
+        // Queries are stripped from the replay, so from the tail too.
+        assert_eq!(resume_at(recent, "A\x1b[6n\x1b[Hrepaint\r\n"), Some(recent.len() - 1));
+        // Twice in the replay: either could be the place.
+        assert_eq!(resume_at(recent, "\x1b[Hrepaint\r\n"), None);
+        assert_eq!(resume_at(recent, "gone"), None);
+        assert_eq!(resume_at(recent, ""), None);
     }
 
     #[test]

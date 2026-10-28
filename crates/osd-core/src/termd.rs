@@ -46,6 +46,12 @@ const IDLE_EXIT: Duration = Duration::from_secs(10);
 /// A request the host does not answer in this time is a wedged host.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// An older host's recent output (`attach_recent`): the pause that ends it,
+/// and the longest it is waited for. It comes from memory: 2026-10-28, four
+/// real terminals sent ~430 KB each with no gap over 5 ms.
+const RECENT_PAUSE: Duration = Duration::from_millis(50);
+const RECENT_WAIT: Duration = Duration::from_secs(1);
+
 // ---- output fan-out ---------------------------------------------------------
 
 /// A terminal's output for its readers: recent output for one that attaches
@@ -97,6 +103,20 @@ impl Output {
         };
         self.readers.push(tx);
         (text, from, rx)
+    }
+
+    /// Up to `len` bytes of the output that ends at offset `end`, if held.
+    pub fn before(&self, end: u64, len: usize) -> Option<String> {
+        let recent = self.recent.iter().map(String::as_str).collect::<String>();
+        let stop = usize::try_from(end.checked_sub(self.start?)?).ok()?;
+        if stop > recent.len() || !recent.is_char_boundary(stop) {
+            return None;
+        }
+        let mut from = stop.saturating_sub(len);
+        while !recent.is_char_boundary(from) {
+            from += 1;
+        }
+        Some(recent[from..stop].to_string())
     }
 
     /// Recent output, then everything after it. Closes when the shell exits.
@@ -723,6 +743,32 @@ impl Client {
         Ok(Attached(input))
     }
 
+    /// Like `attach`, for a host without `offsets`: such a host sends the
+    /// recent output as it was read, chunk by chunk, then live output, with
+    /// nothing in between. What arrives in its first burst (until a pause, or
+    /// at most `RECENT_WAIT`) is returned as the recent output; it may end a
+    /// little early or late, and the rest follows on the receiver.
+    pub fn attach_recent(&self, id: &str) -> Result<(String, Receiver<String>), String> {
+        let attached = self.attach(id)?;
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            for chunk in attached {
+                if tx.send(chunk).is_err() {
+                    return;
+                }
+            }
+        });
+        let deadline = Instant::now() + RECENT_WAIT;
+        let mut recent = String::new();
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(RECENT_PAUSE.min(left)) {
+                Ok(chunk) => recent.push_str(&chunk),
+                Err(_) => break,
+            }
+        }
+        Ok((recent, rx))
+    }
+
     /// Like `attach`, from offset `since` of `id`'s output (see `Output::follow`):
     /// that output, where it starts, then live output. Only for a host that
     /// says `offsets`, which answers at once.
@@ -897,6 +943,22 @@ mod tests {
         assert_eq!(long.follow(0).1, Some(5 * chunk.len() as u64 - long.recent_len as u64));
         // A copy that joined at an unknown point knows no offsets.
         assert_eq!(Output::default().follow(0).1, None);
+    }
+
+    #[test]
+    fn the_output_before_an_offset_is_read_back_whole_characters() {
+        let mut out = Output::starting_at(10);
+        out.push("ab中");
+        out.push("cd");
+        assert_eq!(out.before(15, 3).as_deref(), Some("中"));
+        assert_eq!(out.before(15, 4).as_deref(), Some("b中"));
+        assert_eq!(out.before(15, 2).as_deref(), Some("")); // starts on a boundary
+        assert_eq!(out.before(15, 99).as_deref(), Some("ab中"));
+        assert_eq!(out.before(17, 2).as_deref(), Some("cd"));
+        assert_eq!(out.before(14, 2), None); // mid-character
+        assert_eq!(out.before(18, 2), None); // not printed yet
+        assert_eq!(out.before(9, 2), None); // before what is held
+        assert_eq!(Output::default().before(0, 2), None);
     }
 
     #[test]
