@@ -78,6 +78,10 @@ pub async fn plan_usage(app: tauri::AppHandle) -> PlanUsage {
     let proxy = proxy_url(&app);
     let data = crate::env_of(&app).data_dir().to_path_buf();
     tauri::async_runtime::spawn_blocking(move || {
+        // A login idle long enough for its access token to lapse is left out
+        // rather than reported as signed out: the CLI refreshes it on next use,
+        // and the app must not refresh it itself (that rotates the refresh
+        // token the CLI also holds). `Ok(None)` is that case.
         let claude = claude_windows(proxy.as_deref(), None);
         let codex = codex_windows(proxy.as_deref(), None);
         let mut accounts = Vec::new();
@@ -87,7 +91,10 @@ pub async fn plan_usage(app: tauri::AppHandle) -> PlanUsage {
                     continue;
                 };
                 let windows = match kind {
-                    AgentKind::Claude => claude_windows(proxy.as_deref(), Some(&home)),
+                    AgentKind::Claude => match claude_windows(proxy.as_deref(), Some(&home)) {
+                        Ok(None) => continue,
+                        other => other.map(Option::unwrap_or_default),
+                    },
                     AgentKind::Codex => codex_windows(proxy.as_deref(), Some(&home)),
                 };
                 accounts.push(AccountPlan {
@@ -102,7 +109,7 @@ pub async fn plan_usage(app: tauri::AppHandle) -> PlanUsage {
         PlanUsage {
             claude_error: claude.as_ref().err().cloned(),
             codex_error: codex.as_ref().err().cloned(),
-            claude: claude.unwrap_or_default(),
+            claude: claude.ok().flatten().unwrap_or_default(),
             codex: codex.unwrap_or_default(),
             accounts,
         }
@@ -153,7 +160,7 @@ fn client(proxy: Option<&str>) -> Option<reqwest::blocking::Client> {
 /// `folder`: an added account's config folder; None is the default account.
 /// An account's keychain entry is named after its folder, and an account never
 /// falls back to the default's: that would report one account's plan as another's.
-fn claude_token(folder: Option<&Path>) -> Result<String, String> {
+fn claude_token(folder: Option<&Path>) -> Result<ClaudeToken, String> {
     let service = folder.map_or_else(|| "Claude Code-credentials".to_string(), agent_accounts::claude_keychain_service);
     let keychain = cfg!(target_os = "macos")
         .then(|| read_claude_keychain(&service))
@@ -181,7 +188,7 @@ fn claude_token(folder: Option<&Path>) -> Result<String, String> {
     claude_token_from(&raw).ok_or_else(|| "no Claude access token in ~/.claude".into())
 }
 
-fn read_claude_keychain(service: &str) -> Result<String, String> {
+fn read_claude_keychain(service: &str) -> Result<ClaudeToken, String> {
     let out = crate::runtime::quiet_command("security")
         .args(["find-generic-password", "-s", service, "-w"])
         .output()
@@ -193,18 +200,29 @@ fn read_claude_keychain(service: &str) -> Result<String, String> {
         .ok_or_else(|| "no Claude access token in the keychain".to_string())
 }
 
-/// The one shape both stores use.
-fn claude_token_from(raw: &[u8]) -> Option<String> {
-    serde_json::from_slice::<Value>(raw)
-        .ok()?
-        .get("claudeAiOauth")?
-        .get("accessToken")?
-        .as_str()
-        .map(str::to_owned)
+/// An access token and when it lapses (epoch ms), if the store says.
+#[derive(Debug, PartialEq)]
+struct ClaudeToken {
+    access: String,
+    expires_at_ms: Option<i64>,
 }
 
-fn claude_windows(proxy: Option<&str>, folder: Option<&Path>) -> Result<Vec<RateLimitWindow>, String> {
+/// The one shape both stores use.
+fn claude_token_from(raw: &[u8]) -> Option<ClaudeToken> {
+    let oauth = serde_json::from_slice::<Value>(raw).ok()?.get("claudeAiOauth")?.clone();
+    Some(ClaudeToken {
+        access: oauth.get("accessToken")?.as_str()?.to_owned(),
+        expires_at_ms: oauth.get("expiresAt").and_then(Value::as_i64),
+    })
+}
+
+/// `Ok(None)`: the access token has lapsed, so there is nothing to report.
+fn claude_windows(proxy: Option<&str>, folder: Option<&Path>) -> Result<Option<Vec<RateLimitWindow>>, String> {
     let token = claude_token(folder)?;
+    if token.expires_at_ms.is_some_and(|at| at <= now_ms()) {
+        return Ok(None);
+    }
+    let token = token.access;
     let body = client(proxy)
         .ok_or("could not create an HTTP client")?
         .get(CLAUDE_USAGE_URL)
@@ -219,7 +237,7 @@ fn claude_windows(proxy: Option<&str>, folder: Option<&Path>) -> Result<Vec<Rate
         .text()
         .map_err(|e| e.to_string())?;
     let json: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    Ok(claude_windows_from(&json))
+    Ok(Some(claude_windows_from(&json)))
 }
 
 /// One readable line, not a chain of transport internals.
@@ -431,8 +449,13 @@ mod tests {
         // The keychain entry holds this JSON; the file store is read with the
         // same parse, so a signed-in user is found on every platform rather
         // than only where `security` exists.
-        let raw = br#"{"claudeAiOauth":{"accessToken":"sk-tok","refreshToken":"r"}}"#;
-        assert_eq!(claude_token_from(raw).as_deref(), Some("sk-tok"));
+        let raw = br#"{"claudeAiOauth":{"accessToken":"sk-tok","refreshToken":"r","expiresAt":1790000000000}}"#;
+        assert_eq!(
+            claude_token_from(raw),
+            Some(ClaudeToken { access: "sk-tok".into(), expires_at_ms: Some(1790000000000) })
+        );
+        let no_expiry = br#"{"claudeAiOauth":{"accessToken":"sk-tok"}}"#;
+        assert_eq!(claude_token_from(no_expiry).map(|t| t.expires_at_ms), Some(None));
         // Anything else is "no token found", never a wrong one.
         assert_eq!(claude_token_from(b"not json"), None);
         assert_eq!(claude_token_from(br#"{"claudeAiOauth":{}}"#), None);
