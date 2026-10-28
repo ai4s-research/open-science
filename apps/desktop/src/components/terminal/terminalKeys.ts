@@ -35,17 +35,36 @@ export function isModifierKey(event: KeyboardEvent): boolean {
 }
 
 /**
- * Call on a modifier's keydown. xterm 5.5 ignores IME text that arrives while
- * a keydown is "seen" and not yet released, and counts a modifier as one.
- * macOS Pinyin commits full-width punctuation typed with Shift (？：！（）《》)
- * BEFORE that key's own keydown, so with Shift held the first one was dropped
- * and had to be typed twice. A modifier types nothing, so it must not arm the
- * gate. Upstream: xtermjs/xterm.js#6144, fix in #6200; the test pins the
- * private field so an xterm upgrade that renames it fails loudly.
+ * Keeps xterm 5.5 from dropping IME text. Call with every event xterm's custom
+ * key handler sees. xterm ignores IME text that arrives while a keydown is
+ * "seen" and not yet released, but macOS Pinyin commits full-width
+ * punctuation (？：！（）《》) BEFORE that key's own keydown, so the text is
+ * dropped whenever another key is still down:
+ * - Shift held: a modifier counts as a key, so the first one was lost.
+ *   A modifier types nothing, so its keydown never arms the gate.
+ * - Keys rolled over (Shift+9 still down when 0 is pressed): 9 holds the gate
+ *   and "）" was lost. An IME key outside a composition (keyCode 229) sends
+ *   its text through xterm's own textarea check, queued on a timer from its
+ *   keydown, so once that check has run nothing else of that key can arrive
+ *   and the gate is released. Released only if no other key came since.
+ * Upstream: xtermjs/xterm.js#6144, fix in #6200; the test pins the private
+ * field so an xterm upgrade that renames it fails loudly.
  */
-export function releaseImeGate(term: Terminal): void {
-  const core = (term as unknown as { _core?: { _keyDownSeen?: boolean } })._core;
-  if (core) core._keyDownSeen = false;
+export function createImeGate(term: Terminal) {
+  const release = () => {
+    const core = (term as unknown as { _core?: { _keyDownSeen?: boolean } })._core;
+    if (core) core._keyDownSeen = false;
+  };
+  let keydowns = 0;
+  return (event: KeyboardEvent): void => {
+    if (event.type !== "keydown") return;
+    const seen = ++keydowns;
+    if (isModifierKey(event)) release();
+    else if (event.keyCode === 229 && !event.isComposing) {
+      // This handler runs before xterm queues its check, so wait one more turn.
+      setTimeout(() => setTimeout(() => seen === keydowns && release()));
+    }
+  };
 }
 
 const META_PUNCTUATION: Record<string, string> = {

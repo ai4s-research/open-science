@@ -28,7 +28,7 @@ import {
 import { registerTerminalLinks } from "./terminalLinks";
 import { TerminalSearch } from "./TerminalSearch";
 import { isJumpChord } from "@/components/jump-palette/JumpPalette";
-import { createKeyTranslator, isModifierKey, releaseImeGate } from "./terminalKeys";
+import { createImeGate, createKeyTranslator } from "./terminalKeys";
 import { readRepaint, spliceRepaint, type Repaint } from "./terminalResize";
 import { openEscape } from "./terminalScreen";
 import { readCopiedFiles } from "./terminalPaste";
@@ -167,13 +167,14 @@ export function TerminalPane({
       term.loadAddon(new Unicode11Addon());
       term.unicode.activeVersion = "11";
       const translateKey = createKeyTranslator(isMacUA());
+      const imeGate = createImeGate(term);
       // Set by ⌘V, cleared by the paste event it should raise (see onPaste).
       let pasteWait: ReturnType<typeof setTimeout> | undefined;
       term.attachCustomKeyEventHandler((event) => {
         // Keys a native terminal sends differently (Shift+Enter, Option as
         // Meta, ⌘←/→/⌫) — see terminalKeys.
         const translated = translateKey(event);
-        if (event.type === "keydown" && isModifierKey(event)) releaseImeGate(term);
+        imeGate(event);
         if (translated === false) return false;
         if (translated !== null) {
           event.preventDefault();
