@@ -88,10 +88,12 @@ interface UiState {
   /** Active UI locale (BCP-47). Persisted; mirrors the `theme` pattern. */
   locale: string;
   inspectorOpen: boolean;
-  /** Right-pane width in px (persisted); the pane can also be maximized to
-   *  cover the whole window (session-ephemeral, reset when the pane closes). */
+  /** Right-pane width in px (persisted). */
   inspectorWidth: number;
-  inspectorMaximized: boolean;
+  /** The pane whose panel is maximized to cover the whole window, by pane id
+   *  (session-ephemeral, reset when that panel closes). One at a time: with
+   *  several tiled panes each showing a panel, only the clicked one covers. */
+  inspectorMaximized: string | null;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   /** macOS native fullscreen: the traffic lights slide away, so headers must
@@ -112,7 +114,7 @@ interface UiState {
   setLocale: (locale: string) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
-  setInspectorMaximized: (maximized: boolean) => void;
+  setInspectorMaximized: (paneId: string | null) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
@@ -159,7 +161,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   inspectorWidth: initialInspectorWidth(),
-  inspectorMaximized: false,
+  inspectorMaximized: null,
   setInspectorWidth: (width) => {
     const inspectorWidth = Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN, Math.round(width)));
     if (typeof window !== "undefined")

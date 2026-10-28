@@ -26,7 +26,7 @@ export function SessionPage() {
         <ThreadView session={session} />
       </div>
       {showInspector && (
-        <RightPane onClose={() => setInspectorOpen(false)}>
+        <RightPane paneId={session.id} onClose={() => setInspectorOpen(false)}>
           <InspectorShell
             inspector={session.inspector!}
             onClose={() => setInspectorOpen(false)}

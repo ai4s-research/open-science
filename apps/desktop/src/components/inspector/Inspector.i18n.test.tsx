@@ -15,7 +15,7 @@ import { FilePreviewInspector } from "./FilePreviewInspector";
 import { PdfInspector } from "./PdfInspector";
 import { ProvenancePanel } from "./ProvenancePanel";
 import { TablePreview } from "./TablePreview";
-import { MaximizePaneButton } from "./RightPane";
+import { MaximizePaneButton, RightPane } from "./RightPane";
 
 // ProvenancePanel talks to the real provenance store by default (via
 // listProvenance); mocked here only so one test can hold it pending to assert
@@ -167,7 +167,11 @@ describe("TablePreview strings (i18n)", () => {
 
 describe("MaximizePaneButton strings (i18n)", () => {
   it("toggles the aria-label between Maximize panel and Restore panel in English", async () => {
-    render(<MaximizePaneButton />);
+    render(
+      <RightPane paneId="pane-1" fill onClose={() => {}}>
+        <MaximizePaneButton />
+      </RightPane>,
+    );
     expect(screen.getByLabelText("Maximize panel")).toBeInTheDocument();
     await userEvent.click(screen.getByLabelText("Maximize panel"));
     expect(screen.getByLabelText("Restore panel")).toBeInTheDocument();

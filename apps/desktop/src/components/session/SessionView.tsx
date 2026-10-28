@@ -682,6 +682,15 @@ export function SessionView({
       controls={<MaximizePaneButton />}
     />
   ) : null;
+  const closeInspector = activeArtifact
+    ? () => closeArtifact(sid ?? undefined)
+    : showRuns
+      ? () => setShowRuns(false, sid ?? undefined)
+      : showAgents
+        ? () => setShowAgents(false, sid ?? undefined)
+        : showTrajectory
+          ? () => setShowTrajectory(false, sid ?? undefined)
+          : () => setShowFiles(false, sid ?? undefined);
 
   /** Right-click, the same panel the terminal has: what you came to this pane
    *  to do, then what to do with the pane itself.
@@ -1000,7 +1009,9 @@ export function SessionView({
           // there is one header, not two stacked. Its × returns to the chat.
           <div className="min-h-0 flex-1 overflow-hidden">
             <PaneHeaderClearsLights.Provider value={sidebarCollapsed && asTitlebar}>
-              {inspectorNode}
+              <RightPane paneId={leafId} fill onClose={closeInspector}>
+                {inspectorNode}
+              </RightPane>
             </PaneHeaderClearsLights.Provider>
           </div>
         ) : (
@@ -1287,19 +1298,7 @@ export function SessionView({
       {/* Solo pane (or web/mobile): the inspector is a resizable side column.
           Tiled panes fill instead (handled above). */}
       {inspectorActive && solo && (
-        <RightPane
-          onClose={
-            activeArtifact
-              ? () => closeArtifact(sid ?? undefined)
-              : showRuns
-                ? () => setShowRuns(false, sid ?? undefined)
-                : showAgents
-                  ? () => setShowAgents(false, sid ?? undefined)
-                  : showTrajectory
-                    ? () => setShowTrajectory(false, sid ?? undefined)
-                    : () => setShowFiles(false, sid ?? undefined)
-          }
-        >
+        <RightPane paneId={leafId} onClose={closeInspector}>
           {inspectorNode}
         </RightPane>
       )}

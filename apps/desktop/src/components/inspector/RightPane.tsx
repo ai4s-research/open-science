@@ -14,26 +14,43 @@ const COLLAPSE_BELOW = 280;
 /** The pane may never squeeze the conversation out on small windows. */
 const MAX_FRACTION = 0.7;
 
+/** The id of the pane a panel sits in, for its MaximizePaneButton. */
+const PaneIdContext = createContext<string | null>(null);
+
 /**
- * Resizable right pane hosting an inspector or the session Files browser.
- * The left-edge divider drags within [INSPECTOR_MIN, INSPECTOR_MAX] (persisted);
- * dragging it far right snaps the pane closed. Maximized, the pane covers the
- * whole window — sidebar and conversation stay mounted underneath.
+ * Pane hosting an inspector or the session Files browser. Beside a solo
+ * conversation it is a resizable side column: the left-edge divider drags
+ * within [INSPECTOR_MIN, INSPECTOR_MAX] (persisted), and dragging it far right
+ * snaps the pane closed. In a tiled pane (`fill`) it fills that pane instead.
+ * Maximized, it covers the whole window — sidebar and conversations stay
+ * mounted underneath.
  */
 export function RightPane({
+  paneId,
+  fill = false,
   children,
   onClose,
 }: {
+  /** The layout pane this panel belongs to; names it as the maximized one. */
+  paneId: string;
+  fill?: boolean;
   children: React.ReactNode;
   onClose: () => void;
 }) {
-  const { inspectorWidth, inspectorMaximized, setInspectorWidth, setInspectorMaximized } =
-    useUiStore();
+  const inspectorWidth = useUiStore((s) => s.inspectorWidth);
+  const setInspectorWidth = useUiStore((s) => s.setInspectorWidth);
+  const maximized = useUiStore((s) => s.inspectorMaximized === paneId);
   const isMobile = useIsMobile();
 
-  // Maximized never outlives the pane — closing it returns the next pane
-  // (possibly for a different artifact or session) to the normal split.
-  useEffect(() => () => setInspectorMaximized(false), [setInspectorMaximized]);
+  // Maximized never outlives the panel — closing it returns the next panel
+  // (possibly for a different artifact or session) to the normal layout.
+  useEffect(
+    () => () => {
+      const ui = useUiStore.getState();
+      if (ui.inspectorMaximized === paneId) ui.setInspectorMaximized(null);
+    },
+    [paneId],
+  );
 
   const clamp = (w: number) =>
     Math.max(
@@ -54,13 +71,22 @@ export function RightPane({
     onCollapse: onClose,
   });
 
-  if (inspectorMaximized || isMobile) {
+  const body = <PaneIdContext.Provider value={paneId}>{children}</PaneIdContext.Provider>;
+
+  if (maximized || isMobile) {
     // Maximized, OR mobile: the split-pane column (`lg:block`, fixed width) has
     // no room on a phone — show the pane full-screen instead (its own header
     // carries the close button). Without this the pane is display:none on
-    // mobile, so the folder/runs toggles appear to "do nothing".
-    return <div className="fixed inset-0 z-40 bg-surface">{children}</div>;
+    // mobile, so the folder/runs toggles appear to "do nothing". Covering the
+    // window, its header is the window's top row and clears the traffic lights.
+    return (
+      <div className="fixed inset-0 z-40 bg-surface">
+        <PaneHeaderClearsLights.Provider value>{body}</PaneHeaderClearsLights.Provider>
+      </div>
+    );
   }
+
+  if (fill) return <div className="h-full">{body}</div>;
 
   return (
     <div
@@ -69,7 +95,7 @@ export function RightPane({
       className="relative hidden h-full shrink-0 border-l border-border lg:block"
       style={{ width: dragValue ?? inspectorWidth }}
     >
-      <div className="h-full">{children}</div>
+      <div className="h-full">{body}</div>
       {/* Drag divider: resize within [INSPECTOR_MIN, INSPECTOR_MAX]; dragging
           far right snaps the pane closed. */}
       <div
@@ -118,17 +144,16 @@ export const PANE_ICON_BUTTON =
 /** A pane-header toggle while it is on (history shown, and so on). */
 export const PANE_ICON_BUTTON_ON = "bg-surface-2 text-text";
 
-/** True when a pane header is the window's top row for another reason than
- *  being maximized: a panel that fills a tiled pane in the window's top-left
- *  corner, with the sidebar collapsed, stands where the conversation header
- *  was — and that header was the one clearing the traffic lights. */
+/** True when a pane header is the window's top row: a maximized panel, or a
+ *  panel that fills a tiled pane in the window's top-left corner with the
+ *  sidebar collapsed — it stands where the conversation header was, and that
+ *  header was the one clearing the traffic lights. */
 export const PaneHeaderClearsLights = createContext(false);
 
 export function PaneTitlebarInset() {
-  const inspectorMaximized = useUiStore((s) => s.inspectorMaximized);
   const clearsLights = useContext(PaneHeaderClearsLights);
   const overlayTitlebar = useOverlayTitlebar();
-  if (!(inspectorMaximized || clearsLights) || !overlayTitlebar) return null;
+  if (!clearsLights || !overlayTitlebar) return null;
   // The same geometry as every other strip that clears the lights (see
   // lib/titlebar): the row is TITLEBAR_HEIGHT_PX tall — the lights are
   // positioned for that centre — and TRAFFIC_LIGHT_INSET_PX clear on the left,
@@ -151,17 +176,20 @@ export function PaneTitlebarInset() {
  *  full-page viewers like the Files page have nothing to maximize over). */
 export function MaximizePaneButton() {
   const { t } = useTranslation(["inspector", "common"]);
-  const inspectorMaximized = useUiStore((s) => s.inspectorMaximized);
+  const paneId = useContext(PaneIdContext);
+  const maximized = useUiStore((s) => paneId !== null && s.inspectorMaximized === paneId);
   const setInspectorMaximized = useUiStore((s) => s.setInspectorMaximized);
-  const label = inspectorMaximized ? t("shell.restorePanel") : t("shell.maximizePanel");
+  // Outside a RightPane there is no pane to maximize.
+  if (paneId === null) return null;
+  const label = maximized ? t("shell.restorePanel") : t("shell.maximizePanel");
   return (
     <button
       className={PANE_ICON_BUTTON}
       aria-label={label}
       title={label}
-      onClick={() => setInspectorMaximized(!inspectorMaximized)}
+      onClick={() => setInspectorMaximized(maximized ? null : paneId)}
     >
-      {inspectorMaximized ? (
+      {maximized ? (
         <Minimize2 size={13} strokeWidth={1.5} />
       ) : (
         <Maximize2 size={13} strokeWidth={1.5} />
