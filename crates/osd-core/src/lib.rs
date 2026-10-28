@@ -20,6 +20,7 @@ pub mod gateway;
 pub mod git_snapshot;
 pub mod harness;
 mod ledger;
+pub mod model_catalog;
 pub mod model_prices;
 pub mod model_probe;
 pub mod opencode_config;

@@ -1630,6 +1630,13 @@ fn resolve_proxy_env(mode: &str, url: &str, bypass: &[String]) -> Vec<(&'static 
 /// say so. None until this process has started a sidecar.
 static SIDECAR_PROXY: Mutex<Option<String>> = Mutex::new(None);
 
+/// The proxy the sidecar is configured to use (None ⇒ direct), for the app's
+/// own downloads that should take the same route.
+pub fn sidecar_proxy(env: &Env) -> Option<String> {
+    let (mode, url) = read_proxy_setting(env);
+    effective_proxy(&mode, &url)
+}
+
 /// The proxy the sidecar would actually use right now, for display in
 /// Settings. None ⇒ direct connections.
 fn effective_proxy(mode: &str, url: &str) -> Option<String> {
@@ -2166,6 +2173,7 @@ pub fn start_runtime(env: &Env) -> Result<String, String> {
     }
     lifecycle.url = None;
 
+    crate::model_catalog::start(env);
     // Reuse a stable port across restarts so the frontend URL doesn't change.
     let port = *lifecycle.port.get_or_insert_with(free_port);
     lifecycle.generation += 1;
