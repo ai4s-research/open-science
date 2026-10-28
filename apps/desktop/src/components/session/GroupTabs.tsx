@@ -399,57 +399,93 @@ export function GroupTabs() {
   const stripRef = useTransientScrollbar();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
-  // A tab being dragged to a new place in the bar, and where it would land:
-  // its index among the other tabs.
-  const [drag, setDrag] = useState<{ id: string; index: number } | null>(null);
+  const [drag, setDrag] = useState<TabDrag | null>(null);
 
-  /** Drag a tab left or right to reorder the Screens. Mouse and pen only: on a
-   *  phone a sideways swipe scrolls the bar. The order changes on release; a
-   *  line shows where the tab will land meanwhile. */
+  /**
+   * Drag a tab left or right to reorder the Screens, the way a browser's tabs
+   * move: the tab follows the pointer, its neighbours slide aside to open the
+   * slot it would land in, and on release it settles there. Mouse and pen
+   * only: on a phone a sideways swipe scrolls the bar.
+   *
+   * Every position is measured once, at the press. Nothing is reordered until
+   * the tab has settled, so those measurements stay true for the whole drag.
+   */
   const startTabDrag = (e: ReactPointerEvent<HTMLElement>, id: string) => {
     if (e.button !== 0 || e.pointerType === "touch" || editingId === id) return;
     if ((e.target as HTMLElement).closest("button, input")) return;
     const row = e.currentTarget.parentElement;
     if (!row) return;
+    const rects = [...row.querySelectorAll<HTMLElement>("[data-group-tab]")].map((el) => el.getBoundingClientRect());
+    const from = groups.findIndex((g) => g.id === id);
+    const me = rects[from];
+    if (!me) return;
     const startX = e.clientX;
-    let index: number | null = null;
+    const gap = rects.length > 1 ? rects[1].left - rects[0].right : 0;
+    const shift = me.width + gap;
+    // The tab stays within the bar's tabs.
+    const minDx = rects[0].left - me.left;
+    const maxDx = rects[rects.length - 1].right - me.right;
+    let moved = false;
+    let to = from;
+    document.body.style.cursor = "grabbing";
+    setDrag({ id, from, to, dx: 0, shift, settling: false });
+
     const onMove = (ev: PointerEvent) => {
-      if (index === null && Math.abs(ev.clientX - startX) < TAB_DRAG_THRESHOLD_PX) return;
-      const others = [...row.querySelectorAll<HTMLElement>("[data-group-tab]")].filter(
-        (el) => el.dataset.groupTab !== id,
-      );
-      index = others.filter((el) => {
-        const r = el.getBoundingClientRect();
-        return r.left + r.width / 2 < ev.clientX;
+      const raw = ev.clientX - startX;
+      if (!moved && Math.abs(raw) < TAB_DRAG_THRESHOLD_PX) return;
+      moved = true;
+      const dx = Math.min(maxDx, Math.max(minDx, raw));
+      // Its slot: a neighbour gives way once the held tab's leading edge
+      // crosses that neighbour's middle (its right edge going right, its left
+      // edge going left), so the last slot is reachable however wide tabs are.
+      to = rects.filter((r, k) => {
+        const mid = r.left + r.width / 2;
+        return (k < from && mid < me.left + dx) || (k > from && mid < me.right + dx);
       }).length;
-      document.body.style.cursor = "grabbing";
-      setDrag({ id, index });
+      setDrag({ id, from, to, dx, shift, settling: false });
     };
-    const end = (commit: boolean) => {
+    const detach = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("blur", onCancel);
       document.body.style.cursor = "";
-      if (commit && index !== null) moveGroup(id, index);
+    };
+    const onUp = () => {
+      detach();
+      if (!moved || to === from) {
+        setDrag(null);
+        return;
+      }
+      // Glide into the open slot, then take it for real. The reorder and the
+      // dropped offsets land in one render, so nothing visibly jumps.
+      const dx = to > from ? rects[to].right - me.right : rects[to].left - me.left;
+      setDrag({ id, from, to, dx, shift, settling: true });
+      window.setTimeout(() => {
+        moveGroup(id, to);
+        setDrag(null);
+      }, TAB_SETTLE_MS);
+    };
+    const onCancel = () => {
+      detach();
       setDrag(null);
     };
-    const onUp = () => end(true);
-    const onCancel = () => end(false);
-    const onKey = (ev: KeyboardEvent) => ev.key === "Escape" && end(false);
+    const onKey = (ev: KeyboardEvent) => ev.key === "Escape" && onCancel();
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
     window.addEventListener("keydown", onKey);
     window.addEventListener("blur", onCancel);
   };
-  // The landing line: before the other tab at the drop index, or after the
-  // last one. None where the tab already is.
-  const dragOthers = drag ? groups.filter((g) => g.id !== drag.id).map((g) => g.id) : [];
-  const dragMoves = drag !== null && groups.findIndex((g) => g.id === drag.id) !== drag.index;
-  const lineBefore = dragMoves ? dragOthers[drag.index] : undefined;
-  const lineAfter = dragMoves && drag.index === dragOthers.length ? dragOthers[dragOthers.length - 1] : undefined;
+  /** How far tab `k` sits from its own place while a tab is dragged. */
+  const tabOffset = (k: number, id: string): number => {
+    if (!drag) return 0;
+    if (id === drag.id) return drag.dx;
+    if (drag.from < k && k <= drag.to) return -drag.shift;
+    if (drag.to <= k && k < drag.from) return drag.shift;
+    return 0;
+  };
   // The Screen on display is always in view: on a narrow bar the strip
   // scrolls, and a switch from elsewhere (a sidebar click, a link) can land on
   // a tab scrolled out of sight.
@@ -556,13 +592,14 @@ export function GroupTabs() {
                   active ? "bg-surface-2 text-text" : "text-muted hover:bg-surface-2/60",
                   // A tentative (preview) screen reads italic, like a browser preview tab.
                   ephemeral && "italic",
-                  drag?.id === g.id && "opacity-50",
-                  (lineBefore === g.id || lineAfter === g.id) && "relative",
-                  lineBefore === g.id &&
-                    "before:absolute before:-left-[3px] before:inset-y-1 before:w-0.5 before:rounded-full before:bg-accent",
-                  lineAfter === g.id &&
-                    "after:absolute after:-right-[3px] after:inset-y-1 after:w-0.5 after:rounded-full after:bg-accent",
+                  // While a tab is held: the grabbing hand over everything in the
+                  // bar (a tab's own pointer cursor would hide it), neighbours
+                  // slide, and the held tab rides on top, following the pointer.
+                  drag && "cursor-grabbing [&_*]:cursor-grabbing",
+                  drag && (drag.id !== g.id || drag.settling) && "transition-[transform,background-color] duration-150 ease-out",
+                  drag?.id === g.id && "relative z-10 bg-surface-2 text-text",
                 )}
+                style={drag ? { transform: `translateX(${tabOffset(i, g.id)}px)` } : undefined}
                 title={t("group.renameHint")}
               >
                 {editingId === g.id ? (
@@ -620,6 +657,21 @@ export function GroupTabs() {
     </>
   );
 }
+
+/** A tab held for reordering: where it started and would land (indices in
+ *  the bar), how far it has been dragged, how far a neighbour slides to make
+ *  room, and whether it is gliding into its slot after release. */
+interface TabDrag {
+  id: string;
+  from: number;
+  to: number;
+  dx: number;
+  shift: number;
+  settling: boolean;
+}
+
+/** How long a released tab takes to glide into its slot. */
+const TAB_SETTLE_MS = 150;
 
 /** How far a tab must move sideways before a press becomes a drag, so a
  *  click still just switches Screens. */

@@ -1,5 +1,5 @@
-import { fireEvent, render } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeLeaf, useLayoutStore, type LayoutGroup } from "@/lib/layout";
 import { GroupTabs } from "./GroupTabs";
 
@@ -15,7 +15,9 @@ function pointer(type: string, target: Element | Window, x: number) {
 const order = () => useLayoutStore.getState().groups.map((g) => g.id);
 
 describe("Screen tab reordering", () => {
+  afterEach(() => void vi.useRealTimers());
   beforeEach(() => {
+    vi.useFakeTimers();
     // `x` belongs to another project and sits between this project's Screens.
     const groups = [screen("a"), screen("x", "other"), screen("b"), screen("c")];
     useLayoutStore.setState({
@@ -41,13 +43,23 @@ describe("Screen tab reordering", () => {
     expect(tabs.map((t) => t.dataset.groupTab)).toEqual(["a", "b", "c"]);
     // jsdom has no layout: give each tab a 100px slot.
     tabs.forEach((t, i) => {
-      t.getBoundingClientRect = () => ({ left: i * 100, width: 100 }) as DOMRect;
+      t.getBoundingClientRect = () => ({ left: i * 100 + 4 * i, right: i * 100 + 4 * i + 100, width: 100 }) as DOMRect;
     });
 
     pointer("pointerdown", tabs[0], 50);
+    // Held: the grabbing hand shows at once, before any movement.
+    expect(tabs[0].className).toContain("cursor-grabbing");
     pointer("pointermove", window, 260);
+    // The held tab follows the pointer; the two it passed slide left.
+    expect(tabs[0].style.transform).toBe("translateX(208px)");
+    expect(tabs[1].style.transform).toBe("translateX(-104px)");
+    expect(tabs[2].style.transform).toBe("translateX(-104px)");
     pointer("pointerup", window, 260);
+    // It glides into its slot, then the order changes.
+    expect(order()).toEqual(["a", "x", "b", "c"]);
+    act(() => void vi.advanceTimersByTime(200));
     expect(order()).toEqual(["b", "x", "c", "a"]);
+    expect(tabs.every((t) => !t.style.transform)).toBe(true);
   });
 
   it("a click without movement does not reorder", () => {
