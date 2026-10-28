@@ -231,9 +231,9 @@ export function TerminalPane({
         if (!isTauri || !data || (text && !data.files.length && !data.types.includes("Files"))) return;
         event.preventDefault();
         event.stopPropagation();
-        void readCopiedFiles().then((paths) => {
-          if (paths || text) term.paste(paths || text);
-        });
+        // Always paste, even "": an empty bracketed paste is how Claude Code
+        // and Codex learn to read a copied image from the clipboard.
+        void readCopiedFiles().then((paths) => term.paste(paths || text));
       };
       container.addEventListener("paste", onPaste, true);
       // GPU renderer, as in VS Code and Orca: box-drawing and block characters
