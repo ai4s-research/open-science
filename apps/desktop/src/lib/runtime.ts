@@ -587,6 +587,9 @@ interface RuntimeState {
    *  keeps its own draft/thread and creates its own session on first send. */
   /** `attachments` are workspace file names from the composer's chips; the image
    *  ones are also sent as multimodal parts so a vision model sees them (#88). */
+  /** This draft's conversation, created now (before any message) — for
+   *  whatever needs its id first, such as a reference copied for an agent. */
+  createDraftSession: (draftKey: string) => Promise<string>;
   sendPrompt: (
     text: string,
     sessionId?: string,
@@ -1906,6 +1909,181 @@ type StoreSet = {
 };
 type StoreGet = () => RuntimeState;
 
+/** A draft's conversation, created on demand: by its first send, or by
+ *  anything that needs its id before then (copying a reference to it). One
+ *  creation per draft — a send and a copy at the same moment get the same
+ *  session. `title` names an ACP session until the agent names it. */
+const draftCreations = new Map<string, Promise<string>>();
+function createFromDraft(set: StoreSet, get: StoreGet, draftSrc: string, title: string): Promise<string> {
+  const pending = draftCreations.get(draftSrc);
+  if (pending) return pending;
+  const created = createFromDraftOnce(set, get, draftSrc, title).finally(() => draftCreations.delete(draftSrc));
+  draftCreations.set(draftSrc, created);
+  return created;
+}
+
+async function createFromDraftOnce(set: StoreSet, get: StoreGet, draftSrc: string, title: string): Promise<string> {
+  if (!client) throw new Error("Not connected to the OpenCode runtime.");
+  let id: string;
+  // In THIS draft's own folder (#3). A draft the user aimed at a project
+  // carries that folder; one that does not gets its own fresh dated folder
+  // (~/Documents/OpenScience/sessions/<date-time>) so its files never pile
+  // up in the bare base folder.
+  const chosen = isTauri ? get().draftWorkspaces[draftSrc] : undefined;
+  if (isTauri) {
+    set({ switching: true });
+    // The folder this session is MEANT to be created in. Both calls below
+    // return the canonical path they settled on, which is what the check
+    // after the reconnect compares against.
+    let intended = chosen ?? null;
+    try {
+      if (!chosen) {
+        intended = await newDatedWorkspace(datedWorkspaceName());
+        await kernelReset().catch(() => {});
+      } else if (chosen !== get().workspace) {
+        // The active folder wandered off — opening any session follows it
+        // into that session's folder. Go back to the one this draft was
+        // aimed at, or the session lands wherever the user last looked (#69).
+        intended = await setWorkspace(chosen);
+        await kernelReset().catch(() => {});
+      }
+      // Always rebuild the scoped client: /new and /clear keep the folder,
+      // but the old session route may have just torn down directory-scoped
+      // SSE, and a first send must not hang on a stale workspace instance.
+      await get().connectRetry();
+    } finally {
+      set({ switching: false });
+    }
+    if (get().status !== "ready" || !client) {
+      throw new Error("Runtime did not reconnect before creating the session.");
+    }
+    // `createSession` files the conversation in whatever folder the RUNTIME
+    // is scoped to, and that was decided by the reconnect above — not by the
+    // folder this draft asked for. When the two disagree the session is
+    // recorded in one folder while its notebooks, figures and data are
+    // written in another, and nothing downstream can tell: the conversation
+    // reports "file not found" for files it produced itself, in a folder
+    // that still holds them. A session found in exactly that state is what
+    // this check exists for — the disagreement was silent, and the only
+    // moment it can still be caught is before the session exists. Refuse
+    // rather than create a conversation that is already wrong.
+    if (intended && !samePath(intended, get().workspace)) {
+      throw new Error(
+        `The runtime is working in ${get().workspace ?? "no folder"}, not ${intended}, ` +
+          `so this conversation would be filed apart from the files it creates. Try again.`,
+      );
+    }
+  }
+  // The draft's agent creates the session: OpenCode, or the ACP agent the
+  // composer was set to. The folder above is the same either way — it is
+  // where this conversation's files live.
+  const agentId = acpAgentFor(get(), draftSrc);
+  if (agentId) {
+    const cwd = get().workspace;
+    if (!cwd) throw new Error("No workspace folder to run the ACP agent in.");
+    const rt = await startAcpRuntime(agentId, cwd);
+    const created = await rt.createSession();
+    id = created;
+    set((s) => ({
+      acpSessions: {
+        ...s.acpSessions,
+        [created]: { agentId, title: title.slice(0, 80) || "New session", directory: cwd, updated: Date.now() },
+      },
+    }));
+    saveAcpSessions(get().acpSessions);
+    // What the draft chose before the session existed, applied before its
+    // first turn. A choice the agent no longer offers is skipped, not fatal.
+    const picks = get().draftAcpPicks[draftSrc] ?? {};
+    for (const [configId, value] of Object.entries(picks)) {
+      const option = rt.configOptionsFor(created).find((o) => o.id === configId);
+      if (!option?.options?.some((v) => v.value === value) || option.currentValue === value) continue;
+      await rt.setConfigOption(created, configId, value).catch((err) =>
+        logDebug(`acp option ${configId} not applied: ${err instanceof Error ? err.message : String(err)}`),
+      );
+    }
+    set((s) => {
+      const draftAcpPicks = { ...s.draftAcpPicks };
+      delete draftAcpPicks[draftSrc];
+      return { draftAcpPicks };
+    });
+  } else {
+    id = await withRetry(() => client!.createSession());
+  }
+  // The pick belonged to the draft; the session now carries its own.
+  set((s) => {
+    if (!(draftSrc in s.draftRuntimes)) return {};
+    const draftRuntimes = { ...s.draftRuntimes };
+    delete draftRuntimes[draftSrc];
+    return { draftRuntimes };
+  });
+  set((s) => {
+    // Graft this pane's draft conversation (and its pane state) from its own
+    // slot (`draftSrc`) onto the real session id.
+    const threads = { ...s.threads, [id]: s.threads[draftSrc] ?? emptyThread() };
+    delete threads[draftSrc];
+    const panes = { ...s.panes };
+    if (panes[draftSrc]) {
+      panes[id] = panes[draftSrc];
+      delete panes[draftSrc];
+    }
+    const sessionAgents = { ...s.sessionAgents };
+    if (sessionAgents[draftSrc]) {
+      sessionAgents[id] = sessionAgents[draftSrc];
+      delete sessionAgents[draftSrc];
+    }
+    // The destination has done its job: the session now carries its own
+    // folder. Leaving the entry would silently aim this pane's NEXT draft
+    // at the same project long after the user moved on.
+    const { draftWorkspaces = s.draftWorkspaces } = forgetDraftFolder(s, draftSrc);
+    // Move the in-flight send lock too, so a pane keyed on the new id (the
+    // draft pane follows currentId onto the real session) still reads itself
+    // as sending across the graft — no flicker to an unlocked composer.
+    const sendingSessions = { ...s.sendingSessions };
+    if (sendingSessions[draftSrc]) {
+      sendingSessions[id] = sendingSessions[draftSrc];
+      delete sendingSessions[draftSrc];
+    }
+    // Carry the draft's per-pane model/effort override onto the real session.
+    const sessionModels = { ...s.sessionModels };
+    if (sessionModels[draftSrc]) {
+      sessionModels[id] = sessionModels[draftSrc];
+      delete sessionModels[draftSrc];
+    }
+    const sessionVariants = { ...s.sessionVariants };
+    if (sessionVariants[draftSrc] !== undefined) {
+      sessionVariants[id] = sessionVariants[draftSrc];
+      delete sessionVariants[draftSrc];
+    }
+    // A /clear draft's earlier conversation stays above the new session.
+    const clearedFrom = { ...s.clearedFrom };
+    if (clearedFrom[draftSrc]) {
+      clearedFrom[id] = clearedFrom[draftSrc];
+      delete clearedFrom[draftSrc];
+    }
+    return {
+      clearedFrom,
+      currentId: id,
+      threads,
+      panes,
+      sessionAgents,
+      sendingSessions,
+      sessionModels,
+      sessionVariants,
+      draftWorkspaces,
+    };
+  });
+  // A fresh ACP session reports the agent's own selectors — surface them.
+  syncAcpConfig(set, get, id);
+  // The draft's model/effort override moved onto the real id — repersist so
+  // a relaunch restores this pane's model, not the global default.
+  saveRecord(SESSION_MODELS_KEY, get().sessionModels);
+  saveRecord(SESSION_VARIANTS_KEY, get().sessionVariants);
+  saveClearedFrom(get().clearedFrom);
+  moveScrollMemory(`chat:${draftSrc}`, `chat:${id}`);
+  void get().refreshSessions();
+  return id;
+}
+
 /**
  * The one send lifecycle (new → input → send → response), shared by plain
  * prompts, "!" shell commands and "/" slash commands:
@@ -1978,164 +2156,8 @@ async function performTurn(
     // race the focus effect. Only a legacy (no-draftKey) send reuses currentId.
     let id = target ?? (draftKey ? null : get().currentId);
     if (!id) {
-      // Lazy-create the session on the first message (#3), in THIS draft's own
-      // folder. A draft the user aimed at a project carries that folder; one
-      // that does not gets its own fresh dated folder
-      // (~/Documents/OpenScience/sessions/<date-time>) so its files never pile
-      // up in the bare base folder.
-      const chosen = isTauri ? get().draftWorkspaces[draftSrc] : undefined;
-      if (isTauri) {
-        set({ switching: true });
-        // The folder this session is MEANT to be created in. Both calls below
-        // return the canonical path they settled on, which is what the check
-        // after the reconnect compares against.
-        let intended = chosen ?? null;
-        try {
-          if (!chosen) {
-            intended = await newDatedWorkspace(datedWorkspaceName());
-            await kernelReset().catch(() => {});
-          } else if (chosen !== get().workspace) {
-            // The active folder wandered off — opening any session follows it
-            // into that session's folder. Go back to the one this draft was
-            // aimed at, or the session lands wherever the user last looked (#69).
-            intended = await setWorkspace(chosen);
-            await kernelReset().catch(() => {});
-          }
-          // Always rebuild the scoped client: /new and /clear keep the folder,
-          // but the old session route may have just torn down directory-scoped
-          // SSE, and a first send must not hang on a stale workspace instance.
-          await get().connectRetry();
-        } finally {
-          set({ switching: false });
-        }
-        if (get().status !== "ready" || !client) {
-          throw new Error("Runtime did not reconnect before creating the session.");
-        }
-        // `createSession` files the conversation in whatever folder the RUNTIME
-        // is scoped to, and that was decided by the reconnect above — not by the
-        // folder this draft asked for. When the two disagree the session is
-        // recorded in one folder while its notebooks, figures and data are
-        // written in another, and nothing downstream can tell: the conversation
-        // reports "file not found" for files it produced itself, in a folder
-        // that still holds them. A session found in exactly that state is what
-        // this check exists for — the disagreement was silent, and the only
-        // moment it can still be caught is before the session exists. Refuse
-        // rather than create a conversation that is already wrong.
-        if (intended && !samePath(intended, get().workspace)) {
-          throw new Error(
-            `The runtime is working in ${get().workspace ?? "no folder"}, not ${intended}, ` +
-              `so this conversation would be filed apart from the files it creates. Try again.`,
-          );
-        }
-      }
-      // The draft's agent creates the session: OpenCode, or the ACP agent the
-      // composer was set to. The folder above is the same either way — it is
-      // where this conversation's files live.
-      const agentId = acpAgentFor(get(), draftSrc);
-      if (agentId) {
-        const cwd = get().workspace;
-        if (!cwd) throw new Error("No workspace folder to run the ACP agent in.");
-        const rt = await startAcpRuntime(agentId, cwd);
-        const created = await rt.createSession();
-        id = created;
-        set((s) => ({
-          acpSessions: {
-            ...s.acpSessions,
-            [created]: { agentId, title: echo.slice(0, 80) || "New session", directory: cwd, updated: Date.now() },
-          },
-        }));
-        saveAcpSessions(get().acpSessions);
-        // What the draft chose before the session existed, applied before its
-        // first turn. A choice the agent no longer offers is skipped, not fatal.
-        const picks = get().draftAcpPicks[draftSrc] ?? {};
-        for (const [configId, value] of Object.entries(picks)) {
-          const option = rt.configOptionsFor(created).find((o) => o.id === configId);
-          if (!option?.options?.some((v) => v.value === value) || option.currentValue === value) continue;
-          await rt.setConfigOption(created, configId, value).catch((err) =>
-            logDebug(`acp option ${configId} not applied: ${err instanceof Error ? err.message : String(err)}`),
-          );
-        }
-        set((s) => {
-          const draftAcpPicks = { ...s.draftAcpPicks };
-          delete draftAcpPicks[draftSrc];
-          return { draftAcpPicks };
-        });
-      } else {
-        id = await withRetry(() => client!.createSession());
-      }
-      // The pick belonged to the draft; the session now carries its own.
-      set((s) => {
-        if (!(draftSrc in s.draftRuntimes)) return {};
-        const draftRuntimes = { ...s.draftRuntimes };
-        delete draftRuntimes[draftSrc];
-        return { draftRuntimes };
-      });
-      set((s) => {
-        // Graft this pane's draft conversation (and its pane state) from its own
-        // slot (`draftSrc`) onto the real session id.
-        const threads = { ...s.threads, [id!]: s.threads[draftSrc] ?? emptyThread() };
-        delete threads[draftSrc];
-        const panes = { ...s.panes };
-        if (panes[draftSrc]) {
-          panes[id!] = panes[draftSrc];
-          delete panes[draftSrc];
-        }
-        const sessionAgents = { ...s.sessionAgents };
-        if (sessionAgents[draftSrc]) {
-          sessionAgents[id!] = sessionAgents[draftSrc];
-          delete sessionAgents[draftSrc];
-        }
-        // The destination has done its job: the session now carries its own
-        // folder. Leaving the entry would silently aim this pane's NEXT draft
-        // at the same project long after the user moved on.
-        const { draftWorkspaces = s.draftWorkspaces } = forgetDraftFolder(s, draftSrc);
-        // Move the in-flight send lock too, so a pane keyed on the new id (the
-        // draft pane follows currentId onto the real session) still reads itself
-        // as sending across the graft — no flicker to an unlocked composer.
-        const sendingSessions = { ...s.sendingSessions };
-        if (sendingSessions[draftSrc]) {
-          sendingSessions[id!] = sendingSessions[draftSrc];
-          delete sendingSessions[draftSrc];
-        }
-        // Carry the draft's per-pane model/effort override onto the real session.
-        const sessionModels = { ...s.sessionModels };
-        if (sessionModels[draftSrc]) {
-          sessionModels[id!] = sessionModels[draftSrc];
-          delete sessionModels[draftSrc];
-        }
-        const sessionVariants = { ...s.sessionVariants };
-        if (sessionVariants[draftSrc] !== undefined) {
-          sessionVariants[id!] = sessionVariants[draftSrc];
-          delete sessionVariants[draftSrc];
-        }
-        // A /clear draft's earlier conversation stays above the new session.
-        const clearedFrom = { ...s.clearedFrom };
-        if (clearedFrom[draftSrc]) {
-          clearedFrom[id!] = clearedFrom[draftSrc];
-          delete clearedFrom[draftSrc];
-        }
-        return {
-          clearedFrom,
-          currentId: id,
-          threads,
-          panes,
-          sessionAgents,
-          sendingSessions,
-          sessionModels,
-          sessionVariants,
-          draftWorkspaces,
-        };
-      });
+      id = await createFromDraft(set, get, draftSrc, echo);
       lockKey = id;
-      // A fresh ACP session reports the agent's own selectors — surface them.
-      syncAcpConfig(set, get, id);
-      // The draft's model/effort override moved onto the real id — repersist so
-      // a relaunch restores this pane's model, not the global default.
-      saveRecord(SESSION_MODELS_KEY, get().sessionModels);
-      saveRecord(SESSION_VARIANTS_KEY, get().sessionVariants);
-      saveClearedFrom(get().clearedFrom);
-      moveScrollMemory(`chat:${draftSrc}`, `chat:${id}`);
-      void get().refreshSessions();
     }
     const sid = id;
     interruptedSessions.delete(sid); // a fresh turn folds its events normally
@@ -4830,6 +4852,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
   // The send lifecycle (new → input → send → response) is shared by plain
   // prompts, "!" shell commands and "/" slash commands — see performTurn.
+  createDraftSession: (draftKey) => createFromDraft(set, get, draftKey, ""),
   sendPrompt: (text, sessionId, draftKey, attachments) => {
     // Capture the mode BEFORE performTurn: on a draft, currentId is still null
     // here (the session is created inside), so this reads the pane's draft slot

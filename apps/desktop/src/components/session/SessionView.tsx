@@ -247,6 +247,7 @@ export function SessionView({
   const commands = useRuntimeStore((s) => s.commands);
   const connect = useRuntimeStore((s) => s.connect);
   const sendPrompt = useRuntimeStore((s) => s.sendPrompt);
+  const createDraftSession = useRuntimeStore((s) => s.createDraftSession);
   const runShell = useRuntimeStore((s) => s.runShell);
   const runCommand = useRuntimeStore((s) => s.runCommand);
   const toggleArtifact = useRuntimeStore((s) => s.toggleArtifact);
@@ -692,6 +693,26 @@ export function SessionView({
           ? () => setShowTrajectory(false, sid ?? undefined)
           : () => setShowFiles(false, sid ?? undefined);
 
+  /** A reference names a session, so a draft's is created first: handing an
+   *  empty conversation to another agent is a reason to open one. */
+  const copyThisReference = async () => {
+    let id = eid;
+    if (!id) {
+      try {
+        id = await createDraftSession(draftKey);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+        return;
+      }
+      bindIfCreated(id);
+    }
+    const st = useRuntimeStore.getState();
+    const s = st.sessions.find((x) => x.id === id);
+    await copyReference(
+      sessionReference({ id, title: s?.title ?? title, directory: s?.directory ?? st.workspace ?? undefined }),
+      t("reference.copied"),
+    );
+  };
   /** Right-click, the same panel the terminal has: what you came to this pane
    *  to do, then what to do with the pane itself.
    *
@@ -702,17 +723,8 @@ export function SessionView({
   const paneMenu = (
     <>
       <ContextMenuItem onSelect={() => setFinding(true)}>{t("find.find")}</ContextMenuItem>
-      {eid && (
-        <ContextMenuItem
-          onSelect={() =>
-            void copyReference(
-              sessionReference({ id: eid, title, directory: sessionDir ?? undefined }),
-              t("reference.copied"),
-            )
-          }
-        >
-          {t("reference.copy")}
-        </ContextMenuItem>
+      {(eid || !webReadOnly) && (
+        <ContextMenuItem onSelect={() => void copyThisReference()}>{t("reference.copy")}</ContextMenuItem>
       )}
       <ContextMenuItem disabled={!eid} onSelect={() => setRenaming(true)}>
         {t("live.header.rename")}

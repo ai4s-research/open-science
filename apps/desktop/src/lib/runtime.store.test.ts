@@ -742,6 +742,31 @@ describe("per-session workspace folders", () => {
     expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
   });
 
+  // Copying a reference to an empty conversation needs its id before any
+  // message: the draft is created then, exactly as a first send would.
+  it("creates a draft's session before any message, in the draft's folder", async () => {
+    await useRuntimeStore.getState().startDraftInWorkspace("/ws/毕设", "draft:leaf-7");
+    const id = await useRuntimeStore.getState().createDraftSession("draft:leaf-7");
+    expect(id).toBe("ses_new");
+    expect(mocks.createSessionSpy).toHaveBeenCalledTimes(1);
+    expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
+    const state = useRuntimeStore.getState();
+    expect(state.workspace).toBe("/ws/毕设");
+    expect(state.draftWorkspaces["draft:leaf-7"]).toBeUndefined();
+    expect(state.threads["ses_new"]?.blocks ?? []).toEqual([]);
+  });
+
+  it("a copy and a send on one draft at the same moment make one session", async () => {
+    const copy = useRuntimeStore.getState().createDraftSession("draft:leaf-8");
+    const send = useRuntimeStore.getState().sendPrompt("hello", undefined, "draft:leaf-8");
+    expect(await copy).toBe("ses_new");
+    expect(await send).toBe("ses_new");
+    expect(mocks.createSessionSpy).toHaveBeenCalledTimes(1);
+    const blocks = useRuntimeStore.getState().threads["ses_new"]?.blocks ?? [];
+    expect(blocks[0]).toMatchObject({ kind: "user", text: "hello" });
+    expect(useRuntimeStore.getState().threads["draft:leaf-8"]).toBeUndefined();
+  });
+
   // Once the draft becomes a session the destination has served its purpose.
   // Leaving it behind would aim the pane's NEXT draft at the same project long
   // after the user moved on — the same class of stale-global bug as #69 itself.
