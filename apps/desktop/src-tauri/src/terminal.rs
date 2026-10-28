@@ -377,6 +377,18 @@ fn write(app: &AppHandle, id: &str, data: &str) -> Result<(), String> {
 
 /// The pane changed size. Without this the shell keeps wrapping to the old
 /// width and every full-screen program draws into the wrong box.
+/// The files copied in Finder, Explorer or a Linux file manager, as absolute
+/// paths. The webview keeps them from a page's paste event, so without this
+/// ⌘V of copied files reached the terminal as nothing. Empty when the
+/// clipboard holds no files.
+#[tauri::command]
+pub fn clipboard_file_paths() -> Vec<String> {
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.get().file_list())
+        .map(|paths| paths.into_iter().map(|p| p.to_string_lossy().into_owned()).collect())
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn terminal_resize(app: AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
     resize(&app, &id, cols, rows)

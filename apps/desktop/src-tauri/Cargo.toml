@@ -27,6 +27,9 @@ serde_json.workspace = true
 tokio = { version = "1", features = ["time"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
+# Already in the tree via the clipboard plugin — used directly to read the
+# files copied in Finder / Explorer, which the plugin does not expose.
+arboard = "3.6"
 tauri-plugin-notification = "2"
 getrandom.workspace = true
 opener = { version = "0.8.5", features = ["reveal"] }

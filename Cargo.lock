@@ -33,6 +33,7 @@ dependencies = [
 name = "ai4s-workbench"
 version = "0.7.0"
 dependencies = [
+ "arboard",
  "getrandom 0.4.3",
  "libc",
  "objc2-app-kit",

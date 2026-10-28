@@ -31,6 +31,7 @@ import { isJumpChord } from "@/components/jump-palette/JumpPalette";
 import { createKeyTranslator, isModifierKey, releaseImeGate } from "./terminalKeys";
 import { readRepaint, spliceRepaint, type Repaint } from "./terminalResize";
 import { openEscape } from "./terminalScreen";
+import { readCopiedFiles } from "./terminalPaste";
 
 /**
  * A real shell in a pane.
@@ -208,6 +209,20 @@ export function TerminalPane({
         return true;
       });
       term.open(container);
+      // Files copied in Finder or Explorer reach the paste event with no
+      // usable text, so xterm pasted nothing: paste their paths instead.
+      // Caught before xterm's own listener; text pastes are left to it.
+      const onPaste = (event: ClipboardEvent) => {
+        const data = event.clipboardData;
+        const text = data?.getData("text/plain") ?? "";
+        if (!isTauri || !data || (text && !data.files.length && !data.types.includes("Files"))) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void readCopiedFiles().then((paths) => {
+          if (paths || text) term.paste(paths || text);
+        });
+      };
+      container.addEventListener("paste", onPaste, true);
       // GPU renderer, as in VS Code and Orca: box-drawing and block characters
       // are drawn as exact cell-sized shapes instead of font glyphs, so rules
       // and borders join up as in a native terminal. Without WebGL, or once
@@ -416,6 +431,7 @@ export function TerminalPane({
         container,
         dispose: () => {
           unsubscribe();
+          container.removeEventListener("paste", onPaste, true);
           input.dispose();
           links.dispose();
           observer.disconnect();
@@ -668,6 +684,8 @@ function canReadClipboard(): boolean {
 
 async function readClipboard(): Promise<string> {
   if (!isTauri) return navigator.clipboard.readText();
+  const paths = await readCopiedFiles();
+  if (paths) return paths;
   const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
   return (await readText()) ?? "";
 }

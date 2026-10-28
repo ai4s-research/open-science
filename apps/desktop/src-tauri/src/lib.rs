@@ -290,6 +290,7 @@ pub fn run() {
             terminal::terminal_subscribe,
             terminal::terminal_save_screen,
             terminal::terminal_probe,
+            terminal::clipboard_file_paths,
             terminal_env::terminal_env_prune,
             runs::record_run,
             runs::list_runs,
