@@ -2,9 +2,10 @@
 // visual formatting Excel/WPS shows: cell fills, font size/color/weight/italic,
 // alignment, borders, and column widths. We use ExcelJS (not SheetJS) because
 // the open-source SheetJS build's sheet_to_html emits values only — no styles —
-// which is why fills and font sizes were previously lost. Pure (no DOM) so it
-// can be unit-tested; caps keep a huge sheet from locking the UI.
+// which is why fills and font sizes were previously lost. Caps keep a huge
+// sheet from locking the UI.
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 
 export interface SheetHtml {
   name: string;
@@ -67,9 +68,121 @@ function cellStyle(cell: ExcelJS.Cell): string {
   return s.join(";");
 }
 
+// ExcelJS reads a workbook by literal names, not by what they mean in OOXML,
+// so valid files from other generators crash it. Two habits matter:
+//  - tag names: it matches `xdr:wsDr`, `workbook`, `r:id` as written, so
+//    `<x:workbook>` (OpenXML SDK) reads no sheets and `<wsDr>` without `xdr:`
+//    (Google Sheets, openpyxl) fails on the drawing's anchors;
+//  - link targets: it finds tables, comments and drawings by the relative path
+//    Excel writes (`../tables/table1.xml`), so an absolute `/xl/tables/…`
+//    target finds nothing.
+// normalizeXlsxForPreview rewrites both into Excel's own form before loading.
+
+/** The prefix ExcelJS expects for each namespace (`null`: the default
+ *  namespace, no prefix). */
+const EXCELJS_PREFIX: Record<string, string | null> = {
+  "http://schemas.openxmlformats.org/spreadsheetml/2006/main": null,
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships": "r",
+  "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing": "xdr",
+  "http://schemas.openxmlformats.org/drawingml/2006/main": "a",
+};
+const XMLNS = "http://www.w3.org/2000/xmlns/";
+
+/** True when the part declares a known namespace under a prefix ExcelJS does
+ *  not expect — the cheap text check that leaves ordinary Excel files alone. */
+function hasForeignPrefix(xml: string): boolean {
+  for (const m of xml.matchAll(/\sxmlns(?::([\w.-]+))?\s*=\s*["']([^"']*)["']/g)) {
+    const want = EXCELJS_PREFIX[m[2]];
+    if (want !== undefined && (m[1] ?? null) !== want) return true;
+  }
+  return false;
+}
+
+const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+
+/** Rewrite one XML part so every element and attribute in a known namespace
+ *  carries the prefix ExcelJS expects. The same document, renamed. */
+export function canonicalizePrefixes(xml: string): string {
+  const src = new DOMParser().parseFromString(xml, "application/xml");
+  if (src.getElementsByTagName("parsererror").length > 0) return xml;
+  const doc = document.implementation.createDocument(null, null, null);
+  const rename = (ns: string | null, name: string, local: string) => {
+    const want = ns ? EXCELJS_PREFIX[ns] : undefined;
+    if (want === undefined) return name;
+    return want ? `${want}:${local}` : local;
+  };
+  const copy = (el: Element): Element => {
+    const out = doc.createElementNS(el.namespaceURI, rename(el.namespaceURI, el.tagName, el.localName));
+    for (const a of Array.from(el.attributes)) {
+      if (a.namespaceURI === XMLNS) {
+        // Declarations of other namespaces stay (mc:Ignorable names them);
+        // the renamed ones are declared once, on the root, below.
+        if (EXCELJS_PREFIX[a.value] === undefined) out.setAttributeNS(XMLNS, a.name, a.value);
+        continue;
+      }
+      out.setAttributeNS(a.namespaceURI, rename(a.namespaceURI, a.name, a.localName), a.value);
+    }
+    for (const n of Array.from(el.childNodes)) {
+      out.appendChild(n.nodeType === Node.ELEMENT_NODE ? copy(n as Element) : doc.importNode(n, true));
+    }
+    return out;
+  };
+  const root = copy(src.documentElement);
+  // Declared explicitly: left to itself the serializer invents `ns1:` for a
+  // prefixed attribute whose prefix is not in scope.
+  for (const [ns, prefix] of Object.entries(EXCELJS_PREFIX)) {
+    if (prefix) root.setAttributeNS(XMLNS, `xmlns:${prefix}`, ns);
+  }
+  doc.appendChild(root);
+  return XML_DECL + new XMLSerializer().serializeToString(doc);
+}
+
+/** Rewrite a `.rels` part's absolute internal targets (`/xl/tables/t1.xml`)
+ *  to the relative form Excel writes (`../tables/t1.xml`). `relsPath` is the
+ *  part's zip path, e.g. `xl/worksheets/_rels/sheet1.xml.rels`. */
+export function relativizeTargets(xml: string, relsPath: string): string {
+  if (!/\sTarget\s*=\s*["']\//.test(xml)) return xml;
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length > 0) return xml;
+  // Targets resolve against the folder of the part these rels belong to.
+  const from = relsPath.replace(/(^|\/)_rels\/[^/]*$/, "").split("/").filter(Boolean);
+  for (const rel of Array.from(doc.getElementsByTagNameNS("*", "Relationship"))) {
+    const target = rel.getAttribute("Target") ?? "";
+    if (!target.startsWith("/") || rel.getAttribute("TargetMode") === "External") continue;
+    const to = target.split("/").filter(Boolean);
+    let common = 0;
+    while (common < from.length && common < to.length - 1 && from[common] === to[common]) common++;
+    rel.setAttribute("Target", [...from.slice(common).map(() => ".."), ...to.slice(common)].join("/"));
+  }
+  return XML_DECL + new XMLSerializer().serializeToString(doc);
+}
+
+/** Bring a workbook into the form ExcelJS reads (see above). Returns the
+ *  original bytes when nothing needs it, or on any zip error — a normalization
+ *  must never break the preview. The file on disk is untouched. */
+export async function normalizeXlsxForPreview(bytes: ArrayBuffer): Promise<ArrayBuffer> {
+  try {
+    const zip = await JSZip.loadAsync(bytes);
+    let changed = false;
+    for (const name of Object.keys(zip.files)) {
+      if (zip.files[name].dir || !/\.(xml|rels)$/.test(name)) continue;
+      const xml = await zip.files[name].async("string");
+      let out = hasForeignPrefix(xml) ? canonicalizePrefixes(xml) : xml;
+      if (name.endsWith(".rels")) out = relativizeTargets(out, name);
+      if (out !== xml) {
+        zip.file(name, out);
+        changed = true;
+      }
+    }
+    return changed ? await zip.generateAsync({ type: "arraybuffer" }) : bytes;
+  } catch {
+    return bytes;
+  }
+}
+
 export async function workbookSheets(bytes: ArrayBuffer): Promise<SheetHtml[]> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(bytes);
+  await wb.xlsx.load(await normalizeXlsxForPreview(bytes));
 
   return wb.worksheets.map((ws) => {
     const dim = ws.dimensions as { top?: number; left?: number; bottom?: number; right?: number } | undefined;
