@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Bot,
@@ -388,6 +388,7 @@ export function GroupTabs() {
   const setActiveGroup = useLayoutStore((s) => s.setActiveGroup);
   const closeGroup = useLayoutStore((s) => s.closeGroup);
   const renameGroup = useLayoutStore((s) => s.renameGroup);
+  const moveGroup = useLayoutStore((s) => s.moveGroup);
 
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
@@ -398,6 +399,57 @@ export function GroupTabs() {
   const stripRef = useTransientScrollbar();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
+  // A tab being dragged to a new place in the bar, and where it would land:
+  // its index among the other tabs.
+  const [drag, setDrag] = useState<{ id: string; index: number } | null>(null);
+
+  /** Drag a tab left or right to reorder the Screens. Mouse and pen only: on a
+   *  phone a sideways swipe scrolls the bar. The order changes on release; a
+   *  line shows where the tab will land meanwhile. */
+  const startTabDrag = (e: ReactPointerEvent<HTMLElement>, id: string) => {
+    if (e.button !== 0 || e.pointerType === "touch" || editingId === id) return;
+    if ((e.target as HTMLElement).closest("button, input")) return;
+    const row = e.currentTarget.parentElement;
+    if (!row) return;
+    const startX = e.clientX;
+    let index: number | null = null;
+    const onMove = (ev: PointerEvent) => {
+      if (index === null && Math.abs(ev.clientX - startX) < TAB_DRAG_THRESHOLD_PX) return;
+      const others = [...row.querySelectorAll<HTMLElement>("[data-group-tab]")].filter(
+        (el) => el.dataset.groupTab !== id,
+      );
+      index = others.filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.left + r.width / 2 < ev.clientX;
+      }).length;
+      document.body.style.cursor = "grabbing";
+      setDrag({ id, index });
+    };
+    const end = (commit: boolean) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onCancel);
+      document.body.style.cursor = "";
+      if (commit && index !== null) moveGroup(id, index);
+      setDrag(null);
+    };
+    const onUp = () => end(true);
+    const onCancel = () => end(false);
+    const onKey = (ev: KeyboardEvent) => ev.key === "Escape" && end(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", onCancel);
+  };
+  // The landing line: before the other tab at the drop index, or after the
+  // last one. None where the tab already is.
+  const dragOthers = drag ? groups.filter((g) => g.id !== drag.id).map((g) => g.id) : [];
+  const dragMoves = drag !== null && groups.findIndex((g) => g.id === drag.id) !== drag.index;
+  const lineBefore = dragMoves ? dragOthers[drag.index] : undefined;
+  const lineAfter = dragMoves && drag.index === dragOthers.length ? dragOthers[dragOthers.length - 1] : undefined;
   // The Screen on display is always in view: on a narrow bar the strip
   // scrolls, and a switch from elsewhere (a sidebar click, a link) can land on
   // a tab scrolled out of sight.
@@ -497,12 +549,19 @@ export function GroupTabs() {
                 // Dock-drag target: hovering this tab mid-drag switches screens (#4).
                 data-group-tab={g.id}
                 onClick={() => setActiveGroup(g.id)}
+                onPointerDown={(e) => startTabDrag(e, g.id)}
                 onDoubleClick={() => g.tree && setEditingId(g.id)}
                 className={cn(
                   "group/tab flex h-7 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors",
                   active ? "bg-surface-2 text-text" : "text-muted hover:bg-surface-2/60",
                   // A tentative (preview) screen reads italic, like a browser preview tab.
                   ephemeral && "italic",
+                  drag?.id === g.id && "opacity-50",
+                  (lineBefore === g.id || lineAfter === g.id) && "relative",
+                  lineBefore === g.id &&
+                    "before:absolute before:-left-[3px] before:inset-y-1 before:w-0.5 before:rounded-full before:bg-accent",
+                  lineAfter === g.id &&
+                    "after:absolute after:-right-[3px] after:inset-y-1 after:w-0.5 after:rounded-full after:bg-accent",
                 )}
                 title={t("group.renameHint")}
               >
@@ -561,6 +620,10 @@ export function GroupTabs() {
     </>
   );
 }
+
+/** How far a tab must move sideways before a press becomes a drag, so a
+ *  click still just switches Screens. */
+const TAB_DRAG_THRESHOLD_PX = 5;
 
 /** OpenCode's title for a session it has not summarized yet ("New session -
  *  <timestamp>", "Child session - …"): not a name worth showing on a tab. */

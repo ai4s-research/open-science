@@ -729,6 +729,9 @@ interface LayoutState {
    *  emptied instead). */
   closeGroup: (groupId: string) => void;
   renameGroup: (groupId: string, name: string) => void;
+  /** Move a Screen to `index` among its project's Screens (the Screen bar's
+   *  order), as counted with the moved Screen taken out. */
+  moveGroup: (groupId: string, index: number) => void;
   setActiveGroup: (groupId: string) => void;
   /** Split the focused leaf toward `dir` (row → new pane on the right, col →
    *  below), binding `sessionId` to it (or a draft when null) and focusing it.
@@ -1037,6 +1040,22 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
         groups: s.groups.map((g) => (g.id === groupId ? { ...g, name } : g)),
         ...(s.ephemeralGroupId === groupId ? { ephemeralGroupId: null } : {}),
       }));
+      persist(get().groups, get().activeGroupId);
+    },
+    moveGroup: (groupId, index) => {
+      set((s) => {
+        const moving = s.groups.find((g) => g.id === groupId);
+        if (!moving) return {};
+        const siblings = projectGroups(s.groups, projectOf(moving));
+        const reordered = siblings.filter((g) => g.id !== groupId);
+        reordered.splice(Math.max(0, Math.min(index, reordered.length)), 0, moving);
+        if (reordered.every((g, i) => g === siblings[i])) return {};
+        // Other projects' Screens keep their slots; this project's slots take
+        // the new order.
+        let next = 0;
+        const groups = s.groups.map((g) => (projectOf(g) === projectOf(moving) ? reordered[next++] : g));
+        return { groups };
+      });
       persist(get().groups, get().activeGroupId);
     },
     setActiveGroup: (groupId) =>
