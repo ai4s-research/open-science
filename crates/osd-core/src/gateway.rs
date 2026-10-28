@@ -595,7 +595,8 @@ impl Request {
             }
         }
         // Guard against an oversized body claim; only an upload may be large.
-        let limit = if path == "/v1/fs/upload" { MAX_UPLOAD } else { MAX_BODY };
+        let upload = path == "/v1/fs/upload" || (path.starts_with("/v1/terminals/") && path.ends_with("/paste"));
+        let limit = if upload { MAX_UPLOAD } else { MAX_BODY };
         if content_length > limit {
             return Some(Err(ParseError::TooLarge));
         }
@@ -2027,6 +2028,10 @@ fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, re
             Ok(z) => done(stream, terminals.resize(id, z.cols, z.rows)),
             Err(_) => respond_json(stream, 400, "{\"error\":\"bad body\"}"),
         },
+        ("POST", ["paste"]) => match save_paste(&req.query_get("name").unwrap_or_default(), &req.body) {
+            Ok(text) => respond_json(stream, 200, &serde_json::json!({ "text": text }).to_string()),
+            Err(e) => respond_json(stream, 400, &err_json(&e)),
+        },
         ("DELETE", []) => {
             ctx.shared.remote_terminals.lock().unwrap().remove(id);
             done(stream, terminals.close(id))
@@ -2036,6 +2041,37 @@ fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, re
             None => respond_json(stream, 404, "{\"error\":\"no such terminal\"}"),
         },
         _ => respond_json(stream, 404, "{\"error\":\"not found\"}"),
+    }
+}
+
+/// A file pasted into a web terminal. The browser holds the bytes and the shell
+/// runs here, so the file is saved on this host and its path is what gets typed,
+/// as the desktop pastes a copied file's path. Each paste gets its own folder in
+/// the OS temp dir (which the OS clears), so the file keeps its own name.
+/// Answers with the text to paste: the path, quoted for the shell, and a space.
+fn save_paste(name: &str, bytes: &[u8]) -> Result<String, String> {
+    let file = Path::new(name).file_name().ok_or("invalid file name")?;
+    let mut tag = [0u8; 8];
+    getrandom::fill(&mut tag).map_err(|e| e.to_string())?;
+    let tag: String = tag.iter().map(|b| format!("{b:02x}")).collect();
+    let dir = std::env::temp_dir().join("osd-pastes").join(tag);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("write failed: {e}"))?;
+    let full = dir.join(file);
+    std::fs::write(&full, bytes).map_err(|e| format!("write failed: {e}"))?;
+    Ok(format!("{} ", quote_path(&full.to_string_lossy(), cfg!(windows))))
+}
+
+/// A path quoted for the shell it is pasted into, as the desktop's `quotePath`:
+/// as is when nothing in it would split or expand, else in single quotes (POSIX)
+/// or double quotes (Windows), which Claude Code and Codex also unwrap.
+fn quote_path(path: &str, windows: bool) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "_./@:-".contains(c) || (windows && c == '\\');
+    if path.chars().all(plain) {
+        path.to_string()
+    } else if windows {
+        format!("\"{path}\"")
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
     }
 }
 
@@ -3523,6 +3559,19 @@ mod tests {
         let (status, body) = call_as(port, "POST", "/v1/terminals/acct1", Some(&account), open);
         assert_eq!((status, body.as_str()), (200, r#"{"created":true}"#));
         assert_eq!(call_as(port, "POST", "/v1/terminals/tok1", token, open).0, 200);
+
+        // A file pasted in the browser is saved on this host under its own name;
+        // the answer is its path, ready to type. Only into a shell one may use.
+        let (status, body) = call_as(port, "POST", "/v1/terminals/acct1/paste?name=..%2Freport%20v2.xlsx", Some(&account), "PK");
+        assert_eq!(status, 200, "{body}");
+        let text = serde_json::from_str::<serde_json::Value>(&body).unwrap()["text"].as_str().unwrap().to_string();
+        let saved = PathBuf::from(text.trim_end().trim_matches('\''));
+        assert_eq!(saved.file_name().unwrap(), "report v2.xlsx");
+        assert!(saved.starts_with(std::env::temp_dir().join("osd-pastes")));
+        assert_eq!(std::fs::read(&saved).unwrap(), b"PK");
+        std::fs::remove_dir_all(saved.parent().unwrap()).unwrap();
+        assert_eq!(call_as(port, "POST", "/v1/terminals/desktop-pane/paste?name=a.png", Some(&account), "x").0, 404);
+        assert_eq!(call_as(port, "POST", "/v1/terminals/acct1/paste?name=..", Some(&account), "x").0, 400);
 
         // Output streams as SSE; typing comes back through it.
         let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();

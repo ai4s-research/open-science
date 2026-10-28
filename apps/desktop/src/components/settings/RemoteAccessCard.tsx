@@ -6,6 +6,7 @@ import { buttonCls, chipCls, inputCls } from "@/components/settings/inputCls";
 import { WebAccounts } from "@/components/settings/WebAccounts";
 import { AuditLog } from "@/components/settings/AuditLog";
 import { toast } from "@/lib/toast";
+import { copyText } from "@/lib/clipboard";
 import {
   acpServerScript,
   getGatewayStatus,
@@ -58,16 +59,11 @@ export function RemoteAccessCard() {
 
   const copy = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
+      toast.success(t("remote.copied"));
     } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      ta.remove();
+      /* Clipboard denied: the value is on screen to copy by hand. */
     }
-    toast.success(t("remote.copied"));
   };
 
   if (!isTauri) return null;

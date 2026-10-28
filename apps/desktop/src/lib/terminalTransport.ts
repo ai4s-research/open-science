@@ -6,6 +6,7 @@
 // pane does not care which: it opens, writes, resizes, closes and reads output.
 import { isTauri } from "./tauri";
 import { follow } from "./gatewayMux";
+import { MAX_UPLOAD_BYTES } from "./artifactFile";
 import { gatewayOrigin, gatewayPost, gatewayToken, isGatewayWeb, layoutSource, signedInAccount } from "./webMode";
 
 /** Where a chunk sits in the shell's output, in bytes, when known (desktop). */
@@ -54,6 +55,10 @@ export interface TerminalTransport {
   /** Keep the pane's screen, drawn at `cols` x `rows`, for its next open.
    *  Desktop only. */
   saveScreen?(id: string, screen: SavedScreen & { cols: number; rows: number }): Promise<void>;
+  /** Save a file pasted in the browser on the shell's host; returns its path,
+   *  quoted for that shell, to type. Web only: the desktop pastes the copied
+   *  file's own path. */
+  pasteFile?(id: string, file: File): Promise<string>;
 }
 
 const desktop: TerminalTransport = {
@@ -157,6 +162,19 @@ const web: TerminalTransport = {
   },
   async resize(id, cols, rows) {
     await gatewayPost(path(id, "/resize"), { cols, rows });
+  },
+  async pasteFile(id, file) {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      throw new Error(`${file.name}: larger than ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`);
+    }
+    const res = await fetch(`${gatewayOrigin()}${path(id, `/paste?name=${encodeURIComponent(file.name)}`)}`, {
+      method: "POST",
+      headers: authHeader(),
+      body: file,
+    });
+    const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
+    if (!res.ok || !body.text) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body.text;
   },
   async close(id) {
     const shell = shellOf(id);

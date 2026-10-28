@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { isMacUA, isTauri } from "@/lib/tauri";
 import { isGatewayWeb } from "@/lib/webMode";
 import { copyText } from "@/lib/clipboard";
+import { toast } from "@/lib/toast";
 import { useRuntimeStore } from "@/lib/runtime";
 import { terminalShellId, terminalTransport, terminalsAvailable } from "@/lib/terminalTransport";
 import { copyReference, terminalReference } from "@/lib/agentReference";
@@ -225,10 +226,32 @@ export function TerminalPane({
       // Files copied in Finder or Explorer reach the paste event with no
       // usable text, so xterm pasted nothing: paste their paths instead.
       // Caught before xterm's own listener; text pastes are left to it.
+      // One by one, so a file that fails (too large) does not lose the others.
+      const pasteFiles = async (id: string, files: File[]) => {
+        let paths = "";
+        for (const file of files) {
+          try {
+            paths += (await terminalTransport.pasteFile?.(id, file)) ?? "";
+          } catch (err) {
+            toast.error(t("composer.error.paste", { message: err instanceof Error ? err.message : String(err) }));
+          }
+        }
+        return paths;
+      };
       const onPaste = (event: ClipboardEvent) => {
         clearTimeout(pasteWait);
         const data = event.clipboardData;
         const text = data?.getData("text/plain") ?? "";
+        // In a browser the shell runs on the host, so an empty paste would make
+        // Claude Code read the HOST's clipboard (for a file copied in Finder,
+        // its icon). Files pasted here go to the host; their paths are typed.
+        const files = Array.from(data?.files ?? []);
+        if (isGatewayWeb && files.length > 0 && terminalTransport.pasteFile) {
+          event.preventDefault();
+          event.stopPropagation();
+          void pasteFiles(leafId, files).then((paths) => paths && term.paste(paths));
+          return;
+        }
         if (!isTauri || !data || (text && !data.files.length && !data.types.includes("Files"))) return;
         event.preventDefault();
         event.stopPropagation();

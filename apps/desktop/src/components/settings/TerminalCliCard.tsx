@@ -4,6 +4,7 @@ import { Check, Copy, Terminal } from "lucide-react";
 import { Row, Section } from "@/components/settings/Section";
 import { chipCls } from "@/components/settings/inputCls";
 import { toast } from "@/lib/toast";
+import { copyText } from "@/lib/clipboard";
 import { getCliShimStatus, installCliShim, isTauri, type CliShimStatus } from "@/lib/tauri";
 
 /** Where the wrapper goes. Stands in only while the backend's answer — which
@@ -28,7 +29,7 @@ export function TerminalCliCard() {
 
   const copy = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       toast.success(t("remote.copied"));
     } catch {
       /* Clipboard denied: the line is on screen to copy by hand. */
