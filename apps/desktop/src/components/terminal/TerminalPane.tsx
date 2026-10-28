@@ -414,6 +414,13 @@ export function TerminalPane({
             !container.clientHeight
           )
             return;
+          // A box out of display loses its scroll position, and xterm does
+          // not notice: it still draws the bottom while the scrollbar sits at
+          // the top, so wheeling up does nothing and wheeling down jumps to
+          // the first line. Moving the view puts the scrollbar back under it.
+          const line = term.buffer.active.viewportY;
+          term.scrollToTop();
+          term.scrollToLine(line);
           clearTimeout(settle);
           settle = setTimeout(tellShell, RESIZE_SETTLE_MS);
         });

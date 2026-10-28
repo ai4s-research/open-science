@@ -43,6 +43,9 @@ vi.mock("@xterm/xterm", () => ({
     }
     open() {}
     focus() {}
+    buffer = { active: { viewportY: 0 } };
+    scrollToTop() {}
+    scrollToLine() {}
     write(data: string, done?: () => void) {
       xterm.writes.push(data);
       done?.();
