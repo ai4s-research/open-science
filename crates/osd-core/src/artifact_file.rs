@@ -95,8 +95,16 @@ pub fn mime_for(ext: &str) -> (&'static str, bool) {
     }
 }
 
-/// Resolve `rel` under `root`, rejecting any path that escapes it.
+/// Resolve `rel` under `root`, rejecting any path that escapes it. Under the
+/// root-less "disk" scope (an empty `root`) `rel` is a full path, taken as is.
 pub fn resolve_under(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    if root.as_os_str().is_empty() {
+        let full = Path::new(rel);
+        if !full.is_absolute() {
+            return Err("a disk path must be absolute".into());
+        }
+        return full.canonicalize().map_err(|_| "file not found".to_string());
+    }
     let root = root
         .canonicalize()
         .map_err(|e| format!("root unavailable: {e}"))?;
@@ -112,8 +120,10 @@ pub fn resolve_under(root: &Path, rel: &str) -> Result<PathBuf, String> {
 
 /// The folder tree a file command operates in: the ACTIVE session workspace
 /// (default), the base folder every session workspace is created under, or —
-/// on the desktop only — the user's home folder or (Unix) the whole disk, for a
-/// path the user clicked in a conversation or a terminal. Pages declare their
+/// on the desktop only — the user's home folder or the whole disk, for a path
+/// the user clicked in a conversation or a terminal. "disk" has no root folder
+/// (Windows has one per drive): it is the empty path, and its paths are full
+/// paths (`/tmp/a.png`, `D:/data/a.png`; see `scope_path`). Pages declare their
 /// scope explicitly — no fallback guessing between them, so an identical
 /// relative path can never resolve ambiguously. The gateway refuses "home" and
 /// "disk" (see `fs_base`): a web client must never reach beyond the workspaces.
@@ -122,15 +132,30 @@ pub fn scope_root(env: &Env, root: Option<&str>) -> Result<PathBuf, String> {
         "workspace" => workspace_dir(env),
         "base" => crate::runtime::base_workspace_dir(env),
         "home" => crate::env::home(),
-        #[cfg(unix)]
-        "disk" => Ok(PathBuf::from("/")),
+        "disk" => Ok(PathBuf::new()),
         other => Err(format!("unknown root scope: {other}")),
     }
 }
 
+/// `full` (canonical) as a path of the scope rooted at `root` (canonical):
+/// relative to it with `/` separators, or — under the root-less "disk" scope —
+/// the full path itself with `/` separators. None when it is outside the root.
+pub fn scope_path(root: &Path, full: &Path) -> Option<String> {
+    if root.as_os_str().is_empty() {
+        return Some(native_path(full).replace(std::path::MAIN_SEPARATOR, "/"));
+    }
+    let parts: Vec<String> = full
+        .strip_prefix(root)
+        .ok()?
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    Some(parts.join("/"))
+}
+
 /// A local path the user can open from a link: its scope ("home", or "disk"
-/// for a full path outside home), the path relative to that scope
-/// (`/`-separated), and whether it is a folder.
+/// for a full path outside home), the path in that scope (see `scope_path`),
+/// and whether it is a folder.
 #[derive(serde::Serialize, Debug, PartialEq)]
 pub struct LocalPath {
     pub root: &'static str,
@@ -146,24 +171,14 @@ pub struct LocalPath {
 /// otherwise the path is tried under the anchor's folder and each folder above
 /// it, short of home itself. Only what exists counts, so a guess never links
 /// to the wrong file. None when nothing is found or it lies outside home —
-/// except a full path printed as is (`/tmp/…`, `/Volumes/…`), which on Unix
-/// opens wherever it is on disk, as in any terminal.
+/// except a full path printed as is (`/tmp/…`, `D:\data\…`), which opens
+/// wherever it is on disk, as in any terminal.
 pub fn locate_local(home: &Path, path: &str, cwd: Option<&str>, anchors: &[String]) -> Option<LocalPath> {
     let home = home.canonicalize().ok()?;
-    let found = |root: &'static str, full: &Path, rel: &Path| -> Option<LocalPath> {
-        let parts: Vec<String> = rel
-            .components()
-            .filter(|c| matches!(c, Component::Normal(_)))
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .collect();
-        if parts.is_empty() {
-            return None; // home or `/` itself: not a useful link
-        }
-        Some(LocalPath { root, rel: parts.join("/"), is_dir: full.is_dir() })
-    };
     let inside = |p: &Path| -> Option<LocalPath> {
         let full = p.canonicalize().ok()?;
-        found("home", &full, full.strip_prefix(&home).ok()?)
+        let rel = scope_path(&home, &full).filter(|r| !r.is_empty())?; // not home itself
+        Some(LocalPath { root: "home", rel, is_dir: full.is_dir() })
     };
     let raw = Path::new(path);
     if let Some(rest) = path.strip_prefix("~/") {
@@ -171,11 +186,14 @@ pub fn locate_local(home: &Path, path: &str, cwd: Option<&str>, anchors: &[Strin
     }
     if raw.is_absolute() {
         let full = raw.canonicalize().ok()?;
-        return match full.strip_prefix(&home) {
-            Ok(rel) => found("home", &full, rel),
-            Err(_) if cfg!(unix) => found("disk", &full, &full),
-            Err(_) => None,
-        };
+        if full.starts_with(&home) {
+            return inside(&full);
+        }
+        if full.parent().is_none() {
+            return None; // `/` or a drive itself: not a useful link
+        }
+        let rel = scope_path(Path::new(""), &full)?;
+        return Some(LocalPath { root: "disk", rel, is_dir: full.is_dir() });
     }
     if let Some(cwd) = cwd.map(Path::new).filter(|c| c.is_absolute()) {
         if let Some(found) = inside(&cwd.join(raw)) {
@@ -489,7 +507,7 @@ fn is_reparse_point(_: &std::fs::DirEntry) -> bool {
 }
 
 pub fn dir_entries(root: &Path, rel: &str) -> Result<Vec<DirEntry>, String> {
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let root = if root.as_os_str().is_empty() { PathBuf::new() } else { root.canonicalize().map_err(|e| e.to_string())? };
     let dir = resolve_under(&root, rel)?;
     if !dir.is_dir() {
         return Err("not a directory".into());
@@ -521,14 +539,7 @@ pub fn dir_entries(root: &Path, rel: &str) -> Result<Vec<DirEntry>, String> {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let Ok(rel_path) = entry.path().strip_prefix(&root).map(|p| {
-            p.components()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
-                .join("/")
-        }) else {
-            continue;
-        };
+        let Some(rel_path) = scope_path(&root, &entry.path()) else { continue };
         out.push(DirEntry {
             path: rel_path,
             name,
@@ -548,6 +559,8 @@ pub fn dir_entries(root: &Path, rel: &str) -> Result<Vec<DirEntry>, String> {
 
 /// Write text to a root-relative path (used to save notebooks). Rejects
 /// absolute paths and any `..` component; missing parent dirs are created.
+/// Under the root-less disk scope the path is a full path to a file that
+/// exists (a file opened from a link), not a new one.
 pub fn write_workspace_file(
     env: &Env,
     path: String,
@@ -555,6 +568,10 @@ pub fn write_workspace_file(
     root: Option<String>,
 ) -> Result<(), String> {
     let scope = scope_root(env, root.as_deref())?;
+    if scope.as_os_str().is_empty() {
+        let full = resolve_under(&scope, &path)?;
+        return std::fs::write(&full, content).map_err(|e| format!("write failed: {e}"));
+    }
     let rel = Path::new(&path);
     if rel.is_absolute()
         || rel
@@ -798,7 +815,7 @@ mod tests {
         attach_paths, base64_decode, base64_encode, dir_entries, encode_for_preview,
         is_discardable_name, Attached,
         exceeds_preview_cap, locate_local, locate_under, mime_for, strip_windows_verbatim,
-        native_path, unique_name, workspace_relative, LocalPath,
+        native_path, resolve_under, unique_name, workspace_relative, LocalPath,
     };
 
     /// A project's linked session folder is a link in the project folder: it
@@ -852,14 +869,19 @@ mod tests {
         assert_eq!(locate_local(&home, "src/nope.rs", cwd.to_str(), &[]), None);
         assert_eq!(locate_local(&home, "../../..", cwd.to_str(), &[]), None);
         assert_eq!(locate_local(&home, home.to_str().unwrap(), None, &[]), None);
-        // A full path outside home opens on disk (Unix), `/` itself does not.
+        // A full path outside home opens on disk as that full path, and the
+        // disk scope reads it back; `/` itself is no link.
         std::fs::write(outside.join("shot.png"), "x").unwrap();
-        let shot = outside.join("shot.png");
-        let expected = cfg!(unix).then(|| {
-            let full = shot.canonicalize().unwrap();
-            LocalPath { root: "disk", rel: full.to_str().unwrap()[1..].into(), is_dir: false }
-        });
-        assert_eq!(locate_local(&home, shot.to_str().unwrap(), None, &[]), expected);
+        let shot = outside.join("shot.png").canonicalize().unwrap();
+        let rel = native_path(&shot).replace(std::path::MAIN_SEPARATOR, "/");
+        assert_eq!(
+            locate_local(&home, shot.to_str().unwrap(), None, &[]),
+            Some(LocalPath { root: "disk", rel: rel.clone(), is_dir: false })
+        );
+        assert_eq!(resolve_under(Path::new(""), &rel).unwrap(), shot);
+        assert!(resolve_under(Path::new(""), "relative/shot.png").is_err());
+        let listed = dir_entries(Path::new(""), &rel[..rel.rfind('/').unwrap()]).unwrap();
+        assert_eq!(listed.iter().find(|e| e.name == "shot.png").map(|e| e.path.as_str()), Some(rel.as_str()));
         assert_eq!(locate_local(&home, "/", None, &[]), None);
 
         let _ = std::fs::remove_dir_all(&home);

@@ -11,6 +11,15 @@ describe("linkCandidates", () => {
     ]);
   });
 
+  it("finds a Windows full path with either slash, and no drive inside a word", () => {
+    expect(texts(String.raw`saved C:\Users\me\out\fig.png and D:/data/run 1.log`)).toEqual([
+      String.raw`path:C:\Users\me\out\fig.png`,
+      "path:D:/data/run",
+      "path:1.log",
+    ]);
+    expect(texts("ab:/x")).toEqual(["path:/x"]);
+  });
+
   it("trims positions and sentence punctuation, and stops at CJK punctuation", () => {
     expect(texts("error at src/app.ts:12:3.")).toEqual(["path:src/app.ts"]);
     expect(texts("打开 ~/notes/今天.md，然后看 https://x.org/p。")).toEqual([

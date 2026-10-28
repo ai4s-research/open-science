@@ -7,8 +7,8 @@ const invoke = vi.hoisted(() =>
   vi.fn(async (_cmd: string, args: { path: string; anchors: string[] }) =>
     args.path === "packages/core/src/agent.ts" && args.anchors.includes("/Users/me/repo/README.md")
       ? { root: "home", rel: "repo/packages/core/src/agent.ts", is_dir: false }
-      : args.path === "/private/tmp/shot.png"
-        ? { root: "disk", rel: "private/tmp/shot.png", is_dir: false }
+      : args.path === "/private/tmp/shot.png" || args.path === String.raw`D:\data\shot.png`
+        ? { root: "disk", rel: args.path.replace(/\\/g, "/"), is_dir: false }
         : null,
   ),
 );
@@ -45,7 +45,10 @@ describe("a relative path in an answer, against the anchors", () => {
 
   it("opens a full path outside home where it is on disk", async () => {
     expect(await resolveLink("/private/tmp/shot.png", { cwd: "/Users/me" })).toEqual({
-      kind: "path", path: "private/tmp/shot.png", root: "disk", isDir: false, display: "/private/tmp/shot.png",
+      kind: "path", path: "/private/tmp/shot.png", root: "disk", isDir: false, display: "/private/tmp/shot.png",
+    });
+    expect(await resolveLink(String.raw`D:\data\shot.png`, { cwd: "C:/Users/me" })).toEqual({
+      kind: "path", path: "D:/data/shot.png", root: "disk", isDir: false, display: String.raw`D:\data\shot.png`,
     });
   });
 

@@ -67,7 +67,7 @@ const MAX_ROWS = 8;
  *  it". TUIs wrap a little short of the terminal width (margins, a scrollbar). */
 const EDGE_COLUMNS = 8;
 /** Characters a path or URL can end or start a row with. */
-const LINK_CHAR = /[\w.@+\-/~%#=&?:\u00c0-\u2fff\u3040-\ufeff]/;
+const LINK_CHAR = /[\w.@+\-/\\~%#=&?:\u00c0-\u2fff\u3040-\ufeff]/;
 
 /**
  * The line row `y` is part of. Rows join when the terminal wrapped them, or
@@ -157,7 +157,7 @@ function styleRuns(line: LogicalLine): LinkSpan[] {
         });
         joined += text.slice(at, to);
         // Without a space anywhere, the plain reading has found it already.
-        if (/\s/.test(joined) && joined.includes("/")) spans.push({ start: from, end: to, text: joined, kind: "path" });
+        if (/\s/.test(joined) && /[\\/]/.test(joined)) spans.push({ start: from, end: to, text: joined, kind: "path" });
       }
     }
     start = end;

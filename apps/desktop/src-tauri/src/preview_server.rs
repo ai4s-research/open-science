@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, State};
 
-use crate::artifact_file::{locate_under, mime_for, resolve_under};
+use crate::artifact_file::{locate_under, mime_for, resolve_under, scope_path};
 use crate::runtime::workspace_dir;
 
 #[derive(Default)]
@@ -286,14 +286,7 @@ where
 }
 
 fn relative_path(root: &Path, full: &Path) -> Result<String, String> {
-    let rel = full
-        .strip_prefix(root)
-        .map_err(|_| "path is outside the workspace".to_string())?;
-    let parts: Vec<String> = rel
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect();
-    Ok(parts.join("/"))
+    scope_path(root, full).ok_or_else(|| "path is outside the workspace".to_string())
 }
 
 /// A workspace-relative form of `path` for the preview URL. Write-tool artifact
@@ -301,6 +294,10 @@ fn relative_path(root: &Path, full: &Path) -> Result<String, String> {
 /// checked literally, then resolved by basename like prose artifact links.
 pub fn relativize(root: &Path, path: &str) -> Result<String, String> {
     let p = Path::new(path);
+    if root.as_os_str().is_empty() {
+        // The root-less disk scope: a full path, as is.
+        return relative_path(root, &resolve_under(root, path)?);
+    }
     let root = root
         .canonicalize()
         .map_err(|e| format!("root unavailable: {e}"))?;
@@ -501,6 +498,11 @@ mod tests {
         assert_eq!(relativize(&root, "sub/index.html").as_deref(), Ok("sub/index.html"));
         // Absolute paths outside the workspace are rejected (sandbox).
         assert!(relativize(&root, "/etc/hosts").is_err());
+        // The root-less disk scope keeps a full path whole; nothing relative.
+        let full = abs.canonicalize().unwrap();
+        let disk = relativize(Path::new(""), &full.to_string_lossy()).unwrap();
+        assert!(Path::new(&disk).is_absolute() && disk.ends_with("sub/index.html"));
+        assert!(relativize(Path::new(""), "sub/index.html").is_err());
 
         let _ = std::fs::remove_dir_all(root);
     }

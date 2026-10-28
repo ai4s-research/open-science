@@ -8,7 +8,7 @@ use tauri::AppHandle;
 use crate::env_of;
 
 pub use osd_core::artifact_file::{
-    locate_under, mime_for, resolve_under, ArtifactFile, DirEntry, NotebookEntry,
+    locate_under, mime_for, resolve_under, scope_path, ArtifactFile, DirEntry, NotebookEntry,
 };
 
 /// Windows only — `reveal_impl` below hands Explorer a plain path, never the

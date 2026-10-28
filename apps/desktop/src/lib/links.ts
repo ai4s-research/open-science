@@ -23,11 +23,13 @@ export type LinkTarget =
 // CJK punctuation (\u3000-\u303f, \uff00-\uffef) ends a URL or a path: prose
 // runs straight into them with no space.
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`)\]}\u3000-\u303f\uff00-\uffef]+/g;
-/** A path-like token: absolute, `~/`, `./`, `../`, a relative path with a
- *  slash, or a bare name with an extension. Trailing `:line:col` and sentence
- *  punctuation are trimmed by `cleanPath`. */
+/** A path-like token: absolute (`/…`, or Windows `C:\…` with either slash),
+ *  `~/`, `./`, `../`, a relative path with a slash, or a bare name with an
+ *  extension. Trailing `:line:col` and sentence punctuation are trimmed by
+ *  `cleanPath`. */
 const NAME = String.raw`[\w.@+\-\u00c0-\u2fff\u3040-\ufeff]`;
-const PATH_RE = new RegExp(String.raw`(?:~|\.{1,2})?\/?${NAME}+(?:\/${NAME}*)*`, "g");
+const WINDOWS_PATH = String.raw`(?<!\w)[A-Za-z]:[\\/]${NAME}*(?:[\\/]${NAME}*)*`;
+const PATH_RE = new RegExp(String.raw`${WINDOWS_PATH}|(?:~|\.{1,2})?\/?${NAME}+(?:\/${NAME}*)*`, "g");
 
 /** A URL, trimmed of the punctuation that closes the sentence around it. */
 export function cleanUrl(raw: string): string {
@@ -48,7 +50,7 @@ export function cleanPath(raw: string): string {
  *  word of a line is worth a disk lookup. */
 export function looksLikePath(text: string): boolean {
   if (text.length < 2 || /^\d+(\.\d+)*$/.test(text)) return false;
-  return text.includes("/") || new RegExp(String.raw`^${NAME}+\.[A-Za-z]\w{0,7}$`).test(text);
+  return /[\\/]/.test(text) || new RegExp(String.raw`^${NAME}+\.[A-Za-z]\w{0,7}$`).test(text);
 }
 
 export interface LinkSpan {
@@ -186,8 +188,8 @@ export async function resolveLink(text: string, from: LinkContext = {}): Promise
   // Every piece made of path characters, and a slash somewhere: prose is not
   // glued together, and what is glued counts only if it exists.
   const pieces = text.trim().split(/\s+/);
-  const pathy = new RegExp(String.raw`^[~/]?${NAME}*(?:[/:]${NAME}*)*$`);
-  return pieces.length > 1 && pieces.join("").includes("/") && pieces.every((p) => pathy.test(p))
+  const pathy = new RegExp(String.raw`^[~/\\]?${NAME}*(?:[/\\:]${NAME}*)*$`);
+  return pieces.length > 1 && /[\\/]/.test(pieces.join("")) && pieces.every((p) => pathy.test(p))
     ? resolveOnce(pieces.join(""), from)
     : null;
 }
