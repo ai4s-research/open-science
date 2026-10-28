@@ -167,6 +167,8 @@ export function TerminalPane({
       term.loadAddon(new Unicode11Addon());
       term.unicode.activeVersion = "11";
       const translateKey = createKeyTranslator(isMacUA());
+      // Set by ⌘V, cleared by the paste event it should raise (see onPaste).
+      let pasteWait: ReturnType<typeof setTimeout> | undefined;
       term.attachCustomKeyEventHandler((event) => {
         // Keys a native terminal sends differently (Shift+Enter, Option as
         // Meta, ⌘←/→/⌫) — see terminalKeys.
@@ -206,6 +208,16 @@ export function TerminalPane({
         // The jump palette's chord is the app's too: left to xterm, Ctrl+Shift+J
         // would reach the shell as a line feed.
         if (isJumpChord(event)) return false;
+        // With only files on the clipboard the window may raise no paste
+        // event for ⌘V at all; if none follows, paste the files' paths here.
+        if (isTauri && isMacUA() && event.type === "keydown" && event.metaKey && event.key.toLowerCase() === "v") {
+          clearTimeout(pasteWait);
+          pasteWait = setTimeout(() => {
+            void readCopiedFiles().then((paths) => {
+              if (paths) term.paste(paths);
+            });
+          }, 150);
+        }
         return true;
       });
       term.open(container);
@@ -213,6 +225,7 @@ export function TerminalPane({
       // usable text, so xterm pasted nothing: paste their paths instead.
       // Caught before xterm's own listener; text pastes are left to it.
       const onPaste = (event: ClipboardEvent) => {
+        clearTimeout(pasteWait);
         const data = event.clipboardData;
         const text = data?.getData("text/plain") ?? "";
         if (!isTauri || !data || (text && !data.files.length && !data.types.includes("Files"))) return;
@@ -432,6 +445,7 @@ export function TerminalPane({
         dispose: () => {
           unsubscribe();
           container.removeEventListener("paste", onPaste, true);
+          clearTimeout(pasteWait);
           input.dispose();
           links.dispose();
           observer.disconnect();
