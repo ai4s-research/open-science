@@ -31,6 +31,9 @@ const ESCAPE = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const COLOUR = /\x1b\[[0-9;]*m/g;
 const SHOW_CURSOR = "\x1b[?25h";
 
+/** Where every such repaint starts, whatever the number of rows. */
+export const REPAINT_START = "\x1b[H\x1b[2K\x1b[1B";
+
 /** The repaint in `data`, or null while it has not fully arrived. */
 export function readRepaint(data: string, rows: number): Repaint | null {
   const erase = `\x1b[H${"\x1b[2K\x1b[1B".repeat(rows)}\x1b[H`;

@@ -43,7 +43,7 @@ vi.mock("@xterm/xterm", () => ({
     }
     open() {}
     focus() {}
-    buffer = { active: { viewportY: 0 } };
+    buffer = { active: { viewportY: 0, baseY: 0, getLine: () => ({ translateToString: () => "" }) } };
     scrollToTop() {}
     scrollToLine() {}
     write(data: string, done?: () => void) {
@@ -270,5 +270,25 @@ describe("TerminalPane control", () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("terminal_resize", { id: "ctl-2", cols: 80, rows: 24 }),
     );
+  });
+});
+
+describe("TerminalPane repaint", () => {
+  it("splices a repaint Claude Code makes on its own, as one that answers a resize", async () => {
+    vi.mocked(invoke).mockClear();
+    render(<TerminalPane leafId="own-1" />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_subscribe", expect.anything()));
+    const call = vi.mocked(invoke).mock.calls.find(([cmd]) => cmd === "terminal_subscribe")!;
+    const send = (m: unknown) => (call[1] as { onEvent: { onmessage: (m: unknown) => void } }).onEvent.onmessage(m);
+    act(() => send({ kind: "control", by: { id: "desktop", kind: "desktop" }, cols: 80, rows: 24 }));
+    xterm.writes = [];
+
+    const erase = `\x1b[H${"\x1b[2K\x1b[1B".repeat(24)}\x1b[H`;
+    act(() => send({ kind: "data", data: `before${erase}turn line 1\nturn line 2\x1b[?25h after` }));
+    // Not the erase as sent: the old rows are cleared from where the repaint
+    // lines up (here, below everything), and the turn written from there.
+    await waitFor(() => expect(xterm.writes.join("")).toContain("turn line 2\x1b[?25h after"));
+    expect(xterm.writes.join("")).not.toContain(erase);
+    expect(xterm.writes).toContain("before");
   });
 });

@@ -38,7 +38,7 @@ import { registerTerminalLinks } from "./terminalLinks";
 import { TerminalSearch } from "./TerminalSearch";
 import { isJumpChord } from "@/components/jump-palette/JumpPalette";
 import { createImeGate, createKeyTranslator, createPunctuationPassThrough } from "./terminalKeys";
-import { readRepaint, spliceRepaint, type Repaint } from "./terminalResize";
+import { REPAINT_START, readRepaint, spliceRepaint, type Repaint } from "./terminalResize";
 import { openEscape } from "./terminalScreen";
 import { readCopiedFiles } from "./terminalPaste";
 
@@ -351,6 +351,7 @@ export function TerminalPane({
       const following = () => !!control?.by && control.by.id !== terminalTransport.viewer.id;
       // Set once the resize machinery below exists; a change can arrive first.
       let applyControl = () => {};
+      let resizing = false;
 
       // Output that answers a resize the pane is still applying; see below.
       let reply: {
@@ -372,6 +373,10 @@ export function TerminalPane({
             }
             if (at?.end !== undefined) received = at.end;
           cutOff = openEscape(cutOff + chunk);
+            // Claude Code also repaints on its own, at the same size: when it
+            // folds tool calls it already printed, say. Written as it is, that
+            // lands below the copy already here like a resize's; spliced the same.
+            if (!reply && resizing && chunk.includes(REPAINT_START)) expectRepaint(term.cols, term.rows);
             if (!reply) return writeOut(chunk);
             reply.data += chunk;
             if (reply.writing) return;
@@ -479,6 +484,7 @@ export function TerminalPane({
         void terminalTransport.claim(leafId, size.cols, size.rows);
         term.focus();
       };
+      resizing = true;
       // At once: the repaint for the new size is already on its way. A size
       // this view did not ask for, while no one else controls the shell, is
       // spliced like any other; then this view asks for its own back.
