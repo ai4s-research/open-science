@@ -119,7 +119,8 @@
       "days7": "7 T",
       "resetsIn": "Zurücksetzung in {{duration}}",
       "asOf": "Stand: vor {{age}}",
-      "otherAccount": "Fast aufgebraucht. Ein neues Gespräch mit einem anderen Konto setzt die Arbeit fort."
+      "otherAccount": "Fast aufgebraucht. Ein neues Gespräch mit einem anderen Konto setzt die Arbeit fort.",
+      "resetCredits": "Kostenlose Resets: {{count}}"
     },
     "awake": {
       "title": "Wachhalten",

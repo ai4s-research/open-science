@@ -119,7 +119,8 @@
       "days7": "7 j",
       "resetsIn": "Réinitialisation dans {{duration}}",
       "asOf": "il y a {{age}}",
-      "otherAccount": "Presque épuisé. Une nouvelle conversation sur un autre compte permet de continuer."
+      "otherAccount": "Presque épuisé. Une nouvelle conversation sur un autre compte permet de continuer.",
+      "resetCredits": "Réinitialisations gratuites : {{count}}"
     },
     "awake": {
       "title": "Garder éveillé",

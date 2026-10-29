@@ -97,6 +97,10 @@ pub struct RateLimitWindow {
     /// can say how stale it is instead of implying it is live.
     pub as_of_ms: i64,
     pub plan_type: Option<String>,
+    /// The model this window limits on its own (Claude's "Fable" week); None
+    /// for a window over all models.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// What one conversation in this app has spent.
@@ -452,6 +456,7 @@ fn parse_codex_rate_limits(payload: &Value, timestamp_ms: i64) -> Vec<RateLimitW
                 resets_at: w.get("resets_at").and_then(Value::as_i64),
                 as_of_ms: timestamp_ms,
                 plan_type: plan_type.clone(),
+                model: None,
             })
         })
         .collect()

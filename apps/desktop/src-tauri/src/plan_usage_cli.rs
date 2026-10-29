@@ -21,6 +21,8 @@ use serde_json::{json, Value};
 use osd_core::agent_accounts::{AgentKind, LaunchEnv};
 use osd_core::usage::RateLimitWindow;
 
+use crate::plan_usage_reset::reset_after;
+
 const MAX_OUTPUT: usize = 100_000;
 
 /// Why a CLI reading failed. `refused` (a 403 surfaced by the CLI) stops all
@@ -199,6 +201,12 @@ static TRUST_PROMPT: LazyLock<Regex> =
 static UPDATE_MENU: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)update now|skip until next version|update available|brew upgrade|npm install -g").unwrap()
 });
+/// A login or first-run screen: the CLI is not signed in, or this folder has
+/// never been set up. Enter there would pick a login method and open a browser,
+/// so a hidden run that meets one stops at once.
+static LOGIN_SCREEN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)select login method|choose the text style|paste code here|browser didn.t open|log in to claude|sign in to claude|let.s get started").unwrap()
+});
 /// The highlighted choice of a menu.
 static SELECTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"❯\s*(No|Yes)\b").unwrap());
 static COMMAND_PALETTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)show plan|usage limits").unwrap());
@@ -227,7 +235,7 @@ pub fn claude_usage(env: &LaunchEnv, cwd: &Path) -> Result<Vec<RateLimitWindow>,
     let mut finish_at: Option<Duration> = None;
     let mut panel_21 = false;
     let output = run_hidden(env, AgentKind::Claude, &[], cwd, Duration::from_secs(30), |out, chunk, t, w| {
-        if UPDATE_MENU.is_match(chunk) {
+        if UPDATE_MENU.is_match(chunk) || LOGIN_SCREEN.is_match(chunk) {
             return Step::Done;
         }
         if sent_at.is_none() && trusted_at.is_none() && TRUST_PROMPT.is_match(out) {
@@ -303,12 +311,21 @@ static WEEKLY_LABEL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:current\s*week|weekly\s*(?:limits?|usage|rate\s*limits?)|7\s*[- ]?\s*day)").unwrap()
 });
 static FABLE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bfable\b").unwrap());
+/// A heading for the Fable week itself: "Fable" alone, or the weekly label with
+/// Fable attached ("Current week (Fable)", "Weekly limit - Fable").
+static FABLE_WEEKLY_LABEL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:current\s*week|weekly\s*(?:limits?|usage|rate\s*limits?)|7\s*[- ]?\s*day)\s*(?:\([^)]*\bfable\b[^)]*\)|[-:]?\s*\bfable\b)").unwrap()
+});
 static PERCENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(\d{1,3})(?:\.\d+)?\s*%\s*(used|consumed|left|remaining|available)").unwrap()
 });
 
 fn is_weekly(line: &str) -> bool {
     WEEKLY_LABEL.is_match(line) && !FABLE_WORD.is_match(line)
+}
+
+fn is_fable_weekly(line: &str) -> bool {
+    line.trim().eq_ignore_ascii_case("fable") || FABLE_WEEKLY_LABEL.is_match(line)
 }
 
 fn is_section(line: &str) -> bool {
@@ -337,22 +354,25 @@ fn percent_after(lines: &[&str], is_label: impl Fn(&str) -> bool) -> Option<f64>
     None
 }
 
-/// The five-hour and weekly windows from `/usage`. Reset times are not read
-/// from the panel (Orca's 300-line reset parser was not ported), so these carry
-/// none.
+/// The five-hour, weekly and Fable-weekly windows from `/usage`, each with the
+/// reset printed under it.
 pub fn parse_claude_usage(output: &str) -> Vec<RateLimitWindow> {
     let lines: Vec<&str> = output.split(['\n', '\r']).collect();
     let as_of_ms = now_ms();
-    let window = |used_percent: f64, window_minutes: u64| RateLimitWindow {
-        used_percent,
-        window_minutes,
-        resets_at: None,
-        as_of_ms,
-        plan_type: None,
+    let read = |is_label: &dyn Fn(&str) -> bool, window_minutes: u64, model: Option<&str>| {
+        Some(RateLimitWindow {
+            used_percent: percent_after(&lines, is_label)?,
+            window_minutes,
+            resets_at: reset_after(&lines, is_label, is_section),
+            as_of_ms,
+            plan_type: None,
+            model: model.map(str::to_owned),
+        })
     };
     [
-        percent_after(&lines, |l| SESSION_LABEL.is_match(l)).map(|p| window(p, 300)),
-        percent_after(&lines, is_weekly).map(|p| window(p, 10080)),
+        read(&|l| SESSION_LABEL.is_match(l), 300, None),
+        read(&is_weekly, 10080, None),
+        read(&is_fable_weekly, 10080, Some("Fable")),
     ]
     .into_iter()
     .flatten()
@@ -383,7 +403,15 @@ static CODEX_AUTH: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 
 /// Ask `codex app-server` over JSON-RPC: `initialize`, `initialized`, then
 /// `account/rateLimits/read`. Codex refreshes its own login to answer.
-pub fn codex_rpc(env: &LaunchEnv, cwd: &Path) -> Result<Vec<RateLimitWindow>, CliFailure> {
+/// What the RPC answers: the windows, and how many free rate-limit resets the
+/// account holds (shown, never spent here).
+#[derive(Debug, Default, PartialEq)]
+pub struct CodexReading {
+    pub windows: Vec<RateLimitWindow>,
+    pub reset_credits: Option<u32>,
+}
+
+pub fn codex_rpc(env: &LaunchEnv, cwd: &Path) -> Result<CodexReading, CliFailure> {
     let fail = |message: String, output: &str| Err(CliFailure::new(message, output));
     let mut cmd = crate::runtime::quiet_command(AgentKind::Codex.binary());
     for (k, v) in &env.0 {
@@ -454,7 +482,11 @@ pub fn codex_rpc(env: &LaunchEnv, cwd: &Path) -> Result<Vec<RateLimitWindow>, Cl
                         let text = error.get("message").and_then(Value::as_str).unwrap_or("Codex RPC error");
                         return Err(text.to_string());
                     }
-                    return Ok(codex_rpc_windows(message.get("result").unwrap_or(&Value::Null)));
+                    let result = message.get("result").unwrap_or(&Value::Null);
+                    return Ok(CodexReading {
+                        windows: codex_rpc_windows(result),
+                        reset_credits: codex_reset_credits(result),
+                    });
                 }
                 _ => {}
             }
@@ -472,6 +504,11 @@ pub fn codex_rpc(env: &LaunchEnv, cwd: &Path) -> Result<Vec<RateLimitWindow>, Cl
         }
         failure
     })
+}
+
+/// How many free resets the RPC says are available.
+pub fn codex_reset_credits(result: &Value) -> Option<u32> {
+    result.pointer("/rateLimitResetCredits/availableCount").and_then(Value::as_u64).map(|n| n as u32)
 }
 
 /// Map `rateLimits` by window length: 300 minutes is the session window and
@@ -502,6 +539,7 @@ pub fn codex_rpc_windows(result: &Value) -> Vec<RateLimitWindow> {
             resets_at: raw.get("resetsAt").and_then(Value::as_i64).filter(|s| *s > 0),
             as_of_ms,
             plan_type: plan_type.clone(),
+            model: None,
         });
     }
     windows.sort_by_key(|w| w.window_minutes);
@@ -563,8 +601,13 @@ static CODEX_FIVE_HOUR: LazyLock<Regex> =
 static CODEX_WEEKLY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?im)^[\s│|>•·-]*weekly\s+limit[^\d%\r\n]*(\d+)%(?:\s*(used|left))?").unwrap());
 
+static CODEX_ANY_LIMIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:5h|weekly)\s+limit").unwrap());
+
+/// The 5h and weekly rows of `/status`, with the reset each prints ("resets
+/// 17:26 on 4 Nov").
 pub fn parse_codex_status(output: &str) -> Vec<RateLimitWindow> {
     let as_of_ms = now_ms();
+    let lines: Vec<&str> = output.split(['\n', '\r']).collect();
     let read = |re: &Regex, window_minutes: u64| {
         let m = re.captures(output)?;
         let pct: f64 = m[1].parse().ok()?;
@@ -572,9 +615,10 @@ pub fn parse_codex_status(output: &str) -> Vec<RateLimitWindow> {
         Some(RateLimitWindow {
             used_percent: if left { 100.0 - pct } else { pct }.clamp(0.0, 100.0),
             window_minutes,
-            resets_at: None,
+            resets_at: reset_after(&lines, |l| re.is_match(l), |l| CODEX_ANY_LIMIT.is_match(l)),
             as_of_ms,
             plan_type: None,
+            model: None,
         })
     };
     [read(&CODEX_FIVE_HOUR, 300), read(&CODEX_WEEKLY, 10080)].into_iter().flatten().collect()
@@ -595,11 +639,22 @@ mod tests {
     }
 
     #[test]
-    fn a_fable_week_is_not_the_week() {
+    fn the_fable_week_is_its_own_window() {
         let panel = "Current week (Fable)\n  90% used\nCurrent week (all models)\n  10% used\n";
         let windows = parse_claude_usage(panel);
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].used_percent, 10.0);
+        assert_eq!(windows.len(), 2);
+        assert_eq!((windows[0].used_percent, windows[0].model.as_deref()), (10.0, None));
+        assert_eq!((windows[1].used_percent, windows[1].model.as_deref()), (90.0, Some("Fable")));
+    }
+
+    #[test]
+    fn reads_the_reset_under_each_window() {
+        let panel = "Current session\n 0% used\n Resets 11:10pm (America/Los_Angeles)\nCurrent week (all models)\n 26% used\n Resets Nov 1 at 3pm (America/Los_Angeles)\n";
+        let windows = parse_claude_usage(panel);
+        assert!(windows.iter().all(|w| w.resets_at.is_some()));
+        assert_ne!(windows[0].resets_at, windows[1].resets_at);
+        let codex = parse_codex_status("Weekly limit: [████]100%left (resets 17:26 on 4 Nov)");
+        assert!(codex[0].resets_at.is_some());
     }
 
     #[test]
@@ -621,6 +676,20 @@ mod tests {
         assert_eq!(windows[0].used_percent, 12.0);
         assert_eq!(windows[0].resets_at, Some(1793791186));
         assert_eq!(windows[0].plan_type.as_deref(), Some("prolite"));
+    }
+
+    #[test]
+    fn counts_the_free_resets() {
+        // Shape from a live `codex app-server` 0.164.0 answer.
+        assert_eq!(codex_reset_credits(&json!({"rateLimitResetCredits": {"availableCount": 2, "credits": []}})), Some(2));
+        assert_eq!(codex_reset_credits(&json!({})), None);
+    }
+
+    #[test]
+    fn a_login_screen_is_never_answered() {
+        assert!(LOGIN_SCREEN.is_match("Select login method:"));
+        assert!(LOGIN_SCREEN.is_match("Choose the text style that looks best with your terminal"));
+        assert!(!LOGIN_SCREEN.is_match("Current session  3% used"));
     }
 
     #[test]
@@ -662,9 +731,9 @@ mod tests {
     #[test]
     #[ignore]
     fn live_codex_rpc() {
-        let windows = codex_rpc(&live_env(), &fresh_dir("codex")).unwrap();
-        eprintln!("{windows:?}");
-        assert!(!windows.is_empty());
+        let reading = codex_rpc(&live_env(), &fresh_dir("codex")).unwrap();
+        eprintln!("{reading:?}");
+        assert!(!reading.windows.is_empty());
     }
 
     #[test]

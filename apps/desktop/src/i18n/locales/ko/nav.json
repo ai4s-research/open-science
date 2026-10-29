@@ -117,7 +117,8 @@
       "days7": "7일",
       "resetsIn": "{{duration}} 후 초기화",
       "asOf": "{{age}} 전 기준",
-      "otherAccount": "곧 한도에 도달합니다. 다른 계정으로 새 대화를 시작하면 계속할 수 있습니다."
+      "otherAccount": "곧 한도에 도달합니다. 다른 계정으로 새 대화를 시작하면 계속할 수 있습니다.",
+      "resetCredits": "무료 초기화: {{count}}회"
     },
     "awake": {
       "title": "절전 방지",

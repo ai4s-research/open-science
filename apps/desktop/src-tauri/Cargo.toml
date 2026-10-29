@@ -38,6 +38,13 @@ reqwest.workspace = true
 # interactive sign-in to a 2FA cluster (#73) needs a real pty on every platform.
 portable-pty = "0.9"
 regex = "1"
+# Reset times read off a CLI's usage panel name their zone ("Resets 11:10pm
+# (America/Los_Angeles)"); chrono is already in the tree, chrono-tz adds the
+# zone database (src/plan_usage_reset.rs).
+chrono = "0.4"
+chrono-tz = "0.10"
+# Codex's own state database, read to see whether it is rebuilding its index.
+rusqlite.workspace = true
 
 # Already in the tree via portable-pty — used directly to read a terminal's
 # shell cwd and foreground process (src/terminal_probe.rs).

@@ -119,7 +119,8 @@
       "days7": "7 d",
       "resetsIn": "Se restablece en {{duration}}",
       "asOf": "hace {{age}}",
-      "otherAccount": "Casi agotado. Empieza una conversación nueva con otra cuenta para seguir."
+      "otherAccount": "Casi agotado. Empieza una conversación nueva con otra cuenta para seguir.",
+      "resetCredits": "Reinicios gratuitos: {{count}}"
     },
     "awake": {
       "title": "Mantener activo",

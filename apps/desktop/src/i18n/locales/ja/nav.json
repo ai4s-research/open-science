@@ -117,7 +117,8 @@
       "days7": "7日",
       "resetsIn": "{{duration}} 後にリセット",
       "asOf": "{{age}}前の値",
-      "otherAccount": "もうすぐ上限です。別のアカウントで新しい会話を始めると続けられます。"
+      "otherAccount": "もうすぐ上限です。別のアカウントで新しい会話を始めると続けられます。",
+      "resetCredits": "無料リセット：{{count}} 回"
     },
     "awake": {
       "title": "スリープ防止",

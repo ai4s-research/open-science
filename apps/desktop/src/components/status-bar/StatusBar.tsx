@@ -70,6 +70,8 @@ interface UsageRow {
   windows: RateLimitWindow[];
   /** Why there are no plan windows, when the provider said. */
   planError?: string;
+  /** Free rate-limit resets the account holds (Codex). */
+  resetCredits?: number;
   /** Only OpenCode's row has these. */
   sessions: SessionSpend[];
 }
@@ -95,6 +97,7 @@ function usageRows(summary: UsageSummary | null, installed: string[] | null): Us
       usage,
       windows: agentWindows(usage.agent, summary),
       planError: planError(usage.agent, summary),
+      resetCredits: usage.agent === "codex" ? (summary?.plan?.codexResetCredits ?? undefined) : undefined,
       sessions: usage.agent === "workbench" ? (summary?.sessions ?? []) : [],
     };
     if (
@@ -111,6 +114,7 @@ function usageRows(summary: UsageSummary | null, installed: string[] | null): Us
         label: `${label} · ${(account.email ?? account.id).split("@")[0]}`,
         windows: [...account.windows].sort((a, b) => a.windowMinutes - b.windowMinutes),
         planError: account.windows.length === 0 ? (account.error ?? undefined) : undefined,
+        resetCredits: account.resetCredits ?? undefined,
         sessions: [],
       });
     }
@@ -235,8 +239,13 @@ function UsageRosterRow({ row, now }: { row: UsageRow; now: number }) {
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
         {windows.map((window) => (
-          <WindowMetric key={window.windowMinutes} window={window} />
+          <WindowMetric key={`${window.windowMinutes}-${window.model ?? ""}`} window={window} />
         ))}
+        {row.resetCredits ? (
+          <span className="text-[11px] text-muted">
+            {t("status.usage.resetCredits", { count: row.resetCredits })}
+          </span>
+        ) : null}
         {/* Why there is no live figure, when the reason is knowable: a silent
             absence reads as "this app cannot do that". */}
         {row.planError && <span className="text-[11px] text-warn">{row.planError}</span>}
@@ -323,7 +332,10 @@ function WindowMetric({ window, showBar = true }: { window: RateLimitWindow; sho
   const age = stale === null ? null : formatResetDuration(stale);
   return (
     <span className="flex shrink-0 items-center gap-1.5">
-      <span className="text-[10px] text-muted">{formatWindowLength(window.windowMinutes)}</span>
+      <span className="text-[10px] text-muted">
+        {window.model ? `${window.model} ` : ""}
+        {formatWindowLength(window.windowMinutes)}
+      </span>
       {showBar && (
         <span className="h-[5px] w-8 overflow-hidden rounded-full bg-border">
           <span

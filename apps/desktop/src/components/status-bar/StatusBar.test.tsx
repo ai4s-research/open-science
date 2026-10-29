@@ -305,6 +305,32 @@ describe("StatusBar · the plan figures come from the provider", () => {
     expect(popover.getByText("5h")).toBeInTheDocument();
   });
 
+  it("names a model's own week apart from the week over all models", async () => {
+    showUsage({
+      agents: [agent("claude", { week: totals({ costUsd: 5, pricedTurns: 3 }) })],
+      plan: { claude: [SEVEN_DAY, { ...SEVEN_DAY, usedPercent: 4, model: "Fable" }], codex: [] },
+    });
+    render(<StatusBar />);
+    await userEvent.click(screen.getByRole("button", { name: "Usage" }));
+
+    const popover = within(await screen.findByRole("dialog"));
+    expect(popover.getByText("50%")).toBeInTheDocument();
+    expect(popover.getByText("4%")).toBeInTheDocument();
+    expect(popover.getByText(/Fable\s+wk/)).toBeInTheDocument();
+  });
+
+  it("says how many free resets the Codex account holds", async () => {
+    showUsage({
+      agents: [agent("codex", { week: totals({ costUsd: 1, pricedTurns: 1 }) })],
+      plan: { claude: [], codex: [SEVEN_DAY], codexResetCredits: 2 },
+    });
+    render(<StatusBar />);
+    await userEvent.click(screen.getByRole("button", { name: "Usage" }));
+
+    const popover = within(await screen.findByRole("dialog"));
+    expect(popover.getByText("Free resets: 2")).toBeInTheDocument();
+  });
+
   it("prefers the provider's Codex figure over the one left in a session file", async () => {
     showUsage({
       agents: [agent("codex")],

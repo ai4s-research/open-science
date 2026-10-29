@@ -117,7 +117,8 @@
       "days7": "7 天",
       "resetsIn": "{{duration}} 后重置",
       "asOf": "{{age}}前的数据",
-      "otherAccount": "额度快用完了。换一个账号开新对话即可继续。"
+      "otherAccount": "额度快用完了。换一个账号开新对话即可继续。",
+      "resetCredits": "免费重置：{{count}} 次"
     },
     "awake": {
       "title": "保持唤醒",

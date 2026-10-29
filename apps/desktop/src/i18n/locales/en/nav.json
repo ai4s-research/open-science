@@ -119,7 +119,8 @@
       "days7": "7d",
       "resetsIn": "Resets in {{duration}}",
       "asOf": "as of {{age}} ago",
-      "otherAccount": "Nearly used up. Start a new conversation on another account to keep going."
+      "otherAccount": "Nearly used up. Start a new conversation on another account to keep going.",
+      "resetCredits": "Free resets: {{count}}"
     },
     "awake": {
       "title": "Keep awake",

@@ -37,6 +37,9 @@ export interface RateLimitWindow {
   /** Epoch ms of the event that carried this, so staleness is visible. */
   asOfMs: number;
   planType: string | null;
+  /** The model this window limits on its own (Claude's "Fable" week); absent
+   *  for a window over all models. */
+  model?: string | null;
 }
 
 /** What each provider says is left of the plan, asked of the provider itself
@@ -48,6 +51,8 @@ export interface PlanUsage {
    *  proxy that refused, an expired token. */
   claudeError?: string | null;
   codexError?: string | null;
+  /** Free rate-limit resets the Codex account holds. */
+  codexResetCredits?: number | null;
   /** The same for each account added in Settings → Agents. */
   accounts?: AccountPlan[];
 }
@@ -59,6 +64,7 @@ export interface AccountPlan {
   email: string | null;
   windows: RateLimitWindow[];
   error: string | null;
+  resetCredits?: number | null;
 }
 
 /** Why this agent has no LIVE plan figure, or undefined when it has one.

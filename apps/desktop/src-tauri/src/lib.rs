@@ -28,6 +28,7 @@ mod science_mcp;
 mod ssh_session;
 mod plan_usage;
 mod plan_usage_cli;
+mod plan_usage_reset;
 mod status_bar;
 mod terminal;
 mod terminal_env;
