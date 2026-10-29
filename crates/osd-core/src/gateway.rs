@@ -3815,7 +3815,8 @@ mod tests {
         let (status, body) = call_as(port, "POST", "/v1/terminals/acct1/paste?name=..%2Freport%20v2.xlsx", Some(&account), "PK");
         assert_eq!(status, 200, "{body}");
         let text = serde_json::from_str::<serde_json::Value>(&body).unwrap()["text"].as_str().unwrap().to_string();
-        let saved = PathBuf::from(text.trim_end().trim_matches('\''));
+        // Quoted as the host's shell wants it: single quotes on Unix, double on Windows.
+        let saved = PathBuf::from(text.trim_end().trim_matches(|c| c == '\'' || c == '"'));
         assert_eq!(saved.file_name().unwrap(), "report v2.xlsx");
         assert!(saved.starts_with(std::env::temp_dir().join("osd-pastes")));
         assert_eq!(std::fs::read(&saved).unwrap(), b"PK");
