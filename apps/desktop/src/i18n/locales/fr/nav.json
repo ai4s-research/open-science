@@ -17,7 +17,8 @@
     "files": "Fichiers",
     "runs": "Exécutions",
     "skills": "Compétences",
-    "projects": "Projets"
+    "projects": "Projets",
+    "tasks": "Tâches"
   },
   "projects": {
     "heading": "Projets",
@@ -228,5 +229,22 @@
   },
   "web": {
     "manyTabs": "Ouvert dans {{count}} onglets. Un navigateur n'autorise que peu de connexions vers une même adresse : chaque onglet de plus les ralentit tous. Fermez ceux dont vous n'avez pas besoin."
+  },
+  "tasks": {
+    "title": "Tâches",
+    "newTask": "Nouvelle tâche",
+    "needsYou": "Vous attend",
+    "working": "En cours",
+    "today": "Aujourd’hui",
+    "askPermission": "Validation · {{action}}",
+    "askQuestion": "Demande · {{text}}",
+    "thinking": "Réflexion",
+    "replying": "Rédige une réponse",
+    "inTerminal": "Dans un terminal",
+    "tools": "Outils",
+    "files": "Fichiers",
+    "openHint": "Ouvrir",
+    "empty": "Les agents au travail apparaissent ici, en direct.",
+    "emptyHint": "Lancez-en une avec Nouvelle tâche ou depuis un projet de la barre latérale."
   }
 }

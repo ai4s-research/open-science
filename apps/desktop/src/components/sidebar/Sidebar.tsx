@@ -23,6 +23,7 @@ import {
   IconFolderCloseRegular,
   IconFolderOpenOutlineRegular,
   IconFolderOpenRegular,
+  IconChecklistOutlineRegular,
   IconListPenOutlineRegular,
   IconNewChatOutlineMedium,
   IconNewChatOutlineRegular,
@@ -896,6 +897,12 @@ export function Sidebar({ project }: { project: Project }) {
         )}
 
         <nav className={css.panelList}>
+          <NavRow
+            icon={<IconChecklistOutlineRegular size={16} />}
+            label={t("items.tasks")}
+            active={location.pathname.startsWith("/tasks")}
+            onClick={() => navigate("/tasks")}
+          />
           {/* Notebook execution needs a local kernel — hidden in the web client. */}
           {!isGatewayWeb && (
             <NavRow

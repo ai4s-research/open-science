@@ -17,7 +17,8 @@
     "files": "파일",
     "runs": "실행",
     "skills": "스킬",
-    "projects": "프로젝트"
+    "projects": "프로젝트",
+    "tasks": "작업"
   },
   "projects": {
     "heading": "프로젝트",
@@ -225,5 +226,22 @@
   },
   "web": {
     "manyTabs": "탭 {{count}}개에서 열려 있습니다. 브라우저는 같은 주소에 연결을 몇 개만 허용하므로 탭이 늘수록 모두 느려집니다. 쓰지 않는 탭은 닫아 주세요."
+  },
+  "tasks": {
+    "title": "작업",
+    "newTask": "새 작업",
+    "needsYou": "확인 필요",
+    "working": "진행 중",
+    "today": "오늘",
+    "askPermission": "승인 대기 · {{action}}",
+    "askQuestion": "질문 · {{text}}",
+    "thinking": "생각 중",
+    "replying": "답변 작성 중",
+    "inTerminal": "터미널에서 실행 중",
+    "tools": "도구",
+    "files": "파일",
+    "openHint": "열기",
+    "empty": "작업 중인 에이전트가 여기에 실시간으로 표시됩니다.",
+    "emptyHint": "새 작업이나 사이드바의 프로젝트에서 시작하세요."
   }
 }
