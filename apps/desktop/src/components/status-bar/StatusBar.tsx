@@ -26,6 +26,7 @@ import { cn } from "@/lib/cn";
 import { isTauri } from "@/lib/tauri";
 import { useRuntimeStore } from "@/lib/runtime";
 import { useInstalledAgents } from "@/lib/cliAgents";
+import { useAccountsStore } from "@/lib/agentAccounts";
 import {
   AwakeSegment,
   HostsSegment,
@@ -63,6 +64,8 @@ interface UsageRow {
   key: string;
   /** `workbench`, `claude` or `codex`. */
   agent: string;
+  /** The added account this row is, or null for the agent's own login. */
+  account: string | null;
   label: string;
   /** Spend, for the agent's own row: an added account shares its history with
    *  the default, so its tokens cannot be told apart. */
@@ -93,6 +96,7 @@ function usageRows(summary: UsageSummary | null, installed: string[] | null): Us
     const own: UsageRow = {
       key: usage.agent,
       agent: usage.agent,
+      account: null,
       label,
       usage,
       windows: agentWindows(usage.agent, summary),
@@ -111,6 +115,7 @@ function usageRows(summary: UsageSummary | null, installed: string[] | null): Us
       rows.push({
         key: `${usage.agent}~${account.id}`,
         agent: usage.agent,
+        account: account.id,
         label: `${label} · ${(account.email ?? account.id).split("@")[0]}`,
         windows: [...account.windows].sort((a, b) => a.windowMinutes - b.windowMinutes),
         planError: account.windows.length === 0 ? (account.error ?? undefined) : undefined,
@@ -122,13 +127,26 @@ function usageRows(summary: UsageSummary | null, installed: string[] | null): Us
   return rows;
 }
 
-/** The collapsed segment: every row that has a figure, on one line. */
+/** Whether a row is the account new conversations on its agent run as, as
+ *  chosen in Settings → Agents (no choice: the agent's own login). OpenCode has
+ *  no accounts, and is never the selected Claude Code or Codex. */
+function isSelected(row: UsageRow, defaults: Record<string, string>): boolean {
+  const base = CATALOG_ID[row.agent];
+  return base !== undefined && (defaults[base] ?? null) === row.account;
+}
+
+/** The collapsed segment: only the selected Claude Code and Codex accounts, on
+ *  one line, so it stays short however many accounts are added. Every row is in
+ *  the popover. */
 function UsageSegment({ rows }: { rows: UsageRow[] }) {
   const { t } = useTranslation("nav");
   const refresh = useUsageStore((s) => s.refresh);
   const loading = useUsageStore((s) => s.loading);
+  const defaults = useAccountsStore((s) => s.defaults);
   const now = useCountdownClock();
-  const onBar = rows.filter((row) => tightestWindow(row.windows) || (row.usage && rowFigure(row.usage)));
+  const onBar = rows.filter(
+    (row) => isSelected(row, defaults) && (tightestWindow(row.windows) || (row.usage && rowFigure(row.usage))),
+  );
 
   return (
     <Popover.Root>
@@ -138,6 +156,8 @@ function UsageSegment({ rows }: { rows: UsageRow[] }) {
           aria-label={t("status.usage.title")}
           className="inline-flex items-center gap-2.5 rounded px-1 py-0.5 text-muted hover:bg-surface-2 hover:text-text"
         >
+          {/* Nothing selected to show: still a way into the popover. */}
+          {onBar.length === 0 && <span className="text-[11px]">{t("status.usage.title")}</span>}
           {onBar.map((row, index) => (
             <span key={row.key} className="inline-flex items-center gap-1.5">
               {index > 0 && <span className="text-muted/40">·</span>}

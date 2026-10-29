@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { useUsageStore, type AgentUsage, type TokenTotals, type UsageSummary } from "@/lib/usage";
+import { useAccountsStore } from "@/lib/agentAccounts";
 import { StatusBar } from "./StatusBar";
 
 // The bar scans on mount; these tests set the store directly instead.
@@ -54,6 +55,7 @@ describe("StatusBar", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     useUsageStore.setState({ summary: null, loading: false });
+    useAccountsStore.setState({ defaults: {} });
   });
 
   it("takes no space at all until a segment has something to say", () => {
@@ -168,13 +170,15 @@ describe("StatusBar", () => {
       ],
     });
     render(<StatusBar />);
+    await userEvent.click(screen.getByRole("button", { name: "Usage" }));
 
-    expect(screen.getByText("OpenCode")).toBeInTheDocument();
-    expect(screen.getByText("Claude Code")).toBeInTheDocument();
-    expect(screen.queryByText("OSD")).not.toBeInTheDocument();
+    const popover = within(await screen.findByRole("dialog"));
+    expect(popover.getByText("OpenCode")).toBeInTheDocument();
+    expect(popover.getByText("Claude Code")).toBeInTheDocument();
+    expect(popover.queryByText("OSD")).not.toBeInTheDocument();
   });
 
-  it("leads with OpenCode, in the order Settings → Agents lists them", () => {
+  it("leads the popover with OpenCode, in the order Settings → Agents lists them", async () => {
     showUsage({
       agents: [
         agent("workbench", { today: totals({ costUsd: 3, pricedTurns: 2 }) }),
@@ -182,9 +186,59 @@ describe("StatusBar", () => {
       ],
     });
     render(<StatusBar />);
+    await userEvent.click(screen.getByRole("button", { name: "Usage" }));
 
-    const labels = screen.getAllByText(/OpenCode|Claude Code/).map((el) => el.textContent);
+    const popover = within(await screen.findByRole("dialog"));
+    const labels = popover.getAllByText(/^(OpenCode|Claude Code)$/).map((el) => el.textContent);
     expect(labels).toEqual(["OpenCode", "Claude Code"]);
+  });
+
+  it("keeps the bar to the selected Claude Code and Codex accounts", async () => {
+    useAccountsStore.setState({ defaults: { "cli-claude-code": "acct-1" } });
+    showUsage({
+      agents: [
+        agent("workbench", { today: totals({ costUsd: 3, pricedTurns: 2 }) }),
+        agent("claude"),
+        agent("codex", { today: totals({ costUsd: 1, pricedTurns: 1 }) }),
+      ],
+      plan: {
+        claude: [{ ...CODEX_QUOTA, usedPercent: 12 }],
+        codex: [{ ...CODEX_QUOTA, usedPercent: 33 }],
+        accounts: [
+          { kind: "claude", id: "acct-1", email: "second@lab.org", windows: [{ ...CODEX_QUOTA, usedPercent: 71 }], error: null },
+          { kind: "claude", id: "acct-2", email: "third@lab.org", windows: [{ ...CODEX_QUOTA, usedPercent: 5 }], error: null },
+        ],
+      },
+    });
+    render(<StatusBar />);
+    const bar = screen.getByRole("button", { name: "Usage" });
+
+    // The chosen Claude Code account, and Codex on its own login; nothing else.
+    expect(within(bar).getByText("Claude Code · second")).toBeInTheDocument();
+    expect(within(bar).getByText("71%")).toBeInTheDocument();
+    expect(within(bar).getByText("Codex")).toBeInTheDocument();
+    expect(within(bar).getByText("33%")).toBeInTheDocument();
+    expect(within(bar).queryByText("OpenCode")).not.toBeInTheDocument();
+    expect(within(bar).queryByText("12%")).not.toBeInTheDocument();
+    expect(within(bar).queryByText("5%")).not.toBeInTheDocument();
+
+    // The popover still has every account.
+    await userEvent.click(bar);
+    const popover = within(await screen.findByRole("dialog"));
+    for (const figure of ["12%", "71%", "5%", "33%"]) {
+      expect(popover.getByText(figure)).toBeInTheDocument();
+    }
+    expect(popover.getByText("OpenCode")).toBeInTheDocument();
+  });
+
+  it("still opens from the bar when the selected accounts have nothing to show", async () => {
+    showUsage({ agents: [agent("workbench", { today: totals({ costUsd: 3, pricedTurns: 2 }) })] });
+    render(<StatusBar />);
+    const bar = screen.getByRole("button", { name: "Usage" });
+
+    expect(within(bar).getByText("Usage")).toBeInTheDocument();
+    await userEvent.click(bar);
+    expect(within(await screen.findByRole("dialog")).getByText("OpenCode")).toBeInTheDocument();
   });
 });
 
@@ -204,6 +258,7 @@ describe("StatusBar · the usage popover, as Orca lays it out", () => {
     await i18n.changeLanguage("en");
     window.localStorage.clear();
     useUsageStore.setState({ summary: null, loading: false });
+    useAccountsStore.setState({ defaults: {} });
   });
 
   /** The popover only — the collapsed bar shows the tightest figure too, so an
@@ -287,6 +342,7 @@ describe("StatusBar · the plan figures come from the provider", () => {
     await i18n.changeLanguage("en");
     window.localStorage.clear();
     useUsageStore.setState({ summary: null, loading: false });
+    useAccountsStore.setState({ defaults: {} });
   });
 
   it("gives Claude Code its bars, which a transcript could never provide", async () => {
@@ -365,6 +421,7 @@ describe("StatusBar · when the provider cannot be asked", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     useUsageStore.setState({ summary: null, loading: false });
+    useAccountsStore.setState({ defaults: {} });
   });
 
   it("says why there are no bars instead of showing none silently", async () => {
