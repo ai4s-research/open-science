@@ -20,7 +20,11 @@ async function replay(steps: Step[], withGate: boolean): Promise<string[]> {
   const sent: string[] = [];
   term.onData((d) => sent.push(d));
   const ta = term.textarea!;
-  const tick = () => new Promise((r) => setTimeout(r, 5));
+  // Counted in timer turns, not milliseconds: the gate releases two turns after
+  // a keydown, and a busy machine can fire a 5 ms timer before both have run.
+  const tick = async () => {
+    for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r));
+  };
   for (const step of steps) {
     if (step === "tick") await tick();
     else if ("commit" in step) {
