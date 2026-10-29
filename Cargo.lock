@@ -40,6 +40,7 @@ dependencies = [
  "opener",
  "osd-core",
  "portable-pty",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

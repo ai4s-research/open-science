@@ -37,6 +37,7 @@ reqwest.workspace = true
 # ssh reads authentication answers from a terminal, never from stdin, so an
 # interactive sign-in to a 2FA cluster (#73) needs a real pty on every platform.
 portable-pty = "0.9"
+regex = "1"
 
 # Already in the tree via portable-pty — used directly to read a terminal's
 # shell cwd and foreground process (src/terminal_probe.rs).

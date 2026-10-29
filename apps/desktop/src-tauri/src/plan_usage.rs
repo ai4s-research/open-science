@@ -1,40 +1,59 @@
 // How much of the subscription is left, asked of the provider rather than
-// guessed from transcripts.
+// guessed from transcripts. The approach is Orca's (`src/main/rate-limits`,
+// MIT):
 //
-// Borrowed from Orca (`rate-limits/claude-oauth-usage-request.ts`,
-// `rate-limits/codex-backend-usage-client.ts`). Both CLIs already hold an OAuth
-// token for the user's plan, and both vendors expose the plan's own usage to
-// that token, so the honest figure is one request away:
+//   Claude  GET https://api.anthropic.com/api/oauth/usage with the CLI's OAuth
+//           token (macOS keychain "Claude Code-credentials[-<hash>]", else
+//           `<config>/.credentials.json`). The server, not `expiresAt`, decides
+//           whether the token is good. When it is not, the CLI is started hidden
+//           and asked for `/usage`: that reads the plan AND renews the CLI's own
+//           login, after which the endpoint is asked once more. An account added
+//           in Settings has its token renewed here first when it is about to
+//           lapse, as Orca does for the accounts it manages.
+//   Codex   `codex app-server` over JSON-RPC (`account/rateLimits/read`), Codex
+//           renewing its own login; `/status` on a hidden terminal when the RPC
+//           fails for a reason other than the login.
 //
-//   Claude  GET https://api.anthropic.com/api/oauth/usage
-//           token: macOS keychain (service "Claude Code-credentials"), else
-//                  ~/.claude/.credentials.json
-//   Codex   GET https://chatgpt.com/backend-api/wham/usage
-//           token: ~/.codex/auth.json
+// Two rules on top of Orca's:
+//   - Every request and every CLI goes through the app's proxy when one is set,
+//     never direct instead.
+//   - A 403 from anyone stops all checks of that account until the app restarts:
+//     no retry, no refresh, no CLI. A refusal is the provider saying no, and
+//     asking again is how an account gets flagged.
 //
-// This replaces reading the last `rate_limits` payload out of a Codex session
-// file. That number was whatever the file happened to end on — a session left
-// open yesterday reported yesterday's percentage for ever, which is why the
-// figure was wrong rather than merely stale.
-//
-// Nothing here is scraped and nothing is inferred: a window is reported only if
-// the provider sent it.
+// Nothing here is scraped from transcripts and nothing is inferred: a window is
+// reported only if the provider or its CLI showed it.
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use std::path::Path;
-
 use osd_core::agent_accounts::{self, AgentKind};
 use osd_core::usage::{iso8601_to_epoch_ms, RateLimitWindow};
 
+use crate::plan_usage_cli::{self, CliFailure};
+
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
-const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+/// The public Claude Code OAuth client and token endpoint (Orca's
+/// `oauth-refresh.ts`, checked there against the installed CLI).
+const CLAUDE_TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
+const CLAUDE_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+/// Renew this far ahead of expiry, the CLI's own margin.
+const EXPIRY_BUFFER_MS: i64 = 5 * 60 * 1000;
 /// The provider is not the app's critical path: a slow network must never hold
-/// the status bar, so the request is given a short leash and its failure is a
-/// quiet absence.
+/// the status bar.
 const TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a last good reading stands in through failures (Orca's figures).
+const STALE_MS: i64 = 30 * 60 * 1000;
+const RATE_LIMITED_STALE_MS: i64 = 24 * 60 * 60 * 1000;
+/// The least time between two checks of one account, and between two hidden
+/// CLI runs for it. The panel refreshes on every window focus; neither the
+/// provider nor the CLI should hear from us each time (Orca debounces the same
+/// way).
+const MIN_GAP_MS: i64 = 60 * 1000;
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -42,8 +61,7 @@ pub struct PlanUsage {
     pub claude: Vec<RateLimitWindow>,
     pub codex: Vec<RateLimitWindow>,
     /// Why a plan has no windows, when the reason is knowable. A silent absence
-    /// is indistinguishable from "this app cannot do that", which is what the
-    /// first attempt looked like when the requests were going out unproxied.
+    /// is indistinguishable from "this app cannot do that".
     pub claude_error: Option<String>,
     pub codex_error: Option<String>,
     /// The same for every account added in Settings → Agents.
@@ -63,62 +81,170 @@ pub struct AccountPlan {
     pub error: Option<String>,
 }
 
-/// Both plans' current windows. Either half may be empty — not signed in, no
-/// network, a token that has expired — and an empty half simply shows no bar.
+/// Why a reading failed, as far as what happens next is concerned.
+#[derive(Debug, PartialEq)]
+enum Failure {
+    /// A 403: stop checking this account.
+    Refused(String),
+    /// A 429: no fallback, the last reading may stand in for longer.
+    RateLimited(String),
+    Other(String),
+}
+
+/// What this process remembers between refreshes.
+#[derive(Default)]
+struct Memory {
+    /// Accounts that answered 403, with the message to keep showing.
+    refused: HashMap<String, String>,
+    /// The last good reading per account and when it was taken.
+    last_good: HashMap<String, (Vec<RateLimitWindow>, i64)>,
+    /// When the hidden CLI last ran per account.
+    last_cli: HashMap<String, i64>,
+}
+
+static MEMORY: LazyLock<Mutex<Memory>> = LazyLock::new(Mutex::default);
+/// One refresh at a time: two overlapping ones would start the same CLIs twice.
+static RUN: Mutex<()> = Mutex::new(());
+
+/// What every reading needs.
+struct Ctx {
+    app: tauri::AppHandle,
+    proxy: Option<String>,
+    /// An empty folder the hidden CLIs run in, so they never index a real one.
+    probe_dir: PathBuf,
+}
+
+/// Both plans' current windows, and every added account's.
 ///
-/// `async` so the two requests never run on the UI thread; the requests
-/// themselves are blocking, like every other outbound call in this app.
+/// `async` so the work never runs on the UI thread; the requests and CLIs
+/// themselves block, so they run on a pool thread, the accounts side by side.
 #[tauri::command]
 pub async fn plan_usage(app: tauri::AppHandle) -> PlanUsage {
-    // THROUGH THE USER'S PROXY. The app's proxy setting used to be applied only
-    // to the processes it starts, so this request — made by the app itself —
-    // went direct and simply failed wherever those two hosts need a proxy to be
-    // reachable. Both plans then showed no bars at all, which read as "the
-    // feature does not work" rather than "the network did not answer".
-    let proxy = proxy_url(&app);
     let data = crate::env_of(&app).data_dir().to_path_buf();
+    let ctx = Ctx {
+        proxy: proxy_url(&app),
+        probe_dir: data.join("plan-usage-probe"),
+        app,
+    };
     tauri::async_runtime::spawn_blocking(move || {
-        // A login idle long enough for its access token to lapse is left out
-        // rather than reported as signed out: the CLI refreshes it on next use,
-        // and the app must not refresh it itself (that rotates the refresh
-        // token the CLI also holds). `Ok(None)` is that case.
-        let claude = claude_windows(proxy.as_deref(), None);
-        let codex = codex_windows(proxy.as_deref(), None);
-        let mut accounts = Vec::new();
-        for kind in [AgentKind::Claude, AgentKind::Codex] {
-            for account in agent_accounts::list(&data, kind) {
-                let Ok(home) = agent_accounts::home_dir(&data, kind, &account.id) else {
-                    continue;
-                };
-                let windows = match kind {
-                    AgentKind::Claude => match claude_windows(proxy.as_deref(), Some(&home)) {
-                        Ok(None) => continue,
-                        other => other.map(Option::unwrap_or_default),
-                    },
-                    AgentKind::Codex => codex_windows(proxy.as_deref(), Some(&home)),
-                };
-                accounts.push(AccountPlan {
-                    kind: if kind == AgentKind::Claude { "claude" } else { "codex" }.to_string(),
-                    id: account.id,
-                    email: account.identity.email,
-                    error: windows.as_ref().err().cloned(),
-                    windows: windows.unwrap_or_default(),
-                });
+        let _run = RUN.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = std::fs::create_dir_all(&ctx.probe_dir);
+        let data = &data;
+        let added: Vec<(AgentKind, agent_accounts::Account, PathBuf)> = [AgentKind::Claude, AgentKind::Codex]
+            .into_iter()
+            .flat_map(|kind| {
+                agent_accounts::list(data, kind).into_iter().filter_map(move |account| {
+                    let home = agent_accounts::home_dir(data, kind, &account.id).ok()?;
+                    Some((kind, account, home))
+                })
+            })
+            .collect();
+        std::thread::scope(|scope| {
+            let claude = scope.spawn(|| reading(&ctx, AgentKind::Claude, None, "claude"));
+            let codex = scope.spawn(|| reading(&ctx, AgentKind::Codex, None, "codex"));
+            let accounts: Vec<_> = added
+                .iter()
+                .map(|(kind, account, home)| {
+                    let ctx = &ctx;
+                    scope.spawn(move || {
+                        let key = format!("{}:{}", kind_name(*kind), account.id);
+                        let (windows, error) = reading(ctx, *kind, Some(home), &key);
+                        AccountPlan {
+                            kind: kind_name(*kind).to_string(),
+                            id: account.id.clone(),
+                            email: account.identity.email.clone(),
+                            windows,
+                            error,
+                        }
+                    })
+                })
+                .collect();
+            let (claude, claude_error) = claude.join().unwrap_or_default();
+            let (codex, codex_error) = codex.join().unwrap_or_default();
+            PlanUsage {
+                claude,
+                codex,
+                claude_error,
+                codex_error,
+                accounts: accounts.into_iter().filter_map(|h| h.join().ok()).collect(),
             }
-        }
-        PlanUsage {
-            claude_error: claude.as_ref().err().cloned(),
-            codex_error: codex.as_ref().err().cloned(),
-            claude: claude.ok().flatten().unwrap_or_default(),
-            codex: codex.unwrap_or_default(),
-            accounts,
-        }
+        })
     })
     .await
     .unwrap_or_default()
 }
 
-/// The proxy the app is configured to use, if any — the same one its sidecars
+fn kind_name(kind: AgentKind) -> &'static str {
+    match kind {
+        AgentKind::Claude => "claude",
+        AgentKind::Codex => "codex",
+    }
+}
+
+/// One account's windows, or why there are none, after the refusal rule and
+/// the stale rule. `home` None is the agent's own default folder.
+fn reading(ctx: &Ctx, kind: AgentKind, home: Option<&Path>, key: &str) -> (Vec<RateLimitWindow>, Option<String>) {
+    {
+        let memory = memory();
+        if let Some(message) = memory.refused.get(key) {
+            return (Vec::new(), Some(message.clone()));
+        }
+        // Asked less than a minute ago: answer from that, not the provider.
+        if let Some((windows, _)) = memory.last_good.get(key).filter(|(_, at)| now_ms() - at < MIN_GAP_MS) {
+            return (windows.clone(), None);
+        }
+    }
+    let fresh = match kind {
+        AgentKind::Claude => claude_plan(ctx, home, key),
+        AgentKind::Codex => codex_plan(ctx, home, key),
+    };
+    settle(&mut memory(), key, fresh, now_ms())
+}
+
+fn memory() -> std::sync::MutexGuard<'static, Memory> {
+    MEMORY.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Keep a good reading, remember a refusal for good, and let a recent good
+/// reading stand in through other failures. A stand-in keeps its own `as_of_ms`,
+/// so the panel shows its age rather than passing it off as live.
+fn settle(
+    memory: &mut Memory,
+    key: &str,
+    fresh: Result<Vec<RateLimitWindow>, Failure>,
+    now: i64,
+) -> (Vec<RateLimitWindow>, Option<String>) {
+    let (message, keep_for) = match fresh {
+        Ok(windows) => {
+            memory.last_good.insert(key.to_string(), (windows.clone(), now));
+            return (windows, None);
+        }
+        Err(Failure::Refused(message)) => {
+            memory.last_good.remove(key);
+            memory.refused.insert(key.to_string(), message.clone());
+            return (Vec::new(), Some(message));
+        }
+        Err(Failure::RateLimited(message)) => (message, RATE_LIMITED_STALE_MS),
+        Err(Failure::Other(message)) => (message, STALE_MS),
+    };
+    match memory.last_good.get(key) {
+        Some((windows, at)) if now - at < keep_for => (windows.clone(), None),
+        _ => (Vec::new(), Some(message)),
+    }
+}
+
+/// Whether the hidden CLI may run for this account now, and if so, note it.
+fn may_run_cli(key: &str) -> bool {
+    let now = now_ms();
+    let mut memory = memory();
+    if memory.last_cli.get(key).is_some_and(|at| now - at < MIN_GAP_MS) {
+        return false;
+    }
+    memory.last_cli.insert(key.to_string(), now);
+    true
+}
+
+/// The proxy the app is configured to use, if any: the same one its sidecars
 /// get, resolved by the same code, so the two never disagree.
 fn proxy_url(app: &tauri::AppHandle) -> Option<String> {
     let setting = osd_core::runtime::get_proxy_setting(&crate::env_of(app)).ok()?;
@@ -129,131 +255,271 @@ fn proxy_url(app: &tauri::AppHandle) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn client(proxy: Option<&str>) -> Option<reqwest::blocking::Client> {
+/// A client on the configured proxy. A proxy that does not parse is an error,
+/// never a reason to go direct.
+fn client(proxy: Option<&str>) -> Result<reqwest::blocking::Client, Failure> {
     let mut builder = reqwest::blocking::Client::builder().timeout(TIMEOUT);
     if let Some(url) = proxy {
-        // A proxy that no longer parses must not take the request down with
-        // it: a direct attempt is still worth making.
-        if let Ok(p) = reqwest::Proxy::all(url) {
-            builder = builder.proxy(p);
-        }
+        let proxy = reqwest::Proxy::all(url)
+            .map_err(|_| Failure::Other("the proxy in Settings is not a valid URL".into()))?;
+        builder = builder.proxy(proxy);
     }
-    builder.build().ok()
+    builder
+        .build()
+        .map_err(|_| Failure::Other("could not create an HTTP client".into()))
+}
+
+/// What a failed request means. Only the status code is kept, never the body.
+fn http_failure(provider: &str, e: &reqwest::Error) -> Failure {
+    match e.status().map(|s| s.as_u16()) {
+        Some(403) => refused(provider),
+        Some(429) => Failure::RateLimited(format!("{provider} is rate limiting usage checks right now.")),
+        Some(401) => Failure::Other("the login has lapsed".into()),
+        Some(code) => Failure::Other(format!("the provider answered {code}")),
+        None if e.is_timeout() => Failure::Other("timed out. Check the proxy in Settings.".into()),
+        None if e.is_connect() => Failure::Other("could not connect. Check the proxy in Settings.".into()),
+        None => Failure::Other(e.to_string()),
+    }
+}
+
+fn refused(provider: &str) -> Failure {
+    Failure::Refused(format!(
+        "{provider} refused this account (403). Usage checks for it are stopped until the app restarts."
+    ))
+}
+
+fn cli_failure(provider: &str, failure: CliFailure) -> Failure {
+    if failure.refused {
+        refused(provider)
+    } else {
+        Failure::Other(failure.message)
+    }
 }
 
 // ─── Claude ─────────────────────────────────────────────────────────
 
-/// The token Claude Code signed in with.
-///
-/// Two places, because the CLI keeps it in two: the login keychain on macOS
-/// (service "Claude Code-credentials", the entry Orca reads), and a file under
-/// `~/.claude` where there is no keychain. Reading either needs no prompt
-/// because this app is asking on behalf of the same user who granted it.
-///
-/// This used to shell out to `security` unconditionally. On Linux and Windows —
-/// both shipped targets — that command does not exist, so every Claude plan
-/// lookup failed with "could not read the keychain", which reads as a broken
-/// keychain rather than as a thing this build never did. Worse, the empty
-/// result then fell through to the spend figures, so a subscriber saw a dollar
-/// amount computed at API rates where their quota bars belonged.
-///
-/// `folder`: an added account's config folder; None is the default account.
-/// An account's keychain entry is named after its folder, and an account never
-/// falls back to the default's: that would report one account's plan as another's.
-fn claude_token(folder: Option<&Path>) -> Result<ClaudeToken, String> {
-    let service = folder.map_or_else(|| "Claude Code-credentials".to_string(), agent_accounts::claude_keychain_service);
-    let keychain = cfg!(target_os = "macos")
-        .then(|| read_claude_keychain(&service))
-        .and_then(Result::ok);
-    if let Some(token) = keychain {
-        return Ok(token);
-    }
-    // NOT verified against a real file: this machine holds its credentials in
-    // the keychain, so the path and the `claudeAiOauth` shape below are read
-    // across from the keychain entry (which holds exactly this JSON) rather
-    // than observed on disk. If the CLI writes something else, this returns the
-    // same "not signed in" it would have anyway — it cannot report a wrong
-    // number, only fail to find one.
-    let path = match folder {
-        Some(folder) => folder.join(".credentials.json"),
-        None => dirs_home().ok_or("no home directory")?.join(".claude").join(".credentials.json"),
-    };
-    let raw = std::fs::read(&path).map_err(|_| {
-        if cfg!(target_os = "macos") {
-            "Claude Code is not signed in on this machine".to_string()
-        } else {
-            "Claude Code is not signed in on this machine (looked in ~/.claude)".to_string()
+fn claude_plan(ctx: &Ctx, home: Option<&Path>, key: &str) -> Result<Vec<RateLimitWindow>, Failure> {
+    let (mut raw, store) =
+        read_claude_credentials(home).ok_or_else(|| Failure::Other("Claude Code is not signed in on this machine".into()))?;
+
+    // An added account's token is renewed here when it is about to lapse
+    // (Orca's managed accounts). The default login is left to its own CLI.
+    // Renewing rotates the refresh token, so it is done only where the new one
+    // can be saved; otherwise the CLI below renews it itself.
+    if home.is_some() && store.writable() && is_expiring(&raw, now_ms()) {
+        if let Some(renewed) = refresh_claude_token(ctx.proxy.as_deref(), &raw)? {
+            // Keep the renewed token for this reading even if saving it fails;
+            // the next refresh will try again.
+            let _ = store.write(&renewed);
+            raw = renewed;
         }
-    })?;
-    claude_token_from(&raw).ok_or_else(|| "no Claude access token in ~/.claude".into())
-}
-
-fn read_claude_keychain(service: &str) -> Result<ClaudeToken, String> {
-    let out = crate::runtime::quiet_command("security")
-        .args(["find-generic-password", "-s", service, "-w"])
-        .output()
-        .map_err(|e| format!("could not read the keychain: {e}"))?;
-    if !out.status.success() {
-        return Err("Claude Code is not signed in on this machine".into());
     }
-    claude_token_from(&out.stdout)
-        .ok_or_else(|| "no Claude access token in the keychain".to_string())
-}
 
-/// An access token and when it lapses (epoch ms), if the store says.
-#[derive(Debug, PartialEq)]
-struct ClaudeToken {
-    access: String,
-    expires_at_ms: Option<i64>,
-}
-
-/// The one shape both stores use.
-fn claude_token_from(raw: &[u8]) -> Option<ClaudeToken> {
-    let oauth = serde_json::from_slice::<Value>(raw).ok()?.get("claudeAiOauth")?.clone();
-    Some(ClaudeToken {
-        access: oauth.get("accessToken")?.as_str()?.to_owned(),
-        expires_at_ms: oauth.get("expiresAt").and_then(Value::as_i64),
-    })
-}
-
-/// `Ok(None)`: the access token has lapsed, so there is nothing to report.
-fn claude_windows(proxy: Option<&str>, folder: Option<&Path>) -> Result<Option<Vec<RateLimitWindow>>, String> {
-    let token = claude_token(folder)?;
-    if token.expires_at_ms.is_some_and(|at| at <= now_ms()) {
-        return Ok(None);
+    let token = oauth_field(&raw, "accessToken");
+    if token.is_none() && oauth_field(&raw, "refreshToken").is_none() {
+        return Err(Failure::Other("Claude Code is not signed in on this machine".into()));
     }
-    let token = token.access;
-    let body = client(proxy)
-        .ok_or("could not create an HTTP client")?
+    let first = match &token {
+        Some(token) => claude_usage(ctx.proxy.as_deref(), token),
+        None => Err(Failure::Other("no Claude access token".into())),
+    };
+    let message = match first {
+        Err(Failure::Other(message)) => message,
+        done => return done, // a reading, a refusal, or a rate limit: no fallback
+    };
+
+    // Orca's recovery: the CLI renews its own login while it reads `/usage`.
+    if !may_run_cli(key) {
+        return Err(Failure::Other(message));
+    }
+    let env = crate::agent_accounts::agent_env(&ctx.app, AgentKind::Claude, home);
+    let cli = plan_usage_cli::claude_usage(&env, &ctx.probe_dir);
+    if matches!(&cli, Err(f) if f.refused) {
+        return Err(refused("Anthropic"));
+    }
+    let renewed = read_claude_credentials(home).and_then(|(raw, _)| oauth_field(&raw, "accessToken"));
+    if let Some(renewed) = renewed.filter(|t| Some(t) != token.as_ref()) {
+        match claude_usage(ctx.proxy.as_deref(), &renewed) {
+            Err(Failure::Other(_)) => {}
+            done => return done,
+        }
+    }
+    cli.map_err(|f| cli_failure("Anthropic", f))
+}
+
+fn claude_usage(proxy: Option<&str>, token: &str) -> Result<Vec<RateLimitWindow>, Failure> {
+    let body = client(proxy)?
         .get(CLAUDE_USAGE_URL)
         .bearer_auth(token)
-        // Orca's headers, and they matter: the endpoint answers the CLI's
-        // OAuth beta, not a bare bearer request.
+        // The endpoint answers the CLI's OAuth beta, not a bare bearer request.
         .header("anthropic-beta", "oauth-2025-04-20")
         .header("User-Agent", "claude-code/2.1.0")
         .send()
         .and_then(|r| r.error_for_status())
-        .map_err(|e| short_error(&e))?
-        .text()
-        .map_err(|e| e.to_string())?;
-    let json: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    Ok(Some(claude_windows_from(&json)))
+        .and_then(|r| r.text())
+        .map_err(|e| http_failure("Anthropic", &e))?;
+    let json: Value = serde_json::from_str(&body).map_err(|e| Failure::Other(e.to_string()))?;
+    Ok(claude_windows_from(&json))
 }
 
-/// One readable line, not a chain of transport internals.
-fn short_error(e: &reqwest::Error) -> String {
-    if e.is_timeout() {
-        return "timed out — check the proxy in Settings".into();
+/// Renew an OAuth token as the CLI does. Ok(None) keeps the stored one: a
+/// failure here is never worse than not trying. Ok(Some) is the stored JSON
+/// with the new token merged in, the rotated refresh token included.
+fn refresh_claude_token(proxy: Option<&str>, raw: &str) -> Result<Option<String>, Failure> {
+    let Some(refresh_token) = oauth_field(raw, "refreshToken") else {
+        return Ok(None);
+    };
+    let response = client(proxy)?
+        .post(CLAUDE_TOKEN_URL)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(form_body(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token.as_str()),
+            ("client_id", CLAUDE_CLIENT_ID),
+        ]))
+        .send();
+    let response = match response {
+        Ok(r) if r.status().as_u16() == 403 => return Err(refused("Anthropic")),
+        Ok(r) if r.status().is_success() => r,
+        _ => return Ok(None),
+    };
+    let Some(answer) = response.text().ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
+        return Ok(None);
+    };
+    Ok(apply_refreshed_token(raw, &answer, now_ms()))
+}
+
+/// `application/x-www-form-urlencoded`, encoded by the URL parser.
+fn form_body(pairs: &[(&str, &str)]) -> String {
+    let mut url = reqwest::Url::parse("http://form.invalid/").expect("static URL");
+    url.query_pairs_mut().extend_pairs(pairs);
+    url.query().unwrap_or_default().to_string()
+}
+
+/// Merge a token-endpoint answer into the stored JSON, keeping every field the
+/// answer does not replace (Orca's `applyRefreshedToken`).
+fn apply_refreshed_token(raw: &str, answer: &Value, now: i64) -> Option<String> {
+    let mut stored: Value = serde_json::from_str(raw).ok()?;
+    let access = answer.get("access_token")?.as_str().filter(|t| !t.trim().is_empty())?;
+    let oauth = stored.get_mut("claudeAiOauth")?.as_object_mut()?;
+    oauth.insert("accessToken".into(), access.into());
+    if let Some(seconds) = answer.get("expires_in").and_then(Value::as_f64) {
+        // Whole milliseconds, as the CLI writes it.
+        oauth.insert("expiresAt".into(), (now + (seconds * 1000.0).round() as i64).into());
     }
-    if e.is_connect() {
-        return "could not connect — check the proxy in Settings".into();
+    if let Some(rotated) = answer.get("refresh_token").and_then(Value::as_str).filter(|t| !t.trim().is_empty()) {
+        oauth.insert("refreshToken".into(), rotated.into());
     }
-    match e.status() {
-        Some(code) if code.as_u16() == 401 || code.as_u16() == 403 => {
-            "signed out — sign in again in the CLI".into()
+    if let Some(scope) = answer.get("scope").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
+        oauth.insert("scopes".into(), scope.split(' ').collect::<Vec<_>>().into());
+    }
+    serde_json::to_string(&stored).ok()
+}
+
+/// Expired or within the buffer. No usable `expiresAt` counts as expiring, so a
+/// token without one is renewed rather than trusted for ever (Orca's rule).
+fn is_expiring(raw: &str, now: i64) -> bool {
+    let Some(oauth) = serde_json::from_str::<Value>(raw).ok().and_then(|v| v.get("claudeAiOauth").cloned()) else {
+        return false;
+    };
+    match oauth.get("expiresAt").and_then(Value::as_f64) {
+        Some(at) => (now + EXPIRY_BUFFER_MS) as f64 >= at,
+        None => true,
+    }
+}
+
+fn oauth_field(raw: &str, field: &str) -> Option<String> {
+    serde_json::from_str::<Value>(raw)
+        .ok()?
+        .get("claudeAiOauth")?
+        .get(field)?
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_owned)
+}
+
+/// Where a login's credentials were found, so a renewed token goes back there.
+/// A keychain item is named by its service and its account; the account is
+/// None when it could not be read, and then nothing is written.
+enum CredentialStore {
+    Keychain { service: String, account: Option<String> },
+    File(PathBuf),
+}
+
+/// The CLI's stored credentials JSON. `home` None is the default login. An
+/// account's keychain entry is named after its folder, and an account never
+/// falls back to the default's: that would report one account's plan as another's.
+fn read_claude_credentials(home: Option<&Path>) -> Option<(String, CredentialStore)> {
+    if cfg!(target_os = "macos") {
+        let service = home.map_or_else(|| "Claude Code-credentials".to_string(), agent_accounts::claude_keychain_service);
+        let out = crate::runtime::quiet_command("security")
+            .args(["find-generic-password", "-s", &service, "-w"])
+            .output()
+            .ok()?;
+        let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && oauth_field(&raw, "accessToken").or_else(|| oauth_field(&raw, "refreshToken")).is_some() {
+            let account = keychain_account(&service);
+            return Some((raw, CredentialStore::Keychain { service, account }));
         }
-        Some(code) => format!("the provider answered {code}"),
-        None => e.to_string(),
+    }
+    let folder = match home {
+        Some(home) => home.to_path_buf(),
+        None => AgentKind::Claude.default_home().ok()?,
+    };
+    let path = folder.join(".credentials.json");
+    let raw = std::fs::read_to_string(&path).ok()?;
+    oauth_field(&raw, "accessToken").or_else(|| oauth_field(&raw, "refreshToken"))?;
+    Some((raw, CredentialStore::File(path)))
+}
+
+/// The account name on a keychain item, from `security`'s attribute dump.
+fn keychain_account(service: &str) -> Option<String> {
+    let found = crate::runtime::quiet_command("security")
+        .args(["find-generic-password", "-s", service])
+        .output()
+        .ok()?;
+    parse_keychain_account(&String::from_utf8_lossy(&found.stdout))
+}
+
+fn parse_keychain_account(attrs: &str) -> Option<String> {
+    attrs
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("\"acct\"<blob>=\"")?.strip_suffix('"').map(str::to_owned))
+        .filter(|a| !a.is_empty())
+}
+
+impl CredentialStore {
+    fn writable(&self) -> bool {
+        match self {
+            Self::Keychain { account, .. } => account.is_some(),
+            Self::File(path) => path.parent().is_some_and(Path::is_dir),
+        }
+    }
+
+    fn write(&self, raw: &str) -> Result<(), String> {
+        match self {
+            // Same call as Orca's: `-U` updates the item in place, keeping its
+            // account name.
+            Self::Keychain { service, account } => {
+                let account = account.as_deref().ok_or("no account name on the keychain item")?;
+                let status = crate::runtime::quiet_command("security")
+                    .args(["add-generic-password", "-U", "-s", service, "-a", account, "-w", raw])
+                    .status()
+                    .map_err(|e| e.to_string())?;
+                status.success().then_some(()).ok_or_else(|| "the keychain refused the update".into())
+            }
+            // Written beside and renamed over, so a reader never sees half a file.
+            Self::File(path) => {
+                let temp = path.with_extension("json.osd-tmp");
+                std::fs::write(&temp, raw).map_err(|e| e.to_string())?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600));
+                }
+                std::fs::rename(&temp, path).map_err(|e| e.to_string())
+            }
+        }
     }
 }
 
@@ -291,82 +557,33 @@ fn parse_reset(value: &Value) -> Option<i64> {
         // Orca's rule: past 1e10 it can only be milliseconds.
         return Some(if n > 10_000_000_000 { n / 1000 } else { n });
     }
-    // The same ISO-8601 reader the transcript scanner uses, so one parser
-    // covers every timestamp this app reads.
     Some(iso8601_to_epoch_ms(value.as_str()?)? / 1000)
 }
 
 // ─── Codex ──────────────────────────────────────────────────────────
 
-fn codex_windows(proxy: Option<&str>, folder: Option<&Path>) -> Result<Vec<RateLimitWindow>, String> {
-    let path = match folder {
-        Some(folder) => folder.join("auth.json"),
-        None => dirs_home().ok_or("no home directory")?.join(".codex").join("auth.json"),
+/// Orca's order: is anyone signed in, then the RPC, then `/status` unless the
+/// RPC said the login itself is the problem.
+fn codex_plan(ctx: &Ctx, home: Option<&Path>, key: &str) -> Result<Vec<RateLimitWindow>, Failure> {
+    let folder = match home {
+        Some(home) => home.to_path_buf(),
+        None => AgentKind::Codex.default_home().map_err(Failure::Other)?,
     };
-    let raw = std::fs::read(path)
-        .map_err(|_| "Codex is not signed in on this machine".to_string())?;
-    let auth: Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
-    let tokens = auth.get("tokens").ok_or("no Codex tokens on this machine")?;
-    let token = tokens
-        .get("access_token")
-        .and_then(Value::as_str)
-        .ok_or("no Codex access token")?;
-    let mut request = client(proxy)
-        .ok_or("could not create an HTTP client")?
-        .get(CODEX_USAGE_URL)
-        .bearer_auth(token)
-        .header("User-Agent", "codex-cli")
-        .header("OpenAI-Beta", "codex-1")
-        .header("originator", "Codex Desktop");
-    if let Some(account) = tokens.get("account_id").and_then(Value::as_str) {
-        request = request.header("ChatGPT-Account-Id", account);
+    if !folder.join("auth.json").is_file() {
+        return Err(Failure::Other("Codex is not signed in on this machine".into()));
     }
-    let body = request
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| short_error(&e))?
-        .text()
-        .map_err(|e| e.to_string())?;
-    let json: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    Ok(codex_windows_from(&json))
-}
-
-/// Map ChatGPT's answer: a primary and (on some plans) a secondary window, each
-/// with the percentage used and the seconds the window spans.
-pub fn codex_windows_from(body: &Value) -> Vec<RateLimitWindow> {
-    let plan_type = body
-        .get("plan_type")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    let Some(limit) = body.get("rate_limit") else {
-        return Vec::new();
+    let env = crate::agent_accounts::agent_env(&ctx.app, AgentKind::Codex, home);
+    let rpc = match plan_usage_cli::codex_rpc(&env, &ctx.probe_dir) {
+        Ok(windows) => return Ok(windows),
+        Err(f) if f.refused || f.auth || f.message == "Codex CLI not found" => {
+            return Err(cli_failure("OpenAI", f))
+        }
+        Err(f) => f,
     };
-    let mut windows: Vec<RateLimitWindow> = ["primary_window", "secondary_window"]
-        .into_iter()
-        .filter_map(|key| codex_window(limit.get(key)?, plan_type.clone()))
-        .collect();
-    // Shortest window first, so the one that bites soonest reads first.
-    windows.sort_by_key(|w| w.window_minutes);
-    windows
-}
-
-fn codex_window(raw: &Value, plan_type: Option<String>) -> Option<RateLimitWindow> {
-    let used_percent = raw.get("used_percent")?.as_f64()?;
-    Some(RateLimitWindow {
-        used_percent,
-        window_minutes: raw
-            .get("limit_window_seconds")
-            .and_then(Value::as_u64)
-            .map(|s| s / 60)
-            .unwrap_or(0),
-        resets_at: raw.get("reset_at").and_then(parse_reset),
-        as_of_ms: now_ms(),
-        plan_type,
-    })
-}
-
-fn dirs_home() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME").map(std::path::PathBuf::from)
+    if !may_run_cli(key) {
+        return Err(Failure::Other(rpc.message));
+    }
+    plan_usage_cli::codex_status(&env, &ctx.probe_dir).map_err(|f| cli_failure("OpenAI", f))
 }
 
 fn now_ms() -> i64 {
@@ -389,6 +606,10 @@ mod tests {
       "nimbus_quill": {"utilization": 0.0, "resets_at": null}
     }"#;
 
+    fn window(used: f64) -> RateLimitWindow {
+        RateLimitWindow { used_percent: used, window_minutes: 300, resets_at: None, as_of_ms: 1, plan_type: None }
+    }
+
     #[test]
     fn reads_claudes_own_figure_for_the_plan() {
         let windows = claude_windows_from(&serde_json::from_str(CLAUDE_BODY).unwrap());
@@ -403,68 +624,104 @@ mod tests {
 
     #[test]
     fn a_window_the_plan_does_not_have_is_absent_rather_than_zero() {
-        // `seven_day` missing entirely: no bar, rather than a bar reading 0%.
         let body = serde_json::json!({ "five_hour": { "utilization": 12.0 } });
         let windows = claude_windows_from(&body);
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].resets_at, None);
-    }
-
-    const CODEX_BODY: &str = r#"{
-      "plan_type": "prolite",
-      "rate_limit": {
-        "primary_window": {"used_percent": 33, "limit_window_seconds": 604800, "reset_at": 1790057375},
-        "secondary_window": null
-      }
-    }"#;
-
-    #[test]
-    fn reads_codexs_own_figure_rather_than_an_old_session_file() {
-        let windows = codex_windows_from(&serde_json::from_str(CODEX_BODY).unwrap());
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].used_percent, 33.0);
-        // 604800s is the week.
-        assert_eq!(windows[0].window_minutes, 10080);
-        assert_eq!(windows[0].resets_at, Some(1790057375));
-        assert_eq!(windows[0].plan_type.as_deref(), Some("prolite"));
-    }
-
-    #[test]
-    fn puts_the_shortest_codex_window_first() {
-        let body = serde_json::json!({
-            "rate_limit": {
-                "primary_window": {"used_percent": 45, "limit_window_seconds": 604800},
-                "secondary_window": {"used_percent": 8, "limit_window_seconds": 18000}
-            }
-        });
-        let windows = codex_windows_from(&body);
-        assert_eq!(
-            windows.iter().map(|w| w.window_minutes).collect::<Vec<_>>(),
-            vec![300, 10080]
-        );
-    }
-
-    #[test]
-    fn one_token_shape_serves_the_keychain_and_the_file() {
-        // The keychain entry holds this JSON; the file store is read with the
-        // same parse, so a signed-in user is found on every platform rather
-        // than only where `security` exists.
-        let raw = br#"{"claudeAiOauth":{"accessToken":"sk-tok","refreshToken":"r","expiresAt":1790000000000}}"#;
-        assert_eq!(
-            claude_token_from(raw),
-            Some(ClaudeToken { access: "sk-tok".into(), expires_at_ms: Some(1790000000000) })
-        );
-        let no_expiry = br#"{"claudeAiOauth":{"accessToken":"sk-tok"}}"#;
-        assert_eq!(claude_token_from(no_expiry).map(|t| t.expires_at_ms), Some(None));
-        // Anything else is "no token found", never a wrong one.
-        assert_eq!(claude_token_from(b"not json"), None);
-        assert_eq!(claude_token_from(br#"{"claudeAiOauth":{}}"#), None);
-        assert_eq!(claude_token_from(br#"{"other":{"accessToken":"x"}}"#), None);
-    }
-
-    #[test]
-    fn an_answer_with_no_limits_reports_nothing() {
-        assert!(codex_windows_from(&serde_json::json!({ "plan_type": "free" })).is_empty());
         assert!(claude_windows_from(&serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn a_refusal_is_remembered_and_drops_the_old_reading() {
+        let mut memory = Memory::default();
+        settle(&mut memory, "claude:a", Ok(vec![window(10.0)]), 0);
+        let (windows, error) = settle(&mut memory, "claude:a", Err(refused("Anthropic")), 1);
+        assert!(windows.is_empty());
+        assert!(error.unwrap().contains("403"));
+        assert!(memory.refused.contains_key("claude:a"));
+        assert!(!memory.last_good.contains_key("claude:a"));
+    }
+
+    #[test]
+    fn a_recent_reading_stands_in_until_it_ages_out() {
+        let mut memory = Memory::default();
+        settle(&mut memory, "k", Ok(vec![window(10.0)]), 0);
+        let (windows, error) = settle(&mut memory, "k", Err(Failure::Other("offline".into())), STALE_MS - 1);
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].as_of_ms, 1, "the stand-in keeps its own age");
+        assert_eq!(error, None);
+        let (windows, error) = settle(&mut memory, "k", Err(Failure::Other("offline".into())), STALE_MS);
+        assert!(windows.is_empty());
+        assert_eq!(error.as_deref(), Some("offline"));
+        // A rate limit lets it stand for a day.
+        let (windows, _) = settle(&mut memory, "k", Err(Failure::RateLimited("429".into())), STALE_MS * 2);
+        assert_eq!(windows.len(), 1);
+    }
+
+    #[test]
+    fn expiry_follows_orcas_rule() {
+        let at = |ms: i64| format!(r#"{{"claudeAiOauth":{{"accessToken":"a","expiresAt":{ms}}}}}"#);
+        assert!(is_expiring(&at(1_000), 1_000));
+        assert!(is_expiring(&at(1_000 + EXPIRY_BUFFER_MS), 1_000), "inside the buffer");
+        assert!(!is_expiring(&at(2_000 + EXPIRY_BUFFER_MS), 1_000));
+        assert!(is_expiring(r#"{"claudeAiOauth":{"accessToken":"a"}}"#, 0), "no expiry: renew");
+        assert!(!is_expiring("not json", 0));
+    }
+
+    #[test]
+    fn a_renewed_token_keeps_what_the_answer_does_not_replace() {
+        let raw = r#"{"claudeAiOauth":{"accessToken":"old","refreshToken":"r1","expiresAt":1,"subscriptionType":"max"},"other":1}"#;
+        let answer = serde_json::json!({"access_token": "new", "expires_in": 3600, "refresh_token": "r2"});
+        let merged: Value = serde_json::from_str(&apply_refreshed_token(raw, &answer, 1_000).unwrap()).unwrap();
+        let oauth = &merged["claudeAiOauth"];
+        assert_eq!(oauth["accessToken"], "new");
+        assert_eq!(oauth["refreshToken"], "r2");
+        assert_eq!(oauth["expiresAt"].as_i64(), Some(3_601_000));
+        assert_eq!(oauth["subscriptionType"], "max");
+        assert_eq!(merged["other"], 1);
+        // No access token in the answer: keep the stored credentials.
+        assert_eq!(apply_refreshed_token(raw, &serde_json::json!({}), 0), None);
+    }
+
+    /// Renew an added account's lapsed token and read its plan, as a refresh
+    /// would. Rotates that account's real refresh token. Run by hand:
+    /// `OSD_TEST_CLAUDE_HOME=<account home> OSD_TEST_PROXY=<url> cargo test
+    /// --lib plan_usage::tests::live -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_renew_an_added_account() {
+        let home = PathBuf::from(std::env::var("OSD_TEST_CLAUDE_HOME").expect("OSD_TEST_CLAUDE_HOME"));
+        let proxy = std::env::var("OSD_TEST_PROXY").ok();
+        let (raw, store) = read_claude_credentials(Some(&home)).expect("signed in");
+        let expires = |raw: &str| serde_json::from_str::<Value>(raw).ok().and_then(|v| v["claudeAiOauth"]["expiresAt"].as_i64());
+        eprintln!("stored expiresAt {:?}, now {}, writable {}", expires(&raw), now_ms(), store.writable());
+        assert!(store.writable());
+        let renewed = match refresh_claude_token(proxy.as_deref(), &raw) {
+            Ok(Some(renewed)) => renewed,
+            other => panic!("not renewed: {other:?}"),
+        };
+        store.write(&renewed).expect("saved");
+        let (again, _) = read_claude_credentials(Some(&home)).unwrap();
+        assert_eq!(oauth_field(&again, "accessToken"), oauth_field(&renewed, "accessToken"), "the saved token is the new one");
+        eprintln!("renewed expiresAt {:?}", expires(&again));
+        let windows = claude_usage(proxy.as_deref(), &oauth_field(&again, "accessToken").unwrap());
+        eprintln!("{windows:?}");
+        assert!(windows.is_ok());
+    }
+
+    #[test]
+    fn reads_the_keychain_account_name() {
+        let attrs = "keychain: \"/Users/a/Library/Keychains/login.keychain-db\"\nattributes:\n    \"acct\"<blob>=\"asq\"\n    \"svce\"<blob>=\"Claude Code-credentials\"\n";
+        assert_eq!(parse_keychain_account(attrs).as_deref(), Some("asq"));
+        assert_eq!(parse_keychain_account("    \"acct\"<blob>=<NULL>\n"), None);
+    }
+
+    #[test]
+    fn reads_the_one_shape_both_stores_use() {
+        let raw = r#"{"claudeAiOauth":{"accessToken":"sk-tok","refreshToken":"r"}}"#;
+        assert_eq!(oauth_field(raw, "accessToken").as_deref(), Some("sk-tok"));
+        assert_eq!(oauth_field("not json", "accessToken"), None);
+        assert_eq!(oauth_field(r#"{"claudeAiOauth":{}}"#, "accessToken"), None);
+        assert_eq!(oauth_field(r#"{"other":{"accessToken":"x"}}"#, "accessToken"), None);
     }
 }

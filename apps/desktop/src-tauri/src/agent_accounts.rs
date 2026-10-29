@@ -74,20 +74,28 @@ fn data_dir(app: &AppHandle) -> PathBuf {
 /// would run it.
 fn agent_command(app: &AppHandle, kind: AgentKind, home: Option<&Path>) -> std::process::Command {
     let mut cmd = crate::runtime::quiet_command(kind.binary());
-    cmd.env("PATH", crate::runtime::enriched_path());
-    for (k, v) in crate::runtime::sidecar_proxy_env(app) {
+    let (set, unset) = agent_env(app, kind, home);
+    for (k, v) in set {
         cmd.env(k, v);
     }
-    if let Some(home) = home {
-        let (set, unset) = agent_accounts::launch_env(kind, home);
-        for (k, v) in set {
-            cmd.env(k, v);
-        }
-        for k in unset {
-            cmd.env_remove(k);
-        }
+    for k in unset {
+        cmd.env_remove(k);
     }
     cmd
+}
+
+/// The variables `agent_command` sets and removes, for callers that start the
+/// agent some other way (on a pseudo-terminal).
+pub(crate) fn agent_env(app: &AppHandle, kind: AgentKind, home: Option<&Path>) -> agent_accounts::LaunchEnv {
+    let mut set = vec![("PATH".to_string(), crate::runtime::enriched_path())];
+    set.extend(crate::runtime::sidecar_proxy_env(app).into_iter().map(|(k, v)| (k.to_string(), v)));
+    let mut unset = Vec::new();
+    if let Some(home) = home {
+        let (account_set, account_unset) = agent_accounts::launch_env(kind, home);
+        set.extend(account_set);
+        unset = account_unset;
+    }
+    (set, unset)
 }
 
 /// Run a short command and return its stdout, killing it if it hangs.
