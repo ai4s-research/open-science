@@ -106,6 +106,15 @@ describe('runComputerVerb', () => {
     }
   })
 
+  it('rejects an invented verb and points a screenshot at get_state', async () => {
+    const { runComputerVerb: run } = await withProvider(provider)
+    await expect(run('screenshot' as never, { app: 'Origin' })).rejects.toMatchObject({
+      code: 'invalid_argument',
+      message: expect.stringContaining('get_state with screenshot: true')
+    })
+    expect(provider.action).not.toHaveBeenCalled()
+  })
+
   it('says computer use is unavailable rather than throwing something opaque', async () => {
     const { runComputerVerb: run } = await withProvider(null)
     await expect(run('list_apps', {})).rejects.toMatchObject({

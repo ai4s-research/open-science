@@ -61,7 +61,7 @@ impl Args {
         // A second bare word is the subcommand only for the grouped commands;
         // `osd session send <id>` must not lose its id.
         let sub = match command.as_str() {
-            "session" | "screen" | "term" | "question" | "project" | "run" | "fs" | "permission" | "auth" | "account" | "model" | "approval"
+            "session" | "screen" | "term" | "question" | "project" | "run" | "fs" | "permission" | "auth" | "account" | "model" | "approval" | "settings"
                 if !positional.is_empty() =>
             {
                 positional.remove(0)
@@ -108,6 +108,13 @@ mod tests {
         assert_eq!(a.sub, "send");
         assert_eq!(a.at(0, "session").unwrap(), "ses_123");
         assert_eq!(a.rest(1), "hello there");
+    }
+
+    #[test]
+    fn settings_takes_a_subcommand() {
+        let a = parse("settings set appearance.theme=dark --reason why");
+        assert_eq!(a.sub, "set");
+        assert_eq!(a.at(0, "change").unwrap(), "appearance.theme=dark");
     }
 
     #[test]

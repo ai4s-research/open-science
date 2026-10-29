@@ -108,6 +108,15 @@ export async function runComputerVerb(
   verb: ComputerVerb,
   args: Record<string, unknown>
 ): Promise<ComputerResult> {
+  // The tool's schema lists the verbs, but the runtime does not enforce it, so
+  // an invented verb would otherwise reach a provider as an undefined method.
+  if (!(COMPUTER_VERBS as readonly string[]).includes(verb)) {
+    throw new RuntimeClientError(
+      'invalid_argument',
+      `unknown verb ${JSON.stringify(verb)}; use one of ${COMPUTER_VERBS.join(', ')}. ` +
+        'For an image, call get_state with screenshot: true.'
+    )
+  }
   const params = providerParams(args)
   const provider = currentComputerProvider()
   if (!provider) {
