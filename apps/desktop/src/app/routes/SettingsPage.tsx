@@ -99,7 +99,7 @@ import {
   IconPersonalizationOutlineMedium,
 } from "@/components/icons/dsh";
 import appearanceCss from "@/components/settings/Appearance.module.css";
-import { CONTENT_FONT_MAX, CONTENT_FONT_MIN, type Theme } from "@/lib/store";
+import { CONTENT_FONT_MAX, CONTENT_FONT_MIN, THEME_VARIANTS, type Theme } from "@/lib/store";
 
 /** Appearance cubes in DSH's order (Light, Dark, System), with this app's
  *  warm palette beside light. */
@@ -161,6 +161,12 @@ function SettingsPageContent() {
   const contentFontSize = useUiStore((s) => s.contentFontSize);
   const setContentFontSize = useUiStore((s) => s.setContentFontSize);
   const setTheme = useUiStore((s) => s.setTheme);
+  // Warm and dark each come in a few variants; the picker shows the ones of
+  // the theme on screen (with "system", the one the OS picked).
+  const resolvedTheme = useUiStore((s) => s.resolvedTheme);
+  const variantTheme = resolvedTheme === "light" ? null : resolvedTheme;
+  const themeVariants = useUiStore((s) => s.themeVariants);
+  const setThemeVariant = useUiStore((s) => s.setThemeVariant);
   const locale = useUiStore((s) => s.locale);
   const setLocale = useUiStore((s) => s.setLocale);
   const zoom = useUiStore((s) => s.zoom);
@@ -2153,6 +2159,46 @@ function SettingsPageContent() {
                 ))}
               </div>
             </div>
+            {variantTheme && (
+              <div className={appearanceCss.group}>
+                <div className={appearanceCss.title}>{t(`appearance.variantLabel.${variantTheme}`)}</div>
+                <div className={appearanceCss.swatchRow}>
+                  {THEME_VARIANTS[variantTheme].map((variant) => (
+                    <button
+                      key={variant}
+                      type="button"
+                      className={cn(
+                        appearanceCss.swatch,
+                        themeVariants[variantTheme] === variant && appearanceCss.swatchOn,
+                      )}
+                      aria-pressed={themeVariants[variantTheme] === variant}
+                      onClick={() => setThemeVariant(variantTheme, variant)}
+                    >
+                      {/* Painted by the variant's own CSS: the same two
+                          attributes the root carries (index.css). */}
+                      <span
+                        className={appearanceCss.preview}
+                        data-theme={variantTheme}
+                        data-variant={variant}
+                        aria-hidden
+                      >
+                        <span className={appearanceCss.previewSide} />
+                        <span className={appearanceCss.previewMain}>
+                          <span className={appearanceCss.previewText} />
+                          <span className={appearanceCss.previewMuted} />
+                          <span className={appearanceCss.previewTerm}>
+                            {[1, 2, 3, 4, 5, 6].map((i) => (
+                              <i key={i} style={{ background: `var(--term-ansi-${i})` }} />
+                            ))}
+                          </span>
+                        </span>
+                      </span>
+                      {t(`appearance.variant.${variant}`)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className={appearanceCss.row}>
               <div className={appearanceCss.rowText}>
                 <div className={appearanceCss.title}>{t("appearance.fontSize.title")}</div>

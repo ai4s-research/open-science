@@ -56,7 +56,8 @@ export function FileEditor({
   valueRef.current = value;
   const ariaLabelRef = useRef(ariaLabel);
   ariaLabelRef.current = ariaLabel;
-  const theme = useUiStore((s) => s.resolvedTheme);
+  // The look on screen: the theme, and for warm and dark the variant chosen.
+  const theme = useUiStore((s) => `${s.resolvedTheme}-${s.resolvedVariant ?? ""}`);
 
   useImperativeHandle(
     handleRef,

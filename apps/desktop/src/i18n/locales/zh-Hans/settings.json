@@ -23,6 +23,18 @@
       "dark": "深色",
       "system": "跟随系统"
     },
+    "variantLabel": {
+      "warm": "暖色配色",
+      "dark": "深色配色"
+    },
+    "variant": {
+      "soft": "柔白",
+      "paper": "纸面",
+      "sepia": "米黄",
+      "dimmed": "灰蓝",
+      "graphite": "暖石墨",
+      "slate": "深灰"
+    },
     "zoom": {
       "label": "缩放",
       "hint": "{{mod}} + / − 缩放，{{mod}} 0 复原",

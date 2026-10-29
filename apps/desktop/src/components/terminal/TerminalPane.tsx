@@ -462,7 +462,7 @@ export function TerminalPane({
       const themeWatch = new MutationObserver(() => {
         term.options.theme = readTheme();
       });
-      themeWatch.observe(document.documentElement, { attributeFilter: ["data-theme"] });
+      themeWatch.observe(document.documentElement, { attributeFilter: ["data-theme", "data-variant"] });
 
       // Sent once, on the pane's FIRST open — never on a remount, which would
       // re-run it over whatever the user is doing in that shell.
@@ -754,12 +754,27 @@ function readTheme() {
   const value = (name: string, fallback: string) =>
     style.getPropertyValue(name).trim() || fallback;
   const accent = value("--accent", "#c15f3c");
+  // The 16 ANSI colours each theme tunes for its own ground (index.css);
+  // xterm's defaults are for a black one, and vanish on a light ground.
+  const ansi = Object.fromEntries(
+    ANSI_NAMES.flatMap((name, i) => {
+      const c = style.getPropertyValue(`--term-ansi-${i}`).trim();
+      return c ? [[name, c]] : [];
+    }),
+  );
   return {
     background: value("--surface", "#ffffff"),
-    foreground: value("--text", "#2a2723"),
+    foreground: value("--term-fg", value("--text", "#2a2723")),
     cursor: accent,
     // Accent at 30% (hex alpha 4d): agents paint the input line in a pale
     // surface tone, so a surface-coloured selection would vanish on it.
     selectionBackground: `${accent}4d`,
+    ...ansi,
   };
 }
+
+const ANSI_NAMES = [
+  "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+  "brightBlack", "brightRed", "brightGreen", "brightYellow",
+  "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
+] as const;

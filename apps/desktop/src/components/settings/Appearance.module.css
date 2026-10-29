@@ -51,6 +51,99 @@
   border-color: color-mix(in srgb, var(--dsw-alias-label-tertiary) 70%, transparent);
 }
 
+/* Variant swatches: a small window drawn in the variant's own colours (the
+   preview carries data-theme / data-variant, so var() resolves to them).
+   The ring is the page's, set on the button before the preview re-themes. */
+.swatchRow {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.swatch {
+  --ring: var(--dsw-alias-border-l4);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.swatch:hover .preview {
+  --ring-width: 1px;
+}
+
+.swatchOn {
+  --ring: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary);
+}
+
+.preview {
+  display: flex;
+  width: 120px;
+  height: 72px;
+  border-radius: var(--dsw-radius-sm);
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: 0 0 0 var(--ring-width, 0.5px) var(--ring);
+}
+
+.swatchOn .preview {
+  --ring-width: 1.5px;
+}
+
+.previewSide {
+  width: 28%;
+  background: var(--bg);
+  border-right: 0.5px solid var(--border-faint);
+}
+
+.previewMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 8px 8px;
+  background: var(--surface);
+}
+
+.previewText,
+.previewMuted {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.previewText {
+  width: 72%;
+  background: var(--text);
+}
+
+.previewMuted {
+  width: 48%;
+  background: var(--muted);
+}
+
+.previewTerm {
+  display: flex;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 7px;
+  border-top: 0.5px solid var(--border);
+}
+
+.previewTerm i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
 .row {
   display: flex;
   align-items: center;

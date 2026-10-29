@@ -16,7 +16,7 @@ import {
   type GatewayStatus,
 } from "./tauri";
 import { useRuntimeStore } from "./runtime";
-import { useUiStore, ZOOM_MAX, ZOOM_MIN, type Theme } from "./store";
+import { THEME_VARIANTS, useUiStore, ZOOM_MAX, ZOOM_MIN, type Theme, type ThemeVariant } from "./store";
 import { useUpdateStore } from "./update";
 import { localeMeta, shippedLocales } from "@/i18n/config";
 import type { ParseKeys } from "i18next";
@@ -257,6 +257,26 @@ export const SETTINGS: readonly SettingDef[] = [
     optionLabel: (v) => `appearance.theme.${v as Theme}`,
     read: async () => ui().theme,
     write: async (v) => ui().setTheme(v as Theme),
+  },
+  {
+    key: "appearance.warmVariant",
+    section: "appearance",
+    label: "appearance.variantLabel.warm",
+    kind: "enum",
+    options: [...THEME_VARIANTS.warm],
+    optionLabel: (v) => `appearance.variant.${v as ThemeVariant}`,
+    read: async () => ui().themeVariants.warm,
+    write: async (v) => ui().setThemeVariant("warm", v as ThemeVariant),
+  },
+  {
+    key: "appearance.darkVariant",
+    section: "appearance",
+    label: "appearance.variantLabel.dark",
+    kind: "enum",
+    options: [...THEME_VARIANTS.dark],
+    optionLabel: (v) => `appearance.variant.${v as ThemeVariant}`,
+    read: async () => ui().themeVariants.dark,
+    write: async (v) => ui().setThemeVariant("dark", v as ThemeVariant),
   },
   {
     key: "appearance.language",

@@ -8,6 +8,25 @@ export type ResolvedTheme = Exclude<Theme, "system">;
 
 export const THEMES: readonly Theme[] = ["light", "warm", "dark", "system"];
 
+/** Other looks for the warm and dark themes (index.css, `data-variant`). The
+ *  first of each is the default. */
+export const THEME_VARIANTS = {
+  warm: ["soft", "paper", "sepia"],
+  dark: ["dimmed", "graphite", "slate"],
+} as const;
+export type VariantTheme = keyof typeof THEME_VARIANTS;
+export type ThemeVariant = (typeof THEME_VARIANTS)[VariantTheme][number];
+const VARIANT_KEY = (theme: VariantTheme) => `ai4s.theme.${theme}.variant`;
+
+function initialVariants(): Record<VariantTheme, ThemeVariant> {
+  const pick = (theme: VariantTheme): ThemeVariant => {
+    const saved = typeof window === "undefined" ? null : window.localStorage.getItem(VARIANT_KEY(theme));
+    const known: readonly string[] = THEME_VARIANTS[theme];
+    return saved && known.includes(saved) ? (saved as ThemeVariant) : THEME_VARIANTS[theme][0];
+  };
+  return { warm: pick("warm"), dark: pick("dark") };
+}
+
 const THEME_KEY = "ai4s.theme.v2";
 /** Two-theme era key: its "light" was the warm paper palette, now called "warm". */
 const LEGACY_THEME_KEY = "ai4s.theme";
@@ -83,6 +102,11 @@ interface UiState {
   theme: Theme;
   /** What is on screen; ThemeProvider keeps it in step with the OS for "system". */
   resolvedTheme: ResolvedTheme;
+  /** The variant on screen (null for light), set with `resolvedTheme` once the
+   *  page carries it, so readers of the CSS colours see the new ones. */
+  resolvedVariant: ThemeVariant | null;
+  /** The chosen look of the warm and the dark theme. */
+  themeVariants: Record<VariantTheme, ThemeVariant>;
   /** Conversation text size in px; see CONTENT_FONT_DEFAULT. */
   contentFontSize: number;
   /** Active UI locale (BCP-47). Persisted; mirrors the `theme` pattern. */
@@ -108,7 +132,8 @@ interface UiState {
    *  provenance Reproduce action) — consumed on the next composer render. */
   composerDraft: string | null;
   setTheme: (theme: Theme) => void;
-  setResolvedTheme: (theme: ResolvedTheme) => void;
+  setResolvedTheme: (theme: ResolvedTheme, variant: ThemeVariant | null) => void;
+  setThemeVariant: (theme: VariantTheme, variant: ThemeVariant) => void;
   setContentFontSize: (px: number) => void;
   toggleTheme: () => void;
   setLocale: (locale: string) => void;
@@ -129,6 +154,8 @@ interface UiState {
 export const useUiStore = create<UiState>((set, get) => ({
   theme: initialTheme(),
   resolvedTheme: "light",
+  resolvedVariant: null,
+  themeVariants: initialVariants(),
   contentFontSize: initialContentFontSize(),
   locale: detectInitialLocale(),
   inspectorOpen: true,
@@ -142,7 +169,12 @@ export const useUiStore = create<UiState>((set, get) => ({
     if (typeof window !== "undefined") window.localStorage.setItem(THEME_KEY, theme);
     set({ theme });
   },
-  setResolvedTheme: (resolvedTheme) => set({ resolvedTheme }),
+  setResolvedTheme: (resolvedTheme, resolvedVariant) => set({ resolvedTheme, resolvedVariant }),
+  setThemeVariant: (theme, variant) => {
+    if (!(THEME_VARIANTS[theme] as readonly string[]).includes(variant)) return;
+    if (typeof window !== "undefined") window.localStorage.setItem(VARIANT_KEY(theme), variant);
+    set((s) => ({ themeVariants: { ...s.themeVariants, [theme]: variant } }));
+  },
   setContentFontSize: (px) => {
     const next = Math.min(CONTENT_FONT_MAX, Math.max(CONTENT_FONT_MIN, Math.round(px)));
     if (typeof window !== "undefined") window.localStorage.setItem(CONTENT_FONT_KEY, String(next));

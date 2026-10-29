@@ -21,3 +21,20 @@ describe("uiStore theme", () => {
     expect(window.localStorage.getItem("ai4s.theme.v2")).toBe("warm");
   });
 });
+
+describe("uiStore theme variants", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("defaults to the first variant of each theme", () => {
+    expect(useUiStore.getState().themeVariants).toEqual({ warm: "soft", dark: "dimmed" });
+  });
+
+  it("keeps a variant per theme, persisted, and ignores one of another theme", () => {
+    useUiStore.getState().setThemeVariant("dark", "graphite");
+    expect(useUiStore.getState().themeVariants).toEqual({ warm: "soft", dark: "graphite" });
+    expect(window.localStorage.getItem("ai4s.theme.dark.variant")).toBe("graphite");
+
+    useUiStore.getState().setThemeVariant("warm", "graphite");
+    expect(useUiStore.getState().themeVariants.warm).toBe("soft");
+  });
+});

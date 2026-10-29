@@ -18,11 +18,13 @@
   --zoom: 1;
 }
 
-/* Warm — the original paper palette, and the default theme. */
+/* Warm — the original paper palette, and the default theme. Its default
+   variant, "soft": the session and terminal sit on a barely warm white rather
+   than pure white, so the window reads as one sheet. Other variants below. */
 :root,
 [data-theme="warm"] {
   --bg: #f7f5ef;
-  --surface: #ffffff;
+  --surface: #fdfcf9;
   --surface-2: #f2efe7;
   --border: #e7e3da;
   --border-faint: #efece5;
@@ -59,6 +61,24 @@
   --hl-addition-bg: #dafbe1;
   --hl-deletion: #82071e;
   --hl-deletion-bg: #ffebe9;
+
+  /* Terminal colours, tuned for this light ground (xterm's own are for black). */
+  --term-ansi-0: #3a332b;
+  --term-ansi-1: #b8442f;
+  --term-ansi-2: #56782a;
+  --term-ansi-3: #9a6a00;
+  --term-ansi-4: #2f62a8;
+  --term-ansi-5: #8a4b8f;
+  --term-ansi-6: #1f7470;
+  --term-ansi-7: #c9c2b4;
+  --term-ansi-8: #8a8174;
+  --term-ansi-9: #c9533c;
+  --term-ansi-10: #668c33;
+  --term-ansi-11: #ad7a00;
+  --term-ansi-12: #3f74bd;
+  --term-ansi-13: #9d5aa2;
+  --term-ansi-14: #28857f;
+  --term-ansi-15: #e9e4da;
 }
 
 /* Light — clean white with neutral (cool) grays and a blue accent (the warm
@@ -100,25 +120,45 @@
   --hl-addition-bg: #dafbe1;
   --hl-deletion: #82071e;
   --hl-deletion-bg: #ffebe9;
+
+  /* Terminal colours, tuned for a white ground. */
+  --term-ansi-0: #24292f;
+  --term-ansi-1: #c4302b;
+  --term-ansi-2: #2f7d32;
+  --term-ansi-3: #8a6400;
+  --term-ansi-4: #1f5fc4;
+  --term-ansi-5: #8a3fa6;
+  --term-ansi-6: #0f7480;
+  --term-ansi-7: #c8ccd2;
+  --term-ansi-8: #6e7781;
+  --term-ansi-9: #d6453f;
+  --term-ansi-10: #3b8f3e;
+  --term-ansi-11: #9c7300;
+  --term-ansi-12: #2f6fd6;
+  --term-ansi-13: #9b51b8;
+  --term-ansi-14: #16808c;
+  --term-ansi-15: #eef0f3;
 }
 
 /* Dark — neutral-cool like light, so it shares light's blue accent (stepped
    up for the dark surface; dark text on the filled accent keeps contrast). */
 [data-theme="dark"] {
-  --bg: #16151a;
-  --surface: #1e1d24;
-  --surface-2: #26252d;
-  --border: #33313c;
-  --border-faint: #25242b;
-  --text: #ece9e2;
-  --muted: #9a958c;
-  --accent: #4d9df6;
-  --accent-fg: #16151a;
-  --link: #7aa5f0;
+  /* Default variant, "dimmed": a cool slate a step above black, with text
+     softened from near-white, so long sessions do not glare. */
+  --bg: #1c2128;
+  --surface: #22272e;
+  --surface-2: #2d333b;
+  --border: #3a414a;
+  --border-faint: #2a3038;
+  --text: #d1d7e0;
+  --muted: #8b949e;
+  --accent: #539bf5;
+  --accent-fg: #1c2128;
+  --link: #6cb6ff;
   --warn: #d7a24a;
-  --ok: #6bb07d;
+  --ok: #8ddb8c;
   --error: #d47a70;
-  /* Same hues stepped for the dark chart surface (--surface #1e1d24). */
+  /* Same hues stepped for the dark chart surface (--surface #22272e). */
   --series-1: #3987e5;
   --series-2: #199e70;
   --series-3: #c98500;
@@ -127,8 +167,8 @@
   --series-6: #e66767;
   --series-7: #d55181;
   --series-8: #d95926;
-  --chart-grid: #33313c;
-  --chart-axis: #4a4753;
+  --chart-grid: #3a414a;
+  --chart-axis: #545d68;
   /* Code highlighting (GitHub-dark hues; see .hljs-* rules below). */
   --hl-keyword: #ff7b72;
   --hl-entity: #d2a8ff;
@@ -141,6 +181,102 @@
   --hl-addition-bg: rgba(46, 160, 67, 0.18);
   --hl-deletion: #ffdcd7;
   --hl-deletion-bg: rgba(248, 81, 73, 0.18);
+  --term-fg: #c5cdd8;
+  --term-ansi-0: #3b424b;
+  --term-ansi-1: #f47067;
+  --term-ansi-2: #8ddb8c;
+  --term-ansi-3: #daaa3f;
+  --term-ansi-4: #6cb6ff;
+  --term-ansi-5: #dcbdfb;
+  --term-ansi-6: #76e3ea;
+  --term-ansi-7: #c5cdd8;
+  --term-ansi-8: #768390;
+  --term-ansi-9: #ff938a;
+  --term-ansi-10: #a5e3a4;
+  --term-ansi-11: #eac55f;
+  --term-ansi-12: #96d0ff;
+  --term-ansi-13: #e6ccff;
+  --term-ansi-14: #96ebf0;
+  --term-ansi-15: #e6edf3;
+}
+
+/* Variants: other looks for the warm and dark themes, chosen in Settings
+   (ThemeProvider sets data-variant on the root). Each overrides only the
+   ground, text and accent tokens, and the terminal's colours; charts and
+   code keep the theme's own. Attribute-only selectors, so the Settings swatches can paint
+   themselves by carrying the same two attributes. */
+[data-theme="warm"][data-variant="paper"] {
+  --bg: #f4f1ea;
+  --surface: #fbf9f4;
+  --surface-2: #efebe2;
+  --border: #e3ded3;
+  --border-faint: #ece8df;
+  --text: #2b2621;
+  --muted: #857e72;
+  --link: #2f62a8;
+  --ok: #56782a;
+  --chart-grid: #e3ded3;
+}
+[data-theme="warm"][data-variant="sepia"] {
+  --bg: #ede7da;
+  --surface: #f6f1e6;
+  --surface-2: #e9e2d2;
+  --border: #dbd2bf;
+  --border-faint: #e6dfcf;
+  --text: #33302a;
+  --muted: #837b6b;
+  --accent: #b9573a;
+  --link: #2f62a8;
+  --ok: #56782a;
+  --chart-grid: #dbd2bf;
+}
+[data-theme="dark"][data-variant="graphite"] {
+  --bg: #1d1c1a;
+  --surface: #262522;
+  --surface-2: #302e2a;
+  --border: #3d3a35;
+  --border-faint: #2c2a27;
+  --text: #e4dfd5;
+  --muted: #9e988c;
+  --accent: #d9825f;
+  --accent-fg: #1d1c1a;
+  --link: #8fb3e8;
+  --ok: #9cc17a;
+  --chart-grid: #3d3a35;
+  --chart-axis: #57534c;
+  --term-fg: #dcd6cb;
+  --term-ansi-0: #3a3834;
+  --term-ansi-1: #e0796b;
+  --term-ansi-2: #9cc17a;
+  --term-ansi-3: #e2b65c;
+  --term-ansi-4: #82a9e0;
+  --term-ansi-5: #c792c4;
+  --term-ansi-6: #6fbfb8;
+  --term-ansi-7: #d6d0c4;
+  --term-ansi-8: #77716a;
+  --term-ansi-9: #ee8f80;
+  --term-ansi-10: #b0d28f;
+  --term-ansi-11: #efc877;
+  --term-ansi-12: #9bbcee;
+  --term-ansi-13: #d6a8d4;
+  --term-ansi-14: #88d1ca;
+  --term-ansi-15: #f2eee6;
+}
+[data-theme="dark"][data-variant="slate"] {
+  --bg: #202024;
+  --surface: #28282d;
+  --surface-2: #323238;
+  --border: #404047;
+  --border-faint: #2f2f35;
+  --text: #e2e1de;
+  --muted: #9d9a94;
+  --accent: #5aa5f6;
+  --accent-fg: #202024;
+  --link: #86aef0;
+  --ok: #7cbf8c;
+  --chart-grid: #404047;
+  --chart-axis: #55555d;
+  --term-fg: #dcdad6;
 }
 
 html,

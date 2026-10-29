@@ -23,6 +23,18 @@
       "dark": "다크",
       "system": "시스템"
     },
+    "variantLabel": {
+      "warm": "웜 테마 색상",
+      "dark": "다크 테마 색상"
+    },
+    "variant": {
+      "soft": "소프트",
+      "paper": "페이퍼",
+      "sepia": "세피아",
+      "dimmed": "딤",
+      "graphite": "그래파이트",
+      "slate": "슬레이트"
+    },
     "zoom": {
       "label": "확대/축소",
       "hint": "{{mod}} + / − 로 확대/축소, {{mod}} 0 으로 초기화",

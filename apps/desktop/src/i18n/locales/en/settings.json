@@ -23,6 +23,18 @@
       "dark": "Dark",
       "system": "System"
     },
+    "variantLabel": {
+      "warm": "Warm colours",
+      "dark": "Dark colours"
+    },
+    "variant": {
+      "soft": "Soft",
+      "paper": "Paper",
+      "sepia": "Sepia",
+      "dimmed": "Dimmed",
+      "graphite": "Graphite",
+      "slate": "Slate"
+    },
     "zoom": {
       "label": "Zoom",
       "hint": "{{mod}} + / − to zoom, {{mod}} 0 to reset",

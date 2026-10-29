@@ -23,6 +23,18 @@
       "dark": "Dunkel",
       "system": "System"
     },
+    "variantLabel": {
+      "warm": "Farben für Warm",
+      "dark": "Farben für Dunkel"
+    },
+    "variant": {
+      "soft": "Weich",
+      "paper": "Papier",
+      "sepia": "Sepia",
+      "dimmed": "Gedimmt",
+      "graphite": "Graphit",
+      "slate": "Schiefer"
+    },
     "zoom": {
       "label": "Zoom",
       "hint": "{{mod}} + / − zum Zoomen, {{mod}} 0 zum Zurücksetzen",

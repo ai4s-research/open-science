@@ -23,6 +23,18 @@
       "dark": "Sombre",
       "system": "Système"
     },
+    "variantLabel": {
+      "warm": "Couleurs du thème chaud",
+      "dark": "Couleurs du thème sombre"
+    },
+    "variant": {
+      "soft": "Doux",
+      "paper": "Papier",
+      "sepia": "Sépia",
+      "dimmed": "Atténué",
+      "graphite": "Graphite",
+      "slate": "Ardoise"
+    },
     "zoom": {
       "label": "Zoom",
       "hint": "{{mod}} + / − pour zoomer, {{mod}} 0 pour réinitialiser",

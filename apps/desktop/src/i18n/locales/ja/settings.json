@@ -23,6 +23,18 @@
       "dark": "ダーク",
       "system": "システム"
     },
+    "variantLabel": {
+      "warm": "ウォームの配色",
+      "dark": "ダークの配色"
+    },
+    "variant": {
+      "soft": "ソフト",
+      "paper": "ペーパー",
+      "sepia": "セピア",
+      "dimmed": "ディム",
+      "graphite": "グラファイト",
+      "slate": "スレート"
+    },
     "zoom": {
       "label": "ズーム",
       "hint": "{{mod}} + / − でズーム、{{mod}} 0 でリセット",
