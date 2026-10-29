@@ -361,6 +361,8 @@ export function TerminalPane({
         timer: ReturnType<typeof setTimeout>;
         /** The repaint is being written; later output only queues. */
         writing: boolean;
+        /** Claude Code repaints on its own, not for a resize. */
+        own: boolean;
       } | null = null;
       const unsubscribe = await terminalTransport.subscribe(
         leafId,
@@ -376,7 +378,7 @@ export function TerminalPane({
             // Claude Code also repaints on its own, at the same size: when it
             // folds tool calls it already printed, say. Written as it is, that
             // lands below the copy already here like a resize's; spliced the same.
-            if (!reply && resizing && chunk.includes(REPAINT_START)) expectRepaint(term.cols, term.rows);
+            if (!reply && resizing && chunk.includes(REPAINT_START)) expectRepaint(term.cols, term.rows, true);
             if (!reply) return writeOut(chunk);
             reply.data += chunk;
             if (reply.writing) return;
@@ -422,7 +424,7 @@ export function TerminalPane({
       let sent = { cols: term.cols, rows: term.rows };
       const applyResize = (repaint: Repaint | null) => {
         if (!reply || reply.writing) return;
-        const { cols, rows, data, timer } = reply;
+        const { cols, rows, data, timer, own } = reply;
         clearTimeout(timer);
         const resizeAndWrite = (text: string) => {
           reply = null;
@@ -440,6 +442,9 @@ export function TerminalPane({
             (_, y) => buffer.getLine(buffer.baseY + y)?.translateToString(true) ?? "",
           );
           const splice = spliceRepaint(repaint, screen);
+          // A repaint of its own that lines up with nothing on screen is a new
+          // screen, not a redraw: /clear draws its banner this way. As sent.
+          if (own && !splice.matched) return resizeAndWrite(data.slice(repaint.before.length) + (reply?.data ?? ""));
           term.write(splice.clear, () => resizeAndWrite(splice.repaint + (reply?.data ?? "")));
         });
       };
@@ -457,13 +462,14 @@ export function TerminalPane({
         expectRepaint(size.cols, size.rows);
         if (!follow) void terminalTransport.resize(leafId, size.cols, size.rows);
       };
-      const expectRepaint = (cols: number, rows: number) => {
+      const expectRepaint = (cols: number, rows: number, own = false) => {
         applyResize(null);
         sent = { cols, rows };
         reply = {
           ...sent,
           data: "",
           writing: false,
+          own,
           // A program that prints nothing, or only part of a repaint.
           timer: setTimeout(() => applyResize(null), RESIZE_REPLY_MS),
         };

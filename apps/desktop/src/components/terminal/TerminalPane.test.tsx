@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { TerminalPane } from "./TerminalPane";
 
@@ -22,6 +22,8 @@ const xterm = vi.hoisted(() => ({
   cols: 80,
   last: null as { options: Record<string, unknown>; cols: number; rows: number } | null,
   writes: [] as string[],
+  /** The rows on screen, top first. */
+  screen: [] as string[],
 }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -43,7 +45,9 @@ vi.mock("@xterm/xterm", () => ({
     }
     open() {}
     focus() {}
-    buffer = { active: { viewportY: 0, baseY: 0, getLine: () => ({ translateToString: () => "" }) } };
+    buffer = {
+      active: { viewportY: 0, baseY: 0, getLine: (y: number) => ({ translateToString: () => xterm.screen[y] ?? "" }) },
+    };
     scrollToTop() {}
     scrollToLine() {}
     write(data: string, done?: () => void) {
@@ -274,21 +278,38 @@ describe("TerminalPane control", () => {
 });
 
 describe("TerminalPane repaint", () => {
-  it("splices a repaint Claude Code makes on its own, as one that answers a resize", async () => {
+  const erase = `\x1b[H${"\x1b[2K\x1b[1B".repeat(24)}\x1b[H`;
+  const open = async (leafId: string) => {
     vi.mocked(invoke).mockClear();
-    render(<TerminalPane leafId="own-1" />);
+    render(<TerminalPane leafId={leafId} />);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_subscribe", expect.anything()));
     const call = vi.mocked(invoke).mock.calls.find(([cmd]) => cmd === "terminal_subscribe")!;
     const send = (m: unknown) => (call[1] as { onEvent: { onmessage: (m: unknown) => void } }).onEvent.onmessage(m);
     act(() => send({ kind: "control", by: { id: "desktop", kind: "desktop" }, cols: 80, rows: 24 }));
     xterm.writes = [];
+    return send;
+  };
+  afterEach(() => {
+    xterm.screen = [];
+  });
 
-    const erase = `\x1b[H${"\x1b[2K\x1b[1B".repeat(24)}\x1b[H`;
-    act(() => send({ kind: "data", data: `before${erase}turn line 1\nturn line 2\x1b[?25h after` }));
+  it("splices a repaint Claude Code makes on its own, as one that answers a resize", async () => {
+    const send = await open("own-1");
+    xterm.screen = ["an earlier line of output", "turn line 1 of the latest turn", "turn line 2"];
+    act(() => send({ kind: "data", data: `before${erase}turn line 1 of the latest turn\nturn line 2\x1b[?25h after` }));
     // Not the erase as sent: the old rows are cleared from where the repaint
-    // lines up (here, below everything), and the turn written from there.
+    // lines up, and the turn written from there.
     await waitFor(() => expect(xterm.writes.join("")).toContain("turn line 2\x1b[?25h after"));
     expect(xterm.writes.join("")).not.toContain(erase);
-    expect(xterm.writes).toContain("before");
+    expect(xterm.writes).toContain("\x1b[2;1H\x1b[J");
+  });
+
+  it("writes a repaint of its own that lines up with nothing as sent: /clear's new screen", async () => {
+    const send = await open("own-2");
+    xterm.screen = ["recap: what the previous session found", "❯ /clear"];
+    act(() => send({ kind: "data", data: `${erase}Claude Code v2.1.312\nOpus 5.5 with medium effort\x1b[?25h` }));
+    await waitFor(() =>
+      expect(xterm.writes.join("")).toBe(`${erase}Claude Code v2.1.312\nOpus 5.5 with medium effort\x1b[?25h`),
+    );
   });
 });

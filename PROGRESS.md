@@ -1,5 +1,7 @@
 # Progress
 
+2026-10-29 04:55 · Terminal: /clear in Claude Code clears the screen again. Its new screen is sent with the same erase-and-repaint bytes as a fold (verified by capturing them in a pty), so 7c60fe6 spliced it below the old screen; a repaint of its own that lines up with nothing on screen is now written as sent. Terminal tests green, the new one fails without the fix.
+
 2026-10-29 00:40 · History: the red "Interrupted" line now sits under the turn that froze. It was one flag for the whole session, so one stuck step (a webfetch left running at 19:20) marked every later finished turn as interrupted; regression test added, typecheck/lint/2007 tests green.
 
 2026-10-28 23:30 · v0.7.1 published (tag at b2836d0, 15 assets; both macOS DMGs and their apps verified Notarized Developer ID, archs and version correct). Zenodo v0.7.1 DOI 10.5281/zenodo.23755472 written to CITATION.cff and the 7 README BibTeX blocks; News updated in all seven READMEs. Windows core CI fixed (0b3a547, test-only quoting).

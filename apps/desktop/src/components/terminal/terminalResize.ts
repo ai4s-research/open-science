@@ -62,13 +62,14 @@ const MIN_MATCH_CHARS = 12;
  * and leaves the cursor there), `repaint` after (written at the cursor).
  *
  * The match is the topmost old row whose start, and a repaint line's start,
- * are the same text, found once and only once on each side. With none, the
- * repaint goes below everything on screen: a copy too many, no line lost.
+ * are the same text, found once and only once on each side. With none
+ * (`matched` false), the repaint goes below everything on screen: a copy too
+ * many, no line lost.
  */
 export function spliceRepaint(
   { lines, tail }: Repaint,
   oldScreen: string[],
-): { clear: string; repaint: string } {
+): { clear: string; repaint: string; matched: boolean } {
   const newText = lines.map(bare);
   const oldText = oldScreen.map(bare);
   const newJoined = newText.join("");
@@ -107,5 +108,9 @@ export function spliceRepaint(
   }
   // Colours set on skipped lines may still apply to the lines written.
   const colours = lines.slice(0, from).join("").match(COLOUR) ?? [];
-  return { clear, repaint: "\r" + colours.join("") + lines.slice(from).join("\n") + tail };
+  return {
+    clear,
+    repaint: "\r" + colours.join("") + lines.slice(from).join("\n") + tail,
+    matched: row >= 0,
+  };
 }
