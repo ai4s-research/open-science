@@ -17,8 +17,7 @@
     "files": "Files",
     "runs": "Runs",
     "skills": "Skills",
-    "projects": "Projects",
-    "tasks": "Tasks"
+    "projects": "Projects"
   },
   "projects": {
     "heading": "Projects",
@@ -229,22 +228,5 @@
   },
   "web": {
     "manyTabs": "Open in {{count}} tabs. A browser allows only a few connections to one address, so more tabs make all of them slower — close the ones you don't need."
-  },
-  "tasks": {
-    "title": "Tasks",
-    "newTask": "New task",
-    "needsYou": "Needs you",
-    "working": "Working",
-    "today": "Today",
-    "askPermission": "Approval · {{action}}",
-    "askQuestion": "Asks · {{text}}",
-    "thinking": "Thinking",
-    "replying": "Writing a reply",
-    "inTerminal": "Running in a terminal",
-    "tools": "Tools",
-    "files": "Files",
-    "openHint": "Open",
-    "empty": "Agents at work appear here, live.",
-    "emptyHint": "Start one with New task, or from any project in the sidebar."
   }
 }

@@ -17,8 +17,7 @@
     "files": "ファイル",
     "runs": "実行",
     "skills": "スキル",
-    "projects": "プロジェクト",
-    "tasks": "タスク"
+    "projects": "プロジェクト"
   },
   "projects": {
     "heading": "プロジェクト",
@@ -226,22 +225,5 @@
   },
   "web": {
     "manyTabs": "{{count}} 個のタブで開いています。ブラウザが同じアドレスに張れる接続は少ないため、タブが増えるほどすべて遅くなります。使っていないタブを閉じてください。"
-  },
-  "tasks": {
-    "title": "タスク",
-    "newTask": "新しいタスク",
-    "needsYou": "対応待ち",
-    "working": "実行中",
-    "today": "今日",
-    "askPermission": "承認待ち · {{action}}",
-    "askQuestion": "質問 · {{text}}",
-    "thinking": "考え中",
-    "replying": "返信を作成中",
-    "inTerminal": "ターミナルで実行中",
-    "tools": "ツール",
-    "files": "ファイル",
-    "openHint": "開く",
-    "empty": "作業中のエージェントがここにリアルタイムで表示されます。",
-    "emptyHint": "新しいタスク、またはサイドバーのプロジェクトから始めましょう。"
   }
 }

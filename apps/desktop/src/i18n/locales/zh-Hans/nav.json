@@ -17,8 +17,7 @@
     "files": "文件",
     "runs": "运行",
     "skills": "技能",
-    "projects": "项目",
-    "tasks": "任务"
+    "projects": "项目"
   },
   "projects": {
     "heading": "项目",
@@ -226,22 +225,5 @@
   },
   "web": {
     "manyTabs": "已在 {{count}} 个标签页打开。浏览器对同一地址的连接数有限，标签页越多越慢，建议关掉不用的。"
-  },
-  "tasks": {
-    "title": "任务",
-    "newTask": "新任务",
-    "needsYou": "需要你",
-    "working": "进行中",
-    "today": "今天",
-    "askPermission": "待批准 · {{action}}",
-    "askQuestion": "提问 · {{text}}",
-    "thinking": "思考中",
-    "replying": "正在回复",
-    "inTerminal": "在终端里运行",
-    "tools": "工具",
-    "files": "文件",
-    "openHint": "打开",
-    "empty": "正在干活的 agent 会实时出现在这里。",
-    "emptyHint": "点新任务开始一个，或从侧栏任意项目里开始。"
   }
 }

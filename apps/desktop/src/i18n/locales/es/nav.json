@@ -17,8 +17,7 @@
     "files": "Archivos",
     "runs": "Ejecuciones",
     "skills": "Habilidades",
-    "projects": "Proyectos",
-    "tasks": "Tareas"
+    "projects": "Proyectos"
   },
   "projects": {
     "heading": "Proyectos",
@@ -229,22 +228,5 @@
   },
   "web": {
     "manyTabs": "Abierto en {{count}} pestañas. Un navegador permite pocas conexiones a una misma dirección, así que cada pestaña de más las ralentiza todas: cierra las que no uses."
-  },
-  "tasks": {
-    "title": "Tareas",
-    "newTask": "Nueva tarea",
-    "needsYou": "Te necesita",
-    "working": "En curso",
-    "today": "Hoy",
-    "askPermission": "Aprobación · {{action}}",
-    "askQuestion": "Pregunta · {{text}}",
-    "thinking": "Pensando",
-    "replying": "Escribiendo respuesta",
-    "inTerminal": "En una terminal",
-    "tools": "Herramientas",
-    "files": "Archivos",
-    "openHint": "Abrir",
-    "empty": "Los agentes trabajando aparecen aquí, en vivo.",
-    "emptyHint": "Empieza una con Nueva tarea o desde cualquier proyecto de la barra lateral."
   }
 }

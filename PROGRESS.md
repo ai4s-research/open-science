@@ -1,5 +1,7 @@
 # Progress
 
+2026-10-28 22:10 · Tasks page withdrawn (reverts 173fe34), failed the user's check: a terminal with Claude Code in the foreground was counted as working though it sat idle at its prompt (the app cannot tell a terminal agent busy from idle), and the page had no purpose beyond mirroring the sidebar. Redesign under discussion.
+
 2026-10-28 21:45 · Terminal: Claude Code's own full repaints are spliced too. It also erases the screen and repaints its turn at the same size, unasked (folding tool calls it already printed), and the pane wrote that as it came: the turn's top landed below the copy already there (p728, no view resizing). A chunk with the repaint's opening now starts the same wait-and-splice as a resize's answer. Checked on the captured output: spliced one copy, written raw two, as on screen. vitest 2011; typecheck, lint clean.
 
 2026-10-28 21:40 · Tasks page (sidebar → Tasks, `/tasks`): every agent at work, live, in three groups — needs you (permissions and questions, subagents' folded onto their conversation), working (running conversations plus Claude Code / Codex / pi left running in a terminal), today. Each row opens where the work is: its conversation, or its terminal pane. Counts, elapsed time, tool calls, files written and a trail of the turn's tool calls come from the app's own state (`lib/taskBoard.ts`, tested); nothing is generated. Checked in the browser with seeded state, light and dark. Not yet: the drop-a-task queue with claiming, schedules, the AI-written progress report.

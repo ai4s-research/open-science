@@ -3,7 +3,6 @@ import { AppShell } from "./layout/AppShell";
 import { SessionPage } from "./routes/SessionPage";
 import { LiveSessionPage } from "./routes/LiveSessionPage";
 import { SkillsPage } from "./routes/SkillsPage";
-import { TasksPage } from "./routes/TasksPage";
 import { NotebooksPage } from "./routes/NotebooksPage";
 import { FilesPage } from "./routes/FilesPage";
 import { RunsPage } from "./routes/RunsPage";
@@ -21,7 +20,6 @@ export const routes: RouteObject[] = [
       { path: "live", element: <LiveSessionPage /> },
       { path: "live/:sessionId", element: <LiveSessionPage /> },
       { path: "example/:sessionId", element: <SessionPage /> },
-      { path: "tasks", element: <TasksPage /> },
       { path: "skills", element: <SkillsPage /> },
       { path: "notebooks", element: <NotebooksPage /> },
       { path: "files", element: <FilesPage /> },

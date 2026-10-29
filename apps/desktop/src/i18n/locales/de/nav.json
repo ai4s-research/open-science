@@ -17,8 +17,7 @@
     "files": "Dateien",
     "runs": "Durchläufe",
     "skills": "Skills",
-    "projects": "Projekte",
-    "tasks": "Aufgaben"
+    "projects": "Projekte"
   },
   "projects": {
     "heading": "Projekte",
@@ -229,22 +228,5 @@
   },
   "web": {
     "manyTabs": "In {{count}} Tabs geöffnet. Ein Browser erlaubt nur wenige Verbindungen zu einer Adresse, jeder weitere Tab bremst alle – schließen Sie die, die Sie nicht brauchen."
-  },
-  "tasks": {
-    "title": "Aufgaben",
-    "newTask": "Neue Aufgabe",
-    "needsYou": "Braucht dich",
-    "working": "In Arbeit",
-    "today": "Heute",
-    "askPermission": "Freigabe · {{action}}",
-    "askQuestion": "Fragt · {{text}}",
-    "thinking": "Denkt nach",
-    "replying": "Schreibt eine Antwort",
-    "inTerminal": "Läuft in einem Terminal",
-    "tools": "Werkzeuge",
-    "files": "Dateien",
-    "openHint": "Öffnen",
-    "empty": "Arbeitende Agenten erscheinen hier, live.",
-    "emptyHint": "Starte eine mit Neue Aufgabe oder aus einem Projekt in der Seitenleiste."
   }
 }
