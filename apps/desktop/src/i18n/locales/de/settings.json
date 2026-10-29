@@ -658,5 +658,27 @@
       "notSignedInSaid": "Anmeldung unvollständig: {{said}}",
       "failed": "Anmeldung abgebrochen: {{detail}}"
     }
+  },
+  "request": {
+    "title": "Anfrage zur Änderung der Einstellungen",
+    "fromSession": "Von {{title}}",
+    "fromCommand": "Von einem Befehl außerhalb eines Gesprächs",
+    "reason": "Grund",
+    "apply": "Auswahl anwenden",
+    "decline": "Ablehnen",
+    "more": "Wartende Anfragen danach: {{count}}",
+    "restarts": "Startet die Agent-Laufzeit neu. Laufende Durchgänge werden beendet.",
+    "applied": "Einstellungen geändert",
+    "failed": "{{key}} konnte nicht geändert werden: {{error}}",
+    "on": "An",
+    "off": "Aus",
+    "empty": "Leer",
+    "approvalMode": "Freigabemodus",
+    "approvalApprove": "Vor riskanten Aktionen fragen",
+    "approvalFull": "Ohne Nachfrage ausführen",
+    "approvalFullHint": "Ohne Freigabe führt der Agent Befehle aus, löscht Dateien, installiert Pakete und greift selbst auf das Netzwerk zu. Er bleibt im Arbeitsbereich.",
+    "proxyUrl": "Proxy-Adresse",
+    "stallSilenceMinutes": "Minuten Stille bis zur Hänger-Warnung",
+    "stallRepeatThreshold": "Wiederholungen eines Aufrufs bis zur Schleifen-Warnung"
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: osd-agents
-description: Use for anything about the workbench's own sessions, Screens and terminals — opening a Screen, splitting it into several sessions or terminals, closing one; reading another conversation or the Claude Code / Codex in a terminal and messaging it; or acting on an "[OSD session]", "[OSD terminal]" or "[OSD screen]" reference the user pasted. All of it goes through the `osd` command.
+description: Use for anything about the workbench's own sessions, Screens, terminals and settings — opening a Screen, splitting it into several sessions or terminals, closing one; reading another conversation or the Claude Code / Codex in a terminal and messaging it; or acting on an "[OSD session]", "[OSD terminal]" or "[OSD screen]" reference the user pasted; or a setting the task needs changed (terminals, remote access, approval mode, proxy). All of it goes through the `osd` command.
 ---
 
 # The workbench: sessions, Screens, terminals
@@ -63,5 +63,19 @@ Their folder is not yours.
   whether to go on.
 - A plain shell runs what you send as the user, outside your workspace and
   your approvals. Send it only commands the user asked for.
-- `terminals are off` means "Allow terminal" in Settings › Remote access is
-  off. Ask the user to turn it on.
+- `terminals are off` means "Allow terminals" is off: ask for
+  `remote.terminal=on` (see Settings below).
+
+## Settings
+
+`osd settings` lists the app's settings and their values. You change none
+yourself: you ask the user, once, for everything the task needs, with why.
+
+```
+osd settings set remote.terminal=on --reason "To run Claude Code in a terminal next to me."
+```
+
+The user sees each change in a dialog and approves all, some or none; the
+command waits and prints what was applied. A decline is final: do not ask
+again unless the user brings it up. Ask only for what the task needs. API
+keys and sign-ins are not settings here; the user enters them in Settings.

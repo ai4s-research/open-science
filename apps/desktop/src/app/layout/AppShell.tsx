@@ -11,6 +11,7 @@ import { PaneDragGhost } from "@/components/session/PaneDragGhost";
 import { StatusBar } from "@/components/status-bar/StatusBar";
 import { Toaster } from "@/components/ui/Toaster";
 import { SshSignInDialog } from "@/components/ui/SshSignInDialog";
+import { SettingsRequestDialog } from "@/components/ui/SettingsRequestDialog";
 import { mockProject } from "@/lib/mock";
 import { adoptSourceFolder, startSessionScreen, useRuntimeStore } from "@/lib/runtime";
 import { useHoverTracking } from "@/lib/hoverTracking";
@@ -288,6 +289,7 @@ export function AppShell() {
           because the prompt has to reach the user wherever the need arose — the
           Settings card or the conversation the agent is working in. */}
       <SshSignInDialog />
+      <SettingsRequestDialog />
       <PaneDragGhost />
     </div>
   );

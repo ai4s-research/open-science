@@ -656,5 +656,27 @@
       "notSignedInSaid": "로그인이 끝나지 않았습니다: {{said}}",
       "failed": "로그인이 중단되었습니다: {{detail}}"
     }
+  },
+  "request": {
+    "title": "설정 변경 요청",
+    "fromSession": "{{title}}에서",
+    "fromCommand": "대화 밖의 명령에서",
+    "reason": "이유",
+    "apply": "선택 항목 적용",
+    "decline": "거절",
+    "more": "이후 대기 중인 요청: {{count}}",
+    "restarts": "에이전트 런타임을 다시 시작합니다. 진행 중인 턴은 멈춥니다.",
+    "applied": "설정을 변경했습니다",
+    "failed": "{{key}}을(를) 변경하지 못했습니다: {{error}}",
+    "on": "켜짐",
+    "off": "꺼짐",
+    "empty": "비어 있음",
+    "approvalMode": "승인 모드",
+    "approvalApprove": "위험한 작업 전에 묻기",
+    "approvalFull": "묻지 않고 실행",
+    "approvalFullHint": "승인 없이 에이전트가 명령 실행, 파일 삭제, 패키지 설치, 네트워크 접속을 스스로 합니다. 작업 공간 안에서만 합니다.",
+    "proxyUrl": "프록시 주소",
+    "stallSilenceMinutes": "멈춤 경고까지의 무응답 분",
+    "stallRepeatThreshold": "루프 경고까지 같은 호출의 반복 횟수"
   }
 }

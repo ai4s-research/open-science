@@ -51,6 +51,9 @@ pub fn run(args: &Args) -> Result<(), String> {
         ("model", "set") => model_set(args),
         ("approval", "") | ("approval", "show") => approval_show(args),
         ("approval", "set") => approval_set(args),
+        ("settings", "") | ("settings", "ls") | ("settings", "list") => crate::settings::ls(args),
+        ("settings", "set") | ("settings", "request") => crate::settings::set(args),
+        ("settings", "status") => crate::settings::status(args),
         ("permission", "ls") | ("permission", "list") => permissions(args),
         ("permission", "allow") => reply(args, "always"),
         ("permission", "once") => reply(args, "once"),
@@ -766,6 +769,9 @@ fn approval_show(args: &Args) -> Result<(), String> {
 /// Switch the mode. This is a machine-local change (it rewrites the runtime's
 /// own config and restarts the sidecar), so it is deliberately NOT something a
 /// remote gateway client can do — the gateway refuses config writes.
+/// Part of the gateway's answer when it has no desktop window to ask.
+const NO_WINDOW_HINT: &str = "it is not open here";
+
 fn approval_set(args: &Args) -> Result<(), String> {
     let requested = args.at(0, "mode")?;
     let mode = match requested.as_str() {
@@ -779,6 +785,22 @@ fn approval_set(args: &Args) -> Result<(), String> {
     };
     if asked_about_a_remote(args) {
         return Err(local_only_error("osd approval set"));
+    }
+    // With the desktop app open, the user decides, in its window: otherwise
+    // any agent allowed to run `osd` could switch its own approvals off.
+    if let Ok(client) = crate::client::Client::connect(args) {
+        drop(client);
+        let mut changes = serde_json::Map::new();
+        changes.insert("approval.mode".into(), serde_json::json!(mode));
+        match crate::settings::request(args, changes) {
+            Err(e) if e.contains(NO_WINDOW_HINT) => {}
+            done => return done,
+        }
+    }
+    // No window (a headless machine): the person at its shell decides, which
+    // an agent's command is not.
+    if std::env::var_os("OSD_ORIGIN_SESSION").is_some() {
+        return Err("an agent cannot change the approval mode. Ask the user to change it.".into());
     }
     let env = crate::env(args)?;
     osd_core::runtime::set_approval_mode(&env, mode.to_string())?;

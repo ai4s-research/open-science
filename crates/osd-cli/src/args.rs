@@ -9,7 +9,7 @@ use std::collections::HashMap;
 /// Flags that never take a value. Anything else spelled `--x` consumes the
 /// next argument, so an unknown flag fails loudly instead of eating a word of
 /// the prompt.
-const BOOLEANS: &[&str] = &["json", "lan", "wait", "help", "quiet", "all", "force", "no-enter", "new", "terminal", "here"];
+const BOOLEANS: &[&str] = &["json", "lan", "wait", "help", "quiet", "all", "force", "no-enter", "new", "terminal", "here", "no-wait"];
 
 pub struct Args {
     pub command: String,

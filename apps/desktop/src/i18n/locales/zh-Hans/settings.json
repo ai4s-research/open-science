@@ -656,5 +656,27 @@
       "notSignedInSaid": "登录尚未完成：{{said}}",
       "failed": "登录中断：{{detail}}"
     }
+  },
+  "request": {
+    "title": "请求修改设置",
+    "fromSession": "来自 {{title}}",
+    "fromCommand": "来自对话之外的命令",
+    "reason": "理由",
+    "apply": "应用所选",
+    "decline": "拒绝",
+    "more": "之后还有 {{count}} 个请求",
+    "restarts": "会重启智能体运行时，正在进行的回合会停止。",
+    "applied": "设置已修改",
+    "failed": "{{key}} 修改失败：{{error}}",
+    "on": "开",
+    "off": "关",
+    "empty": "空",
+    "approvalMode": "审批模式",
+    "approvalApprove": "危险操作前询问",
+    "approvalFull": "不询问直接执行",
+    "approvalFullHint": "不审批时，智能体会自行执行命令、删除文件、安装依赖、访问网络，仍限于工作区内。",
+    "proxyUrl": "代理地址",
+    "stallSilenceMinutes": "静默多少分钟后提示卡住",
+    "stallRepeatThreshold": "同一调用重复几次后提示循环"
   }
 }

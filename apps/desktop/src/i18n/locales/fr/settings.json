@@ -658,5 +658,27 @@
       "notSignedInSaid": "Connexion inachevée : {{said}}",
       "failed": "Connexion interrompue : {{detail}}"
     }
+  },
+  "request": {
+    "title": "Demande de modification des réglages",
+    "fromSession": "De {{title}}",
+    "fromCommand": "D’une commande hors conversation",
+    "reason": "Raison",
+    "apply": "Appliquer la sélection",
+    "decline": "Refuser",
+    "more": "Demandes en attente après celle-ci : {{count}}",
+    "restarts": "Redémarre l’environnement de l’agent. Les tours en cours s’arrêtent.",
+    "applied": "Réglages modifiés",
+    "failed": "Impossible de modifier {{key}} : {{error}}",
+    "on": "Activé",
+    "off": "Désactivé",
+    "empty": "Vide",
+    "approvalMode": "Mode d’approbation",
+    "approvalApprove": "Demander avant les actions risquées",
+    "approvalFull": "Exécuter sans demander",
+    "approvalFullHint": "Sans approbation, l’agent exécute des commandes, supprime des fichiers, installe des paquets et accède au réseau seul. Il reste dans l’espace de travail.",
+    "proxyUrl": "Adresse du proxy",
+    "stallSilenceMinutes": "Minutes de silence avant l’alerte de blocage",
+    "stallRepeatThreshold": "Répétitions d’un appel avant l’alerte de boucle"
   }
 }

@@ -658,5 +658,27 @@
       "notSignedInSaid": "Sign-in incomplete: {{said}}",
       "failed": "Sign-in stopped: {{detail}}"
     }
+  },
+  "request": {
+    "title": "Settings change requested",
+    "fromSession": "From {{title}}",
+    "fromCommand": "From a command outside a conversation",
+    "reason": "Reason",
+    "apply": "Apply selected",
+    "decline": "Decline",
+    "more": "Requests waiting after this one: {{count}}",
+    "restarts": "Restarts the agent runtime. Running turns stop.",
+    "applied": "Settings changed",
+    "failed": "Could not change {{key}}: {{error}}",
+    "on": "On",
+    "off": "Off",
+    "empty": "Empty",
+    "approvalMode": "Approval mode",
+    "approvalApprove": "Ask before risky actions",
+    "approvalFull": "Run without asking",
+    "approvalFullHint": "Without approval the agent runs commands, deletes files, installs packages and reaches the network on its own. It stays inside the workspace.",
+    "proxyUrl": "Proxy address",
+    "stallSilenceMinutes": "Minutes of silence before a stuck warning",
+    "stallRepeatThreshold": "Repeats of one call before a loop warning"
   }
 }

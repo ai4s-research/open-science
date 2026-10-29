@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SETTINGS_CHANGED } from "@/lib/settingsBridge";
 import {
   Check,
   ChevronRight,
@@ -141,7 +142,19 @@ function FieldRow({
   );
 }
 
+/** Remounted after `osd settings` changes a setting, so every card reads its
+ *  value again instead of showing the one it loaded. */
 export function SettingsPage() {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const bump = () => setRevision((r) => r + 1);
+    window.addEventListener(SETTINGS_CHANGED, bump);
+    return () => window.removeEventListener(SETTINGS_CHANGED, bump);
+  }, []);
+  return <SettingsPageContent key={revision} />;
+}
+
+function SettingsPageContent() {
   // Which settings section is on screen — the sidebar is the navigation.
   const section = resolveSection(useParams().section);
   const theme = useUiStore((s) => s.theme);

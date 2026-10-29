@@ -656,5 +656,27 @@
       "notSignedInSaid": "サインインが完了していません：{{said}}",
       "failed": "サインインが中断しました：{{detail}}"
     }
+  },
+  "request": {
+    "title": "設定の変更リクエスト",
+    "fromSession": "{{title}} から",
+    "fromCommand": "会話の外のコマンドから",
+    "reason": "理由",
+    "apply": "選択を適用",
+    "decline": "拒否",
+    "more": "このあと待っているリクエスト: {{count}}",
+    "restarts": "エージェントのランタイムを再起動します。実行中のターンは止まります。",
+    "applied": "設定を変更しました",
+    "failed": "{{key}} を変更できませんでした: {{error}}",
+    "on": "オン",
+    "off": "オフ",
+    "empty": "空",
+    "approvalMode": "承認モード",
+    "approvalApprove": "危険な操作の前に確認",
+    "approvalFull": "確認せずに実行",
+    "approvalFullHint": "承認なしでは、エージェントがコマンドの実行、ファイルの削除、パッケージのインストール、ネットワーク接続を自分で行います。ワークスペースの中に限られます。",
+    "proxyUrl": "プロキシのアドレス",
+    "stallSilenceMinutes": "停止の警告までの無音の分数",
+    "stallRepeatThreshold": "ループの警告までの同じ呼び出しの回数"
   }
 }

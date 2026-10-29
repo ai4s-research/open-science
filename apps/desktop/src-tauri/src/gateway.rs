@@ -38,10 +38,29 @@ pub fn state_for(app: &AppHandle) -> GatewayState {
     let on_show_screen = Arc::new(move |id: &str| {
         let _ = show_emitter.emit("gateway:show-screen", id.to_string());
     });
+    // `osd settings`: a read for the window to answer, or a change for the
+    // user to approve there — so a change also asks for the user's attention.
+    let settings_app = app.clone();
+    let on_settings = Arc::new(move |json: &str| {
+        let _ = settings_app.emit("gateway:settings", json.to_string());
+        if json.contains("\"kind\":\"change\"") {
+            if let Some(w) = settings_app.get_webview_window("main") {
+                let _ = w.request_user_attention(Some(tauri::UserAttentionType::Informational));
+            }
+        }
+    });
     GatewayState::new(assets, Some(on_sessions_changed))
         .with_terminals(Arc::new(crate::terminal::GatewayTerminals(app.clone())))
         .with_desktop_layout_listener(on_desktop_layout)
         .with_show_screen_listener(on_show_screen)
+        .with_settings_listener(on_settings)
+}
+
+/// The window's answer to an `osd settings` request: the settings it read, or
+/// the user's decision on a change.
+#[tauri::command]
+pub fn settings_answer(app: AppHandle, id: String, answer: serde_json::Value) -> bool {
+    osd_core::gateway::settings_answer(&env_of(&app), &id, answer)
 }
 
 /// Bring the remote-access gateway back up if the user left it enabled.

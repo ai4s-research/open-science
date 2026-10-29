@@ -658,5 +658,27 @@
       "notSignedInSaid": "Inicio de sesión incompleto: {{said}}",
       "failed": "Inicio de sesión interrumpido: {{detail}}"
     }
+  },
+  "request": {
+    "title": "Solicitud de cambio de ajustes",
+    "fromSession": "De {{title}}",
+    "fromCommand": "De un comando fuera de una conversación",
+    "reason": "Motivo",
+    "apply": "Aplicar selección",
+    "decline": "Rechazar",
+    "more": "Solicitudes en espera después de esta: {{count}}",
+    "restarts": "Reinicia el entorno del agente. Los turnos en curso se detienen.",
+    "applied": "Ajustes cambiados",
+    "failed": "No se pudo cambiar {{key}}: {{error}}",
+    "on": "Activado",
+    "off": "Desactivado",
+    "empty": "Vacío",
+    "approvalMode": "Modo de aprobación",
+    "approvalApprove": "Preguntar antes de acciones de riesgo",
+    "approvalFull": "Ejecutar sin preguntar",
+    "approvalFullHint": "Sin aprobación, el agente ejecuta comandos, borra archivos, instala paquetes y accede a la red por su cuenta. Se queda dentro del espacio de trabajo.",
+    "proxyUrl": "Dirección del proxy",
+    "stallSilenceMinutes": "Minutos de silencio antes del aviso de bloqueo",
+    "stallRepeatThreshold": "Repeticiones de una llamada antes del aviso de bucle"
   }
 }

@@ -11,6 +11,7 @@ mod client;
 mod commands;
 mod screens;
 mod server;
+mod settings;
 
 use args::Args;
 
@@ -76,6 +77,12 @@ osd — Open Science Desktop without a window
   osd fs get <path> [--output F]    read one file
   osd fs put <file> [--session ID | --directory DIR] [--name N]
                                     put a file into a session's folder
+
+  osd settings [--json]             the desktop's settings and their values
+  osd settings set KEY=VALUE… --reason R [--no-wait]
+                                    ask the user to change them: one request,
+                                    approved in the Open Science window
+  osd settings status <id>          the user's decision on a request
 
   osd model                         the default model every turn uses
   osd model ls                      what this machine can actually serve

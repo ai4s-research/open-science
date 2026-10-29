@@ -32,6 +32,7 @@ pub mod runtime;
 pub mod screens;
 pub mod session_find;
 pub mod session_sync;
+pub mod settings_requests;
 pub mod specialists;
 pub mod system_proxy;
 pub mod terminal_read;

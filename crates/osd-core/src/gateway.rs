@@ -294,6 +294,9 @@ pub struct GatewayState {
     /// Called when a client created or deleted a session, so a desktop window
     /// showing the same workspace refreshes instead of going stale.
     on_sessions_changed: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Called with a settings request for the window to answer (see
+    /// `settings_requests`): a read, or a change for the user to approve.
+    on_settings: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 impl GatewayState {
@@ -308,6 +311,7 @@ impl GatewayState {
             on_desktop_layout: None,
             on_show_screen: None,
             on_sessions_changed,
+            on_settings: None,
         }
     }
 
@@ -320,6 +324,12 @@ impl GatewayState {
     /// Let clients ask the window to show a Screen.
     pub fn with_show_screen_listener(mut self, f: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
         self.on_show_screen = Some(f);
+        self
+    }
+
+    /// Let clients read the settings and ask the user to change them.
+    pub fn with_settings_listener(mut self, f: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
+        self.on_settings = Some(f);
         self
     }
 
@@ -345,6 +355,7 @@ struct Ctx {
     on_desktop_layout: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     on_show_screen: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     on_sessions_changed: Option<Arc<dyn Fn() + Send + Sync>>,
+    on_settings: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 impl Ctx {
@@ -440,6 +451,7 @@ pub fn start_at(
         on_desktop_layout: state.on_desktop_layout.clone(),
         on_show_screen: state.on_show_screen.clone(),
         on_sessions_changed: state.on_sessions_changed.clone(),
+        on_settings: state.on_settings.clone(),
     });
     let sf = stop_flag.clone();
     // Detached accept loop. A non-blocking listener + a short poll lets the flag
@@ -718,6 +730,7 @@ fn audit_call(req: &Request) -> Option<AuditCall> {
             ("POST", ["screens"]) => call("screen.new", field("name").filter(|n| !n.is_empty()), Some(format!("{} panes", body()["panes"].as_array().map_or(0, Vec::len)))),
             ("POST", ["screens", _, "panes"]) => call("screen.add", id(1), words(String::from_utf8_lossy(&req.body).into_owned())),
             ("DELETE", ["screens", _]) => call("screen.close", id(1), None),
+            ("POST", ["settings", "requests"]) => call("settings.request", None, words(String::from_utf8_lossy(&req.body).into_owned())),
             // A browser saves its whole layout on every change, which is no news.
             // A script or an agent overwriting it whole is: it can undo what the
             // window just did. (`osd screen` edits it in place instead.)
@@ -1056,6 +1069,80 @@ fn pane_of(v: &serde_json::Value) -> Result<crate::screens::Pane, String> {
     Err("a pane is {\"session\": id} or {\"terminal\": {\"cwd\": dir, \"command\": cmd}}".into())
 }
 
+/// The settings live in the desktop window; a headless server has none.
+const NO_WINDOW: &str = "settings are changed in the desktop app, and it is not open here";
+
+/// `GET /v1/settings`: every setting the window lets `osd` see, with its value.
+fn settings_read(stream: &mut TcpStream, ctx: &Ctx) {
+    let Some(emit) = &ctx.on_settings else {
+        return respond_json(stream, 409, &err_json(NO_WINDOW));
+    };
+    let (id, _) = crate::settings_requests::open(false, None);
+    emit(&serde_json::json!({ "id": id, "kind": "read" }).to_string());
+    match crate::settings_requests::wait(&id, crate::settings_requests::READ_TIMEOUT) {
+        Some(v) => respond_json(stream, 200, &v.to_string()),
+        None => {
+            crate::settings_requests::forget(&id);
+            respond_json(stream, 504, &err_json("the desktop window did not answer"))
+        }
+    }
+}
+
+/// `POST /v1/settings/requests {changes: {key: value, …}, reason}`: ask the
+/// user, in the window, to make these changes. Answers the request's id; the
+/// decision is read from `GET /v1/settings/requests/:id`.
+fn settings_request(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
+    let Some(emit) = &ctx.on_settings else {
+        return respond_json(stream, 409, &err_json(NO_WINDOW));
+    };
+    let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap_or_default();
+    let changes = match body["changes"].as_object() {
+        Some(c) if !c.is_empty() => c.clone(),
+        _ => return respond_json(stream, 400, &err_json("nothing to change: {\"changes\": {\"key\": value}}")),
+    };
+    let reason = body["reason"].as_str().map(str::trim).unwrap_or("");
+    if reason.is_empty() {
+        return respond_json(stream, 400, &err_json("say why (osd: --reason \"…\"): the user reads it before deciding"));
+    }
+    let origin = req.header("x-osd-origin-session").filter(|v| !v.is_empty()).map(str::to_string);
+    let (id, replaces) = crate::settings_requests::open(true, origin.clone());
+    let event = serde_json::json!({
+        "id": id,
+        "kind": "change",
+        "changes": changes,
+        "reason": crate::audit::clip(reason, 1000),
+        "from": origin,
+        "replaces": replaces,
+    });
+    emit(&event.to_string());
+    respond_json(stream, 200, &serde_json::json!({ "id": id }).to_string());
+}
+
+/// The window's answer to a settings request. A decision on a change goes in
+/// the audit log as the owner's.
+pub fn settings_answer(env: &Env, id: &str, answer: serde_json::Value) -> bool {
+    let decided = answer["status"].as_str().map(str::to_string);
+    if !crate::settings_requests::answer(id, answer.clone()) {
+        return false;
+    }
+    if let Some(status) = decided {
+        crate::audit::record(
+            env,
+            &crate::audit::Entry {
+                time: crate::audit::now(),
+                actor: "admin".into(),
+                ip: None,
+                via: None,
+                action: format!("settings.{status}"),
+                target: Some(id.to_string()),
+                detail: Some(crate::audit::clip(&answer.to_string(), 500)),
+                status: 200,
+            },
+        );
+    }
+    true
+}
+
 /// `POST /v1/screens {name?, directory?, panes: [...]}`: a new Screen, filed
 /// under the project `directory` belongs to.
 fn screen_new(stream: &mut TcpStream, req: &Request, ctx: &Ctx, who: &Principal) {
@@ -1392,6 +1479,17 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
                 }
             }
             Principal::User { .. } => respond_json(stream, 403, "{\"error\":\"the audit log is for the desktop's owner\"}"),
+        },
+        ("GET", ["settings"]) | ("POST", ["settings", "requests"]) | ("GET", ["settings", "requests", _])
+            if matches!(who, Principal::User { .. }) =>
+        {
+            respond_json(stream, 403, &err_json("settings are the desktop owner's"))
+        }
+        ("GET", ["settings"]) => settings_read(stream, ctx),
+        ("POST", ["settings", "requests"]) => settings_request(stream, req, ctx),
+        ("GET", ["settings", "requests", id]) => match crate::settings_requests::status(id) {
+            Some(v) => respond_json(stream, 200, &v.to_string()),
+            None => respond_json(stream, 404, &err_json("no such request")),
         },
         ("POST", ["screens"]) => screen_new(stream, req, ctx, who),
         ("POST", ["screens", id, "panes"]) => {
@@ -3277,6 +3375,54 @@ mod tests {
         assert_eq!(body_len, expected, "body truncated: got {body_len} of {expected}");
     }
 
+    /// `osd settings`: the window answers a read; a change is asked of the
+    /// user and its decision read back. No window, no settings.
+    #[test]
+    fn settings_are_read_from_and_changed_through_the_window() {
+        let (env, dir) = env_with_recorded_port("settings", None);
+        let heard: Arc<Mutex<Vec<serde_json::Value>>> = Arc::default();
+        let window = {
+            let heard = heard.clone();
+            Arc::new(move |json: &str| {
+                let ev: serde_json::Value = serde_json::from_str(json).unwrap();
+                heard.lock().unwrap().push(ev.clone());
+                if ev["kind"] == "read" {
+                    let id = ev["id"].as_str().unwrap().to_string();
+                    std::thread::spawn(move || crate::settings_requests::answer(&id, serde_json::json!({ "settings": [{ "key": "remote.terminal", "value": false }] })));
+                }
+            })
+        };
+        let state = GatewayState::default().with_settings_listener(window);
+        let p = read_persisted(&env);
+        let port = start_at(&env, &state, &effective(&p), None).unwrap();
+
+        let (code, body) = call(port, "GET", "/v1/settings", "");
+        assert_eq!(code, 200, "{body}");
+        assert!(body.contains("remote.terminal"));
+
+        assert_eq!(call(port, "POST", "/v1/settings/requests", r#"{"changes":{},"reason":"x"}"#).0, 400);
+        assert_eq!(call(port, "POST", "/v1/settings/requests", r#"{"changes":{"remote.terminal":"on"}}"#).0, 400, "a reason is required");
+        let (code, body) = call(port, "POST", "/v1/settings/requests", r#"{"changes":{"remote.terminal":"on"},"reason":"to run Claude Code"}"#);
+        assert_eq!(code, 200);
+        let id = serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
+        let ev = heard.lock().unwrap().last().cloned().unwrap();
+        assert_eq!((ev["kind"].as_str(), ev["reason"].as_str()), (Some("change"), Some("to run Claude Code")));
+        assert!(call(port, "GET", &format!("/v1/settings/requests/{id}"), "").1.contains("pending"));
+        assert!(settings_answer(&env, &id, serde_json::json!({ "status": "approved", "applied": ["remote.terminal"] })));
+        assert!(call(port, "GET", &format!("/v1/settings/requests/{id}"), "").1.contains("approved"));
+        let audit = crate::audit::query(&env, &crate::audit::Filter::default()).unwrap();
+        let actions: Vec<_> = audit.iter().map(|e| e.action.as_str()).collect();
+        assert!(actions.contains(&"settings.request") && actions.contains(&"settings.approved"), "{actions:?}");
+        stop(&env, &state);
+
+        let headless = GatewayState::default();
+        let port = start_at(&env, &headless, &effective(&p), None).unwrap();
+        assert_eq!(call(port, "GET", "/v1/settings", "").0, 409);
+        assert_eq!(call(port, "POST", "/v1/settings/requests", r#"{"changes":{"a":"1"},"reason":"x"}"#).0, 409);
+        stop(&env, &headless);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// The app's own agents need `osd`, so the desktop serves this machine with
     /// Remote access off: loopback only, full access. Turning Remote access off
     /// after LAN brings it back to loopback rather than stopping it.
@@ -3829,6 +3975,7 @@ mod tests {
             on_desktop_layout: None,
             on_show_screen: None,
             on_sessions_changed: None,
+            on_settings: None,
         };
         (ctx, root)
     }

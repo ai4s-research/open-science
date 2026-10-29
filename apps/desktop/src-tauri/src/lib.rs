@@ -192,6 +192,7 @@ pub fn run() {
             cli_shim::cli_shim_status,
             cli_shim::install_cli_shim,
             gateway::set_gateway_config,
+            gateway::settings_answer,
             gateway::web_accounts_list,
             gateway::web_account_set,
             gateway::web_account_delete,
