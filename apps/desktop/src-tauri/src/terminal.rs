@@ -181,6 +181,10 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
         let (recent, stream) = host.attach_recent(&id)?;
         let recent = strip_queries(&recent); // older hosts keep them
         let resume = saved.and_then(|s| Some((resume_at(&recent, s.tail.as_deref()?)?, s.screen)));
+        if !created {
+            let how = if resume.is_some() { "resumed after the saved screen".into() } else { why_raw(app, &id, pid, cols, rows, &recent) };
+            crate::debug_log::append(app, &format!("terminal {id} reopened on an older host: {how}"));
+        }
         let mut output = Output::starting_at(resume.as_ref().map_or(0, |(_, screen)| screen.end));
         output.push(&recent[resume.as_ref().map_or(0, |(at, _)| *at)..]);
         (output, Box::new(stream.into_iter()), resume.map(|(_, screen)| screen))
@@ -220,6 +224,28 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
 /// Code's identical repaints do not repeat it (2026-10-28, 20 real terminals:
 /// 4 KB repeated at 2.5% of places, 16 KB at 0.1%).
 const TAIL_BYTES: usize = 16 * 1024;
+
+/// Why an older host's replay of `id` is drawn raw instead of resuming after
+/// its saved screen: a raw replay is what shows Claude Code's repaints twice.
+fn why_raw(app: &AppHandle, id: &str, pid: Option<u32>, cols: u16, rows: u16, recent: &str) -> String {
+    let Some(text) = screen_path(app, id).and_then(|p| std::fs::read_to_string(p).ok()) else {
+        return "replayed raw: no saved screen".into();
+    };
+    let Ok(saved) = serde_json::from_str::<SavedScreen>(&text) else {
+        return "replayed raw: saved screen unreadable".into();
+    };
+    if pid.is_none() || saved.pid != pid {
+        return format!("replayed raw: saved screen is of pid {:?}, the shell is {:?}", saved.pid, pid);
+    }
+    if (saved.cols, saved.rows) != (cols, rows) {
+        return format!("replayed raw: saved at {}x{}, the shell is {}x{}", saved.cols, saved.rows, cols, rows);
+    }
+    match saved.tail.map(|t| strip_queries(&t)) {
+        None => "replayed raw: saved screen has no tail".into(),
+        Some(t) if t.is_empty() => "replayed raw: saved tail is empty".into(),
+        Some(t) => format!("replayed raw: saved tail found {} times in the replay", recent.matches(t.as_str()).count()),
+    }
+}
 
 /// Where `recent` goes on after `tail`, when `tail` is in it once, and only
 /// once: a repeated tail could be the wrong place.
