@@ -463,13 +463,13 @@ pub fn clipboard_file_paths() -> Vec<String> {
 
 #[tauri::command]
 pub fn terminal_resize(app: AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
-    resize(&app, &id, Some(Viewer::desktop()), false, cols, rows)
+    resize(&app, &id, Viewer::desktop(), false, cols, rows)
 }
 
 /// The window takes control of the terminal from a web tab, at its own size.
 #[tauri::command]
 pub fn terminal_claim(app: AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
-    resize(&app, &id, Some(Viewer::desktop()), true, cols, rows)
+    resize(&app, &id, Viewer::desktop(), true, cols, rows)
 }
 
 /// The window no longer shows the terminal (its pane closed).
@@ -478,22 +478,19 @@ pub fn terminal_release(app: AppHandle, id: String) {
     release(&app, &id, &Viewer::desktop().id);
 }
 
-/// `who` sized its view of `id` (None: a script); with `claim`, it takes
-/// control first. A view following another one changes nothing.
-fn resize(app: &AppHandle, id: &str, who: Option<Viewer>, claim: bool, cols: u16, rows: u16) -> Result<(), String> {
+/// `who` sized its view of `id`; with `claim`, it takes control first. A
+/// view following another one changes nothing.
+fn resize(app: &AppHandle, id: &str, who: Viewer, claim: bool, cols: u16, rows: u16) -> Result<(), String> {
     let (cols, rows) = (cols.max(1), rows.max(1));
     let state = app.state::<TerminalState>();
     let mut inner = state.0.lock().map_err(|_| "terminal state poisoned")?;
     let Some(terminal) = inner.terminals.get_mut(id) else {
         return Ok(()); // A resize for a shell that already exited is not an error.
     };
-    match who {
-        Some(who) if claim => terminal.control.claim(who, cols, rows),
-        who => {
-            if !terminal.control.resize(who.as_ref(), cols, rows) {
-                return Ok(());
-            }
-        }
+    if claim {
+        terminal.control.claim(who, cols, rows);
+    } else if !terminal.control.resize(&who, cols, rows) {
+        return Ok(());
     }
     terminal.size = (rows, cols);
     inner.call(app, |host| host.resize(id, cols, rows))
@@ -568,11 +565,11 @@ impl osd_core::gateway::Terminals for GatewayTerminals {
     fn write(&self, id: &str, data: &str) -> Result<(), String> {
         write(&self.0, id, data)
     }
-    fn resize(&self, id: &str, who: Option<&Viewer>, cols: u16, rows: u16) -> Result<(), String> {
-        resize(&self.0, id, who.cloned(), false, cols, rows)
+    fn resize(&self, id: &str, who: &Viewer, cols: u16, rows: u16) -> Result<(), String> {
+        resize(&self.0, id, who.clone(), false, cols, rows)
     }
     fn claim(&self, id: &str, who: Viewer, cols: u16, rows: u16) -> Result<(), String> {
-        resize(&self.0, id, Some(who), true, cols, rows)
+        resize(&self.0, id, who, true, cols, rows)
     }
     fn release(&self, id: &str, who: &str) {
         release(&self.0, id, who)

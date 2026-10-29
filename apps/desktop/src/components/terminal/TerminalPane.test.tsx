@@ -254,4 +254,21 @@ describe("TerminalPane control", () => {
     await waitFor(() => expect(screen.queryByText("The browser is in control")).not.toBeInTheDocument());
     expect(xterm.last!.options.disableStdin).toBe(false);
   });
+
+  it("takes a size it did not ask for as a resize, then asks for its own back", async () => {
+    vi.mocked(invoke).mockClear();
+    render(<TerminalPane leafId="ctl-2" />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_subscribe", expect.anything()));
+    const call = vi.mocked(invoke).mock.calls.find(([cmd]) => cmd === "terminal_subscribe")!;
+    const send = (m: unknown) => (call[1] as { onEvent: { onmessage: (m: unknown) => void } }).onEvent.onmessage(m);
+
+    // Still this window's, but sized from elsewhere: its repaint is spliced at
+    // that size, not drawn over the old screen as a copy.
+    act(() => send({ kind: "control", by: { id: "desktop", kind: "desktop" }, cols: 50, rows: 21 }));
+    await waitFor(() => expect([xterm.last!.cols, xterm.last!.rows]).toEqual([50, 21]));
+    expect(screen.queryByText(/is in control/)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("terminal_resize", { id: "ctl-2", cols: 80, rows: 24 }),
+    );
+  });
 });

@@ -479,9 +479,17 @@ export function TerminalPane({
         void terminalTransport.claim(leafId, size.cols, size.rows);
         term.focus();
       };
-      // At once: the repaint for the new size is already on its way.
+      // At once: the repaint for the new size is already on its way. A size
+      // this view did not ask for, while no one else controls the shell, is
+      // spliced like any other; then this view asks for its own back.
       applyControl = () => {
         clearTimeout(settle);
+        const c = control;
+        if (c && !following() && !reply?.writing && (c.cols !== sent.cols || c.rows !== sent.rows)) {
+          expectRepaint(c.cols, c.rows);
+          settle = setTimeout(tellShell, RESIZE_SETTLE_MS);
+          return;
+        }
         tellShell();
       };
       if (control) applyControl();

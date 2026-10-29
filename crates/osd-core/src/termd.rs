@@ -264,6 +264,13 @@ impl Viewer {
         Viewer { id: "desktop".into(), kind: "desktop".into() }
     }
 
+    /// A web page from before views named themselves. It sizes the shell
+    /// like any view, so it is one: unnamed, it would size it from under the
+    /// view in control, whose repaints the others then drew as copies.
+    pub fn unnamed() -> Viewer {
+        Viewer { id: "web".into(), kind: "web".into() }
+    }
+
     /// One a client named itself: a short plain id and a known kind.
     pub fn is_valid(&self) -> bool {
         (1..=40).contains(&self.id.len())
@@ -290,13 +297,13 @@ pub struct Controller {
 
 impl Controller {
     /// `who` sized its view to `cols` x `rows`. True when that is the
-    /// terminal's size now: `who` controls it, or took it as nobody did, or
-    /// is not a view at all (a script). A view following another is ignored.
-    pub fn resize(&mut self, who: Option<&Viewer>, cols: u16, rows: u16) -> bool {
-        match (who, &self.by) {
-            (Some(who), Some(by)) if who.id != by.id => return false,
-            (Some(who), None) => self.by = Some(who.clone()),
-            _ => {}
+    /// terminal's size now: `who` controls it, or took it as nobody did. A
+    /// view following another is ignored.
+    pub fn resize(&mut self, who: &Viewer, cols: u16, rows: u16) -> bool {
+        match &self.by {
+            Some(by) if by.id != who.id => return false,
+            Some(_) => {}
+            None => self.by = Some(who.clone()),
         }
         self.tell(cols, rows);
         true
@@ -986,12 +993,13 @@ mod tests {
         assert_eq!(seen.try_recv().unwrap(), Control { by: None, cols: 80, rows: 24 });
 
         // Nobody controls it: the first view to size it takes it.
-        assert!(c.resize(Some(&Viewer::desktop()), 60, 22));
+        assert!(c.resize(&Viewer::desktop(), 60, 22));
         assert_eq!(seen.try_recv().unwrap().by, Some(Viewer::desktop()));
-        // Another view's box is ignored; a script's resize is not.
-        assert!(!c.resize(Some(&web), 50, 21));
+        // Another view's box is ignored, an unnamed (older) page's too.
+        assert!(!c.resize(&web, 50, 21));
+        assert!(!c.resize(&Viewer::unnamed(), 50, 21));
         assert!(seen.try_recv().is_err());
-        assert!(c.resize(None, 61, 22));
+        assert!(c.resize(&Viewer::desktop(), 61, 22));
         assert_eq!(seen.try_recv().unwrap(), Control { by: Some(Viewer::desktop()), cols: 61, rows: 22 });
 
         // Taking over; then the one that left lets go of nothing.

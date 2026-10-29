@@ -262,12 +262,12 @@ pub trait Terminals: Send + Sync {
     /// command into it.
     fn open(&self, id: &str, cwd: Option<String>, cols: u16, rows: u16) -> Result<bool, String>;
     fn write(&self, id: &str, data: &str) -> Result<(), String>;
-    /// `who` sized its view (None: a script). Ignored while another view
-    /// controls the terminal (see `termd::Controller`).
-    fn resize(&self, id: &str, who: Option<&Viewer>, cols: u16, rows: u16) -> Result<(), String>;
+    /// `who` sized its view. Ignored while another view controls the
+    /// terminal (see `termd::Controller`).
+    fn resize(&self, id: &str, who: &Viewer, cols: u16, rows: u16) -> Result<(), String>;
     /// `who` takes control of the terminal, at its own size.
     fn claim(&self, id: &str, who: Viewer, cols: u16, rows: u16) -> Result<(), String> {
-        self.resize(id, Some(&who), cols, rows)
+        self.resize(id, &who, cols, rows)
     }
     /// The view `who` stopped showing the terminal.
     fn release(&self, _id: &str, _who: &str) {}
@@ -2118,7 +2118,7 @@ struct TerminalInput {
 struct TerminalSize {
     cols: u16,
     rows: u16,
-    /// The view that sized itself; absent from a script (or an older page).
+    /// The view that sized itself; absent from a page older than views.
     #[serde(default)]
     viewer: Option<Viewer>,
 }
@@ -2171,7 +2171,8 @@ fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, re
         },
         ("POST", ["resize"]) => match serde_json::from_slice::<TerminalSize>(&req.body) {
             Ok(z) if z.viewer.as_ref().is_none_or(Viewer::is_valid) => {
-                done(stream, terminals.resize(id, z.viewer.as_ref(), z.cols, z.rows))
+                let who = z.viewer.unwrap_or_else(Viewer::unnamed);
+                done(stream, terminals.resize(id, &who, z.cols, z.rows))
             }
             _ => respond_json(stream, 400, "{\"error\":\"bad body\"}"),
         },
@@ -2535,7 +2536,7 @@ fn mux_change(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, who: &
                     .and_then(|t| t.subscribe(&tid));
                 match rx {
                     Some(rx) => {
-                        let viewer = viewer.filter(Viewer::is_valid);
+                        let viewer = Some(viewer.unwrap_or_else(Viewer::unnamed)).filter(Viewer::is_valid);
                         let control = ctx.terminals().and_then(|t| t.watch(&tid));
                         std::thread::spawn(move || {
                             mux_terminal(&ctx, &sub.key, rx, control, &tx, &stop);
@@ -3727,7 +3728,7 @@ mod tests {
             self.history.lock().unwrap().entry(id.to_string()).or_default().push_str(&format!("echo:{data}"));
             Ok(())
         }
-        fn resize(&self, _id: &str, _who: Option<&Viewer>, _cols: u16, _rows: u16) -> Result<(), String> {
+        fn resize(&self, _id: &str, _who: &Viewer, _cols: u16, _rows: u16) -> Result<(), String> {
             Ok(())
         }
         fn close(&self, id: &str) -> Result<(), String> {
