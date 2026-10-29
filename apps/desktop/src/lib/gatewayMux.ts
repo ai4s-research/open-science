@@ -8,14 +8,19 @@
 // `mux_open`), and says over short requests what should flow down it.
 import type { EventStreamOpener } from "@ai4s/sdk";
 import { gatewayOrigin, gatewayToken } from "./webMode";
+import type { TerminalControl, TerminalViewer } from "./terminalTransport";
 
-export type MuxSpec = { kind: "events"; directory?: string } | { kind: "terminal"; id: string };
+export type MuxSpec =
+  | { kind: "events"; directory?: string }
+  | { kind: "terminal"; id: string; viewer?: TerminalViewer };
 
 export interface MuxHandler {
   /** It is flowing. */
   onOpen: () => void;
   /** An event's data, or a chunk of a shell's output. */
   onData: (data: string) => void;
+  /** Who controls a terminal now (terminals only). */
+  onControl?: (control: TerminalControl) => void;
   /** It stopped: `exit`, the shell ended; `gone`, it cannot (or can no longer)
    *  be followed; `drop`, the tab's stream dropped — follow again to resume. */
   onEnd: (why: "exit" | "gone" | "drop") => void;
@@ -26,6 +31,7 @@ interface Frame {
   k?: string;
   open?: boolean;
   d?: string;
+  c?: TerminalControl;
   exit?: boolean;
   gone?: boolean;
 }
@@ -86,6 +92,7 @@ function open(): Promise<string> {
             if (!h || !frame.k) continue;
             if (frame.open) h.onOpen();
             else if (typeof frame.d === "string") h.onData(frame.d);
+            else if (frame.c) h.onControl?.(frame.c);
             else if (frame.exit || frame.gone) {
               subs.delete(frame.k);
               h.onEnd(frame.exit ? "exit" : "gone");

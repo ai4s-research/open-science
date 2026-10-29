@@ -17,8 +17,24 @@ export interface OutputOffsets {
   end?: number;
 }
 
+/** A window or browser tab showing terminals; `kind` is what the others call it. */
+export interface TerminalViewer {
+  id: string;
+  kind: "desktop" | "web" | "phone";
+}
+
+/** Who controls a terminal (null: nobody yet) and the size it runs at. One
+ *  view at a time sizes a shell; the others follow it until they take over. */
+export interface TerminalControl {
+  by: TerminalViewer | null;
+  cols: number;
+  rows: number;
+}
+
 export interface TerminalOutput {
   onData: (chunk: string, at?: OutputOffsets) => void;
+  /** Who controls the terminal: how things stand, then each change. */
+  onControl: (control: TerminalControl) => void;
   /** The shell exited. */
   onExit: () => void;
   /** The stream was re-established and will replay the shell's recent output:
@@ -45,9 +61,17 @@ export interface Opened {
 }
 
 export interface TerminalTransport {
+  /** This window or tab. */
+  viewer: TerminalViewer;
   open(id: string, cwd: string | undefined, cols: number, rows: number): Promise<Opened>;
   write(id: string, data: string): Promise<void>;
+  /** This view's size; the shell takes it unless another view controls it. */
   resize(id: string, cols: number, rows: number): Promise<void>;
+  /** Take control of the shell, at this view's size. */
+  claim(id: string, cols: number, rows: number): Promise<void>;
+  /** This view no longer shows the shell. Desktop only: a web tab lets go
+   *  when its output stream ends. */
+  release?(id: string): Promise<void>;
   close(id: string): Promise<void>;
   /** Start reading output (recent output first, from offset `since` when
    *  that is still held); the returned function stops. */
@@ -62,6 +86,7 @@ export interface TerminalTransport {
 }
 
 const desktop: TerminalTransport = {
+  viewer: { id: "desktop", kind: "desktop" },
   async open(id, cwd, cols, rows) {
     const { invoke } = await import("@tauri-apps/api/core");
     return invoke<Opened>("terminal_open", { id, cwd, cols, rows });
@@ -74,19 +99,30 @@ const desktop: TerminalTransport = {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("terminal_resize", { id, cols, rows });
   },
+  async claim(id, cols, rows) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("terminal_claim", { id, cols, rows });
+  },
+  async release(id) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("terminal_release", { id });
+  },
   async close(id) {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("terminal_close", { id });
   },
   // Recent output first: a shell that outlived the last app (it lives in the
   // terminal host) comes back with its screen, not blank.
-  async subscribe(id, { onData, onExit }, since) {
+  async subscribe(id, { onData, onControl, onExit }, since) {
     const { invoke, Channel } = await import("@tauri-apps/api/core");
     let stopped = false;
-    const onEvent = new Channel<({ kind: "data"; data: string } & OutputOffsets) | { kind: "exit" }>();
+    const onEvent = new Channel<
+      ({ kind: "data"; data: string } & OutputOffsets) | ({ kind: "control" } & TerminalControl) | { kind: "exit" }
+    >();
     onEvent.onmessage = (event) => {
       if (stopped) return;
       if (event.kind === "data") onData(event.data, { from: event.from, end: event.end });
+      else if (event.kind === "control") onControl({ by: event.by, cols: event.cols, rows: event.rows });
       else onExit();
     };
     await invoke("terminal_subscribe", { id, since: since ?? null, onEvent });
@@ -150,7 +186,14 @@ const authHeader = (): Record<string, string> => {
 /** How long to wait before reading a dropped output stream again. */
 const RECONNECT_MS = 1000;
 
+/** This tab: two tabs of one browser are two views of a shell. */
+const webViewer: TerminalViewer = {
+  id: randomId(),
+  kind: /Mobi|Android|iPhone|iPad/i.test(globalThis.navigator?.userAgent ?? "") ? "phone" : "web",
+};
+
 const web: TerminalTransport = {
+  viewer: webViewer,
   async open(id, cwd, cols, rows) {
     const shell = shellOf(id);
     opened.set(id, shell);
@@ -161,7 +204,10 @@ const web: TerminalTransport = {
     await gatewayPost(path(id, "/input"), { data });
   },
   async resize(id, cols, rows) {
-    await gatewayPost(path(id, "/resize"), { cols, rows });
+    await gatewayPost(path(id, "/resize"), { cols, rows, viewer: webViewer });
+  },
+  async claim(id, cols, rows) {
+    await gatewayPost(path(id, "/claim"), { cols, rows, viewer: webViewer });
   },
   async pasteFile(id, file) {
     if (file.size > MAX_UPLOAD_BYTES) {
@@ -194,13 +240,14 @@ const web: TerminalTransport = {
     let opens = 0;
     const start = () => {
       stop = follow(
-        { kind: "terminal", id: shellOf(id).wire },
+        { kind: "terminal", id: shellOf(id).wire, viewer: webViewer },
         {
           // Each later open replays the shell's recent output.
           onOpen: () => {
             if (opens++ > 0) output.onReset();
           },
           onData: (chunk) => output.onData(chunk),
+          onControl: output.onControl,
           onEnd: (why) => {
             if (stopped) return;
             if (why === "drop") setTimeout(() => !stopped && start(), RECONNECT_MS);

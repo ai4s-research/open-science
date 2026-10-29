@@ -601,6 +601,16 @@
       "confirmTitle": "Im Terminal fortsetzen?",
       "confirmBody": "Diese Unterhaltung geht in einem Terminal genau dort weiter, und dieser Bereich wird zu diesem Terminal. Sie bleibt in der Seitenleiste, du kannst hierher zurück.",
       "confirmBodyRunning": "Die laufende Antwort wird gestoppt, dann geht diese Unterhaltung in einem Terminal genau dort weiter. Sie bleibt in der Seitenleiste, du kannst hierher zurück."
+    },
+    "control": {
+      "held": "Die {{by}} steuert dieses Terminal",
+      "takeOver": "Dieses übernehmen",
+      "takeOverAll": "Alle übernehmen",
+      "by": {
+        "desktop": "Desktop-App",
+        "web": "Browser-Ansicht",
+        "phone": "Handy-Ansicht"
+      }
     }
   },
   "splitInto": {

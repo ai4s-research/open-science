@@ -601,6 +601,16 @@
       "confirmTitle": "Continue in a terminal?",
       "confirmBody": "This conversation reopens in a terminal where it is, and this pane becomes that terminal. It stays in the sidebar, so you can come back to it here.",
       "confirmBodyRunning": "The reply in progress stops, then this conversation reopens in a terminal where it is. It stays in the sidebar, so you can come back to it here."
+    },
+    "control": {
+      "held": "The {{by}} is in control",
+      "takeOver": "Take over this one",
+      "takeOverAll": "Take over all",
+      "by": {
+        "desktop": "desktop app",
+        "web": "browser",
+        "phone": "phone"
+      }
     }
   },
   "splitInto": {

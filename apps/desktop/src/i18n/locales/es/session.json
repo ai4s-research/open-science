@@ -601,6 +601,16 @@
       "confirmTitle": "¿Continuar en una terminal?",
       "confirmBody": "Esta conversación sigue en una terminal donde la dejaste, y este panel pasa a ser esa terminal. Se queda en la barra lateral, así que puedes volver aquí.",
       "confirmBodyRunning": "La respuesta en curso se detiene y luego esta conversación sigue en una terminal donde la dejaste. Se queda en la barra lateral, así que puedes volver aquí."
+    },
+    "control": {
+      "held": "La {{by}} tiene el control",
+      "takeOver": "Tomar este",
+      "takeOverAll": "Tomar todos",
+      "by": {
+        "desktop": "app de escritorio",
+        "web": "versión web",
+        "phone": "versión móvil"
+      }
     }
   },
   "splitInto": {

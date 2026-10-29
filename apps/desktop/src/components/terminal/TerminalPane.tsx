@@ -5,7 +5,12 @@ import { isGatewayWeb } from "@/lib/webMode";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/lib/toast";
 import { useRuntimeStore } from "@/lib/runtime";
-import { terminalShellId, terminalTransport, terminalsAvailable } from "@/lib/terminalTransport";
+import {
+  terminalShellId,
+  terminalTransport,
+  terminalsAvailable,
+  type TerminalControl,
+} from "@/lib/terminalTransport";
 import { copyReference, terminalReference } from "@/lib/agentReference";
 import {
   ContextMenu,
@@ -17,6 +22,9 @@ import {
   getTerminal,
   markTerminalUsed,
   putTerminal,
+  setTerminalFollowing,
+  takeOverAll,
+  useTerminalFollowing,
 } from "@/lib/terminalSessions";
 import {
   findLeaf,
@@ -81,6 +89,7 @@ export function TerminalPane({
   const host = useRef<HTMLDivElement | null>(null);
   const available = terminalsAvailable(useRuntimeStore((s) => s.webTerminal));
   const [searching, setSearching] = useState(false);
+  const followingKind = useTerminalFollowing((s) => s[leafId]);
   const searchingRef = useRef(searching);
   searchingRef.current = searching;
   // The xterm key handler is bound once, when the terminal is created, but the
@@ -336,6 +345,13 @@ export function TerminalPane({
           .catch(() => {});
       };
 
+      // Who sizes the shell (see `TerminalControl`). While another view does,
+      // this one follows its size, masked, and types nothing.
+      let control: TerminalControl | null = null;
+      const following = () => !!control?.by && control.by.id !== terminalTransport.viewer.id;
+      // Set once the resize machinery below exists; a change can arrive first.
+      let applyControl = () => {};
+
       // Output that answers a resize the pane is still applying; see below.
       let reply: {
         cols: number;
@@ -362,12 +378,21 @@ export function TerminalPane({
             const repaint = readRepaint(reply.data, reply.rows);
             if (repaint) applyResize(repaint);
           },
+          onControl: (next) => {
+            control = next;
+            term.options.disableStdin = following();
+            setTerminalFollowing(leafId, following() ? (next.by?.kind ?? null) : null);
+            applyControl();
+          },
           onExit: () => term.write(`\r\n${t("terminal.exited")}\r\n`),
           onReset: () => term.reset(),
         },
         screen?.end,
       );
       const input = term.onData((data) => {
+        if (following()) return;
+        // Typing in a terminal nobody controls takes it.
+        if (!control?.by) takeOver();
         // The first keystroke is what makes this terminal worth asking about
         // before it is closed.
         markTerminalUsed(leafId);
@@ -413,16 +438,23 @@ export function TerminalPane({
           term.write(splice.clear, () => resizeAndWrite(splice.repaint + (reply?.data ?? "")));
         });
       };
+      // A view following another takes that view's size, and splices the
+      // repaint it brings in the same way: it is the answer to a resize too.
       const tellShell = () => {
         settle = undefined;
         if (reply?.writing) {
           settle = setTimeout(tellShell, RESIZE_SETTLE_MS);
           return;
         }
-        const size = fit.proposeDimensions();
+        const follow = following();
+        const size = follow && control ? { cols: control.cols, rows: control.rows } : fit.proposeDimensions();
         if (!size || (size.cols === sent.cols && size.rows === sent.rows)) return;
+        expectRepaint(size.cols, size.rows);
+        if (!follow) void terminalTransport.resize(leafId, size.cols, size.rows);
+      };
+      const expectRepaint = (cols: number, rows: number) => {
         applyResize(null);
-        sent = { cols: size.cols, rows: size.rows };
+        sent = { cols, rows };
         reply = {
           ...sent,
           data: "",
@@ -430,8 +462,29 @@ export function TerminalPane({
           // A program that prints nothing, or only part of a repaint.
           timer: setTimeout(() => applyResize(null), RESIZE_REPLY_MS),
         };
-        void terminalTransport.resize(leafId, size.cols, size.rows);
       };
+      // Take control at this pane's own size.
+      const takeOver = () => {
+        const size = fit.proposeDimensions();
+        if (!size) return;
+        if (reply?.writing) {
+          setTimeout(takeOver, RESIZE_SETTLE_MS);
+          return;
+        }
+        clearTimeout(settle);
+        control = { by: terminalTransport.viewer, cols: size.cols, rows: size.rows };
+        term.options.disableStdin = false;
+        setTerminalFollowing(leafId, null);
+        if (size.cols !== sent.cols || size.rows !== sent.rows) expectRepaint(size.cols, size.rows);
+        void terminalTransport.claim(leafId, size.cols, size.rows);
+        term.focus();
+      };
+      // At once: the repaint for the new size is already on its way.
+      applyControl = () => {
+        clearTimeout(settle);
+        tellShell();
+      };
+      if (control) applyControl();
       const observer = new ResizeObserver(() => {
         if (queued) return;
         queued = requestAnimationFrame(() => {
@@ -479,8 +532,10 @@ export function TerminalPane({
         fit,
         search,
         container,
+        takeOver,
         dispose: () => {
           unsubscribe();
+          void terminalTransport.release?.(leafId);
           container.removeEventListener("paste", onPaste, true);
           container.removeEventListener("input", onInput, true);
           clearTimeout(pasteWait);
@@ -529,7 +584,7 @@ export function TerminalPane({
         <ContextMenuItem
           onSelect={() => {
             void readClipboard().then((text) => {
-              if (!text) return;
+              if (!text || followingKind) return;
               markTerminalUsed(leafId);
               void terminalTransport.write(leafId, text);
             });
@@ -642,8 +697,35 @@ export function TerminalPane({
             onClose={() => findControls.get(leafId)?.close()}
           />
         )}
+        {followingKind && (
+          <ControlMask
+            by={t(`terminal.control.by.${followingKind}`)}
+            onTakeOver={() => getTerminal(leafId)?.takeOver()}
+          />
+        )}
       </div>
     </ContextMenu>
+  );
+}
+
+/** Over a terminal another view controls: frosted, so the output still shows
+ *  through, with who has it and how to take it. */
+function ControlMask({ by, onTakeOver }: { by: string; onTakeOver: () => void }) {
+  const { t } = useTranslation("session");
+  const action = "text-[13px] text-text transition-colors hover:text-accent";
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 bg-surface/60 backdrop-blur-md">
+      <p className="text-[13px] text-muted">{t("terminal.control.held", { by })}</p>
+      <div className="flex items-center gap-4 border-t border-border/70 pt-4">
+        <button type="button" className={action} onClick={onTakeOver}>
+          {t("terminal.control.takeOver")}
+        </button>
+        <span aria-hidden className="h-3 w-px bg-border" />
+        <button type="button" className={action} onClick={takeOverAll}>
+          {t("terminal.control.takeOverAll")}
+        </button>
+      </div>
+    </div>
   );
 }
 

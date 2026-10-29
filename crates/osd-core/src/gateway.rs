@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use crate::artifact_file::{locate_under, mime_for, resolve_under, scope_root};
 use crate::env::Env;
+use crate::termd::{Control, Viewer};
 use crate::runtime::{random_hex, runtime_root, server_password, sidecar_url, tighten_private, workspace_dir};
 
 /// The web client + all `/v1` routes are served on this port when free, so a
@@ -261,7 +262,19 @@ pub trait Terminals: Send + Sync {
     /// command into it.
     fn open(&self, id: &str, cwd: Option<String>, cols: u16, rows: u16) -> Result<bool, String>;
     fn write(&self, id: &str, data: &str) -> Result<(), String>;
-    fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), String>;
+    /// `who` sized its view (None: a script). Ignored while another view
+    /// controls the terminal (see `termd::Controller`).
+    fn resize(&self, id: &str, who: Option<&Viewer>, cols: u16, rows: u16) -> Result<(), String>;
+    /// `who` takes control of the terminal, at its own size.
+    fn claim(&self, id: &str, who: Viewer, cols: u16, rows: u16) -> Result<(), String> {
+        self.resize(id, Some(&who), cols, rows)
+    }
+    /// The view `who` stopped showing the terminal.
+    fn release(&self, _id: &str, _who: &str) {}
+    /// Who controls the terminal and its size: now, then each change.
+    fn watch(&self, _id: &str) -> Option<Receiver<Control>> {
+        None
+    }
     fn close(&self, id: &str) -> Result<(), String>;
     /// Recent output, then everything after it. The channel closes when the
     /// shell exits. None for a terminal that is not running.
@@ -2105,6 +2118,9 @@ struct TerminalInput {
 struct TerminalSize {
     cols: u16,
     rows: u16,
+    /// The view that sized itself; absent from a script (or an older page).
+    #[serde(default)]
+    viewer: Option<Viewer>,
 }
 
 /// `/v1/terminals/{id}[/input|/resize|/output]`. The read-only gate has already
@@ -2154,8 +2170,14 @@ fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, re
             Err(_) => respond_json(stream, 400, "{\"error\":\"bad body\"}"),
         },
         ("POST", ["resize"]) => match serde_json::from_slice::<TerminalSize>(&req.body) {
-            Ok(z) => done(stream, terminals.resize(id, z.cols, z.rows)),
-            Err(_) => respond_json(stream, 400, "{\"error\":\"bad body\"}"),
+            Ok(z) if z.viewer.as_ref().is_none_or(Viewer::is_valid) => {
+                done(stream, terminals.resize(id, z.viewer.as_ref(), z.cols, z.rows))
+            }
+            _ => respond_json(stream, 400, "{\"error\":\"bad body\"}"),
+        },
+        ("POST", ["claim"]) => match serde_json::from_slice::<TerminalSize>(&req.body) {
+            Ok(TerminalSize { cols, rows, viewer: Some(v) }) if v.is_valid() => done(stream, terminals.claim(id, v, cols, rows)),
+            _ => respond_json(stream, 400, "{\"error\":\"bad body\"}"),
         },
         ("POST", ["paste"]) => match save_paste(&req.query_get("name").unwrap_or_default(), &req.body) {
             Ok(text) => respond_json(stream, 200, &serde_json::json!({ "text": text }).to_string()),
@@ -2387,12 +2409,18 @@ struct MuxSub {
 enum MuxWhat {
     /// The sidecar's events for one folder — what `/event?directory=` streams.
     Events { directory: Option<String> },
-    /// A shell's output — what `/v1/terminals/:id/output` streams.
-    Terminal { id: String },
+    /// A shell's output — what `/v1/terminals/:id/output` streams — and who
+    /// controls it, for `viewer`, which lets go of it when this ends.
+    Terminal {
+        id: String,
+        #[serde(default)]
+        viewer: Option<Viewer>,
+    },
 }
 
 /// One frame: `{"k": key, <field>: value}`. Fields: `open` (it is flowing),
-/// `d` (an event's data, or a chunk of output), `exit` (the shell ended),
+/// `d` (an event's data, or a chunk of output), `c` (who controls a terminal,
+/// see `termd::Control`), `exit` (the shell ended),
 /// `gone` (it cannot be, or can no longer be, followed).
 fn mux_frame(key: &str, field: &str, value: serde_json::Value) -> String {
     let mut m = serde_json::Map::new();
@@ -2496,7 +2524,7 @@ fn mux_change(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, who: &
                 let dir = directory.filter(|d| !d.is_empty()).unwrap_or_else(|| ws_dir(&ctx));
                 std::thread::spawn(move || mux_events(&ctx, &sub.key, &dir, &tx, &stop));
             }
-            MuxWhat::Terminal { id: tid } => {
+            MuxWhat::Terminal { id: tid, viewer } => {
                 // The same rule as `terminal_route`: the token reaches every
                 // shell, an account only the ones the gateway opened.
                 let ours = matches!(who, Principal::Token)
@@ -2507,7 +2535,14 @@ fn mux_change(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, who: &
                     .and_then(|t| t.subscribe(&tid));
                 match rx {
                     Some(rx) => {
-                        std::thread::spawn(move || mux_terminal(&ctx, &sub.key, rx, &tx, &stop));
+                        let viewer = viewer.filter(Viewer::is_valid);
+                        let control = ctx.terminals().and_then(|t| t.watch(&tid));
+                        std::thread::spawn(move || {
+                            mux_terminal(&ctx, &sub.key, rx, control, &tx, &stop);
+                            if let (Some(t), Some(v)) = (ctx.terminals(), viewer) {
+                                t.release(&tid, &v.id);
+                            }
+                        });
                     }
                     None => {
                         let _ = tx.send(mux_frame(&sub.key, "gone", serde_json::Value::Bool(true)));
@@ -2579,7 +2614,14 @@ fn mux_events(ctx: &Ctx, key: &str, directory: &str, tx: &Sender<String>, stop: 
 
 /// Forward a shell's output into a tab's stream, as `terminal_output` does on
 /// a connection of its own.
-fn mux_terminal(ctx: &Ctx, key: &str, rx: Receiver<String>, tx: &Sender<String>, stop: &AtomicBool) {
+fn mux_terminal(
+    ctx: &Ctx,
+    key: &str,
+    rx: Receiver<String>,
+    control: Option<Receiver<Control>>,
+    tx: &Sender<String>,
+    stop: &AtomicBool,
+) {
     let send = |field: &str, v: serde_json::Value| tx.send(mux_frame(key, field, v)).is_ok();
     if !send("open", serde_json::Value::Bool(true)) {
         return;
@@ -2588,7 +2630,13 @@ fn mux_terminal(ctx: &Ctx, key: &str, rx: Receiver<String>, tx: &Sender<String>,
         if stop.load(Ordering::Relaxed) {
             return;
         }
-        match rx.recv_timeout(Duration::from_secs(1)) {
+        for c in control.iter().flat_map(Receiver::try_iter) {
+            if !send("c", serde_json::to_value(c).unwrap_or_default()) {
+                return;
+            }
+        }
+        // Short, so a change of control is not held up behind a quiet shell.
+        match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(chunk) => {
                 if !send("d", serde_json::Value::String(chunk)) {
                     return;
@@ -3679,7 +3727,7 @@ mod tests {
             self.history.lock().unwrap().entry(id.to_string()).or_default().push_str(&format!("echo:{data}"));
             Ok(())
         }
-        fn resize(&self, _id: &str, _cols: u16, _rows: u16) -> Result<(), String> {
+        fn resize(&self, _id: &str, _who: Option<&Viewer>, _cols: u16, _rows: u16) -> Result<(), String> {
             Ok(())
         }
         fn close(&self, id: &str) -> Result<(), String> {

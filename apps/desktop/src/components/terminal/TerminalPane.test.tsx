@@ -233,3 +233,25 @@ describe("TerminalPane reopen", () => {
     expect(xterm.writes).toEqual(["everything"]);
   });
 });
+
+describe("TerminalPane control", () => {
+  it("follows the view in control, masked, and takes the shell back at its own size", async () => {
+    vi.mocked(invoke).mockClear();
+    render(<TerminalPane leafId="ctl-1" />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_subscribe", expect.anything()));
+    const call = vi.mocked(invoke).mock.calls.find(([cmd]) => cmd === "terminal_subscribe")!;
+    const send = (m: unknown) => (call[1] as { onEvent: { onmessage: (m: unknown) => void } }).onEvent.onmessage(m);
+
+    // A browser tab controls it: the pane takes its size and types nothing.
+    act(() => send({ kind: "control", by: { id: "tab1", kind: "web" }, cols: 50, rows: 21 }));
+    expect(await screen.findByText("The browser is in control")).toBeInTheDocument();
+    await waitFor(() => expect([xterm.last!.cols, xterm.last!.rows]).toEqual([50, 21]));
+    expect(xterm.last!.options.disableStdin).toBe(true);
+    expect(invoke).not.toHaveBeenCalledWith("terminal_resize", expect.anything());
+
+    act(() => screen.getByRole("button", { name: "Take over this one" }).click());
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_claim", { id: "ctl-1", cols: 80, rows: 24 }));
+    await waitFor(() => expect(screen.queryByText("The browser is in control")).not.toBeInTheDocument());
+    expect(xterm.last!.options.disableStdin).toBe(false);
+  });
+});

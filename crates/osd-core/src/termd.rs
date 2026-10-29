@@ -241,6 +241,95 @@ fn incomplete_tail(bytes: &[u8]) -> usize {
     0
 }
 
+// ---- control ----------------------------------------------------------------
+//
+// The desktop window and web tabs can show the same terminal. A shell has one
+// size, and each of them used to set it to its own box: Claude Code repainted
+// for each in turn, and every view but the one that asked drew those repaints
+// as copies. Now one view controls a terminal at a time, as in tmux's
+// `window-size latest`: it alone sets the size, the others follow it at that
+// size, masked, until they take over. Kept by the app, which every view
+// reaches the terminal through.
+
+/// A window or browser tab showing a terminal. `kind` is what the others call
+/// it: `desktop`, `web` or `phone`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Viewer {
+    pub id: String,
+    pub kind: String,
+}
+
+impl Viewer {
+    pub fn desktop() -> Viewer {
+        Viewer { id: "desktop".into(), kind: "desktop".into() }
+    }
+
+    /// One a client named itself: a short plain id and a known kind.
+    pub fn is_valid(&self) -> bool {
+        (1..=40).contains(&self.id.len())
+            && self.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && ["desktop", "web", "phone"].contains(&self.kind.as_str())
+    }
+}
+
+/// Who controls a terminal (None: nobody, the next view to size it takes
+/// it) and the size it runs at. Sent to every view when either changes.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Control {
+    pub by: Option<Viewer>,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// One terminal's control and the views told of its changes.
+#[derive(Default)]
+pub struct Controller {
+    by: Option<Viewer>,
+    watchers: Vec<Sender<Control>>,
+}
+
+impl Controller {
+    /// `who` sized its view to `cols` x `rows`. True when that is the
+    /// terminal's size now: `who` controls it, or took it as nobody did, or
+    /// is not a view at all (a script). A view following another is ignored.
+    pub fn resize(&mut self, who: Option<&Viewer>, cols: u16, rows: u16) -> bool {
+        match (who, &self.by) {
+            (Some(who), Some(by)) if who.id != by.id => return false,
+            (Some(who), None) => self.by = Some(who.clone()),
+            _ => {}
+        }
+        self.tell(cols, rows);
+        true
+    }
+
+    /// `who` takes control, at its own size.
+    pub fn claim(&mut self, who: Viewer, cols: u16, rows: u16) {
+        self.by = Some(who);
+        self.tell(cols, rows);
+    }
+
+    /// The view `id` went away; if it controlled the terminal, nobody does.
+    pub fn release(&mut self, id: &str, cols: u16, rows: u16) {
+        if self.by.as_ref().is_some_and(|by| by.id == id) {
+            self.by = None;
+            self.tell(cols, rows);
+        }
+    }
+
+    /// Every change from now on, starting with how things stand.
+    pub fn watch(&mut self, cols: u16, rows: u16) -> Receiver<Control> {
+        let (tx, rx) = channel();
+        let _ = tx.send(Control { by: self.by.clone(), cols, rows });
+        self.watchers.push(tx);
+        rx
+    }
+
+    fn tell(&mut self, cols: u16, rows: u16) {
+        let control = Control { by: self.by.clone(), cols, rows };
+        self.watchers.retain(|tx| tx.send(control.clone()).is_ok());
+    }
+}
+
 // ---- wire -------------------------------------------------------------------
 
 /// What to start, decided by the app: the host inherited the environment of
@@ -888,6 +977,40 @@ fn reap(mut child: std::process::Child) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_view_sizes_a_terminal_and_the_others_follow_until_they_take_over() {
+        let web = Viewer { id: "tab1".into(), kind: "web".into() };
+        let mut c = Controller::default();
+        let seen = c.watch(80, 24);
+        assert_eq!(seen.try_recv().unwrap(), Control { by: None, cols: 80, rows: 24 });
+
+        // Nobody controls it: the first view to size it takes it.
+        assert!(c.resize(Some(&Viewer::desktop()), 60, 22));
+        assert_eq!(seen.try_recv().unwrap().by, Some(Viewer::desktop()));
+        // Another view's box is ignored; a script's resize is not.
+        assert!(!c.resize(Some(&web), 50, 21));
+        assert!(seen.try_recv().is_err());
+        assert!(c.resize(None, 61, 22));
+        assert_eq!(seen.try_recv().unwrap(), Control { by: Some(Viewer::desktop()), cols: 61, rows: 22 });
+
+        // Taking over; then the one that left lets go of nothing.
+        c.claim(web.clone(), 50, 21);
+        assert_eq!(seen.try_recv().unwrap(), Control { by: Some(web.clone()), cols: 50, rows: 21 });
+        c.release("desktop", 50, 21);
+        assert!(seen.try_recv().is_err());
+        c.release("tab1", 50, 21);
+        assert_eq!(seen.try_recv().unwrap(), Control { by: None, cols: 50, rows: 21 });
+    }
+
+    #[test]
+    fn a_viewer_names_itself_plainly() {
+        assert!(Viewer::desktop().is_valid());
+        assert!(Viewer { id: "a1-b2".into(), kind: "phone".into() }.is_valid());
+        assert!(!Viewer { id: "a b".into(), kind: "web".into() }.is_valid());
+        assert!(!Viewer { id: "x".into(), kind: "tv".into() }.is_valid());
+        assert!(!Viewer { id: "".into(), kind: "web".into() }.is_valid());
+    }
 
     #[test]
     fn a_reattaching_reader_gets_recent_output_then_live_output() {

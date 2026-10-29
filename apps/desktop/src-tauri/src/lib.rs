@@ -292,6 +292,8 @@ pub fn run() {
             terminal::terminal_open,
             terminal::terminal_write,
             terminal::terminal_resize,
+            terminal::terminal_claim,
+            terminal::terminal_release,
             terminal::terminal_close,
             terminal::terminal_subscribe,
             terminal::terminal_save_screen,

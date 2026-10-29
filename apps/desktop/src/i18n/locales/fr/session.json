@@ -601,6 +601,16 @@
       "confirmTitle": "Continuer dans un terminal ?",
       "confirmBody": "Cette conversation reprend dans un terminal là où elle en était, et ce volet devient ce terminal. Elle reste dans la barre latérale, vous pourrez y revenir.",
       "confirmBodyRunning": "La réponse en cours s’arrête, puis cette conversation reprend dans un terminal là où elle en était. Elle reste dans la barre latérale, vous pourrez y revenir."
+    },
+    "control": {
+      "held": "L’{{by}} a la main",
+      "takeOver": "Reprendre celui-ci",
+      "takeOverAll": "Tout reprendre",
+      "by": {
+        "desktop": "application de bureau",
+        "web": "interface web",
+        "phone": "interface mobile"
+      }
     }
   },
   "splitInto": {

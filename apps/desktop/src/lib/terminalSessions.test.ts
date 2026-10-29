@@ -14,6 +14,7 @@ function fakeTerminal(id: string) {
     term: { dispose: termDispose } as never,
     fit: {} as never,
     search: {} as never,
+    takeOver: () => {},
     container,
     dispose,
   });

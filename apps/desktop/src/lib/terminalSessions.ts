@@ -12,9 +12,10 @@
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { SearchAddon } from "@xterm/addon-search";
+import { create } from "zustand";
 import type { TerminalProbe } from "./layout";
 import { isTauri } from "./tauri";
-import { terminalTransport } from "./terminalTransport";
+import { terminalTransport, type TerminalViewer } from "./terminalTransport";
 
 interface LiveTerminal {
   term: Terminal;
@@ -24,7 +25,28 @@ interface LiveTerminal {
   search: SearchAddon;
   /** The terminal's own element, kept alive while it is parked. */
   container: HTMLDivElement;
+  /** Take control of the shell from the view that has it. */
+  takeOver: () => void;
   dispose: () => void;
+}
+
+/** The terminals this view follows, with the kind of view that controls each
+ *  (see `TerminalControl`). Shown as a mask over each. */
+export const useTerminalFollowing = create<Record<string, TerminalViewer["kind"]>>(() => ({}));
+
+export function setTerminalFollowing(leafId: string, by: TerminalViewer["kind"] | null): void {
+  useTerminalFollowing.setState((s) => {
+    if ((s[leafId] ?? null) === by) return s;
+    const next = { ...s };
+    if (by) next[leafId] = by;
+    else delete next[leafId];
+    return next;
+  }, true);
+}
+
+/** Take control of every terminal this view follows. */
+export function takeOverAll(): void {
+  for (const leafId of Object.keys(useTerminalFollowing.getState())) live.get(leafId)?.takeOver();
 }
 
 const live = new Map<string, LiveTerminal>();
@@ -102,6 +124,7 @@ export function destroyTerminal(leafId: string): void {
   used.delete(leafId);
   if (!terminal) return;
   live.delete(leafId);
+  setTerminalFollowing(leafId, null);
   terminal.dispose();
   terminal.term.dispose();
   terminal.container.remove();

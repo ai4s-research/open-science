@@ -585,6 +585,16 @@
       "confirmTitle": "转到终端里继续？",
       "confirmBody": "这个对话会在终端里原样接着进行，这个窗格会变成那个终端。侧栏里会保留它，之后还能回到这里。",
       "confirmBodyRunning": "正在进行的回复会先停下，然后这个对话在终端里原样接着进行。侧栏里会保留它，之后还能回到这里。"
+    },
+    "control": {
+      "held": "{{by}}正在控制",
+      "takeOver": "接管此窗口",
+      "takeOverAll": "接管全部",
+      "by": {
+        "desktop": "桌面端",
+        "web": "网页端",
+        "phone": "手机端"
+      }
     }
   },
   "splitInto": {

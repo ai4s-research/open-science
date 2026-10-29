@@ -113,6 +113,7 @@ describe("the web transport", () => {
           send(null); // the tab's stream drops, the shell lives on
         } else {
           send({ k, d: "replayed" });
+          send({ k, c: { by: { id: "desktop", kind: "desktop" }, cols: 60, rows: 22 } });
           send({ k, exit: true });
         }
       });
@@ -120,10 +121,14 @@ describe("the web transport", () => {
     const events: string[] = [];
     await terminalTransport.subscribe("leaf-1", {
       onData: (c) => events.push(c),
+      onControl: (c) => events.push(`<${c.by?.kind} ${c.cols}x${c.rows}>`),
       onReset: () => events.push("<reset>"),
       onExit: () => events.push("<exit>"),
     });
-    await vi.waitFor(() => expect(events).toEqual(["first", "<reset>", "replayed", "<exit>"]), { timeout: 3000 });
+    await vi.waitFor(
+      () => expect(events).toEqual(["first", "<reset>", "replayed", "<desktop 60x22>", "<exit>"]),
+      { timeout: 3000 },
+    );
     fetchMock.closeAll(); // the next test starts with no tab stream
   });
 
@@ -131,12 +136,19 @@ describe("the web transport", () => {
     const fetchMock = fakeMux((k, _stream, send) => send({ k, gone: true }));
     vi.stubGlobal("fetch", fetchMock);
     const onExit = vi.fn();
-    await terminalTransport.subscribe("leaf-2", { onData() {}, onReset() {}, onExit });
+    await terminalTransport.subscribe("leaf-2", { onData() {}, onControl() {}, onReset() {}, onExit });
     await vi.waitFor(() => expect(onExit).toHaveBeenCalledOnce());
     // It asked over the tab's one stream, for this pane's shell.
     const adds = fetchMock.mock.calls.filter(([url]) => /\/v1\/mux\/m\d+$/.test(String(url)));
     expect(JSON.parse(String(adds[0][1]?.body))).toEqual({
-      add: [{ key: expect.any(String), kind: "terminal", id: "wabcdefabcdef-leaf-2" }],
+      add: [
+        {
+          key: expect.any(String),
+          kind: "terminal",
+          id: "wabcdefabcdef-leaf-2",
+          viewer: { id: expect.any(String), kind: "web" },
+        },
+      ],
     });
   });
 });
