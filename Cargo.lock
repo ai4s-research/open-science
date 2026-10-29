@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "ai4s-workbench"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "arboard",
  "chrono",
@@ -2857,7 +2857,7 @@ dependencies = [
 
 [[package]]
 name = "osd-cli"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "libc",
  "osd-core",
@@ -2867,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "osd-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "argon2",
  "base64 0.22.1",
