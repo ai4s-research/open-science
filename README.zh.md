@@ -39,6 +39,7 @@
 
 ## 最新动态
 
+- **2026-10-29** — 🖥️ **终端常驻，多个智能体并肩工作。** 终端现在运行在 App 之外，更新、重启、崩溃后都还在；Claude Code、Codex 和 pi 可以作为会话与 OpenCode 并列运行，一个会话一键在终端和对话之间切换。另有：每个智能体可用多个账号，主题配色变体，慢速网络也能拿到新模型，中文标点一次输入到位。*(v0.7.1)*
 - **2026-10-26** — 🌐 **在任何浏览器里用完整工作台，智能体之间能互相对话。** 远程访问现在支持分屏、Screen 和终端，手机上也能用，并可用账号密码登录；可以自定义专家智能体，各自配置指令、技能、连接器和模型；智能体还能通过 `osd` 读取并发消息给其他会话和终端。另有：智能体工作时可排队发消息，Linux 免 root 安装。*(v0.7.0)*
 - **2026-10-04** — 🖱️ **Computer Use、终端与编辑器。** 智能体现在能操作 ImageJ、Origin、仪器软件等桌面应用；窗格里可以放终端、文件和代码编辑器，Claude Code / Codex 重启后自动续上；另有全文查找（⌘F）、一键跳转任意会话或项目（⌘J），以及面向 DGX Spark 的 Linux ARM64 安装包。*(v0.6.0)*
 - **2026-08-18** — 🖥️ **无屏也能跑，终端命令随包附带。** `osd server` 在没有显示器的机器上启动整套工作台——工作区、智能体运行时，以及*同一套* Web UI；`osd session send … --wait` 让脚本或另一个智能体来驱动它。`osd` 现在装在桌面安装包里，首次启动自动进入 PATH；服务器上用压缩包，什么都不用装。模型、密钥、审批都能在终端配置（`osd model`、`osd auth`、`osd approval`）。
@@ -388,7 +389,7 @@ pnpm lint
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.7.1},
-  doi     = {10.5281/zenodo.23669652},
+  doi     = {10.5281/zenodo.23755472},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

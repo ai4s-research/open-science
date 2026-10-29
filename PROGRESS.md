@@ -1,5 +1,7 @@
 # Progress
 
+2026-10-28 23:30 · v0.7.1 published (tag at b2836d0, 15 assets; both macOS DMGs and their apps verified Notarized Developer ID, archs and version correct). Zenodo v0.7.1 DOI 10.5281/zenodo.23755472 written to CITATION.cff and the 7 README BibTeX blocks; News updated in all seven READMEs. Windows core CI fixed (0b3a547, test-only quoting).
+
 2026-10-28 22:10 · Tasks page withdrawn (reverts 173fe34), failed the user's check: a terminal with Claude Code in the foreground was counted as working though it sat idle at its prompt (the app cannot tell a terminal agent busy from idle), and the page had no purpose beyond mirroring the sidebar. Redesign under discussion.
 
 2026-10-28 21:45 · Terminal: Claude Code's own full repaints are spliced too. It also erases the screen and repaints its turn at the same size, unasked (folding tool calls it already printed), and the pane wrote that as it came: the turn's top landed below the copy already there (p728, no view resizing). A chunk with the repaint's opening now starts the same wait-and-splice as a resize's answer. Checked on the captured output: spliced one copy, written raw two, as on screen. vitest 2011; typecheck, lint clean.

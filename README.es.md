@@ -35,6 +35,7 @@ Formerly Open Science. Una alternativa desktop open source a Claude Science y wo
 
 ## Novedades
 
+- **2026-10-29** — 🖥️ **Terminales que permanecen y agentes lado a lado.** Los terminales ahora se ejecutan fuera de la app y sobreviven a actualizaciones, reinicios y bloqueos; Claude Code, Codex y pi funcionan como conversaciones junto a OpenCode, y una sesión pasa entre terminal y conversación con un clic. Además, varias cuentas por agente, variantes de tema, modelos nuevos en redes lentas y puntuación china que entra a la primera. *(v0.7.1)*
 - **2026-10-26** — 🌐 **El banco de trabajo completo desde cualquier navegador, y agentes que hablan entre sí.** Paneles divididos, Screens y terminales funcionan ahora por acceso remoto, también en el móvil, con cuentas de nombre y contraseña; define tus propios especialistas con sus instrucciones, habilidades, conectores y modelo; y los agentes leen y escriben a las conversaciones y terminales de otros mediante `osd`. Además, mensajes en cola mientras el agente trabaja e instalación en Linux sin root. *(v0.7.0)*
 - **2026-10-04** — 🖱️ **Computer Use, terminales y editores.** El agente ya puede manejar apps de escritorio como ImageJ, Origin o el software de instrumentos; los paneles admiten terminales, archivos y un editor de código, donde Claude Code / Codex se reanudan tras reiniciar; además, búsqueda (⌘F), salto a cualquier sesión o proyecto (⌘J) y Linux ARM64 para DGX Spark. *(v0.6.0)*
 - **2026-08-18** — 🖥️ **Funciona sin pantalla.** `osd server` levanta el banco de trabajo completo — workspace, runtime del agente y la *misma* UI web — en una máquina sin display, y `osd session send … --wait` lo maneja desde un script o desde otro agente. Un archivo comprimido, sin instalador. `osd` viaja dentro del instalador de escritorio y se pone en tu PATH al primer arranque; en un servidor basta el archivo comprimido. Modelos, claves y aprobaciones se configuran desde la terminal (`osd model`, `osd auth`, `osd approval`).
@@ -386,7 +387,7 @@ Si usas Open Science Desktop en tu investigación, cítalo así:
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.7.1},
-  doi     = {10.5281/zenodo.23669652},
+  doi     = {10.5281/zenodo.23755472},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

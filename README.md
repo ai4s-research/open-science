@@ -40,6 +40,7 @@ runs, and review into one auditable desktop workflow.
 
 ## News
 
+- **2026-10-29** — 🖥️ **Terminals that stay, agents side by side.** Terminals now run outside the app and survive updates, relaunches and crashes; Claude Code, Codex and pi run as conversations beside OpenCode, and a session moves between terminal and conversation in one click. Plus several accounts per agent, theme variants, new models on slow networks, and Chinese punctuation that goes in on the first press. *(v0.7.1)*
 - **2026-10-26** — 🌐 **The workbench from any browser, and agents that talk to each other.** Splits, Screens and terminals now work over Remote Access, on a phone too, with name-and-password accounts; define your own Specialists with their own instructions, skills, connectors and model; and agents read and message each other's conversations and terminals through `osd`. Plus queued messages while the agent works, and a no-root Linux install. *(v0.7.0)*
 - **2026-10-04** — 🖱️ **Computer Use, terminals and editors.** The agent can now operate desktop apps like ImageJ, Origin and instrument software; panes hold terminals, files and a code editor, where Claude Code / Codex resume after a relaunch; plus find (⌘F), jump to any session or project (⌘J), and Linux ARM64 for DGX Spark. *(v0.6.0)*
 - **2026-08-18** — 🖥️ **Runs without a screen, and the terminal command comes with it.** `osd server` starts the whole workbench — workspace, agent runtime, and the *same* web UI — on a machine with no display, and `osd session send … --wait` drives it from a script or another agent. `osd` ships inside the desktop installer and puts itself on your PATH on first launch; on a server the archive needs nothing installed. Models, keys and approvals are all configurable from the terminal (`osd model`, `osd auth`, `osd approval`).
@@ -510,7 +511,7 @@ If you use Open Science Desktop in your research, please cite it:
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.7.1},
-  doi     = {10.5281/zenodo.23669652},
+  doi     = {10.5281/zenodo.23755472},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }
