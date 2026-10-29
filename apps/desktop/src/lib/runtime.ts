@@ -5821,8 +5821,18 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
   const asTypedCommand = commandEchoReader(commands);
   // A step frozen mid-run (the runtime restarted or the turn was killed before
   // it finished) must not spin forever in history — render it quietly and say
-  // once, at the end, that the turn was interrupted.
+  // once, at the end of THAT turn, that it was interrupted. Per turn, not per
+  // session: one stuck step must not mark every later, finished turn.
   let interrupted = false;
+  const closeTurn = () => {
+    if (!interrupted) return;
+    blocks.push({
+      kind: "status-line",
+      text: "Interrupted — this turn did not finish. Send a new message to continue.",
+      tone: "error",
+    });
+    interrupted = false;
+  };
   // A user-typed "!" command is recorded as a synthetic user text plus a bash
   // tool part on the next assistant message. Render it like the live path:
   // the "! cmd" echo and the output inline — never the synthetic marker text.
@@ -5836,6 +5846,9 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
     -1,
   );
   for (const [messageIndex, m] of messages.entries()) {
+    // A user-role message (a new prompt, or OpenCode's compaction carrier)
+    // starts a new turn, so the previous one is over.
+    if (m.role === "user") closeTurn();
     // Compaction is checked before the role split, because OpenCode stores the
     // marker on a message with role "user" (SessionCompaction.create opens one
     // solely to hang the part off). Reading it only on assistant messages made
@@ -5979,12 +5992,6 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
       shellTurn = false;
     }
   }
-  if (interrupted) {
-    blocks.push({
-      kind: "status-line",
-      text: "Interrupted — this turn did not finish. Send a new message to continue.",
-      tone: "error",
-    });
-  }
+  closeTurn();
   return { blocks, index: {} };
 }

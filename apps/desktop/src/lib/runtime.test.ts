@@ -664,6 +664,17 @@ describe("historyToThread", () => {
     expect(last).toMatchObject({ kind: "status-line", tone: "error" });
   });
 
+  it("puts the interrupted line under the turn that froze, not under later finished turns", () => {
+    const msgs: HistoryMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "research" }] },
+      { role: "assistant", parts: [{ type: "tool", tool: "webfetch", state: { status: "running", title: "x.com" } }] },
+      { role: "user", parts: [{ type: "text", text: "go on" }] },
+      { role: "assistant", parts: [{ type: "text", text: "done" }] },
+    ];
+    const kinds = historyToThread(msgs).blocks.map((b) => b.kind);
+    expect(kinds).toEqual(["user", "tool-call", "status-line", "user", "agent"]);
+  });
+
   it("shows a slash command as what the user typed, not its expanded template", () => {
     // OpenCode stores the EXPANDED command/skill template as the user message,
     // with typed arguments appended — reverse-map via the known templates.
