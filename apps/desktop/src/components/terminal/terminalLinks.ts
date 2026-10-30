@@ -243,6 +243,13 @@ export function bufferAnchors(row: (y: number) => Row | null, rows: number): str
   return mergeAnchors(lines.reverse().map(anchorPaths));
 }
 
+/** How long a lookup's answer is reused. A running TUI redraws its rows many
+ *  times a second (Claude Code's timer and spinner), and on each redraw xterm
+ *  drops the link under the pointer and asks again. An answer that has to wait
+ *  on a disk lookup leaves a gap with no link, and a click landing in it does
+ *  nothing; a reused answer comes back at once. */
+const RESOLVED_MS = 3_000;
+
 /**
  * URLs and existing local paths in a terminal become links (see lib/links):
  * xterm underlines one under the pointer, and a click opens the link menu.
@@ -260,19 +267,22 @@ export function registerTerminalLinks(term: Terminal, cwd: () => string | null) 
   let anchors: string[] | null = null;
   const written = term.onWriteParsed(() => (anchors = null));
   const currentAnchors = () => (anchors ??= bufferAnchors(row, term.buffer.active.length));
+  const resolved = new Map<string, { at: number; target: LinkTarget | null }>();
   const provider = term.registerLinkProvider({
     provideLinks(y, callback) {
       const line = logicalLine(row, y, term.cols);
       const spans = lineCandidates(line);
       if (spans.length === 0) return callback(undefined);
-      const from = { cwd: cwd(), anchors: currentAnchors() };
-      void Promise.all(
-        spans.map(async (span) => {
-          const target = await resolveLink(span.text, from);
-          return target ? { span, target } : null;
-        }),
-      ).then((resolved) => {
-        const found = resolved.filter((r): r is { span: LinkSpan; target: LinkTarget } => r !== null);
+      const dir = cwd();
+      const now = Date.now();
+      if (resolved.size > 1_000) resolved.clear();
+      const keys = spans.map((span) => `${dir ?? ""}\0${span.text}`);
+      const hits = keys.map((key) => resolved.get(key)).map((hit) => (hit && now - hit.at < RESOLVED_MS ? hit : null));
+      const answer = (targets: (LinkTarget | null)[]) => {
+        const found = spans.flatMap((span, i) => {
+          const target = targets[i];
+          return target ? [{ span, target }] : [];
+        });
         const links: ILink[] = pickLongest(found.map((r) => ({ ...r, start: r.span.start, end: r.span.end })))
           .map(({ span, target }) => {
             const first = line.cells[span.start];
@@ -288,6 +298,12 @@ export function registerTerminalLinks(term: Terminal, cwd: () => string | null) 
           // xterm asks row by row; answer with the links on this one.
           .filter((l) => l.range.start.y <= y && y <= l.range.end.y);
         callback(links.length ? links : undefined);
+      };
+      if (hits.every((hit) => hit !== null)) return answer(hits.map((hit) => hit!.target));
+      const from = { cwd: dir, anchors: currentAnchors() };
+      void Promise.all(spans.map((span, i) => (hits[i] ? hits[i].target : resolveLink(span.text, from)))).then((targets) => {
+        targets.forEach((target, i) => hits[i] || resolved.set(keys[i], { at: now, target }));
+        answer(targets);
       });
     },
   });

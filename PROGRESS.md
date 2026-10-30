@@ -1,5 +1,7 @@
 # Progress
 
+2026-10-30 08:52 · Terminal links: a path on a row Claude Code keeps redrawing (a tool row while it runs, under its timer and spinner) can be clicked. Each redraw made xterm drop the link and ask again, and the answer waited on a disk lookup, so a click mostly landed while there was no link; a lookup is now reused for 3 s and the row is answered at once. New test fails without the fix; lint and 2014 vitest green (the acp interop suite needs `@agentclientprotocol/sdk`, not installed locally).
+
 2026-10-29 05:40 · Links: three kinds of path that could not be clicked now open. Terminal: a styled run is also tried from each place a full path starts in it (Claude Code's grey `⎿  ~/a b.png` result line; a path at the end of an italic recap wrapped over rows). Answers: inline code naming a bare file with spaces resolves. Tool rows: the file a step read or wrote is a link. Each new test fails without its fix; 2013 vitest + osd-core anchor test green.
 
 2026-10-29 04:55 · Terminal: /clear in Claude Code clears the screen again. Its new screen is sent with the same erase-and-repaint bytes as a fold (verified by capturing them in a pty), so 7c60fe6 spliced it below the old screen; a repaint of its own that lines up with nothing on screen is now written as sent. Terminal tests green, the new one fails without the fix.

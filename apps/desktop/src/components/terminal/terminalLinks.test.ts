@@ -1,5 +1,21 @@
-import { describe, expect, it } from "vitest";
-import { BLANK, bufferAnchors, cellStyle, lineCandidates, logicalLine, pickLongest, rowText } from "./terminalLinks";
+import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
+import { describe, expect, it, vi } from "vitest";
+import { resolveLink } from "@/lib/links";
+import {
+  BLANK,
+  bufferAnchors,
+  cellStyle,
+  lineCandidates,
+  logicalLine,
+  pickLongest,
+  registerTerminalLinks,
+  rowText,
+} from "./terminalLinks";
+
+vi.mock("@/lib/links", async (actual) => ({
+  ...(await actual<typeof import("@/lib/links")>()),
+  resolveLink: vi.fn(async (text: string) => ({ kind: "path", path: text, root: "disk", isDir: false, display: text })),
+}));
 
 /** A fake xterm row: each entry is one cell's characters, "" for the second
  *  half of a wide character. */
@@ -235,5 +251,26 @@ describe("bufferAnchors", () => {
   it("reads absolute paths from the output, the latest first, wrapped rows as one line", () => {
     const rows = screen(["⏺ Read(/Users/me/rep", "↪o/README.md)", "$ cd /Users/me/other", "ok"], 20);
     expect(bufferAnchors(rows, 4)).toEqual(["/Users/me/other", "/Users/me/repo/README.md"]);
+  });
+});
+
+describe("registerTerminalLinks", () => {
+  it("answers a row asked again during a redraw at once, without a second lookup", async () => {
+    const text = "  ⎿  /tmp/a/kg13.png";
+    let provider: ILinkProvider | undefined;
+    const term = {
+      cols: 40,
+      buffer: { active: { length: 1, getLine: (y: number) => (y === 0 ? { ...row([...text]), isWrapped: false } : undefined) } },
+      onWriteParsed: () => ({ dispose() {} }),
+      registerLinkProvider: (p: ILinkProvider) => ((provider = p), { dispose() {} }),
+    } as unknown as Terminal;
+    registerTerminalLinks(term, () => null);
+    const shape = (links?: ILink[]) => links?.map(({ range, text }) => ({ range, text }));
+    const first = await new Promise<ILink[] | undefined>((done) => provider!.provideLinks(1, done));
+    expect(shape(first)).toEqual([{ range: { start: { x: 6, y: 1 }, end: { x: 20, y: 1 } }, text: "/tmp/a/kg13.png" }]);
+    let again: ILink[] | undefined;
+    provider!.provideLinks(1, (links) => (again = links));
+    expect(shape(again)).toEqual(shape(first));
+    expect(resolveLink).toHaveBeenCalledTimes(1);
   });
 });
