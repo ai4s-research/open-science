@@ -214,20 +214,28 @@ export const LinkFolder = createContext<readonly string[] | undefined>(undefined
  *  into another folder is looked for next (see `resolveLink`). */
 export const LinkAnchors = createContext<readonly string[] | undefined>(undefined);
 
-function LinkCode({ children, className }: { children: string; className: string }) {
+/** What `text` links to in this conversation (see `resolveLink`), once found;
+ *  null while looking and for what cannot be opened. */
+export function useLinkTarget(text: string | undefined): LinkTarget | null {
   const [target, setTarget] = useState<LinkTarget | null>(null);
   const folder = useContext(LinkFolder);
   const anchors = useContext(LinkAnchors);
   useEffect(() => {
     let live = true;
-    const text = children.trim();
+    const trimmed = text?.trim() ?? "";
+    setTarget(null);
     // A path broken over lines has a space where the break was.
-    if (/^https?:\/\//.test(text) || looksLikePath(cleanPath(text.replace(/\s+/g, ""))))
-      void resolveLink(text, { folders: folder, anchors }).then((t) => live && setTarget(t));
+    if (/^https?:\/\//.test(trimmed) || looksLikePath(cleanPath(trimmed.replace(/\s+/g, ""))))
+      void resolveLink(trimmed, { folders: folder, anchors }).then((t) => live && setTarget(t));
     return () => {
       live = false;
     };
-  }, [children, folder, anchors]);
+  }, [text, folder, anchors]);
+  return target;
+}
+
+function LinkCode({ children, className }: { children: string; className: string }) {
+  const target = useLinkTarget(children);
   if (!target) return <code className={className}>{children}</code>;
   return (
     <code

@@ -9,6 +9,8 @@ import {
 import { useTranslation } from "react-i18next";
 import type { ToolCallBlock, ToolCallStatus } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
+import { activateLink } from "@/lib/links";
+import { useLinkTarget } from "@/components/markdown-viewer/MarkdownViewer";
 import { SubagentActivity } from "./SubagentActivity";
 import { RunningDot } from "./RunningDot";
 
@@ -33,6 +35,28 @@ export const STATUS: Record<ToolCallStatus, { icon: React.ReactNode; className: 
 // stays the fallback for any quiet row rendered outside a group).
 export const PROMINENT = new Set<ToolCallStatus>(["waiting-approval", "warning", "failed"]);
 
+/** A step's title. The file it read or wrote is a link, as a path in an
+ *  answer is (see lib/links); a click on it does not also fold the row. */
+export function ToolTitle({ block, className }: { block: ToolCallBlock; className: string }) {
+  const target = useLinkTarget(block.filePath);
+  return (
+    <span
+      className={cn(className, target && "cursor-pointer decoration-1 underline-offset-[3px] hover:underline")}
+      title={block.command ?? block.title}
+      onClick={
+        target
+          ? (event) => {
+              event.stopPropagation();
+              activateLink(target, event);
+            }
+          : undefined
+      }
+    >
+      {block.title}
+    </span>
+  );
+}
+
 // Memoized on `block`: a fold rebuilds only the changed block's object (the
 // blocks array copy preserves every other block's reference), so an SSE event
 // re-renders just the one row it touched — not the whole conversation (#34).
@@ -54,15 +78,13 @@ export const ToolCallRow = memo(function ToolCallRow({ block }: { block: ToolCal
           {s.icon}
         </span>
         {block.verb && <span className="shrink-0 text-muted">{t(`tool.verb.${block.verb}`)}</span>}
-        <span
+        <ToolTitle
+          block={block}
           className={cn(
             "flex-1 truncate",
             prominent ? "text-text" : cn("font-mono", block.status === "running" ? "text-text" : "text-muted"),
           )}
-          title={block.command ?? block.title}
-        >
-          {block.title}
-        </span>
+        />
         {block.meta && <span className="shrink-0 text-xs text-muted">{block.meta}</span>}
       </div>
       {/* Live pulse of the subagent this task spawned — what it is doing right

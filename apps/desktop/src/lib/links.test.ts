@@ -26,6 +26,8 @@ describe("linkCandidates", () => {
   it("leaves ordinary words and numbers alone", () => {
     expect(texts("npm run build took 3.14 seconds")).toEqual([]);
     expect(looksLikePath("README.md")).toBe(true);
+    expect(looksLikePath("Awesome Prompts_ Penguin AI Adventure.png")).toBe(true);
+    expect(looksLikePath("a sentence. Then")).toBe(false);
     expect(looksLikePath("1.2.3")).toBe(false);
     expect(cleanPath("a/b.py:40")).toBe("a/b.py");
     expect(cleanPath("a/b.ts:163-182")).toBe("a/b.ts");

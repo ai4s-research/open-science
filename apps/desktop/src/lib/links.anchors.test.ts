@@ -7,6 +7,8 @@ const invoke = vi.hoisted(() =>
   vi.fn(async (_cmd: string, args: { path: string; anchors: string[] }) =>
     args.path === "packages/core/src/agent.ts" && args.anchors.includes("/Users/me/repo/README.md")
       ? { root: "home", rel: "repo/packages/core/src/agent.ts", is_dir: false }
+      : args.path === "Penguin AI Adventure.png" && args.anchors.includes("/Users/me/Downloads/Penguin")
+        ? { root: "home", rel: "Downloads/Penguin AI Adventure.png", is_dir: false }
       : args.path === "/private/tmp/shot.png"
         ? { root: "disk", rel: args.path, is_dir: false }
         : null,
@@ -55,6 +57,16 @@ describe("a relative path in an answer, against the anchors", () => {
     invoke.mockClear();
     expect(await resolveLink("run this, then packages/core/src/agent.ts", { anchors })).toBeNull();
     expect(invoke.mock.calls.map((c) => c[1].path)).not.toContain("packages/core/src/agent.ts");
+  });
+
+  it("finds a bare name with spaces next to the file the conversation read", async () => {
+    // The anchor stops at the first space; the shell searches from what of it exists.
+    const blocks = [
+      { kind: "tool-call", title: "Read", status: "success", filePath: "/Users/me/Downloads/Penguin AI Adventure.png" },
+    ] as ThreadBlock[];
+    expect(await resolveLink("Penguin AI Adventure.png", { anchors: threadAnchors(blocks) })).toMatchObject({
+      path: "Downloads/Penguin AI Adventure.png",
+    });
   });
 
   it("without anchors, the shell is not asked about a relative path", async () => {

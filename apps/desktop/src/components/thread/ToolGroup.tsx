@@ -17,7 +17,7 @@ import type { ThreadBlock, ToolCallBlock } from "@ai4s/shared";
 import i18n from "@/i18n";
 import { cn } from "@/lib/cn";
 import { DiffView } from "@/components/code-viewer/DiffView";
-import { STATUS } from "./ToolCallRow";
+import { STATUS, ToolTitle } from "./ToolCallRow";
 import { SubagentActivity } from "./SubagentActivity";
 import { RunningDot } from "./RunningDot";
 import { ICON_SLOT } from "./rowLayout";
@@ -361,12 +361,7 @@ const ToolRow = memo(function ToolRow({
           {s.icon}
         </span>
         {block.verb && <span className="shrink-0 text-muted">{t(`tool.verb.${block.verb}`)}</span>}
-        <span
-          className={cn("min-w-0 truncate font-mono", running ? "text-text" : "text-muted")}
-          title={block.command ?? block.title}
-        >
-          {block.title}
-        </span>
+        <ToolTitle block={block} className={cn("min-w-0 truncate font-mono", running ? "text-text" : "text-muted")} />
         {detail && (
           <IconChevronRightOutlineRegular
             size={12}

@@ -138,9 +138,15 @@ export function logicalLine(row: (y: number) => Row | null, y: number, cols: num
  *  so each styled run is also tried whole, as VS Code does. Unstyled text is
  *  prose, not tried. A run goes on over blank cells up to the next cell of its
  *  style. Where it crosses a TUI break, the break may have taken a space (a
- *  word wrap) or not (a wrap mid-name): both are tried, and what exists wins. */
+ *  word wrap) or not (a wrap mid-name): both are tried, and what exists wins.
+ *
+ *  A run can hold more than the path: a tool result's `⎿` marker, or a recap's
+ *  prose before it. So it is also tried from each place in it a full path
+ *  starts, after a space or CJK punctuation, to the run's end. */
 const MAX_RUN = 1024;
 const MAX_RUN_BREAKS = 3;
+const MAX_RUN_STARTS = 8;
+const PATH_START = IS_WINDOWS ? /(?<=^|[\s\u3000-\u303f\uff00-\uffef])(?:[A-Za-z]:|~|\.{1,2})?[\\/]/g : /(?<=^|[\s\u3000-\u303f\uff00-\uffef])(?:~|\.{1,2})?\//g;
 
 function styleRuns(line: LogicalLine): LinkSpan[] {
   const spans: LinkSpan[] = [];
@@ -156,10 +162,13 @@ function styleRuns(line: LogicalLine): LinkSpan[] {
       if (cells[i].style === style) end = i + 1;
     }
     const raw = text.slice(start, end);
-    const from = start + raw.length - raw.trimStart().length;
-    const to = from + cleanPath(raw.trim()).length;
-    const inner = line.breaks.filter((b) => b.at > from && b.at < to).map((b) => b.at);
-    if (to - from <= MAX_RUN && inner.length <= MAX_RUN_BREAKS && !/^https?:\/\//.test(raw.trim())) {
+    const first = start + raw.length - raw.trimStart().length;
+    const to = first + cleanPath(raw.trim()).length;
+    const run = text.slice(first, to);
+    const starts = new Set([first, ...[...run.matchAll(PATH_START)].map((m) => first + m.index)]);
+    for (const from of [...starts].slice(0, MAX_RUN_STARTS)) {
+      const inner = line.breaks.filter((b) => b.at > from && b.at < to).map((b) => b.at);
+      if (to - from > MAX_RUN || inner.length > MAX_RUN_BREAKS || /^https?:\/\//.test(text.slice(from, to))) continue;
       for (let mask = 0; mask < 1 << inner.length; mask++) {
         let joined = "";
         let at = from;

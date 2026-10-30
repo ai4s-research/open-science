@@ -193,6 +193,23 @@ describe("a highlighted path with spaces", () => {
     expect(spans.map((s) => s.text)).toContain("/Users/me/a-very-long-folder/and-a-file.txt");
   });
 
+  it("starts where the path does, after a marker in the same style", () => {
+    // Claude Code prints a tool call's result line, `⎿` and all, in one grey.
+    const text = "  ⎿  ~/Downloads/Awesome Prompts Penguin Banner.png";
+    const { spans } = at([text], [mark(text, "⎿  ~/Downloads/Awesome Prompts Penguin Banner.png")], 1);
+    expect(spans.map((s) => s.text)).toContain("~/Downloads/Awesome Prompts Penguin Banner.png");
+  });
+
+  it("finds a path at the end of a styled paragraph wrapped over rows", () => {
+    // A recap: prose and the path in one italic, broken mid-name and at a space.
+    const lines = ["recap: 打好了，装上验收：/Users/me/projects/open-ai4s-workb", "ench/release/dmg/Open", "Science_0.7.1_aarch64.dmg"];
+    const styles = lines.map((l) => "b".repeat(l.length));
+    const { spans } = at(lines, styles, 3, ".");
+    expect(spans.map((s) => s.text)).toContain(
+      "/Users/me/projects/open-ai4s-workbench/release/dmg/Open Science_0.7.1_aarch64.dmg",
+    );
+  });
+
   it("is not tried in unstyled prose", () => {
     const { spans } = at(["see the a/b notes and c/d"], [], 1);
     expect(spans.map((s) => s.text)).toEqual(["a/b", "c/d"]);

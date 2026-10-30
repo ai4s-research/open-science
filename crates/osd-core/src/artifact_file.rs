@@ -982,6 +982,12 @@ mod tests {
         // most recent anchor's folders first.
         assert_eq!(locate_local(&home, "README.md", None, &anchors), file("repo/README.md"));
         assert_eq!(locate_local(&home, "src/agent.ts", None, &anchors), file("other/src/agent.ts"));
+        // A name with spaces: its anchor was cut at the first space, and is
+        // searched from the part of it that exists.
+        std::fs::create_dir_all(home.join("Downloads")).unwrap();
+        std::fs::write(home.join("Downloads/Penguin AI Adventure.png"), "x").unwrap();
+        let cut = vec![s(home.join("Downloads/Penguin"))];
+        assert_eq!(locate_local(&home, "Penguin AI Adventure.png", None, &cut), file("Downloads/Penguin AI Adventure.png"));
         // The cwd wins over anchors; nothing that does not exist; never `..`.
         let cwd = home.join("repo/packages/core");
         assert_eq!(locate_local(&home, "src/agent.ts", cwd.to_str(), &anchors), file("repo/packages/core/src/agent.ts"));

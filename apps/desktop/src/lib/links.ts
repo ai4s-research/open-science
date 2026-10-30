@@ -55,10 +55,11 @@ export function cleanPath(raw: string): string {
 }
 
 /** Could `text` name a file? A slash, or a name with an extension — not every
- *  word of a line is worth a disk lookup. */
+ *  word of a line is worth a disk lookup. A name may hold spaces
+ *  (`Penguin Banner.png`): text offered whole, as inline code is, can be one. */
 export function looksLikePath(text: string): boolean {
   if (text.length < 2 || /^\d+(\.\d+)*$/.test(text)) return false;
-  return hasSeparator(text) || new RegExp(String.raw`^${NAME}+\.[A-Za-z]\w{0,7}$`).test(text);
+  return hasSeparator(text) || new RegExp(String.raw`^${NAME}(?:${NAME}| )*\.[A-Za-z]\w{0,7}$`).test(text);
 }
 
 export interface LinkSpan {
