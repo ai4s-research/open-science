@@ -216,6 +216,20 @@ describe("a highlighted path with spaces", () => {
     expect(spans.map((s) => s.text)).toContain("~/Downloads/Awesome Prompts Penguin Banner.png");
   });
 
+  it("finds a path in the middle of a styled paragraph, prose after it", () => {
+    // A recap: the path with a space, then a full stop and more sentences.
+    const lines = [
+      "※ recap: You wanted paths to be clickable. I put a test build at",
+      "  ~/Downloads/Open Science_0.7.1_aarch64_linkfix.dmg. Next, install",
+      "  it and try clicking a path while the timer is still counting.",
+    ];
+    const styles = [mark(lines[0], lines[0].slice(9)), mark(lines[1], lines[1].trim()), mark(lines[2], lines[2].trim())];
+    for (const y of [1, 2, 3]) {
+      const { spans } = at(lines, styles, y);
+      expect(spans.map((s) => s.text)).toContain("~/Downloads/Open Science_0.7.1_aarch64_linkfix.dmg");
+    }
+  });
+
   it("finds a path at the end of a styled paragraph wrapped over rows", () => {
     // A recap: prose and the path in one italic, broken mid-name and at a space.
     const lines = ["recap: 打好了，装上验收：/Users/me/projects/open-ai4s-workb", "ench/release/dmg/Open", "Science_0.7.1_aarch64.dmg"];

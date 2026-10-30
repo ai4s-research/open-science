@@ -141,12 +141,17 @@ export function logicalLine(row: (y: number) => Row | null, y: number, cols: num
  *  word wrap) or not (a wrap mid-name): both are tried, and what exists wins.
  *
  *  A run can hold more than the path: a tool result's `⎿` marker, or a recap's
- *  prose before it. So it is also tried from each place in it a full path
- *  starts, after a space or CJK punctuation, to the run's end. */
+ *  prose around it. So it is also tried from each place in it a full path
+ *  starts, after a space or CJK punctuation, to the run's end and to each
+ *  word before it that ends in a file extension (`….dmg. Next, install`). */
 const MAX_RUN = 1024;
 const MAX_RUN_BREAKS = 3;
 const MAX_RUN_STARTS = 8;
+const MAX_RUN_ENDS = 4;
+const FILE_END = /\.[A-Za-z]\w{0,7}$/;
 const PATH_START = IS_WINDOWS ? /(?<=^|[\s\u3000-\u303f\uff00-\uffef])(?:[A-Za-z]:|~|\.{1,2})?[\\/]/g : /(?<=^|[\s\u3000-\u303f\uff00-\uffef])(?:~|\.{1,2})?\//g;
+/** A path's first characters, as at a TUI break (the break took the space). */
+const PATH_HEAD = IS_WINDOWS ? /^(?:[A-Za-z]:|~|\.{1,2})?[\\/]/ : /^(?:~|\.{1,2})?\//;
 
 function styleRuns(line: LogicalLine): LinkSpan[] {
   const spans: LinkSpan[] = [];
@@ -165,20 +170,32 @@ function styleRuns(line: LogicalLine): LinkSpan[] {
     const first = start + raw.length - raw.trimStart().length;
     const to = first + cleanPath(raw.trim()).length;
     const run = text.slice(first, to);
-    const starts = new Set([first, ...[...run.matchAll(PATH_START)].map((m) => first + m.index)]);
+    const starts = new Set([
+      first,
+      ...[...run.matchAll(PATH_START)].map((m) => first + m.index),
+      ...line.breaks.map((b) => b.at).filter((at) => at > first && at < to && PATH_HEAD.test(text.slice(at, at + 3))),
+    ]);
     for (const from of [...starts].slice(0, MAX_RUN_STARTS)) {
-      const inner = line.breaks.filter((b) => b.at > from && b.at < to).map((b) => b.at);
-      if (to - from > MAX_RUN || inner.length > MAX_RUN_BREAKS || /^https?:\/\//.test(text.slice(from, to))) continue;
-      for (let mask = 0; mask < 1 << inner.length; mask++) {
-        let joined = "";
-        let at = from;
-        inner.forEach((b, i) => {
-          joined += text.slice(at, b) + (mask & (1 << i) ? " " : "");
-          at = b;
-        });
-        joined += text.slice(at, to);
-        // Without a space anywhere, the plain reading has found it already.
-        if (/\s/.test(joined) && hasSeparator(joined)) spans.push({ start: from, end: to, text: joined, kind: "path" });
+      const ends = [to];
+      for (let i = from + 1; i < to && ends.length <= MAX_RUN_ENDS; i++) {
+        if (!/\s/.test(text[i]) && !line.breaks.some((b) => b.at === i)) continue;
+        const end = from + cleanPath(text.slice(from, i).trimEnd()).length;
+        if (FILE_END.test(text.slice(from, end)) && !ends.includes(end)) ends.push(end);
+      }
+      for (const end of ends) {
+        const inner = line.breaks.filter((b) => b.at > from && b.at < end).map((b) => b.at);
+        if (end - from > MAX_RUN || inner.length > MAX_RUN_BREAKS || /^https?:\/\//.test(text.slice(from, end))) continue;
+        for (let mask = 0; mask < 1 << inner.length; mask++) {
+          let joined = "";
+          let at = from;
+          inner.forEach((b, i) => {
+            joined += text.slice(at, b) + (mask & (1 << i) ? " " : "");
+            at = b;
+          });
+          joined += text.slice(at, end);
+          // Without a space anywhere, the plain reading has found it already.
+          if (/\s/.test(joined) && hasSeparator(joined)) spans.push({ start: from, end, text: joined, kind: "path" });
+        }
       }
     }
     start = end;
