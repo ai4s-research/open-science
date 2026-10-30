@@ -1,14 +1,6 @@
 import { Terminal } from "@xterm/xterm";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createImeGate } from "./terminalKeys";
-
-// xterm 6 reaches for a 2D canvas on import and measures glyph widths with it
-// when it opens; jsdom has none. Hoisted so it is in place before the import.
-vi.hoisted(() => {
-  HTMLCanvasElement.prototype.getContext = (() => ({
-    measureText: () => ({ width: 7 }),
-  })) as unknown as HTMLCanvasElement["getContext"];
-});
 
 type Step = { key: [string, KeyboardEventInit] } | { commit: string } | "tick";
 
