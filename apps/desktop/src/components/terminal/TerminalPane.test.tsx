@@ -26,12 +26,16 @@ const xterm = vi.hoisted(() => ({
   screen: [] as string[],
   /** xterm has stopped: no write finishes. */
   stalled: false,
+  /** Inside a write's callback; a resize there is counted. */
+  inWrite: 0,
+  resizesInWrite: 0,
 }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
     resize(cols: number, rows: number) {
+      if (xterm.inWrite) xterm.resizesInWrite++;
       this.cols = cols;
       this.rows = rows;
     }
@@ -55,7 +59,12 @@ vi.mock("@xterm/xterm", () => ({
     write(data: string, done?: () => void) {
       xterm.writes.push(data);
       if (xterm.stalled) return;
-      done?.();
+      xterm.inWrite++;
+      try {
+        done?.();
+      } finally {
+        xterm.inWrite--;
+      }
     }
     onData() {
       return { dispose() {} };
@@ -327,6 +336,15 @@ describe("TerminalPane repaint", () => {
     await waitFor(() => expect(xterm.writes.join("")).toContain("turn line 2\x1b[?25h after"));
     expect(xterm.writes.join("")).not.toContain(erase);
     expect(xterm.writes).toContain("\x1b[2;1H\x1b[J");
+  });
+
+  it("resizes outside xterm's write callbacks, where xterm 6 would replay the write", async () => {
+    const send = await open("own-3");
+    xterm.resizesInWrite = 0;
+    xterm.screen = ["an earlier line of output", "turn line 1 of the latest turn", "turn line 2"];
+    act(() => send({ kind: "data", data: `before${erase}turn line 1 of the latest turn\nturn line 2\x1b[?25h after` }));
+    await waitFor(() => expect(xterm.writes.join("")).toContain("turn line 2\x1b[?25h after"));
+    expect(xterm.resizesInWrite).toBe(0);
   });
 
   it("writes a repaint of its own that lines up with nothing as sent: /clear's new screen", async () => {

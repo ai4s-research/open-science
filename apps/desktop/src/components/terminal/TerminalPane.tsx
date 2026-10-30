@@ -303,6 +303,10 @@ export function TerminalPane({
 
       const opened = await terminalTransport.open(leafId, cwd, term.cols, term.rows);
       const created = opened.created;
+      // Each sizing decision goes to debug.log: a terminal that redraws over
+      // itself is told apart by which view asked for which size, and when.
+      const trace = (what: string) => void logDebug(`[terminal ${leafId}] ${what}`);
+      trace(`open ${created ? "new" : "running"} pane=${term.cols}x${term.rows} shell=${opened.cols}x${opened.rows}`);
       // A running shell's recent output was drawn at the shell's size: the
       // pane starts there, and the resize below takes it to its own.
       if (!created && opened.cols && opened.rows) term.resize(opened.cols, opened.rows);
@@ -464,7 +468,15 @@ export function TerminalPane({
           term.resize(cols, rows);
           writeOut(text);
         };
-        if (repaint === null) return resizeAndWrite(data);
+        // Out of xterm's write callback first: xterm 6's resize flushes the
+        // write queue, and inside a callback that replays the write and calls
+        // the callback again (xtermjs/xterm.js#6271), so the repaint went in
+        // twice. Output arriving meanwhile still queues in `reply.data`.
+        const afterWrite = (text: () => string) => setTimeout(() => resizeAndWrite(text()));
+        if (repaint === null) {
+          if (data) trace(`no repaint for ${cols}x${rows} in ${data.length} chars`);
+          return resizeAndWrite(data);
+        }
         // Output arriving meanwhile queues behind the repaint.
         reply.data = "";
         reply.writing = true;
@@ -480,10 +492,11 @@ export function TerminalPane({
             ? Array.from({ length: buffer.baseY }, (_, y) => buffer.getLine(y)?.translateToString(true) ?? "")
             : undefined;
           const splice = spliceRepaint(repaint, screen, scrollback);
+          trace(`repaint ${cols}x${rows} own=${own} matched=${splice.matched}`);
           // A repaint of its own that lines up with nothing on screen is a new
           // screen, not a redraw: /clear draws its banner this way. As sent.
-          if (own && !splice.matched) return resizeAndWrite(data.slice(repaint.before.length) + (reply?.data ?? ""));
-          draw(splice.clear, () => resizeAndWrite(splice.repaint + (reply?.data ?? "")));
+          if (own && !splice.matched) return afterWrite(() => data.slice(repaint.before.length) + (reply?.data ?? ""));
+          draw(splice.clear, () => afterWrite(() => splice.repaint + (reply?.data ?? "")));
         });
       };
       // A view following another takes that view's size, and splices the
@@ -497,6 +510,7 @@ export function TerminalPane({
         const follow = following();
         const size = follow && control ? { cols: control.cols, rows: control.rows } : fit.proposeDimensions();
         if (!size || (size.cols === sent.cols && size.rows === sent.rows)) return;
+        trace(`size ${size.cols}x${size.rows} from ${follow ? `view ${control?.by?.kind}` : "this pane"}`);
         expectRepaint(size.cols, size.rows);
         if (!follow) void terminalTransport.resize(leafId, size.cols, size.rows);
       };
@@ -524,7 +538,10 @@ export function TerminalPane({
         control = { by: terminalTransport.viewer, cols: size.cols, rows: size.rows };
         term.options.disableStdin = false;
         setTerminalFollowing(leafId, null);
-        if (size.cols !== sent.cols || size.rows !== sent.rows) expectRepaint(size.cols, size.rows);
+        if (size.cols !== sent.cols || size.rows !== sent.rows) {
+          trace(`size ${size.cols}x${size.rows} on take-over`);
+          expectRepaint(size.cols, size.rows);
+        }
         void terminalTransport.claim(leafId, size.cols, size.rows);
         term.focus();
       };
@@ -536,6 +553,7 @@ export function TerminalPane({
         clearTimeout(settle);
         const c = control;
         if (c && !following() && !reply?.writing && (c.cols !== sent.cols || c.rows !== sent.rows)) {
+          trace(`size ${c.cols}x${c.rows} from control by ${c.by?.kind ?? "nobody"}`);
           expectRepaint(c.cols, c.rows);
           settle = setTimeout(tellShell, RESIZE_SETTLE_MS);
           return;
