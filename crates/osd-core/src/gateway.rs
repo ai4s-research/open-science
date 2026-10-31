@@ -702,16 +702,6 @@ fn audit_call(req: &Request) -> Option<AuditCall> {
     let body = || serde_json::from_slice::<serde_json::Value>(&req.body).unwrap_or_default();
     let field = |k: &str| body()[k].as_str().map(str::to_string);
     let words = |text: String| Some(crate::audit::clip(&text, 500));
-    let parts_text = || {
-        body()["parts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|p| p["type"] == "text")
-            .filter_map(|p| p["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
     let call = |action: &str, target: Option<String>, detail: Option<String>| {
         Some(AuditCall { action: action.to_string(), target, detail })
     };
@@ -754,29 +744,38 @@ fn audit_call(req: &Request) -> Option<AuditCall> {
             ("POST", ["terminals", _]) => call("terminal.open", id(1), None),
             ("DELETE", ["terminals", _]) => call("terminal.close", id(1), None),
             ("POST", ["terminals", _, "input"]) => call("terminal.input", id(1), field("data")),
+            ("PATCH", ["opencode-config"]) => call("config.model", None, field("model")),
             _ => None,
         };
     }
+    // What the web client asks OpenCode for, through the proxy (`/api/…`).
     let segs: Vec<&str> = req.path.trim_matches('/').split('/').collect();
-    let id = segs.get(1).map(|s| s.to_string());
-    match (m, segs.as_slice()) {
-        ("POST", ["session"]) => call("session.create", req.query_get("directory"), field("title")),
-        ("DELETE", ["session", _]) => call("session.delete", id, None),
-        ("PATCH", ["session", _]) => call("session.rename", id, field("title")),
-        ("POST", ["session", _, "prompt_async" | "message"]) => call("session.prompt", id, words(parts_text())),
-        ("POST", ["session", _, "command"]) => {
-            let line = format!("/{} {}", field("command").unwrap_or_default(), field("arguments").unwrap_or_default());
+    let Some(["session", rest @ ..]) = segs.strip_prefix(&["api"]) else {
+        return None;
+    };
+    let id = rest.first().map(|s| s.to_string());
+    match (m, rest) {
+        ("POST", []) => call("session.create", body().pointer("/location/directory").and_then(|d| d.as_str()).map(str::to_string), field("title")),
+        ("DELETE", [_]) => call("session.delete", id, None),
+        ("PATCH", [_]) => match body()["metadata"]["ai4s"]["archived"].as_u64() {
+            Some(_) => call("session.archive", id, None),
+            None => call("session.rename", id, field("title")),
+        },
+        ("POST", [_, "prompt"]) => call("session.prompt", id, words(field("text").unwrap_or_default())),
+        ("POST", [_, "command"]) => {
+            let line = format!("/{} {}", field("name").unwrap_or_default(), field("text").unwrap_or_default());
             call("session.command", id, words(line.trim_end().to_string()))
         }
-        ("POST", ["session", _, "shell"]) => call("session.shell", id, words(field("command").unwrap_or_default())),
-        ("POST", ["session", _, what @ ("abort" | "revert" | "unrevert" | "summarize" | "fork")]) => {
-            call(&format!("session.{what}"), id, None)
+        ("POST", [_, "shell"]) => call("session.shell", id, words(field("command").unwrap_or_default())),
+        ("POST", [_, "interrupt"]) => call("session.abort", id, None),
+        ("POST", [_, "compact"]) => call("session.summarize", id, None),
+        ("POST", [_, "fork"]) => call("session.fork", id, None),
+        ("POST", [_, "revert", "stage"]) => call("session.revert", id, None),
+        ("POST", [_, "permission", rid, "reply"]) => call("permission.reply", Some(rid.to_string()), field("decision")),
+        ("POST", [_, "form", fid, "reply"]) => {
+            call("question.reply", Some(fid.to_string()), words(String::from_utf8_lossy(&req.body).into_owned()))
         }
-        ("POST", ["permission", _, "reply"]) => call("permission.reply", id, field("reply")),
-        ("POST", ["question", _, what @ ("reply" | "reject")]) => {
-            call(&format!("question.{what}"), id, words(String::from_utf8_lossy(&req.body).into_owned()))
-        }
-        ("PATCH", ["global", "config"]) => call("config.model", None, field("model")),
+        ("DELETE", [_, "form", fid]) => call("question.reject", Some(fid.to_string()), None),
         _ => None,
     }
 }
@@ -3447,6 +3446,39 @@ mod tests {
         }
         assert!(!is_config_path("/api/session"));
         assert!(!is_config_path("/api/modelx"));
+    }
+
+    #[test]
+    fn the_web_clients_actions_reach_the_audit_log() {
+        let req = |method: &str, path: &str, body: &str| Request {
+            method: method.into(),
+            path: path.into(),
+            query: String::new(),
+            headers: Vec::new(),
+            body: body.as_bytes().to_vec(),
+        };
+        let seen = |r: Request| audit_call(&r).map(|c| (c.action, c.target, c.detail));
+        assert_eq!(
+            seen(req("POST", "/api/session/ses_1/prompt", r#"{"text":"hello"}"#)),
+            Some(("session.prompt".into(), Some("ses_1".into()), Some("hello".into())))
+        );
+        assert_eq!(
+            seen(req("POST", "/api/session", r#"{"title":"T","location":{"directory":"/w"}}"#)),
+            Some(("session.create".into(), Some("/w".into()), Some("T".into())))
+        );
+        assert_eq!(
+            seen(req("POST", "/api/session/ses_1/permission/per_2/reply", r#"{"decision":"once"}"#)),
+            Some(("permission.reply".into(), Some("per_2".into()), Some("once".into())))
+        );
+        assert_eq!(
+            seen(req("POST", "/api/session/ses_1/command", r#"{"name":"goal","text":"ship it"}"#)).map(|c| c.2),
+            Some(Some("/goal ship it".into()))
+        );
+        assert_eq!(seen(req("POST", "/api/session/ses_1/interrupt", "")).map(|c| c.0), Some("session.abort".into()));
+        assert_eq!(seen(req("DELETE", "/api/session/ses_1/form/frm_1", "")).map(|c| c.0), Some("question.reject".into()));
+        // Reads and the runtime's other routes are not actions.
+        assert!(seen(req("GET", "/api/session/ses_1", "")).is_none());
+        assert!(seen(req("POST", "/api/rpc/opencode.goal/get", "{}")).is_none());
     }
 
     #[test]

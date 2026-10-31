@@ -43,7 +43,6 @@ import {
   logDebug,
   openWorkspaceBase,
   pickFolder,
-  providerAuthExists,
   pythonInterpreter,
   removeConfigEntry,
   setPythonPath,
@@ -591,14 +590,21 @@ function SettingsPageContent() {
   const waitForBrowserLogin = async (providerID: string, methodIndex: number, gen: number) => {
     const deadline = Date.now() + OAUTH_WAIT_MS;
     const active = () => gen === oauthGen.current;
-    // Ground truth that the login landed: the sidecar writes the provider's
-    // token to its credential store the moment the browser flow completes —
+    // Ground truth that the login landed: the runtime lists the provider as
+    // connected the moment the browser flow completes —
     // even when the callback wait below never hears about it (loopback port
     // collision, proxy, dropped redirect). The browser then shows "success"
     // while the app looks frozen (#17). Only conclusive for a provider that
     // had no credentials when the wait began.
-    const hadAuth = await providerAuthExists(providerID);
-    const loginLanded = async () => !hadAuth && (await providerAuthExists(providerID));
+    const connected = async () => {
+      try {
+        return (await getClient()?.listProviderCatalog())?.connected.includes(providerID) ?? false;
+      } catch {
+        return false;
+      }
+    };
+    const hadAuth = await connected();
+    const loginLanded = async () => !hadAuth && (await connected());
 
     // The callback POST hangs open until the browser redirect lands, but the
     // webview's native fetch enforces its own idle timeout (~60s in WKWebView)
@@ -871,7 +877,7 @@ function SettingsPageContent() {
         toast.error(t("toast.noOpenCodeLoginFound"));
         return;
       }
-      // The sidecar restarted with the imported credentials — reconnect.
+      // Refresh the provider lists with the imported credentials.
       await useRuntimeStore.getState().connectRetry();
       toast.success(t("toast.importedLogin"));
     });

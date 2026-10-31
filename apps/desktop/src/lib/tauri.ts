@@ -170,9 +170,9 @@ export async function discardWorkspaceFile(name: string): Promise<void> {
 }
 
 /**
- * Explicitly import the user's OpenCode CLI login into the app's private
- * runtime (desktop only). Returns false when no CLI login exists; the sidecar
- * is restarted on success.
+ * Explicitly import the user's OpenCode CLI login into the app's runtime
+ * (desktop only). Returns false when there is no login to import; the
+ * runtime applies the credentials at once.
  */
 export async function importOpenCodeLogin(): Promise<boolean> {
   if (!isTauri) return false;
@@ -539,18 +539,6 @@ export async function setMirrorSetting(pypi: string, python: string): Promise<vo
   await invoke("set_mirror_setting", { pypi, python });
 }
 
-/** Whether the bundled runtime's credential store has an entry for this
- *  provider — ground truth that a browser login landed even when its OAuth
- *  callback was lost. False in browser dev (and on any read failure). */
-export async function providerAuthExists(providerID: string): Promise<boolean> {
-  if (!isTauri) return false;
-  const { invoke } = await import("@tauri-apps/api/core");
-  try {
-    return await invoke<boolean>("provider_auth_exists", { providerId: providerID });
-  } catch {
-    return false;
-  }
-}
 
 /** Remove a provider/mcp entry from the global OpenCode config. The runtime
  *  applies the edit itself. */

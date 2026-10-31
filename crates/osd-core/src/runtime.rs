@@ -357,43 +357,88 @@ fn user_auth_source() -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.exists())
 }
 
-/// Copy the user's OpenCode CLI login into the app-private data dir, EXPLICITLY
-/// (from the Settings page) — never silently. Returns false when there is no
-/// CLI login to import. Restarts the sidecar so it picks the credentials up.
+/// Bring the user's own OpenCode login into the app's runtime, EXPLICITLY (from
+/// the Settings page) — never silently. Returns false when there is no login to
+/// import. OpenCode 2 keeps credentials in its database, so each entry of the
+/// user's `auth.json` is handed to the running runtime's credential API, which
+/// applies it at once.
 pub fn import_opencode_login(env: &Env) -> Result<bool, String> {
     let Some(src) = user_auth_source() else {
         return Ok(false);
     };
-    let dst = runtime_root(env)?.join("xdg-data").join("opencode").join("auth.json");
-    if let Some(parent) = dst.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::copy(&src, &dst).map_err(|e| format!("copy failed: {e}"))?;
-
-    // Restart the running sidecar so /config/providers reflects the login.
-    restart_sidecar_if_running(env)?;
-    Ok(true)
-}
-
-/// Whether the bundled runtime's credential store (its auth.json) has an entry
-/// for this provider. The sidecar writes the token there the moment a browser
-/// login completes, so the UI can fall back on it when the pending OAuth
-/// callback request is lost (loopback port collision, proxy) — issue #17.
-pub fn provider_auth_exists(env: &Env, provider_id: String) -> Result<bool, String> {
-    let path = runtime_root(env)?
-        .join("xdg-data")
-        .join("opencode")
-        .join("auth.json");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Ok(false); // no store yet — no logins
+    let text = std::fs::read_to_string(&src).map_err(|e| format!("read {}: {e}", src.display()))?;
+    let auth: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("{} is not readable: {e}", src.display()))?;
+    let Some(entries) = auth.as_object().filter(|m| !m.is_empty()) else {
+        return Ok(false);
     };
-    Ok(auth_has_provider(&text, &provider_id))
+    let base = sidecar_url(env.runtime()).ok_or("start the agent runtime first")?;
+    let pw = server_password();
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let get = |path: &str| -> Option<serde_json::Value> {
+        let text = client.get(format!("{base}{path}")).basic_auth("opencode", Some(pw)).send().ok()?.text().ok()?;
+        serde_json::from_str::<serde_json::Value>(&text).ok().map(|v| v["data"].clone())
+    };
+    // An OAuth credential names the sign-in method it came from, which an
+    // OpenCode 1 login never recorded: the provider's (first) OAuth method.
+    let integrations = get("/api/integration").unwrap_or_default();
+    let oauth_method = |provider: &str| -> Option<String> {
+        integrations
+            .as_array()?
+            .iter()
+            .find(|i| i["id"] == provider)?["methods"]
+            .as_array()?
+            .iter()
+            .find(|m| m["type"] == "oauth")?["id"]
+            .as_str()
+            .map(str::to_string)
+    };
+    let mut imported = 0;
+    for (provider, entry) in entries {
+        let Some(body) = credential_body(provider, entry, oauth_method(provider).as_deref()) else {
+            continue;
+        };
+        let status = client
+            .post(format!("{base}/api/credential"))
+            .basic_auth("opencode", Some(pw))
+            .header("Content-Type", "application/json")
+            .body(body.to_string())
+            .send()
+            .map(|r| r.status().as_u16())
+            .unwrap_or(0);
+        // 409: the runtime already holds it.
+        if (200..300).contains(&status) || status == 409 {
+            imported += 1;
+        }
+    }
+    Ok(imported > 0)
 }
 
-fn auth_has_provider(text: &str, provider_id: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(text)
-        .ok()
-        .is_some_and(|auth| auth.get(provider_id).is_some())
+/// One `auth.json` entry as OpenCode 2's credential: an API key as a key, an
+/// OAuth login (with its sign-in method) as OAuth. Anything else — a login kind
+/// with no OpenCode 2 counterpart, or OAuth with no method to name — is None.
+fn credential_body(provider: &str, entry: &serde_json::Value, oauth_method: Option<&str>) -> Option<serde_json::Value> {
+    let value = match entry["type"].as_str()? {
+        "api" => serde_json::json!({ "type": "key", "key": entry["key"].as_str()? }),
+        "oauth" => serde_json::json!({
+            "type": "oauth",
+            "methodID": oauth_method?,
+            "refresh": entry["refresh"].as_str()?,
+            "access": entry["access"].as_str()?,
+            "expires": entry["expires"].as_i64()?,
+        }),
+        _ => return None,
+    };
+    Some(serde_json::json!({
+        "integrationID": provider,
+        "label": "Imported from OpenCode",
+        "value": value,
+        "activate": true,
+    }))
 }
 
 /// Deploy the bundled skill packs (Tauri resources) into the app-private
@@ -2037,7 +2082,7 @@ mod shell_path_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        auth_has_provider,
+        credential_body,
         base_workspace_dir, ensure_base_layout, prune_stale_skills, random_hex, remove_key_from_config,
         normalize_proxy_bypass, proxy_setting_file, read_proxy_bypass, read_proxy_setting,
         resolve_proxy_env, set_workspace_base, skill_name_from_markdown, sync_skill_pack,
@@ -2501,12 +2546,26 @@ mod tests {
     }
 
     #[test]
-    fn auth_store_provider_lookup() {
-        let auth = r#"{ "openai": { "type": "oauth", "refresh": "r", "access": "a" } }"#;
-        assert!(auth_has_provider(auth, "openai"));
-        assert!(!auth_has_provider(auth, "anthropic"));
-        assert!(!auth_has_provider("", "openai")); // empty/corrupt store
-        assert!(!auth_has_provider("not json", "openai"));
+    fn an_opencode_1_login_becomes_opencode_2_credentials() {
+        let key = serde_json::json!({ "type": "api", "key": "sk-1" });
+        assert_eq!(
+            credential_body("openai", &key, None),
+            Some(serde_json::json!({
+                "integrationID": "openai",
+                "label": "Imported from OpenCode",
+                "value": { "type": "key", "key": "sk-1" },
+                "activate": true,
+            }))
+        );
+        let oauth = serde_json::json!({ "type": "oauth", "refresh": "r", "access": "a", "expires": 5 });
+        assert_eq!(
+            credential_body("anthropic", &oauth, Some("claude")).unwrap()["value"],
+            serde_json::json!({ "type": "oauth", "methodID": "claude", "refresh": "r", "access": "a", "expires": 5 })
+        );
+        // No method to name, or a kind OpenCode 2 has no counterpart for.
+        assert_eq!(credential_body("anthropic", &oauth, None), None);
+        assert_eq!(credential_body("x", &serde_json::json!({ "type": "wellknown", "key": "k" }), None), None);
+        assert_eq!(credential_body("x", &serde_json::json!("not an entry"), None), None);
     }
 
     #[test]

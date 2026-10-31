@@ -231,7 +231,6 @@ pub fn run() {
             model_probe::model_catalog_status,
             model_probe::model_catalog_refresh,
             model_probe::model_catalog_apply,
-            runtime::provider_auth_exists,
             runtime::remove_config_entry,
             runtime::read_opencode_config,
             runtime::patch_opencode_config,

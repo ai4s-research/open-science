@@ -220,11 +220,6 @@ pub fn import_opencode_login(app: AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command(async)]
-pub fn provider_auth_exists(app: AppHandle, provider_id: String) -> Result<bool, String> {
-    osd_core::runtime::provider_auth_exists(&env_of(&app), provider_id)
-}
-
-#[tauri::command(async)]
 pub fn remove_config_entry(app: AppHandle, section: String, key: String) -> Result<(), String> {
     osd_core::runtime::remove_config_entry(&env_of(&app), section, key)
 }
