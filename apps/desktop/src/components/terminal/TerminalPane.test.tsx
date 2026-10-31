@@ -24,8 +24,8 @@ const xterm = vi.hoisted(() => ({
   writes: [] as string[],
   /** The rows on screen, top first. */
   screen: [] as string[],
-  /** Writes whose callback never comes. */
-  lost: [] as string[],
+  /** xterm has stopped: no write finishes. */
+  stalled: false,
 }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -54,7 +54,7 @@ vi.mock("@xterm/xterm", () => ({
     scrollToLine() {}
     write(data: string, done?: () => void) {
       xterm.writes.push(data);
-      if (xterm.lost.includes(data)) return;
+      if (xterm.stalled) return;
       done?.();
     }
     onData() {
@@ -296,6 +296,28 @@ describe("TerminalPane repaint", () => {
     xterm.screen = [];
   });
 
+  it("builds the pane again from the shell's output when xterm stops finishing writes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const send = await open("stuck-1");
+      const first = xterm.last;
+      vi.mocked(invoke).mockClear();
+      xterm.stalled = true;
+      act(() => send({ kind: "data", data: "typed, never drawn" }));
+      act(() => void vi.advanceTimersByTime(4_000));
+      expect(invoke).not.toHaveBeenCalledWith("terminal_open", expect.anything());
+      xterm.stalled = false;
+      act(() => void vi.advanceTimersByTime(2_000));
+      // A new xterm, opened on the running shell: the saved screen and the output after it.
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_subscribe", expect.anything()));
+      expect(invoke).toHaveBeenCalledWith("terminal_open", expect.anything());
+      expect(xterm.last).not.toBe(first);
+    } finally {
+      xterm.stalled = false;
+      vi.useRealTimers();
+    }
+  });
+
   it("splices a repaint Claude Code makes on its own, as one that answers a resize", async () => {
     const send = await open("own-1");
     xterm.screen = ["an earlier line of output", "turn line 1 of the latest turn", "turn line 2"];
@@ -305,23 +327,6 @@ describe("TerminalPane repaint", () => {
     await waitFor(() => expect(xterm.writes.join("")).toContain("turn line 2\x1b[?25h after"));
     expect(xterm.writes.join("")).not.toContain(erase);
     expect(xterm.writes).toContain("\x1b[2;1H\x1b[J");
-  });
-
-  it("writes the output queued behind a repaint whose write callback never comes", async () => {
-    const send = await open("own-4");
-    xterm.screen = ["an earlier line of output", "turn line 1 of the latest turn", "turn line 2"];
-    xterm.lost = ["\x1b[2;1H\x1b[J"];
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      act(() => send({ kind: "data", data: `before${erase}turn line 1 of the latest turn\nturn line 2\x1b[?25h` }));
-      act(() => send({ kind: "data", data: "typed later" }));
-      expect(xterm.writes.join("")).not.toContain("typed later");
-      act(() => void vi.advanceTimersByTime(3_000));
-      expect(xterm.writes.join("")).toContain("turn line 2\x1b[?25htyped later");
-    } finally {
-      xterm.lost = [];
-      vi.useRealTimers();
-    }
   });
 
   it("writes a repaint of its own that lines up with nothing as sent: /clear's new screen", async () => {

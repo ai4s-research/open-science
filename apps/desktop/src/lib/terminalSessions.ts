@@ -131,6 +131,24 @@ export function destroyTerminal(leafId: string): void {
   void closePty(leafId);
 }
 
+/** Bumped per pane each time its terminal is built again (see `rebuildTerminal`). */
+export const useTerminalBuild = create<Record<string, number>>(() => ({}));
+
+/**
+ * Throw away a pane's xterm and build a new one, as a relaunch does: the shell
+ * keeps running, and the new one draws the saved screen and the output after
+ * it. For a terminal xterm has stopped drawing.
+ */
+export function rebuildTerminal(leafId: string): void {
+  const terminal = live.get(leafId);
+  if (!terminal) return;
+  live.delete(leafId);
+  terminal.dispose();
+  terminal.term.dispose();
+  terminal.container.remove();
+  useTerminalBuild.setState((s) => ({ ...s, [leafId]: (s[leafId] ?? 0) + 1 }));
+}
+
 async function closePty(leafId: string): Promise<void> {
   try {
     await terminalTransport.close(leafId);

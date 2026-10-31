@@ -4,7 +4,7 @@
 // client (the remote-access gateway) reaches the SAME PTY layer on the desktop
 // through `/v1/terminals/...`, which the user has to switch on in Settings. The
 // pane does not care which: it opens, writes, resizes, closes and reads output.
-import { isTauri } from "./tauri";
+import { isTauri, logDebug } from "./tauri";
 import { follow } from "./gatewayMux";
 import { MAX_UPLOAD_BYTES } from "./artifactFile";
 import { gatewayOrigin, gatewayPost, gatewayToken, isGatewayWeb, layoutSource, signedInAccount } from "./webMode";
@@ -121,9 +121,16 @@ const desktop: TerminalTransport = {
     >();
     onEvent.onmessage = (event) => {
       if (stopped) return;
-      if (event.kind === "data") onData(event.data, { from: event.from, end: event.end });
-      else if (event.kind === "control") onControl({ by: event.by, cols: event.cols, rows: event.rows });
-      else onExit();
+      // Nothing may throw out of here: Tauri hands a channel's messages over
+      // in order and moves on only once this returns, so one exception would
+      // hold back every later chunk of this terminal for good.
+      try {
+        if (event.kind === "data") onData(event.data, { from: event.from, end: event.end });
+        else if (event.kind === "control") onControl({ by: event.by, cols: event.cols, rows: event.rows });
+        else onExit();
+      } catch (e) {
+        void logDebug(`[terminal ${id}] output handler threw: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
+      }
     };
     await invoke("terminal_subscribe", { id, since: since ?? null, onEvent });
     return () => {
