@@ -11,6 +11,7 @@ import {
   type LinkSpan,
   type LinkTarget,
 } from "@/lib/links";
+import { keepClicksAcrossRedraws } from "./terminalClicks";
 
 /** A cell's colors and attributes as one key; "" for the default style. */
 export function cellStyle(cell: IBufferCell): string {
@@ -285,6 +286,7 @@ export function registerTerminalLinks(term: Terminal, cwd: () => string | null) 
   const written = term.onWriteParsed(() => (anchors = null));
   const currentAnchors = () => (anchors ??= bufferAnchors(row, term.buffer.active.length));
   const resolved = new Map<string, { at: number; target: LinkTarget | null }>();
+  const clicks = keepClicksAcrossRedraws(term);
   const provider = term.registerLinkProvider({
     provideLinks(y, callback) {
       const line = logicalLine(row, y, term.cols);
@@ -304,13 +306,13 @@ export function registerTerminalLinks(term: Terminal, cwd: () => string | null) 
           .map(({ span, target }) => {
             const first = line.cells[span.start];
             const last = line.cells[span.end - 1];
-            return {
+            return clicks.wrap({
               // 1-based, end inclusive — the last cell of the last character.
               range: { start: { x: first.x + 1, y: first.y }, end: { x: last.x + last.width, y: last.y } },
               text: span.text,
               decorations: { underline: true, pointerCursor: true },
               activate: (event: MouseEvent) => activateLink(target, event),
-            };
+            });
           })
           // xterm asks row by row; answer with the links on this one.
           .filter((l) => l.range.start.y <= y && y <= l.range.end.y);
@@ -328,6 +330,7 @@ export function registerTerminalLinks(term: Terminal, cwd: () => string | null) 
     dispose() {
       written.dispose();
       provider.dispose();
+      clicks.dispose();
     },
   };
 }
