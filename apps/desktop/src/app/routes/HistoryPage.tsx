@@ -14,7 +14,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import type { SessionMeta } from "@ai4s/sdk";
+import type { SessionCursor, SessionMeta } from "@ai4s/sdk";
 import { cn } from "@/lib/cn";
 import { getClient, useRuntimeStore } from "@/lib/runtime";
 import { timeAgo, timeBucket, type TimeBucket } from "@/lib/relativeTime";
@@ -64,7 +64,7 @@ export function HistoryPage() {
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [rows, setRows] = useState<SessionMeta[]>([]);
-  const [cursor, setCursor] = useState<number | null>(null);
+  const [cursor, setCursor] = useState<SessionCursor | null>(null);
   const [loading, setLoading] = useState(false);
   const [exhausted, setExhausted] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -165,7 +165,7 @@ export function HistoryPage() {
     setExported(0);
     const written: Array<{ session: SessionMeta; file: string }> = [];
     let failed = 0;
-    let next: number | null = null;
+    let next: SessionCursor | null = null;
     try {
       for (;;) {
         const page = await client.querySessions({

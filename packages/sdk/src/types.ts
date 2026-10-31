@@ -3,7 +3,7 @@ import type { MessageUsage, RuntimeStatus, ToolCallStatus } from "@ai4s/shared";
 export type { RuntimeStatus, ToolCallStatus };
 
 /** Pinned OpenCode release this client targets. */
-export const OPENCODE_VERSION = "1.19.4";
+export const OPENCODE_VERSION = "2.2.5";
 
 /** OpenCode server defaults (`opencode serve`). */
 export const DEFAULT_OPENCODE_URL = "http://127.0.0.1:4096";
@@ -252,11 +252,15 @@ export interface SessionMeta {
 
 /** One page of conversation history. Both the filter and the paging run on the
  *  server so a multi-year history never has to be held in memory. */
+/** Where the next page of history starts. Opaque: pass back exactly what the
+ *  previous page returned (OpenCode hands out a string, ACP an epoch ms). */
+export type SessionCursor = string | number;
+
 export interface SessionQuery {
   /** Rows per page. */
   limit?: number;
-  /** Page from here (an epoch-ms `updated`); omit for the newest page. */
-  cursor?: number | null;
+  /** Page from here; omit for the newest page. */
+  cursor?: SessionCursor | null;
   /** Server-side title search. */
   search?: string;
   /** Include archived conversations (they are excluded by default). */
@@ -266,7 +270,7 @@ export interface SessionQuery {
 export interface SessionPage {
   sessions: SessionMeta[];
   /** Cursor for the next page, or null when the history is exhausted. */
-  nextCursor: number | null;
+  nextCursor: SessionCursor | null;
 }
 
 export interface SkillInfo {
@@ -328,6 +332,8 @@ export interface HistoryMessage {
 export interface HistoryPart {
   type: string;
   text?: string;
+  /** On a `compaction` part: the runtime compacted on its own (vs. the user asking). */
+  auto?: boolean;
   /** True on runtime-generated text (e.g. the "tool was executed by the user"
    *  marker a "!" shell run leaves in history) — not something the user typed. */
   synthetic?: boolean;
@@ -392,6 +398,22 @@ export interface OpenCodeClientOptions {
    * the folder; returns how to stop.
    */
   eventStream?: EventStreamOpener;
+  /**
+   * OpenCode's global config file. The runtime has no API that writes config;
+   * it watches the file and applies an edit within a second. The host owns the
+   * file (the desktop shell, or the gateway for a web client), so it supplies
+   * this. Without it, settings that write config (default model, custom
+   * providers, MCP servers) are unavailable and say so.
+   */
+  config?: ConfigStore;
+}
+
+/** Read and change OpenCode's global config file, in the format it is written in. */
+export interface ConfigStore {
+  read(): Promise<Record<string, unknown>>;
+  /** Deep-merge `patch` into the file: objects merge key by key, anything else
+   *  (arrays included) replaces. */
+  patch(patch: Record<string, unknown>): Promise<void>;
 }
 
 export type EventStreamOpener = (
@@ -509,21 +531,12 @@ export interface McpOAuthStart {
 
 // ---- Raw OpenCode wire shapes (subset we consume) ----
 
+/** One frame of `GET /api/event`. The stream is global: `location` names the
+ *  folder an event happened in, when it happened in one. */
 export interface OpenCodeRawEvent {
+  id?: string;
   type: string;
-  properties?: Record<string, unknown>;
+  created?: number;
+  location?: { directory?: string };
+  data?: Record<string, unknown>;
 }
-
-export interface OpenCodeTextPart {
-  id: string;
-  type: "text";
-  text: string;
-}
-export interface OpenCodeToolPart {
-  id: string;
-  type: "tool";
-  callID: string;
-  tool: string;
-  state: { status: "pending" | "running" | "completed" | "error"; title?: string };
-}
-export type OpenCodePart = OpenCodeTextPart | OpenCodeToolPart | { type: string };
