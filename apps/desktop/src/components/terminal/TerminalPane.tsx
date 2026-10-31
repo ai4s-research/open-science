@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { isMacUA, isTauri } from "@/lib/tauri";
+import { isMacUA, isTauri, logDebug } from "@/lib/tauri";
 import { isGatewayWeb } from "@/lib/webMode";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/lib/toast";
@@ -424,17 +424,30 @@ export function TerminalPane({
       let sent = { cols: term.cols, rows: term.rows };
       const applyResize = (repaint: Repaint | null) => {
         if (!reply || reply.writing) return;
-        const { cols, rows, data, timer, own } = reply;
+        const mine = reply;
+        const { cols, rows, data, timer, own } = mine;
         clearTimeout(timer);
+        let watchdog: ReturnType<typeof setTimeout> | undefined = undefined;
         const resizeAndWrite = (text: string) => {
+          clearTimeout(watchdog);
+          if (reply !== mine) return; // released already, by the watchdog
           reply = null;
           term.resize(cols, rows);
           writeOut(text);
         };
         if (repaint === null) return resizeAndWrite(data);
         // Output arriving meanwhile queues behind the repaint.
-        reply.data = "";
-        reply.writing = true;
+        mine.data = "";
+        mine.writing = true;
+        // What is still to be written, as far as the splice has got. All
+        // output waits on xterm's write callbacks: if one never comes, the
+        // terminal would show nothing more while input still reaches the shell.
+        let step = "before";
+        let rest = () => data.slice(repaint.before.length) + mine.data;
+        watchdog = setTimeout(() => {
+          void logDebug(`[terminal ${leafId}] repaint ${cols}x${rows} stuck at ${step} for ${REPAINT_STUCK_MS}ms; released ${rest().length} chars`);
+          resizeAndWrite(rest());
+        }, REPAINT_STUCK_MS);
         term.write(repaint.before, () => {
           const buffer = term.buffer.active;
           const screen = Array.from(
@@ -444,8 +457,10 @@ export function TerminalPane({
           const splice = spliceRepaint(repaint, screen);
           // A repaint of its own that lines up with nothing on screen is a new
           // screen, not a redraw: /clear draws its banner this way. As sent.
-          if (own && !splice.matched) return resizeAndWrite(data.slice(repaint.before.length) + (reply?.data ?? ""));
-          term.write(splice.clear, () => resizeAndWrite(splice.repaint + (reply?.data ?? "")));
+          if (own && !splice.matched) return resizeAndWrite(data.slice(repaint.before.length) + mine.data);
+          step = "clear";
+          rest = () => splice.repaint + mine.data;
+          term.write(splice.clear, () => resizeAndWrite(splice.repaint + mine.data));
         });
       };
       // A view following another takes that view's size, and splices the
@@ -768,6 +783,10 @@ const RESIZE_SETTLE_MS = 150;
 const SAVE_SCREEN_MS = 10_000;
 /** Retry delay when the screen could not be saved just then. */
 const SAVE_RETRY_MS = 500;
+
+/** How long a repaint being spliced in may wait on xterm before the output
+ *  queued behind it is written anyway (see `applyResize`). */
+const REPAINT_STUCK_MS = 3_000;
 
 /** How long a resize waits for Claude Code's repaint before xterm resizes
  *  anyway. Claude Code answers within 10ms; a shell waits this long. */

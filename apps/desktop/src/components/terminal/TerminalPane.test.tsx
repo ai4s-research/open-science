@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { TerminalPane } from "./TerminalPane";
 
-vi.mock("@/lib/tauri", () => ({ isTauri: true, isMacUA: () => true }));
+vi.mock("@/lib/tauri", () => ({ isTauri: true, isMacUA: () => true, logDebug: async () => {} }));
 vi.mock("./terminalLinks", () => ({ registerTerminalLinks: () => ({ dispose() {} }) }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 // What `terminal_open` answers; a test sets a running shell's instead.
@@ -24,6 +24,8 @@ const xterm = vi.hoisted(() => ({
   writes: [] as string[],
   /** The rows on screen, top first. */
   screen: [] as string[],
+  /** Writes whose callback never comes. */
+  lost: [] as string[],
 }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -52,6 +54,7 @@ vi.mock("@xterm/xterm", () => ({
     scrollToLine() {}
     write(data: string, done?: () => void) {
       xterm.writes.push(data);
+      if (xterm.lost.includes(data)) return;
       done?.();
     }
     onData() {
@@ -302,6 +305,23 @@ describe("TerminalPane repaint", () => {
     await waitFor(() => expect(xterm.writes.join("")).toContain("turn line 2\x1b[?25h after"));
     expect(xterm.writes.join("")).not.toContain(erase);
     expect(xterm.writes).toContain("\x1b[2;1H\x1b[J");
+  });
+
+  it("writes the output queued behind a repaint whose write callback never comes", async () => {
+    const send = await open("own-4");
+    xterm.screen = ["an earlier line of output", "turn line 1 of the latest turn", "turn line 2"];
+    xterm.lost = ["\x1b[2;1H\x1b[J"];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      act(() => send({ kind: "data", data: `before${erase}turn line 1 of the latest turn\nturn line 2\x1b[?25h` }));
+      act(() => send({ kind: "data", data: "typed later" }));
+      expect(xterm.writes.join("")).not.toContain("typed later");
+      act(() => void vi.advanceTimersByTime(3_000));
+      expect(xterm.writes.join("")).toContain("turn line 2\x1b[?25htyped later");
+    } finally {
+      xterm.lost = [];
+      vi.useRealTimers();
+    }
   });
 
   it("writes a repaint of its own that lines up with nothing as sent: /clear's new screen", async () => {

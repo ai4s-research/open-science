@@ -1,5 +1,7 @@
 # Progress
 
+2026-10-30 21:10 · Terminal: output queued behind a repaint being spliced in is written after 3 s if xterm's write callback never comes, and the step it stuck at goes to debug.log; uncaught errors and rejections go to debug.log too. Reported: after OSD runs a while, typing stops showing though it reaches the shell; debug.log had no repaint for 2 h before the restart where 20-37/h is usual. Root cause not reproduced. New test fails without the watchdog; lint and 2016 vitest green.
+
 2026-10-30 09:15 · Terminal links: a path with a space in the middle of a styled paragraph opens (a recap's `~/Downloads/Open Science_0.7.1_aarch64_linkfix.dmg. Next, install …`). A styled run was tried only to its end, never stopped where the path does, and a path starting right after a TUI break was not seen as a start (the break took its space); now each word ending in a file extension is also an end, and a break where a path begins is a start. New test fails with either half undone; lint and 2015 vitest green.
 
 2026-10-30 08:52 · Terminal links: a path on a row Claude Code keeps redrawing (a tool row while it runs, under its timer and spinner) can be clicked. Each redraw made xterm drop the link and ask again, and the answer waited on a disk lookup, so a click mostly landed while there was no link; a lookup is now reused for 3 s and the row is answered at once. New test fails without the fix; lint and 2014 vitest green (the acp interop suite needs `@agentclientprotocol/sdk`, not installed locally).
