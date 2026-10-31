@@ -12,28 +12,23 @@
 //! database, and a conflict becomes a single conversation rather than all of
 //! them.
 //!
-//! This module is deliberately thin. It shells out to the bundled runtime's own
-//! `export`/`import`, because the format belongs to the runtime and any version
-//! of it we re-implemented here would be a second, drifting definition. Three
-//! properties of those commands were measured against the pinned 1.18.18 before
-//! this was built, and the design rests on all three:
+//! This module is deliberately thin. It asks the running runtime for its own
+//! export and import, because the format belongs to the runtime and any version
+//! of it we re-implemented here would be a second, drifting definition. Measured
+//! against OpenCode 2.2.5:
 //!
-//!   * `import` PRESERVES the session id — it does not create a copy.
-//!   * Importing the same export twice leaves the store identical — idempotent.
-//!   * Importing a divergent export UNIONS by message id, so two machines that
-//!     each added different messages to one session end up with both.
+//!   * import PRESERVES the session id — it does not create a copy;
+//!   * importing a session the store already has changes nothing (409) — so a
+//!     second import of the same file is harmless;
+//!   * but that also means a conversation continued on two machines is NOT
+//!     merged: each keeps its own copy, and a newer copy from elsewhere does not
+//!     replace this one. (OpenCode 1 unioned by message id; OpenCode 2 does not.)
 //!
-//! A running sidecar picks up an import immediately, with no restart, and
-//! SQLite's own locking covers the concurrent access (the corruption risk is
-//! file-level sync bypassing that locking, which is exactly what this avoids).
+//! The import goes through the runtime's own API, so the store sees one writer.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::env::Env;
-use crate::runtime::{
-    enriched_path, quiet_command, runtime_root, sidecar_bin, xdg_config_home, xdg_data_home,
-};
 
 /// One mirrored session on disk.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -57,31 +52,47 @@ fn valid_session_id(id: &str) -> bool {
         && id.len() > 4
 }
 
-/// The store the CLI must be pointed at: exactly the dirs `runtime::start`
-/// hands the sidecar. A CLI given different ones would read an EMPTY store and
-/// exit successfully, so sync would mirror nothing and report that it worked.
-/// Separated from the command so it can be asserted without a bundled binary.
-fn cli_dirs(env: &Env) -> Result<[(&'static str, PathBuf); 4], String> {
-    let root = runtime_root(env)?;
-    Ok([
-        ("XDG_CONFIG_HOME", xdg_config_home(env)?),
-        ("XDG_DATA_HOME", xdg_data_home(env)?),
-        ("XDG_CACHE_HOME", root.join("xdg-cache")),
-        ("XDG_STATE_HOME", root.join("xdg-state")),
-    ])
+/// The running runtime: its URL and password. Sync and moves go through it, so
+/// the store has one writer.
+fn runtime_api(env: &Env) -> Result<(String, &'static str), String> {
+    let base = crate::runtime::sidecar_url(env.runtime())
+        .ok_or_else(|| "the agent runtime is not running".to_string())?;
+    Ok((base, crate::runtime::server_password()))
 }
 
-/// The bundled runtime CLI, pointed at the same store the sidecar uses.
-fn runtime_cli(env: &Env) -> Result<Command, String> {
-    let bin = sidecar_bin("opencode")
-        .ok_or_else(|| "bundled OpenCode binary not found next to the executable".to_string())?;
-    let mut cmd = quiet_command(bin);
-    for (key, dir) in cli_dirs(env)? {
-        cmd.env(key, dir);
+/// A client for the loopback runtime: never proxied, and patient enough for a
+/// long conversation's export.
+fn client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// A runtime reply's status and JSON body (Null when there is none).
+fn send(req: reqwest::blocking::RequestBuilder, pw: &str) -> Result<(u16, serde_json::Value), String> {
+    let resp = req.basic_auth("opencode", Some(pw)).send().map_err(|e| e.to_string())?;
+    let status = resp.status().as_u16();
+    let text = resp.text().unwrap_or_default();
+    Ok((status, serde_json::from_str(&text).unwrap_or(serde_json::Value::Null)))
+}
+
+fn reason(body: &serde_json::Value) -> String {
+    body["message"].as_str().unwrap_or("the runtime refused").to_string()
+}
+
+/// One session as the runtime exports it: `{info, messages}`.
+fn export_json(env: &Env, session_id: &str) -> Result<serde_json::Value, String> {
+    let (base, pw) = runtime_api(env)?;
+    let (status, body) = send(
+        client()?.get(format!("{base}/api/experimental/session/{session_id}/export")),
+        pw,
+    )?;
+    if !(200..300).contains(&status) {
+        return Err(format!("export {session_id}: {}", reason(&body)));
     }
-    cmd.env("HOME", std::env::var("HOME").unwrap_or_default())
-        .env("PATH", enriched_path());
-    Ok(cmd)
+    Ok(body.get("data").cloned().unwrap_or(body))
 }
 
 /// Write `bytes` to `path` without ever leaving a half-written file there.
@@ -105,7 +116,8 @@ pub struct ExportOutcome {
     pub written: bool,
 }
 
-/// Fingerprint of a conversation, deliberately blind to `info.time.updated`.
+/// Fingerprint of a conversation, deliberately blind to `info.time.updated` and
+/// `info.time.viewed`.
 ///
 /// This is what stops two machines from syncing each other forever. Importing a
 /// session bumps its `updated` even when the import changed NOTHING — measured
@@ -124,6 +136,8 @@ fn conversation_hash(export: &[u8]) -> String {
         Ok(mut value) => {
             if let Some(time) = value.pointer_mut("/info/time").and_then(|t| t.as_object_mut()) {
                 time.remove("updated");
+                // Opening a conversation stamps it; that is not a change to it.
+                time.remove("viewed");
             }
             serde_json::to_vec(&value).unwrap_or_else(|_| export.to_vec())
         }
@@ -155,26 +169,18 @@ pub fn export_session(
         return Err(format!("not a session id: {session_id}"));
     }
     std::fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
-    let out = runtime_cli(env)?
-        .args(["export", session_id])
-        .output()
-        .map_err(|e| format!("run opencode export: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "opencode export {session_id}: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
+    let export = export_json(env, session_id)?;
     // An empty export would replace a good mirror with nothing, and the next
     // machine would import the emptiness. Treat it as a failure, not a session.
-    if out.stdout.iter().all(u8::is_ascii_whitespace) {
-        return Err(format!("opencode export {session_id} produced nothing"));
+    if export.get("info").is_none() {
+        return Err(format!("export {session_id} produced nothing"));
     }
+    let bytes = serde_json::to_vec_pretty(&export).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{session_id}.json"));
-    let hash = conversation_hash(&out.stdout);
+    let hash = conversation_hash(&bytes);
     let unchanged = previous_hash == Some(hash.as_str()) && path.is_file();
     if !unchanged {
-        write_atomic(&path, &out.stdout)?;
+        write_atomic(&path, &bytes)?;
     }
     Ok(ExportOutcome {
         path: path.to_string_lossy().to_string(),
@@ -185,16 +191,12 @@ pub fn export_session(
 
 /// The folder a mirrored session should be filed in on THIS machine.
 ///
-/// `opencode import` files the session in the importing process's working
-/// directory — it does NOT keep the folder the export recorded. Measured
-/// against the pinned 1.18.18: an export whose `info.directory` named one
-/// folder, imported from another, came back recorded in the second. So the
-/// working directory is not an incidental detail of how the command is spawned;
-/// it IS the destination, and inheriting whatever the app was launched with
-/// would file every synced conversation wherever the launcher happened to be —
-/// `/` for a Finder-launched .app. A conversation filed apart from the files it
-/// names is the state that makes it report "file not found" for its own
-/// notebook, in a folder that still holds it.
+/// An import is filed in the folder it is told, not necessarily the one the
+/// export recorded — which may not exist on this machine at all. Left to a
+/// default, every synced conversation would land wherever the runtime happened
+/// to start — `/` for a Finder-launched .app. A conversation filed apart from
+/// the files it names is the state that makes it report "file not found" for
+/// its own notebook, in a folder that still holds it.
 ///
 /// Chosen, then, rather than inherited: the folder the conversation recorded
 /// when this machine has it — the cloud-synced workspace of #123, where both
@@ -214,7 +216,14 @@ fn import_dir(env: &Env, file: &Path) -> Result<PathBuf, String> {
     let recorded = std::fs::read_to_string(file)
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .and_then(|v| v["info"]["directory"].as_str().map(PathBuf::from))
+        // OpenCode 2 records it at `location.directory`; mirrors written by an
+        // OpenCode 1 build at `directory`.
+        .and_then(|v| {
+            v.pointer("/info/location/directory")
+                .or_else(|| v.pointer("/info/directory"))
+                .and_then(|d| d.as_str())
+                .map(PathBuf::from)
+        })
         .and_then(|d| d.canonicalize().ok())
         .filter(|d| {
             d.is_dir()
@@ -224,18 +233,26 @@ fn import_dir(env: &Env, file: &Path) -> Result<PathBuf, String> {
     Ok(recorded.unwrap_or(base))
 }
 
-/// The import, built but not run — separated from `import_session` for the same
-/// reason `cli_dirs` is separated from `runtime_cli`: the working directory IS
-/// the destination folder (see `import_dir`), and a destination that can only be
-/// observed by running a bundled binary is a destination nothing asserts.
-fn import_command(env: &Env, file: &Path) -> Result<Command, String> {
-    let mut cmd = runtime_cli(env)?;
-    cmd.current_dir(import_dir(env, file)?).arg("import").arg(file);
-    Ok(cmd)
+/// The import request, built but not sent — separated from `import_session` so
+/// the destination folder it carries (see `import_dir`) is something a test can
+/// assert without a running runtime.
+fn import_body(env: &Env, file: &Path) -> Result<serde_json::Value, String> {
+    let text = std::fs::read_to_string(file).map_err(|e| format!("read {}: {e}", file.display()))?;
+    let export: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("{} is not an export: {e}", file.display()))?;
+    if export.get("info").is_none() || !export["messages"].is_array() {
+        return Err(format!("{} is not an export", file.display()));
+    }
+    let directory = import_dir(env, file)?;
+    Ok(serde_json::json!({
+        "info": export["info"],
+        "messages": export["messages"],
+        "location": { "directory": directory.to_string_lossy() },
+    }))
 }
 
 /// Import one mirrored session. Safe to call on a file already imported: the
-/// runtime keeps the session id and unions by message id.
+/// runtime keeps the session id, and a session it already has is left as it is.
 ///
 /// Takes the mirror directory and a session id rather than a path, so the file
 /// name is built here from an id that has been validated. Nothing outside the
@@ -248,17 +265,21 @@ pub fn import_session(env: &Env, dir: &Path, session_id: &str) -> Result<(), Str
     if !file.is_file() {
         return Err(format!("no such file: {}", file.display()));
     }
-    let out = import_command(env, file)?
-        .output()
-        .map_err(|e| format!("run opencode import: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "opencode import {}: {}",
-            file.display(),
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+    let body = import_body(env, file)?;
+    let (base, pw) = runtime_api(env)?;
+    let (status, reply) = send(
+        client()?
+            .post(format!("{base}/api/experimental/session/import"))
+            .header("Content-Type", "application/json")
+            .body(body.to_string()),
+        pw,
+    )?;
+    match status {
+        200..=299 => Ok(()),
+        // Already here: OpenCode 2 keeps the copy it has (see the module notes).
+        409 => Ok(()),
+        _ => Err(format!("import {}: {}", file.display(), reason(&reply))),
     }
-    Ok(())
 }
 
 /// What moving a session into a project did.
@@ -292,20 +313,17 @@ fn own_folder(env: &Env, dir: &Path) -> Option<PathBuf> {
 /// Move a conversation into a project, for real: from then on it lives in the
 /// project's folder, and the agent works there.
 ///
-/// The runtime's own "move session" refuses to cross repositories, and every
-/// session folder and project here is its own repository — so it can never do
-/// this. `import` can: it files an EXISTING session in the importing process's
-/// working directory, keeping its id and messages (see `import_dir`; measured
-/// again against the pinned 1.19.4 across two repositories: same id, same
-/// messages, new directory and project). So: export, then import from inside
-/// the project.
+/// OpenCode 2's own move does this — across repositories too, which every
+/// session folder and project here is (measured against 2.2.5: same id, same
+/// messages, new folder). OpenCode 1's refused, which is why this used to
+/// export and re-import.
 ///
 /// The files do NOT move or get copied. The session's own folder stays where
 /// it is, and the project folder gains ONE entry: a link to it, named after
 /// the session (see `project::link_folder`). That is how the user finds the
 /// session's files in the project, and how the agent still reaches what its
-/// earlier turns made. Linked BEFORE the import and unlinked again if the
-/// import fails, so a failure leaves no half move behind.
+/// earlier turns made. Linked BEFORE the move and unlinked again if the move
+/// fails, so a failure leaves no half move behind.
 ///
 /// The project is named by id, never by a raw path, like every other project
 /// command: a caller cannot point a conversation at an arbitrary folder.
@@ -317,20 +335,16 @@ pub fn move_session_to_project(env: &Env, session_id: &str, project_id: &str) ->
         .canonicalize()
         .map_err(|e| format!("project folder: {e}"))?;
 
-    let out = runtime_cli(env)?
-        .args(["export", session_id])
-        .output()
-        .map_err(|e| format!("run opencode export: {e}"))?;
-    if !out.status.success() || out.stdout.iter().all(u8::is_ascii_whitespace) {
-        return Err(format!(
-            "opencode export {session_id}: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+    let (base, pw) = runtime_api(env)?;
+    let (status, body) = send(client()?.get(format!("{base}/api/session/{session_id}")), pw)?;
+    if !(200..300).contains(&status) {
+        return Err(format!("session {session_id}: {}", reason(&body)));
     }
-    let info = serde_json::from_slice::<serde_json::Value>(&out.stdout)
-        .map(|v| v["info"].clone())
-        .unwrap_or_default();
-    let recorded = info["directory"].as_str().map(PathBuf::from);
+    let info = body.get("data").cloned().unwrap_or(body);
+    let recorded = info
+        .pointer("/location/directory")
+        .and_then(|d| d.as_str())
+        .map(PathBuf::from);
     if recorded.as_deref().and_then(|d| d.canonicalize().ok()).as_deref() == Some(project.as_path()) {
         return Ok(MoveOutcome { directory: project.to_string_lossy().to_string(), link: None });
     }
@@ -343,26 +357,21 @@ pub fn move_session_to_project(env: &Env, session_id: &str, project_id: &str) ->
         None => None,
     };
 
-    // The export is the user's conversation: kept in the app's own folder, and
-    // only for as long as the import needs it.
-    let file = runtime_root(env)?.join(format!("move-{session_id}.json"));
-    let imported = std::fs::write(&file, &out.stdout)
-        .map_err(|e| format!("write {}: {e}", file.display()))
-        .and_then(|_| {
-            let res = runtime_cli(env)?
-                .current_dir(&project)
-                .arg("import")
-                .arg(&file)
-                .output()
-                .map_err(|e| format!("run opencode import: {e}"))?;
-            if res.status.success() {
-                Ok(())
-            } else {
-                Err(format!("opencode import: {}", String::from_utf8_lossy(&res.stderr).trim()))
-            }
-        });
-    let _ = std::fs::remove_file(&file);
-    if let Err(e) = imported {
+    let moved = send(
+        client()?
+            .post(format!("{base}/api/session/{session_id}/move"))
+            .header("Content-Type", "application/json")
+            .body(serde_json::json!({ "directory": project.to_string_lossy() }).to_string()),
+        pw,
+    )
+    .and_then(|(status, body)| {
+        if (200..300).contains(&status) {
+            Ok(())
+        } else {
+            Err(format!("move {session_id}: {}", reason(&body)))
+        }
+    });
+    if let Err(e) = moved {
         if let Some(l) = &linked {
             let _ = crate::project::unlink_folder(env, project_id, &l.path);
         }
@@ -517,59 +526,6 @@ mod tests {
     /// Needs the bundled binary next to the test executable; skipped (not
     /// passed vacuously) without it.
     #[test]
-    fn moving_a_session_files_it_in_the_project_and_links_its_folder() {
-        if sidecar_bin("opencode").is_none() {
-            eprintln!("skipped: no bundled opencode next to the test binary");
-            return;
-        }
-        let (root, env, project, dated) = move_fixture("e2e");
-        let id = "ses_0123456789abcdefMoveProbe01";
-        let seed = root.join("seed.json");
-        let info = serde_json::json!({
-            "id": id, "slug": "move-probe", "projectID": "global",
-            "directory": dated.to_string_lossy(), "path": "", "title": "move probe",
-            "version": "1.18.32", "time": { "created": 1, "updated": 1 },
-        });
-        std::fs::write(&seed, serde_json::json!({ "info": info, "messages": [] }).to_string()).unwrap();
-        let seeded = runtime_cli(&env).unwrap().current_dir(&dated).arg("import").arg(&seed).output().unwrap();
-        assert!(seeded.status.success(), "{}", String::from_utf8_lossy(&seeded.stderr));
-
-        let project_dir = PathBuf::from(&project.path).canonicalize().unwrap();
-        let before: Vec<_> = std::fs::read_dir(&project_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
-
-        let moved = move_session_to_project(&env, id, &project.id).unwrap();
-        assert_eq!(PathBuf::from(&moved.directory), project_dir);
-        let link = PathBuf::from(moved.link.expect("its own folder is linked"));
-        assert_eq!(link, project_dir.join("move probe"));
-        assert_eq!(link.canonicalize().unwrap(), dated.canonicalize().unwrap());
-
-        // Exactly one new entry in the project folder; the files are where they were.
-        let mut after: Vec<_> = std::fs::read_dir(&project_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
-        after.retain(|n| !before.contains(n));
-        assert_eq!(after, vec![std::ffi::OsString::from("move probe")]);
-        assert!(dated.join("figures").join("fig1.png").is_file());
-        // And the index says so, under the session's title.
-        let listed = crate::project::list_projects(&env).unwrap();
-        let entry = &listed.iter().find(|p| p.id == project.id).unwrap().linked;
-        assert_eq!(entry.len(), 1);
-        assert_eq!((entry[0].session_id.as_str(), entry[0].title.as_str()), (id, "move probe"));
-
-        // What the runtime itself now says about the session.
-        let out = runtime_cli(&env).unwrap().args(["export", id]).output().unwrap();
-        let exported: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-        assert_eq!(exported["info"]["id"], id);
-        assert_eq!(
-            PathBuf::from(exported["info"]["directory"].as_str().unwrap()).canonicalize().unwrap(),
-            project_dir
-        );
-        assert!(!runtime_root(&env).unwrap().join(format!("move-{id}.json")).exists());
-
-        // Moving it again is a no-op.
-        assert_eq!(move_session_to_project(&env, id, &project.id).unwrap().link, None);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn only_runtime_session_ids_reach_the_command_line() {
         assert!(valid_session_id("ses_005bf676bffeQzLIIBFZeNp7G9"));
         for bad in [
@@ -585,11 +541,10 @@ mod tests {
         }
     }
 
-    /// `import` files a session in the process's working directory, not in the
-    /// folder the export recorded — measured against 1.18.18. So the directory
-    /// is the destination, and it must be chosen here rather than inherited from
-    /// whatever launched the app (`/`, for a Finder-launched .app), which would
-    /// file every synced conversation apart from the files it names.
+    /// An import is filed where it is told. So the destination must be chosen
+    /// here rather than left to wherever the runtime started (`/`, for a
+    /// Finder-launched .app), which would file every synced conversation apart
+    /// from the files it names.
     #[test]
     fn an_import_is_filed_in_a_folder_this_machine_actually_has() {
         let root = std::env::temp_dir().join(format!("os-import-dir-{}", std::process::id()));
@@ -650,43 +605,24 @@ mod tests {
             base.canonicalize().unwrap()
         );
 
-        // And the command actually carries it. Asserting `import_dir` alone
+        // And the request actually carries it. Asserting `import_dir` alone
         // would still pass with the call site unwired, which is the whole
         // defect: the destination was correct in principle and inherited in
-        // practice. Needs the bundled binary only because `runtime_cli` locates
-        // it — skip rather than assert nothing when it is absent.
-        if sidecar_bin("opencode").is_some() {
-            let cmd = import_command(&env, &here).unwrap();
-            assert_eq!(cmd.get_current_dir(), Some(shared.canonicalize().unwrap().as_path()));
-        }
+        // practice.
+        let body = import_body(&env, &here).unwrap();
+        assert_eq!(
+            PathBuf::from(body["location"]["directory"].as_str().unwrap()),
+            shared.canonicalize().unwrap()
+        );
+        // An OpenCode 2 export records its folder under `location`.
+        let v2 = mirror.join("v2.json");
+        let text = serde_json::json!({ "info": { "location": { "directory": shared.to_string_lossy() } }, "messages": [] }).to_string();
+        std::fs::write(&v2, text).unwrap();
+        assert_eq!(import_dir(&env, &v2).unwrap(), shared.canonicalize().unwrap());
+        // A file that is not an export is refused before anything is sent.
+        assert!(import_body(&env, &junk).is_err());
 
         let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn the_cli_reads_the_same_store_as_the_sidecar() {
-        // These four are written out by hand here and in `runtime::start`. If
-        // they ever disagree, export finds an empty store and exits zero — sync
-        // would mirror nothing and report success, the worst way for this to
-        // fail. Asserted without the bundled binary on purpose: gating on
-        // `runtime_cli` would make this pass vacuously wherever the sidecar has
-        // not been fetched, which is most CI jobs.
-        let Ok(env) = crate::env::Env::headless(None, None, "test".into()) else {
-            return;
-        };
-        let root = runtime_root(&env).unwrap();
-        let dirs = cli_dirs(&env).unwrap();
-        assert_eq!(
-            dirs,
-            [
-                ("XDG_CONFIG_HOME", root.join("xdg-config")),
-                ("XDG_DATA_HOME", root.join("xdg-data")),
-                ("XDG_CACHE_HOME", root.join("xdg-cache")),
-                ("XDG_STATE_HOME", root.join("xdg-state")),
-            ]
-        );
-        // And the store really is under the app's data dir, not somewhere else.
-        assert!(root.starts_with(env.data_dir()));
     }
 
     #[test]

@@ -2414,22 +2414,19 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// The other half of #118, also against the real runtime: when it refuses to
-    /// start for a reason this app must NOT paper over, the refusal has to reach
-    /// the UI in the runtime's own words — and be counted, so the reconnect loop
-    /// stops instead of spawning a doomed process per attempt.
-    ///
-    /// A schema-invalid config is the right input for that: this app can parse it
-    /// (so it is deliberately not quarantined — a value the user typed is theirs
-    /// to fix), while OpenCode rejects it and exits.
+    /// The other half of #118, against the real runtime: a config value the app
+    /// can read but the runtime cannot use is the user's to fix, so it is NOT
+    /// quarantined and their value is left alone. OpenCode 1 refused to start on
+    /// one (and the app had to surface that refusal); OpenCode 2 warns and
+    /// starts, so the runtime stays up and nothing is recorded as a failure.
     #[test]
-    fn a_runtime_that_refuses_to_start_reports_its_own_reason() {
+    fn a_config_value_the_runtime_cannot_use_neither_stops_it_nor_is_moved_aside() {
         if link_real_sidecar().is_none() {
             eprintln!("skipped: no bundled opencode beside the test binary");
             return;
         }
 
-        let (env, dir) = temp_env("e2e-refuse");
+        let (env, dir) = temp_env("e2e-lenient");
         let ws = dir.join("ws");
         fs::create_dir_all(&ws).unwrap();
         fs::create_dir_all(dir.join("runtime")).unwrap();
@@ -2440,31 +2437,26 @@ mod tests {
         // Valid JSON, wrong type — `model` must be a string.
         fs::write(&cfg, "{\"model\":123}").unwrap();
 
-        super::start_runtime(&env).expect("spawning succeeds; the process then exits");
-
-        // The exit watcher runs on its own thread once stderr reaches EOF.
-        let mut failure = None;
-        for _ in 0..40 {
+        super::start_runtime(&env).expect("the runtime starts");
+        let url = super::sidecar_url(env.runtime()).expect("a running runtime has a url");
+        let client = reqwest::blocking::Client::builder().no_proxy().build().unwrap();
+        let mut up = false;
+        for _ in 0..80 {
             std::thread::sleep(std::time::Duration::from_millis(250));
-            failure = super::runtime_failure(env.runtime());
-            if failure.is_some() {
+            up = client
+                .get(format!("{url}/api/info"))
+                .basic_auth("opencode", Some(super::server_password()))
+                .send()
+                .is_ok_and(|r| r.status().is_success());
+            if up {
                 break;
             }
         }
+        let failure = super::runtime_failure(env.runtime());
         super::stop_runtime(env.runtime());
+        assert!(up, "the runtime answers despite the value it cannot use");
+        assert_eq!(failure, None);
 
-        let (exits, message) = failure.expect("an exited sidecar is recorded");
-        assert!(exits >= 1, "exits={exits}");
-        // The runtime's own sentence, readable — not "exit code 1", and not
-        // wrapped in the colour codes it prints for its own terminal.
-        assert!(
-            message.contains("Configuration is invalid"),
-            "the reason must be the runtime's own words: {message:?}"
-        );
-        assert!(!message.contains('\u{1b}'), "escape codes reached the UI: {message:?}");
-        // This one is the user's to fix, so it is NOT quarantined and their value
-        // is left alone — the startup sequence still seeds this app's own keys
-        // around it, which is what makes a readable config different.
         let after: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
         assert_eq!(after["model"], 123, "the user's value must survive");
