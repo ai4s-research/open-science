@@ -560,19 +560,6 @@ export async function removeConfigEntry(section: "provider" | "mcp", key: string
   await invoke("remove_config_entry", { section, key });
 }
 
-/** OpenCode's config file, as the SDK's `ConfigStore` (desktop only: it
- *  holds provider keys). OpenCode 2 applies an edit within a second. */
-export const desktopConfigStore = {
-  async read(): Promise<Record<string, unknown>> {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<Record<string, unknown>>("read_opencode_config");
-  },
-  async patch(patch: Record<string, unknown>): Promise<void> {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("patch_opencode_config", { patch });
-  },
-};
-
 export interface JupyterStatus {
   installed: boolean;
   running: boolean;

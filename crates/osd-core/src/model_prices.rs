@@ -58,12 +58,15 @@ pub struct Prices {
     openai: HashMap<String, ModelCost>,
 }
 
-/// Where the runtime leaves the catalog.
+/// Where the app keeps the model catalog it downloads for the runtime
+/// (`model_catalog`), which OpenCode is started on. Named apart from the
+/// `models.json` an OpenCode 1 build left, whose format OpenCode 2 does not
+/// serve.
 pub fn catalog_path(runtime_root: &Path) -> PathBuf {
     runtime_root
         .join("xdg-cache")
         .join("opencode")
-        .join("models.json")
+        .join("models-v2.json")
 }
 
 impl Prices {
@@ -109,6 +112,31 @@ impl Prices {
     }
 }
 
+/// A model's price in either catalog format: OpenCode 1's flat
+/// `{input, output, cache_read, cache_write}`, or OpenCode 2's per-modality
+/// `{text: {input: {price, cache: {read, write}}, output: {price}}}`, whose
+/// cache write is keyed by TTL — the 5-minute one is the write OpenCode itself
+/// charges.
+fn model_cost(cost: &Value) -> Option<ModelCost> {
+    let Some(text) = cost.get("text") else {
+        return serde_json::from_value::<ModelCost>(cost.clone()).ok();
+    };
+    let price = |v: &Value| v.get("price").and_then(Value::as_f64);
+    let cache = &text["input"]["cache"];
+    // The 5-minute write by name: this crate reads JSON objects with their keys
+    // sorted, so "first listed" is not available here.
+    let cache_write = match &cache["write"] {
+        Value::Object(ttls) => ttls.get("5m").or_else(|| ttls.values().next()).and_then(Value::as_f64),
+        other => other.as_f64(),
+    };
+    Some(ModelCost {
+        input: price(&text["input"])?,
+        output: price(&text["output"])?,
+        cache_read: cache["read"].as_f64(),
+        cache_write,
+    })
+}
+
 fn provider_costs(provider: Option<&Value>) -> HashMap<String, ModelCost> {
     let Some(models) = provider
         .and_then(|provider| provider.get("models"))
@@ -119,7 +147,7 @@ fn provider_costs(provider: Option<&Value>) -> HashMap<String, ModelCost> {
     models
         .iter()
         .filter_map(|(id, model)| {
-            let cost = serde_json::from_value::<ModelCost>(model.get("cost")?.clone()).ok()?;
+            let cost = model_cost(model.get("cost")?)?;
             // A row priced at zero is a free model, and pricing a turn from it
             // would report $0.00 for work that was really uncounted. The same
             // rule the workbench's own figure follows for OpenCode's `$.cost`:
@@ -132,6 +160,17 @@ fn provider_costs(provider: Option<&Value>) -> HashMap<String, ModelCost> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_opencode_2_catalog_format() {
+        let v2 = serde_json::json!({"text":{"input":{"price":2,"cache":{"read":0.2,"write":{"5m":2.5,"1h":4}}},"output":{"price":10}},"web_search":{"price":10}});
+        let c = model_cost(&v2).unwrap();
+        assert_eq!((c.input, c.output, c.cache_read, c.cache_write), (2.0, 10.0, Some(0.2), Some(2.5)));
+        let v1 = serde_json::json!({"input":1.25,"output":10,"cache_read":0.125});
+        let c = model_cost(&v1).unwrap();
+        assert_eq!((c.input, c.output, c.cache_read, c.cache_write), (1.25, 10.0, Some(0.125), None));
+        assert!(model_cost(&serde_json::json!({"text":{"input":{}}})).is_none());
+    }
 
     const CATALOG: &str = r#"{
       "anthropic": {"models": {

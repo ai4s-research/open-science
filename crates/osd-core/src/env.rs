@@ -77,7 +77,7 @@ impl Env {
     }
 
     /// A bundled resource by its name inside the resource directory
-    /// (`goal-plugin`, `skills-core`, …), or None when this build does not
+    /// (`osd-plugin`, `skills-core`, …), or None when this build does not
     /// carry it — a dev run without the fetch scripts, say.
     pub fn resource(&self, rel: &str) -> Option<PathBuf> {
         let p = self.0.resource_dir.join(rel);
@@ -290,9 +290,10 @@ pub(crate) fn home() -> Result<PathBuf, String> {
 /// unpacked from its tarball, or `<exe dir>/../Resources` inside a macOS app
 /// bundle (so `osd` placed in an installed app's MacOS directory just works).
 /// A directory that is only ever in a resource root, used to recognise one.
-/// Every bundle carries it (the goal plugin is not optional), so its presence
-/// tells a resource root from a directory that merely has the right name.
-const RESOURCE_MARKER: &str = "goal-plugin";
+/// Every bundle carries it (the app's OpenCode plugin is not optional), so its
+/// presence tells a resource root from a directory that merely has the right
+/// name.
+const RESOURCE_MARKER: &str = "osd-plugin";
 
 fn default_resource_dir() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -306,7 +307,7 @@ fn default_resource_dir() -> Result<PathBuf, String> {
 ///
 /// Four layouts, because each packager lays them out its own way, and this was
 /// wrong for two of them: `osd` inside a Windows install or a Linux .deb found
-/// its sidecars but no resources at all, so it ran with no skills, no goal
+/// its sidecars but no resources at all, so it ran with no skills, no app
 /// plugin and no agent harness — quietly, since missing resources are not an
 /// error. Verified against the actual packages produced by CI.
 fn resource_root_near(dir: &Path) -> Option<PathBuf> {

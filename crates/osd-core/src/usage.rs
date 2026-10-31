@@ -900,7 +900,9 @@ not json at all
 // those read the Claude Code and Codex CLIs' own transcripts, which record work
 // done in a terminal — usage this app neither caused nor can see. The app's own
 // runtime keeps its turns in the bundled OpenCode's SQLite database, so a figure
-// meant to answer "what did this workbench cost me" has to come from here.
+// meant to answer "what did this workbench cost me" has to come from here:
+// OpenCode 2's `session_message`, one row per model step (and per compaction,
+// which is a model call too), carrying that call's own tokens and cost.
 
 /// Where the bundled runtime keeps its turns, relative to the runtime root.
 const WORKBENCH_DB: [&str; 3] = ["xdg-data", "opencode", "opencode.db"];
@@ -930,16 +932,16 @@ pub fn collect_session_spend(runtime_root: &Path, week_start_ms: i64) -> Vec<Ses
         return Vec::new();
     };
     let Ok(mut statement) = connection.prepare(
-        "SELECT json_extract(data,'$.sessionID'), \
-                json_extract(data,'$.time.created'), \
+        "SELECT session_id, \
+                time_created, \
                 json_extract(data,'$.cost'), \
                 json_extract(data,'$.tokens.input'), \
                 json_extract(data,'$.tokens.output'), \
                 json_extract(data,'$.tokens.cache.read'), \
                 json_extract(data,'$.tokens.cache.write') \
-         FROM message \
-         WHERE json_extract(data,'$.role') = 'assistant' \
-           AND json_extract(data,'$.time.created') >= ?1",
+         FROM session_message \
+         WHERE type IN ('assistant', 'compaction') \
+           AND time_created >= ?1",
     ) else {
         return Vec::new();
     };
@@ -1007,15 +1009,15 @@ pub fn collect_workbench_usage(
     // database is not pulled through JSON parsing row by row.
     let mut statement = connection
         .prepare(
-            "SELECT json_extract(data,'$.time.created'), \
+            "SELECT time_created, \
                     json_extract(data,'$.cost'), \
                     json_extract(data,'$.tokens.input'), \
                     json_extract(data,'$.tokens.output'), \
                     json_extract(data,'$.tokens.cache.read'), \
                     json_extract(data,'$.tokens.cache.write') \
-             FROM message \
-             WHERE json_extract(data,'$.role') = 'assistant' \
-               AND json_extract(data,'$.time.created') >= ?1",
+             FROM session_message \
+             WHERE type IN ('assistant', 'compaction') \
+               AND time_created >= ?1",
         )
         .ok()?;
 

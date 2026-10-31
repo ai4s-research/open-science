@@ -55,11 +55,7 @@
       }
     },
     "resources": {
-      "../../../runtime/goal-plugin": "goal-plugin/",
-      "../../../runtime/browser-plugin": "browser-plugin/",
-      "../../../runtime/history-plugin": "history-plugin/",
-      "../../../runtime/origin-plugin": "origin-plugin/",
-      "../../../runtime/tools": "tools/",
+      "../../../runtime/osd-plugin": "osd-plugin/",
         "../../../runtime/computer": "computer/",
         "computer-use": "computer-use/",
       "../../../runtime/skills/external/ai4s-skills": "skills/",

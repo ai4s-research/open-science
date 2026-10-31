@@ -1,19 +1,20 @@
 //! Keeps the runtime's model catalog current, and tells the picker about it.
 //!
-//! The picker's model list comes from the catalog OpenCode caches at
-//! `xdg-cache/opencode/models.json`. OpenCode refreshes that file itself, but
-//! gives the ~6 MB download 10 seconds, and on any failure keeps the old file
-//! without a word. On a slow or proxied connection every attempt times out
-//! (436 `TimeoutError`s in one user log, 2026-10-28), so the list stays weeks
-//! old and new models never appear, whatever the user's subscription.
+//! The picker's model list comes from OpenCode's model catalog. OpenCode
+//! refreshes it itself, but gives the ~10 MB download 10 seconds, and on any
+//! failure keeps the copy it has without a word. On a slow or proxied
+//! connection every attempt times out (436 `TimeoutError`s in one user log,
+//! 2026-10-28), so the list stays as old as the release and new models never
+//! appear, whatever the user's subscription.
 //!
-//! So the app downloads the same file itself, with a generous timeout and the
-//! proxy the sidecar is configured with, and writes it where OpenCode reads it.
+//! So the app downloads the same catalog itself, with a generous timeout and
+//! the proxy the sidecar is configured with, to `xdg-cache/opencode/models-v2.json`,
+//! and starts OpenCode with `OPENCODE_MODELS_PATH` pointing at it — a file
+//! named there is the catalog OpenCode serves.
 //!
-//! OpenCode reads the catalog once, when it starts: replacing the file, or
-//! asking it to dispose its instances, changes nothing it serves (measured on
-//! 1.19.4). A new list therefore takes effect on the next sidecar start, and
-//! `apply` makes that happen now, only when no conversation is running.
+//! OpenCode reads the catalog once, when it starts. A new list therefore takes
+//! effect on the next sidecar start, and `apply` makes that happen now, only
+//! when no conversation is running.
 //!
 //! Each download is compared with the file it replaces; models that appeared
 //! are kept for a week in `model-catalog.json` so the picker can mark them new.
@@ -26,8 +27,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-/// What OpenCode 1.19.4 fetches (`OPENCODE_MODELS_URL` default + `/api.json`).
-const CATALOG_URL: &str = "https://models.opencode.ai/api.json";
+/// What OpenCode 2 fetches (`ModelsDev.catalogPath` on its default source).
+const CATALOG_URL: &str = "https://models.opencode.ai/experimental/v2.0/api.json?type=chat,decision,image";
 const TIMEOUT: Duration = Duration::from_secs(120);
 /// How often a long-running app checks again.
 const INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
@@ -199,9 +200,8 @@ pub fn apply(env: &Env) -> Result<ApplyOutcome, String> {
     Ok(ApplyOutcome::Applied)
 }
 
-/// True only when every recently active project reports no session at work.
-/// OpenCode keeps session status per project directory, so each one touched in
-/// the last hour is asked; any failure counts as busy.
+/// True only when no recently active session is at work. OpenCode records
+/// when each session last went busy and idle; any failure counts as busy.
 fn runtime_idle(env: &Env) -> bool {
     let Some(base) = crate::runtime::sidecar_url(env.runtime()) else {
         return true;
@@ -214,56 +214,31 @@ fn runtime_idle(env: &Env) -> bool {
     else {
         return false;
     };
-    let get = |url: reqwest::Url| -> Option<serde_json::Value> {
-        let resp = client
-            .get(url)
-            .basic_auth("opencode", Some(pw))
-            .send()
-            .ok()?;
-        serde_json::from_str(&resp.error_for_status().ok()?.text().ok()?).ok()
-    };
-    let Some(sessions) = reqwest::Url::parse_with_params(
-        &format!("{base}/experimental/session"),
-        &[("limit", "100")],
-    )
-    .ok()
-    .and_then(get) else {
-        return false;
-    };
-    let mut dirs = recent_directories(&sessions, now_ms());
-    if let Ok(ws) = crate::runtime::workspace_path(env) {
-        if !dirs.contains(&ws) {
-            dirs.push(ws);
-        }
+    let sessions = client
+        .get(format!("{base}/api/session?limit=200&order=desc"))
+        .basic_auth("opencode", Some(pw))
+        .send()
+        .ok()
+        .and_then(|r| r.error_for_status().ok())
+        .and_then(|r| r.text().ok())
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+    match sessions {
+        Some(body) => none_working(&body["data"], now_ms()),
+        None => false,
     }
-    dirs.iter().all(|dir| {
-        reqwest::Url::parse_with_params(&format!("{base}/session/status"), &[("directory", dir)])
-            .ok()
-            .and_then(get)
-            .is_some_and(|map| all_idle(&map))
+}
+
+/// No session touched in the last hour is busy: busy since it last went idle.
+fn none_working(sessions: &serde_json::Value, now: u64) -> bool {
+    sessions.as_array().is_some_and(|list| {
+        list.iter().all(|s| {
+            let time = &s["time"];
+            let recent = now.saturating_sub(time["updated"].as_u64().unwrap_or(0)) <= ACTIVE_WINDOW_MS;
+            let busy = time["busy"].as_u64().unwrap_or(0);
+            let idle = time["idle"].as_u64().unwrap_or(0);
+            !recent || busy == 0 || idle >= busy
+        })
     })
-}
-
-fn recent_directories(sessions: &serde_json::Value, now: u64) -> Vec<String> {
-    let mut dirs: Vec<String> = Vec::new();
-    for s in sessions.as_array().into_iter().flatten() {
-        let updated = s["time"]["updated"].as_u64().unwrap_or(0);
-        if now.saturating_sub(updated) > ACTIVE_WINDOW_MS {
-            continue;
-        }
-        if let Some(dir) = s["directory"].as_str() {
-            if !dirs.iter().any(|d| d == dir) {
-                dirs.push(dir.to_string());
-            }
-        }
-    }
-    dirs
-}
-
-/// `/session/status` lists sessions that are not idle (`busy`, `retry`).
-fn all_idle(map: &serde_json::Value) -> bool {
-    map.as_object()
-        .is_some_and(|m| m.values().all(|s| s["type"].as_str() == Some("idle")))
 }
 
 fn download(env: &Env) -> Result<String, CatalogError> {
@@ -456,23 +431,14 @@ mod tests {
     }
 
     #[test]
-    fn only_recently_touched_projects_are_asked() {
+    fn a_session_busy_since_it_last_went_idle_is_working() {
         let now = 10 * ACTIVE_WINDOW_MS;
-        let sessions = json!([
-            {"directory":"/a","time":{"updated": now - 1000}},
-            {"directory":"/a","time":{"updated": now - 2000}},
-            {"directory":"/b","time":{"updated": now - 2 * ACTIVE_WINDOW_MS}},
-            {"directory":"/c","time":{"updated": now}}
-        ]);
-        assert_eq!(recent_directories(&sessions, now), ["/a", "/c"]);
-    }
-
-    #[test]
-    fn a_busy_or_retrying_session_is_not_idle() {
-        assert!(all_idle(&json!({})));
-        assert!(all_idle(&json!({"ses_1":{"type":"idle"}})));
-        assert!(!all_idle(&json!({"ses_1":{"type":"busy"}})));
-        assert!(!all_idle(&json!({"ses_1":{"type":"retry","attempt":2}})));
-        assert!(!all_idle(&json!("unexpected")));
+        let idle = json!({"time":{"updated": now, "busy": now - 50, "idle": now - 10}});
+        let working = json!({"time":{"updated": now, "busy": now - 10, "idle": now - 50}});
+        let never_ran = json!({"time":{"updated": now}});
+        let stale = json!({"time":{"updated": now - 2 * ACTIVE_WINDOW_MS, "busy": 5}});
+        assert!(none_working(&json!([idle, never_ran, stale]), now));
+        assert!(!none_working(&json!([idle, working]), now));
+        assert!(!none_working(&json!("unexpected"), now));
     }
 }

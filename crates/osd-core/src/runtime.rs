@@ -75,8 +75,7 @@ pub fn xdg_config_home(env: &Env) -> Result<PathBuf, String> {
     Ok(runtime_root(env)?.join("xdg-config"))
 }
 
-/// The sidecar's XDG_DATA_HOME — also where the bundled goal plugin keeps its
-/// per-session state (`opencode-goal-plugin/goals.json`, read by `goal.rs`).
+/// The sidecar's XDG_DATA_HOME: OpenCode's database and logs.
 pub fn xdg_data_home(env: &Env) -> Result<PathBuf, String> {
     Ok(runtime_root(env)?.join("xdg-data"))
 }
@@ -1506,6 +1505,13 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     // skill and the ssh_connect tool both pass `-F "$OPENSCIENCE_SSH_CONFIG"`.
     if let Some(ssh_config) = ssh_config_path(env) {
         cmd.env("OPENSCIENCE_SSH_CONFIG", ssh_config.to_string_lossy().to_string());
+    }
+    // The model catalog the app keeps current itself (`model_catalog`): OpenCode
+    // serves the file named here instead of the copy it could not download.
+    // Without one yet, OpenCode falls back to the catalog it ships with.
+    let catalog = crate::model_prices::catalog_path(&root);
+    if catalog.is_file() {
+        cmd.env("OPENCODE_MODELS_PATH", catalog.to_string_lossy().to_string());
     }
     // Where the `computer` tool finds the native provider for this platform.
     // Unset — a build without them — leaves computer use simply unavailable,

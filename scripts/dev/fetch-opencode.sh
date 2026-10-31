@@ -4,11 +4,10 @@
 # Runs per-platform locally and in CI so the binary never lives in git.
 set -euo pipefail
 
-# 1.18.15 fixed repeated compaction dropping orphaned tool results and message
-# chronology; 1.18.17 hardened compaction again. Below those, a long session
-# eventually built a message array the AI SDK rejected outright with
-# "The messages do not match the ModelMessage[] schema" (issue #114).
-OPENCODE_VERSION="${OPENCODE_VERSION:-1.19.4}"
+# OpenCode 2: OpenCode 1 no longer gets free models, and is past its support
+# window (#170). The app speaks OpenCode 2's API (`packages/sdk`), so this pin
+# moves only with that client.
+OPENCODE_VERSION="${OPENCODE_VERSION:-2.2.5}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="$ROOT/apps/desktop/src-tauri/binaries"
 mkdir -p "$OUT_DIR"

@@ -632,7 +632,7 @@ fn model_show(args: &Args) -> Result<(), String> {
     // fresh headless box is being set up.
     let model = match Client::connect(args) {
         Ok(client) => client
-            .get("/global/config")?
+            .get("/v1/opencode-config")?
             .get("model")
             .and_then(|m| m.as_str())
             .map(str::to_owned),
@@ -667,38 +667,39 @@ fn model_ls(args: &Args) -> Result<(), String> {
              `osd server`, or set a model without listing: `osd model set <provider/model>`."
         )
     })?;
-    let providers = client.get("/config/providers")?;
-    if args.has("json") {
-        return print_json(&providers);
+    // Chat models the runtime can run now, with their provider's name.
+    let models = osd_core::opencode_v2::data(client.get("/api/model")?);
+    let names = osd_core::opencode_v2::data(client.get("/api/provider")?);
+    let mut by_provider: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for m in models.as_array().into_iter().flatten() {
+        if m["enabled"] == false || m["type"].as_str().is_some_and(|t| t != "chat") {
+            continue;
+        }
+        if let (Some(p), Some(id)) = (m["providerID"].as_str(), m["id"].as_str()) {
+            by_provider.entry(p.to_string()).or_default().push(id.to_string());
+        }
     }
-    let list = providers["providers"]
-        .as_array()
-        .cloned()
-        .or_else(|| providers.as_array().cloned())
-        .unwrap_or_default();
-    if list.is_empty() {
+    if args.has("json") {
+        return print_json(&json!(by_provider));
+    }
+    if by_provider.is_empty() {
         println!("No providers are configured on this machine.");
         println!("Add one with `osd auth set <provider> --key <api-key>`.");
         return Ok(());
     }
-    let current = client.get("/global/config").ok().and_then(|c| {
+    let current = client.get("/v1/opencode-config").ok().and_then(|c| {
         c["model"].as_str().map(str::to_owned)
     });
-    for p in list {
-        let id = p["id"].as_str().unwrap_or("?");
-        println!("{}", p["name"].as_str().unwrap_or(id));
-        let mut ids: Vec<String> = match p["models"].as_object() {
-            Some(map) => map.keys().cloned().collect(),
-            // Some builds report models as an array of objects.
-            None => p["models"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|m| m["id"].as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default(),
-        };
+    for (id, mut ids) in by_provider {
+        let name = names
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|p| p["id"] == id.as_str())
+            .and_then(|p| p["name"].as_str())
+            .unwrap_or(&id)
+            .to_string();
+        println!("{name}");
         ids.sort();
         for model in ids {
             let full = format!("{id}/{model}");
@@ -725,7 +726,7 @@ fn model_set(args: &Args) -> Result<(), String> {
         // Through the gateway, so it also works against a remote server: this
         // is the one config write the gateway permits.
         Ok(client) => {
-            client.patch("/global/config", json!({ "model": model }))?;
+            client.patch("/v1/opencode-config", json!({ "model": model }))?;
         }
         // A named gateway that cannot be reached is an error, never a quiet
         // write to the local machine: `osd --gateway http://box:4098 model set X`

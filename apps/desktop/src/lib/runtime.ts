@@ -35,7 +35,6 @@ import {
   setProjectPinned as setProjectPinnedCmd,
   moveSessionToProject as moveSessionToProjectCmd,
   deleteProject as deleteProjectCmd,
-  desktopConfigStore,
   getAgentModels,
   getAgentVariants,
   getApprovalMode,
@@ -62,7 +61,8 @@ import {
   type ProxyMode,
   type ToolStatus,
 } from "./tauri";
-import { isGatewayWeb, gatewayToken, gatewayOrigin, gatewayConfigStore, setSignedInAccount } from "./webMode";
+import { isGatewayWeb, gatewayToken, gatewayOrigin, setSignedInAccount } from "./webMode";
+import { configStore } from "./configStore";
 import { followEvents } from "./gatewayMux";
 import {
   activeAcpAgent,
@@ -127,10 +127,6 @@ import i18n from "@/i18n";
 /** Web: every event stream of this tab rides its one connection (see
  *  gatewayMux) — a browser allows six per host, shared by all its tabs. */
 const eventStream = isGatewayWeb ? followEvents : undefined;
-
-/** Where OpenCode's config is read and written: the desktop edits the file;
- *  a web client goes through the gateway, which keeps keys on the desktop. */
-const configStore = isGatewayWeb ? gatewayConfigStore : isTauri ? desktopConfigStore : undefined;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const URL_KEY = "ai4s.opencodeUrl";
@@ -1063,7 +1059,7 @@ async function shareMcpServers(runtime: AcpRuntime, baseUrl: string, password: s
     const config = new OpenCodeClient({
       baseUrl,
       password: password ?? undefined,
-      config: configStore,
+      config: configStore(),
       // The sidecar is local; a connector list is not worth stalling a connect.
       requestTimeoutMs: 4000,
     });
@@ -3553,7 +3549,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       directory: directory ?? undefined,
       password: password ?? undefined,
       eventStream,
-      config: configStore,
+      config: configStore(),
     });
     opencodeClient = c;
     client = c;

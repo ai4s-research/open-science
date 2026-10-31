@@ -38,10 +38,6 @@ pub fn runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
     osd_core::runtime::runtime_root(&env_of(app))
 }
 
-pub fn xdg_data_home(app: &AppHandle) -> Result<PathBuf, String> {
-    osd_core::runtime::xdg_data_home(&env_of(app))
-}
-
 pub fn workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
     osd_core::runtime::workspace_dir(&env_of(app))
 }

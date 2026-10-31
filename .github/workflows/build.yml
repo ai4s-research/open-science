@@ -93,10 +93,6 @@ jobs:
         shell: bash
         run: bash scripts/dev/fetch-agent-browser.sh ${{ matrix.target }}
 
-      - name: Fetch bundled goal plugin
-        shell: bash
-        run: bash scripts/dev/fetch-goal-plugin.sh
-
       # A fetch script can fail without failing its step: a bash syntax error in
       # fetch-agent-browser.sh aborted the script on every platform, but macOS's
       # bash 3.2 still exited 0, so macOS shipped installers missing the bundled
@@ -113,11 +109,8 @@ jobs:
             runtime/skills/external/ai4s-skills \
             runtime/skills/external/anthropic-skills \
             runtime/skills/external/agent-browser/open-science-browser/SKILL.md \
-            runtime/goal-plugin/goal-plugin.server.js \
-            runtime/browser-plugin/browser-guard.ts \
-            runtime/history-plugin/history-guard.ts \
+            runtime/osd-plugin/index.ts \
             runtime/computer/index.ts \
-            runtime/tools/computer.ts \
             native/computer-use-linux/runtime.py \
             native/computer-use-windows/runtime.ps1 \
             "apps/desktop/src-tauri/binaries/opencode-${{ matrix.target }}$ext" \

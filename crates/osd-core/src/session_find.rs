@@ -55,17 +55,24 @@ pub fn find(runtime_root: &Path, query: &str, limit: usize) -> Result<Vec<Found>
     let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
     let mut st = c
         .prepare(
-            "SELECT s.id, s.title, s.directory, s.time_updated, \
-                    (SELECT json_extract(p.data,'$.text') FROM part p \
-                       WHERE p.session_id = s.id AND json_extract(p.data,'$.type') = 'text' \
-                         AND json_extract(p.data,'$.text') LIKE ?1 ESCAPE '\\' \
-                       ORDER BY p.time_created DESC LIMIT 1) \
-             FROM session s \
-             WHERE s.parent_id IS NULL \
-               AND (s.title LIKE ?1 ESCAPE '\\' OR EXISTS (SELECT 1 FROM part p \
-                     WHERE p.session_id = s.id AND json_extract(p.data,'$.type') = 'text' \
-                       AND json_extract(p.data,'$.text') LIKE ?1 ESCAPE '\\')) \
-             ORDER BY s.time_updated DESC LIMIT ?2",
+            // OpenCode 2's store: words are a user message's `text`, and the
+            // text entries of an assistant message's `content`.
+            "WITH said AS ( \
+               SELECT m.session_id AS sid, m.seq AS seq, json_extract(m.data,'$.text') AS text \
+                 FROM session_message m WHERE m.type = 'user' \
+               UNION ALL \
+               SELECT m.session_id, m.seq, json_extract(c.value,'$.text') \
+                 FROM session_message m, json_each(m.data,'$.content') c \
+                WHERE m.type = 'assistant' AND json_extract(c.value,'$.type') = 'text' \
+             ) \
+             SELECT s.id, s.title, s.directory, s.time_updated, \
+                    (SELECT w.text FROM said w WHERE w.sid = s.id AND w.text LIKE ?1 ESCAPE '\\' \
+                      ORDER BY w.seq DESC LIMIT 1) \
+               FROM session_v2 s \
+              WHERE s.parent_id IS NULL \
+                AND (s.title LIKE ?1 ESCAPE '\\' OR EXISTS (SELECT 1 FROM said w \
+                      WHERE w.sid = s.id AND w.text LIKE ?1 ESCAPE '\\')) \
+              ORDER BY s.time_updated DESC LIMIT ?2",
         )
         .map_err(|e| e.to_string())?;
     let rows = st
@@ -95,14 +102,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let c = rusqlite::Connection::open(dir.join("opencode.db")).unwrap();
         c.execute_batch(
-            "CREATE TABLE session (id text, parent_id text, title text, directory text, time_updated integer);
-             CREATE TABLE part (id text, session_id text, time_created integer, data text);
-             INSERT INTO session VALUES ('s1', NULL, 'Fold proteins', '/w/s1', 10);
-             INSERT INTO session VALUES ('s2', NULL, 'Plots', '/w/s2', 30);
-             INSERT INTO session VALUES ('s3', 's2', 'child', '/w/s2', 40);
-             INSERT INTO part VALUES ('p1', 's2', 1, '{\"type\":\"text\",\"text\":\"intro\\nthe AlphaFold run is in out/\\nbye\"}');
-             INSERT INTO part VALUES ('p2', 's3', 1, '{\"type\":\"text\",\"text\":\"alphafold too\"}');
-             INSERT INTO part VALUES ('p3', 's1', 1, '{\"type\":\"tool\",\"text\":\"alphafold\"}');",
+            "CREATE TABLE session_v2 (id text, parent_id text, title text, directory text, time_updated integer);
+             CREATE TABLE session_message (id text, session_id text, type text, seq integer, data text);
+             INSERT INTO session_v2 VALUES ('s1', NULL, 'Fold proteins', '/w/s1', 10);
+             INSERT INTO session_v2 VALUES ('s2', NULL, 'Plots', '/w/s2', 30);
+             INSERT INTO session_v2 VALUES ('s3', 's2', 'child', '/w/s2', 40);
+             INSERT INTO session_message VALUES ('m1', 's2', 'assistant', 1, '{\"content\":[{\"type\":\"text\",\"text\":\"intro\\nthe AlphaFold run is in out/\\nbye\"}]}');
+             INSERT INTO session_message VALUES ('m2', 's3', 'user', 1, '{\"text\":\"alphafold too\"}');
+             INSERT INTO session_message VALUES ('m3', 's1', 'assistant', 1, '{\"content\":[{\"type\":\"tool\",\"name\":\"alphafold\"}]}');
+             INSERT INTO session_message VALUES ('m4', 's1', 'idle', 2, '{\"outcome\":\"alphafold\"}');",
         )
         .unwrap();
         drop(c);

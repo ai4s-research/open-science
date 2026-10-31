@@ -66,11 +66,7 @@ copy_resource() {
   cp -R "$src" "$dst"
 }
 
-copy_resource runtime/goal-plugin goal-plugin
-copy_resource runtime/browser-plugin browser-plugin
-copy_resource runtime/history-plugin history-plugin
-copy_resource runtime/origin-plugin origin-plugin
-copy_resource runtime/tools tools
+copy_resource runtime/osd-plugin osd-plugin
 copy_resource runtime/computer computer
 copy_resource runtime/skills/external/ai4s-skills skills
 copy_resource runtime/skills/external/anthropic-skills skills-office
@@ -85,7 +81,7 @@ copy_resource examples/climate-trends examples/climate-trends
 # The native computer-use providers, when this machine staged them. Optional on
 # purpose: a compute node has no desktop to drive, and the `computer` tool
 # already reports "no provider for this platform" rather than failing. The host
-# layer above is NOT optional — `tools/computer.ts` imports it.
+# layer above is NOT optional — `osd-plugin/computer.ts` imports it.
 if [ -d "$root/apps/desktop/src-tauri/computer-use" ]; then
   copy_resource apps/desktop/src-tauri/computer-use computer-use
 fi
