@@ -1086,7 +1086,7 @@ pub fn random_hex(bytes: usize) -> String {
 /// built-in Basic auth, `OPENCODE_SERVER_PASSWORD`). Generated fresh each app
 /// launch and held only in memory — never written to disk — so a local
 /// webpage that scans loopback ports can neither drive agent turns nor read
-/// `/global/config` (which carries provider API keys). The webview gets it
+/// the runtime's config (which carries provider API keys). The webview gets it
 /// via the `runtime_password` command; Tauri IPC is app-only.
 pub fn server_password() -> &'static str {
     static PASSWORD: std::sync::OnceLock<String> = std::sync::OnceLock::new();

@@ -208,14 +208,15 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     client.close();
   });
 
-  it("runs a slash command by name, with its arguments as text", async () => {
+  it("runs a slash command by name, and resolves only once its turn is over", async () => {
     const events: OpenCodeEvent[] = [];
     const client = new OpenCodeClient({ baseUrl: base() });
     client.onEvent((e) => events.push(e));
     await client.connect();
     await client.createSession();
     await client.runCommand("ses_mock", "init", "focus on tests");
-    await waitFor(() => events.some((e) => e.type === "session.idle"));
+    // The app's turn bookkeeping counts on this: the turn already ended.
+    expect(events.some((e) => e.type === "session.idle")).toBe(true);
     expect(server.bodies.find((b) => b.request === "POST /api/session/ses_mock/command")?.body).toEqual({
       name: "init",
       text: "focus on tests",

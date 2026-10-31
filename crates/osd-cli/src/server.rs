@@ -104,7 +104,7 @@ pub fn run(args: &Args) -> Result<(), String> {
 
     if !env.resource_dir().is_dir() {
         eprintln!(
-            "note: no bundled resources at {} — skills, the goal plugin and the agent \
+            "note: no bundled resources at {} — skills, the app plugin and the agent \
              harness will be missing. Point at them with --resources.",
             env.resource_dir().display()
         );

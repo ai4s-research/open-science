@@ -141,6 +141,11 @@ const MESSAGE_PAGE = 200;
  *  its output as it goes instead of looking hung. */
 const SHELL_POLL_MS = 1000;
 
+/** How often a slash command's turn is checked, and how long a command may
+ *  take to start one before it counts as a command that starts none. */
+const COMMAND_POLL_MS = 500;
+const COMMAND_START_GRACE_MS = 3000;
+
 // ---- translation: OpenCode 2 → the app's vocabulary ----
 
 /** Tools OpenCode 2 renamed. The app (its tool cards, its history, its
@@ -1670,13 +1675,47 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     if (!res.ok) throw await this.apiError(res, "Command failed to run");
   }
 
-  /** Run a slash command (config command / skill / MCP prompt) in a session. */
+  /** Run a slash command (config command / skill / MCP prompt) in a session.
+   *  Resolves when the turn it started is over, as the app's turn bookkeeping
+   *  expects of it: OpenCode 2 answers the request as soon as the command is
+   *  accepted, so this then waits on the session itself. */
   async runCommand(sessionId: string, command: string, args?: string): Promise<void> {
+    const before = await this.sessionTimes(sessionId);
+    await this.postCommand(sessionId, command, args);
+    await this.turnOver(sessionId, before.busy);
+  }
+
+  private async postCommand(sessionId: string, command: string, args?: string): Promise<void> {
     const res = await this.send("POST", this.url(this.sessionPath(sessionId, "/command")), {
       name: command,
       text: args ?? "",
     });
     if (!res.ok) throw await this.apiError(res, `Failed to run /${command}`);
+  }
+
+  /** When the session last went busy and idle, by the server's clock. */
+  private async sessionTimes(sessionId: string): Promise<{ busy: number; idle: number }> {
+    const s = await this.data<WireSession & { time?: { busy?: number; idle?: number } }>(
+      await this.get(this.url(this.sessionPath(sessionId))),
+      "Failed to read the session",
+    );
+    return { busy: s.time?.busy ?? 0, idle: s.time?.idle ?? 0 };
+  }
+
+  /** Wait for the turn that began after `busyBefore` to end. A command that
+   *  starts no turn (`/goal pause`) is over once a moment passes without one.
+   *  Only the server's own timestamps are compared, never this machine's clock. */
+  private async turnOver(sessionId: string, busyBefore: number): Promise<void> {
+    const started = Date.now();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, COMMAND_POLL_MS));
+      const { busy, idle } = await this.sessionTimes(sessionId);
+      if (busy > busyBefore) {
+        if (idle >= busy) return;
+      } else if (Date.now() - started > COMMAND_START_GRACE_MS) {
+        return;
+      }
+    }
   }
 
   // ---- goal mode (OpenCode's built-in /goal) ----
@@ -1695,7 +1734,8 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
   /** Pause, resume or clear the session's goal. Pause and clear start no
    *  turn; resume sends the goal's own continuation. */
   async updateGoal(sessionId: string, action: "pause" | "resume" | "clear"): Promise<GoalInfo | null> {
-    await this.runCommand(sessionId, "goal", action);
+    // Not waited on: the pill shows the goal's new state, not the turn.
+    await this.postCommand(sessionId, "goal", action);
     return this.getGoal(sessionId);
   }
 

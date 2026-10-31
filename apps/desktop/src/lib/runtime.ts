@@ -345,7 +345,7 @@ interface RuntimeState {
   defaultModel: string | null;
   /** Apply a new default model and transparently reconnect (see impl). */
   setDefaultModel: (model: string) => Promise<void>;
-  /** Connected providers and their models (from GET /config/providers, fetched
+  /** Connected providers and their models (from the runtime's model list, fetched
    *  in loadCatalog). Drives the composer's inline model picker; empty until the
    *  first catalog load. Kept here so the picker and Settings share one source. */
   providers: ProviderInfo[];
@@ -2099,7 +2099,7 @@ async function createFromDraftOnce(set: StoreSet, get: StoreGet, draftSrc: strin
  *      composer); the session sits in `runningSessions` while the turn runs.
  *   3. Failures land as a red status line inside the conversation.
  * `syncTurn` marks endpoints whose POST resolves only when the turn is OVER
- * (shell/command, unlike prompt_async) — their running lock is set BEFORE the
+ * (shell/command, unlike a prompt) — their running lock is set BEFORE the
  * POST and cleared when it settles, because session.idle arrives before the
  * POST resolves and a lock set afterwards would never clear.
  * `shell` additionally marks the turn in `shellTurns` for its duration, so
@@ -4944,7 +4944,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           await (await requireRuntime(get, sid)).sendPrompt(sid, text, agent, model, variant, parts);
         }),
       // An ACP turn is a SYNC turn: `session/prompt` is one JSON-RPC request that
-      // answers when the turn is over, where OpenCode's `prompt_async` answers as
+      // answers when the turn is over, where OpenCode's prompt answers as
       // soon as it is accepted. Without this the running lock would be taken
       // AFTER the turn's own `session.idle` had already cleared it, leaving a
       // spinner turning under a finished answer until the next reconcile.

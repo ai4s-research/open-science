@@ -242,8 +242,17 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
         return;
       }
       if (rest === "/command" && method === "POST") {
+        // Answered at once, as OpenCode 2 does; the turn runs after it, and
+        // the session's busy/idle stamps say when it starts and ends.
         json(res, 200, { data: {} });
-        setTimeout(() => streamTurn(sessionID), 5);
+        const time = sessions.get(sessionID)?.time as { busy?: number; idle?: number } | undefined;
+        setTimeout(() => {
+          if (time) time.busy = Date.now();
+          streamTurn(sessionID);
+          setTimeout(() => {
+            if (time) time.idle = Date.now();
+          }, 200);
+        }, 50);
         return;
       }
       if (rest === "/shell" && method === "POST") {

@@ -82,7 +82,7 @@ capabilities only, not heavy computation.
 ### 5.1 Choice: OpenCode (bundled)
 
 The agent runtime is **OpenCode** (`anomalyco/opencode`, MIT), pinned to a stable
-release (`OPENCODE_VERSION`, currently 1.19.4). It is distributed as a **single
+release (`OPENCODE_VERSION`, currently 2.2.5). It is distributed as a **single
 binary**, which makes it ideal to bundle as a desktop sidecar — no Python/Node runtime
 to package. It supports MCP, skills, and agents, is model-agnostic (BYOK), and serves as
 an open-source coding/agent runtime in the spirit of Claude Code.
@@ -97,22 +97,28 @@ The app talks to OpenCode over its HTTP + SSE API, wrapped by `packages/sdk`
 
 | Endpoint | Use |
 | --- | --- |
-| `POST /session` · `GET /session` | Create / list sessions (conversation history) |
-| `GET /session/:id/message` | Load a session's history |
-| `POST /session/:id/prompt_async` | Send a prompt |
-| `GET /event` (SSE) | Stream `message.part.updated` (text/tool), `session.idle`, `session.error` |
-| `GET /api/skill` · `GET /agent` | Real loaded skills / agents |
+| `POST /api/session` · `GET /api/session` | Create / list sessions (conversation history) |
+| `GET /api/session/:id/message` | Load a session's history |
+| `POST /api/session/:id/agent` · `…/model` | Bind the session's agent and model |
+| `POST /api/session/:id/prompt` | Send a prompt |
+| `GET /api/event` (SSE) | One stream for every folder: `session.text.*`, `session.tool.*`, `session.step.*`, `session.execution.*`, `permission.*`, `form.*` |
+| `GET /api/skill` · `GET /api/agent` | Real loaded skills / agents |
+
+OpenCode 2 has no config-writing API: it watches its config file and applies an
+edit within a second. The app writes that file itself (desktop) or through the
+gateway (web client), via the SDK's `ConfigStore`.
 
 Flow:
 
 ```text
 App launch → Rust starts the bundled `opencode serve` (dedicated free port)
 ↓
-OpenCodeClient opens GET /event (SSE) and creates/loads sessions
+OpenCodeClient opens GET /api/event (SSE), keeps to its folder's sessions, creates/loads sessions
 ↓
-Prompt → POST /session/:id/prompt_async
+Prompt → POST /api/session/:id/prompt
 ↓
-SSE streams message.part.updated / session.idle → folded into thread blocks by part/call id
+SSE streams session.text.* / session.tool.* / session.execution.* → translated by the SDK
+into the app's events (text.updated, tool.updated, session.idle, …) and folded into thread blocks
 ↓
 Frontend renders streaming messages, tool cards, and per-session history
 ```
@@ -128,10 +134,12 @@ git-ignored and fetched by `scripts/dev/fetch-opencode.sh`). The Rust side
 - with an **app-private** config/data dir via `XDG_CONFIG_HOME`/`XDG_DATA_HOME` under
   `~/Library/Application Support/com.ai4s.workbench/runtime/` (macOS) — so the user's
   sessions/config are never touched;
-- but it **shares the user's login**: the user's `auth.json` (OpenCode credentials / free
-  access) is copied read-only into the sandbox at startup, so the bundled runtime can
-  reply out of the box without a separate login. We only read the user's auth file; we
-  never modify it or their sessions.
+- and it can **import the user's login** on request (Settings): the entries of the user's
+  OpenCode `auth.json` are handed to the bundled runtime's credential API. We only read
+  the user's auth file; we never modify it or their sessions.
+- the app's own additions to every session — the host tools (`present_artifact`,
+  `ssh_connect`, `computer`), the browser lease and the shell origin — are one OpenCode
+  plugin, `runtime/osd-plugin`, deployed into the profile and registered in its config.
 - killed on app exit.
 
 The user's model provider key (entered in Settings) is written into that app-private

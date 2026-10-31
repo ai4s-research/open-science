@@ -341,7 +341,7 @@ mod tests {
     /// The four shapes the packagers actually produce, two of which this used to
     /// get wrong — measured against the real .deb and the real NSIS installer:
     /// `osd` found its sidecars and no resources, so it ran with no skills, no
-    /// goal plugin and no harness, and said nothing.
+    /// app plugin and no harness, and said nothing.
     #[test]
     fn resources_are_found_in_every_layout_the_packagers_produce() {
         let root = std::env::temp_dir().join(format!("res-layout-{}", std::process::id()));

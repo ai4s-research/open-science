@@ -319,6 +319,28 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     c.close();
   }, TURN_MS);
 
+  it("resolves a slash command when its turn is over", async () => {
+    // Defined in the config, which the runtime applies live, so the command
+    // is short and certain.
+    await fileConfig.patch({ command: { ping: { description: "answer pong", template: "Reply with exactly the word PONG." } } });
+    const c = client();
+    await c.connect();
+    const start = Date.now();
+    for (;;) {
+      if ((await c.listCommands()).some((cmd) => cmd.name === "ping")) break;
+      if (Date.now() - start > 20_000) throw new Error("the command was never loaded");
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const id = await c.createSession();
+    const events: OpenCodeEvent[] = [];
+    c.onEvent((e) => events.push(e));
+    await c.runCommand(id, "ping");
+    expect(events.some((e) => e.type === "session.idle" && e.sessionId === id)).toBe(true);
+    const last = (await c.getMessages(id)).slice(-1)[0];
+    expect(last.parts.map((p) => p.text ?? "").join("")).toContain("PONG");
+    c.close();
+  }, TURN_MS);
+
   it("keeps each folder's client to its own sessions", async () => {
     const here = client(workspace);
     const there = client(otherWorkspace);

@@ -49,8 +49,8 @@ export interface ToolUpdatedEvent {
   input?: Record<string, unknown>;
   /** Tool result text, when the tool returned one. */
   output?: string;
-  /** Accumulated stdout tail while the tool is still running (bash streams it
-   *  via `state.metadata.output` on every update — verified on 1.17.13). */
+  /** Accumulated output while the tool is still running: the SDK re-reads a
+   *  running shell's output, which OpenCode 2 keeps behind the shell's id. */
   partialOutput?: string;
   /** Unified diff an edit tool reports in `state.metadata.diff`. */
   diff?: string;

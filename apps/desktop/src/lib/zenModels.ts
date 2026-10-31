@@ -1,7 +1,7 @@
 // Which OpenCode Zen models are still real.
 //
 // Zen is the built-in free provider, and its model list reaches the picker from
-// the models.dev catalog by way of the runtime's /config/providers. That catalog
+// the models.dev catalog by way of the runtime's model list. That catalog
 // is a superset of what the gateway serves: measured 2026-08-15, 29 of its 91
 // zen entries — including 19 of the 25 `*-free` ones — are retired and answer
 // `401 {"type":"ModelError","message":"Model <id> is not supported"}` on the
