@@ -34,29 +34,30 @@ function fakeGateway() {
       res.end(JSON.stringify(body));
     };
     if (path === "/v1/whoami") return json({ directory: "/ws/project", mode: "full" });
-    if (path === "/event") {
+    if (path === "/api/event") {
       res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(": connected\n\n");
+      res.write(`data: ${JSON.stringify({ id: "evt_0", type: "server.connected", data: {} })}\n\n`);
       push = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
       return;
     }
-    if (path === "/session" && req.method === "POST") return json({ id: "ses_interop" });
-    if (path === "/experimental/session")
-      return json([{ id: "ses_interop", title: "From the editor", directory: "/ws/project" }]);
+    const session = { id: "ses_interop", title: "From the editor", location: { directory: "/ws/project" }, time: { created: 1, updated: 1 } };
+    if (path === "/api/session" && req.method === "POST") return json({ data: session });
+    if (path === "/api/session") return json({ data: [session], cursor: { next: null } });
+    if (path === "/api/session/ses_interop") return json({ data: session });
     if (path.endsWith("/message"))
-      return json([
-        { info: { id: "m1", role: "user" }, parts: [{ type: "text", text: "What changed?" }] },
-        {
-          info: { id: "m2", role: "assistant", time: { completed: 1 } },
-          parts: [{ type: "text", text: "Two files." }],
-        },
-      ]);
-    if (path.endsWith("/prompt_async") && req.method === "POST") {
+      return json({
+        data: [
+          { id: "m1", type: "user", time: { created: 1 }, text: "What changed?" },
+          { id: "m2", type: "assistant", time: { created: 2, completed: 3 }, content: [{ type: "text", text: "Two files." }] },
+        ],
+        cursor: { next: null },
+      });
+    if (path.endsWith("/prompt") && req.method === "POST") {
       let body = "";
       req.on("data", (c) => (body += c));
       return req.on("end", () => {
         prompts.push(body);
-        json({});
+        json({ data: { id: "msg_u", sessionID: "ses_interop", type: "user" } });
       });
     }
     res.writeHead(404, { "content-type": "application/json" });
@@ -139,25 +140,24 @@ describe.skipIf(!built)("the shipped agent, against the official ACP client libr
       prompt: [{ type: "text", text: "Summarize the data" }],
     });
     await waitFor(() => gateway.prompts.length > 0);
-    gateway.event({
-      type: "message.part.updated",
-      properties: {
-        part: { id: "p1", type: "text", text: "Rising ", sessionID: "ses_interop", messageID: "m9" },
-      },
-    });
-    gateway.event({
-      type: "message.part.updated",
-      properties: {
-        part: {
-          id: "p1",
-          type: "text",
-          text: "Rising since May.",
-          sessionID: "ses_interop",
-          messageID: "m9",
-        },
-      },
-    });
-    gateway.event({ type: "session.idle", properties: { sessionID: "ses_interop" } });
+    // OpenCode 2's stream: text deltas keyed by step and ordinal, then the
+    // execution's end.
+    // `session.execution.*` carries no location, as on the real server.
+    const ev = (type: string, data: Record<string, unknown>) =>
+      gateway.event({
+        id: `evt_${type}`,
+        type,
+        ...(type.startsWith("session.execution.") ? {} : { location: { directory: "/ws/project" } }),
+        data: { sessionID: "ses_interop", ...data },
+      });
+    ev("session.execution.started", {});
+    ev("session.step.started", { agent: "build", assistantMessageID: "m9", started: 1 });
+    ev("session.text.started", { assistantMessageID: "m9", ordinal: 0 });
+    ev("session.text.delta", { assistantMessageID: "m9", ordinal: 0, delta: "Rising " });
+    ev("session.text.delta", { assistantMessageID: "m9", ordinal: 0, delta: "since May." });
+    ev("session.text.ended", { assistantMessageID: "m9", ordinal: 0, text: "Rising since May." });
+    ev("session.step.ended", { assistantMessageID: "m9", finish: "stop" });
+    ev("session.execution.succeeded", {});
     expect((await turn).stopReason).toBe("end_turn");
 
     // Deltas, as the official library decoded them: concatenating is what an
