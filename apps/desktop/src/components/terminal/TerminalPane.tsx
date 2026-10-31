@@ -326,9 +326,17 @@ export function TerminalPane({
       // as a relaunch does (see `rebuildTerminal`).
       let drawing = 0;
       let lastDrawn = 0;
+      // xterm 6's resize flushes the write queue, and that flush stops at an
+      // empty write and drops every write queued after it, callbacks too: an
+      // empty one never goes in. The same flush can replay writes already
+      // drawn, calling their callbacks twice: each counts once.
       const draw = (text: string, done?: () => void) => {
+        if (!text) return void done?.();
         if (!drawing++) lastDrawn = Date.now();
+        let counted = false;
         term.write(text, () => {
+          if (counted) return;
+          counted = true;
           drawing--;
           lastDrawn = Date.now();
           done?.();

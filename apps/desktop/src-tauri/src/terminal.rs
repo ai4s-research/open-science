@@ -389,11 +389,56 @@ pub fn terminal_subscribe(app: AppHandle, id: String, since: Option<u64>, on_eve
 /// live chunk, every one with the offset it ends at.
 fn output_events(recent: String, from: Option<u64>, rx: Receiver<String>) -> impl Iterator<Item = TerminalEvent> {
     let mut end = from.map(|f| f + recent.len() as u64);
-    let first = TerminalEvent::Data { data: strip_queries(&recent), from, end };
-    std::iter::once(first).chain(rx.into_iter().map(move |chunk| {
+    let first = in_pieces(&strip_queries(&recent), from, end);
+    first.into_iter().chain(rx.into_iter().flat_map(move |chunk| {
         end = end.map(|e| e + chunk.len() as u64);
-        TerminalEvent::Data { data: chunk, from: None, end }
+        in_pieces(&chunk, None, end)
     }))
+}
+
+/// Tauri sends a channel message of less JSON than this in one `eval`, in
+/// order. A bigger one it parks and has the window fetch, and when that fetch
+/// fails (Tauri only logs it to the console) its place in the channel's order
+/// stays empty: every later message waits behind it, and the pane draws
+/// nothing more until relaunch. So no event comes near it; the rest of the
+/// event (kind, offsets) fits in the margin.
+const IPC_EVAL_MAX: usize = 8192 - 256;
+
+/// One chunk as events under `IPC_EVAL_MAX`, cut after a newline where one
+/// is near (never inside an escape sequence then). The first says where the
+/// chunk starts, the last where it ends: the window saves its screen only at
+/// a chunk's end.
+fn in_pieces(data: &str, from: Option<u64>, end: Option<u64>) -> Vec<TerminalEvent> {
+    let json_len = |c: char| match c {
+        '"' | '\\' | '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' => 2,
+        c if (c as u32) < 0x20 => 6,
+        c => c.len_utf8(),
+    };
+    let mut cuts = vec![0];
+    let (mut size, mut after_newline) = (0, None);
+    for (i, c) in data.char_indices() {
+        let start = *cuts.last().unwrap();
+        if size + json_len(c) > IPC_EVAL_MAX {
+            let cut = after_newline.filter(|&n| n > start).unwrap_or(i);
+            cuts.push(cut);
+            size = data[cut..i].chars().map(json_len).sum();
+            after_newline = None;
+        }
+        size += json_len(c);
+        if c == '\n' {
+            after_newline = Some(i + 1);
+        }
+    }
+    cuts.push(data.len());
+    let last = cuts.len() - 2;
+    cuts.windows(2)
+        .enumerate()
+        .map(|(i, w)| TerminalEvent::Data {
+            data: data[w[0]..w[1]].to_string(),
+            from: if i == 0 { from } else { None },
+            end: if i == last { end } else { None },
+        })
+        .collect()
 }
 
 fn follow(app: &AppHandle, id: &str, since: u64) -> Option<(String, Option<u64>, Receiver<String>)> {
@@ -635,5 +680,38 @@ mod tests {
         let (_tx, rx) = std::sync::mpsc::channel::<String>();
         let unknown: Vec<_> = output_events("$ ".into(), None, rx).take(1).collect();
         assert_eq!(unknown, [TerminalEvent::Data { data: "$ ".into(), from: None, end: None }]);
+    }
+
+    #[test]
+    fn no_event_is_big_enough_for_tauri_to_send_it_by_fetch() {
+        let line = format!("\x1b[38;2;1;2;3m{}\x1b[39m\r\n", "中".repeat(40));
+        let big = line.repeat(400);
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(big.clone()).unwrap();
+        tx.send(String::new()).unwrap();
+        drop(tx);
+        let events: Vec<_> = output_events(big.clone(), Some(0), rx).collect();
+        let mut text = String::new();
+        let mut ends = Vec::new();
+        for (i, event) in events.iter().enumerate() {
+            assert!(serde_json::to_string(event).unwrap().len() < 8192, "event {i} too big");
+            let TerminalEvent::Data { data, from, end } = event else { panic!() };
+            assert_eq!(from.is_some(), i == 0);
+            // Cut after a newline, so never inside an escape sequence.
+            assert!(data.is_empty() || data.ends_with('\n'));
+            text += data;
+            ends.extend(*end);
+        }
+        assert!(events.len() > 4);
+        assert_eq!(text, big.repeat(2));
+        // Offsets only where a chunk ends; an empty chunk is still an event.
+        let n = big.len() as u64;
+        assert_eq!(ends, [n, 2 * n, 2 * n]);
+        // No newline to cut after: cut anywhere, still whole characters.
+        let pieces = in_pieces(&"\x1b".repeat(5000), None, None);
+        assert!(pieces.len() > 1);
+        for p in &pieces {
+            assert!(serde_json::to_string(p).unwrap().len() < 8192);
+        }
     }
 }
