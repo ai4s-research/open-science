@@ -1,15 +1,11 @@
-// Goal mode (/goal) drives itself by POSTing turns into the session: the
-// bundled plugin's auto-continue (`sendContinuation`) and the app's own resume
-// nudge. OpenCode stores those as ordinary user messages, so a reloaded thread
-// showed the machine text — several hundred words of continuation policy
-// wrapped around the objective — as if the user had typed it. The pill already
-// reports what those turns are doing ("auto-turn N"), so the thread hides them.
+// Goal mode under OpenCode 1 drove itself by POSTing turns into the session:
+// the goal plugin's auto-continue and the app's own resume nudge, stored as
+// ordinary user messages. Conversations carried over from OpenCode 1 still
+// hold them, so the thread keeps hiding them. (OpenCode 2's built-in /goal
+// marks its own turns, and the SDK drops those before they get here.)
 
-/** Agent-facing (English, like all agent prompts). A resumed goal has no
- *  pending idle event to re-arm the plugin's continuation loop — verified
- *  against opencode 1.17.13 — so resume must kick one turn; the loop takes
- *  over from that turn's idle. */
-export const GOAL_RESUME_NUDGE = "Continue working toward the active goal.";
+/** The resume nudge the app used to send after resuming a goal. */
+const GOAL_RESUME_NUDGE = "Continue working toward the active goal.";
 
 /** Opening lines of the turns the goal plugin injects on its own: the
  *  auto-continue prompt and the safety-limit wrap-up (bundled plugin 0.1.24 —

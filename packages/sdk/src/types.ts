@@ -408,6 +408,19 @@ export interface OpenCodeClientOptions {
   config?: ConfigStore;
 }
 
+/** A session's goal (OpenCode's built-in `/goal`), as its plugin records it. */
+export interface GoalInfo {
+  id: string;
+  objective: string;
+  status: "active" | "paused" | "complete";
+  /** Why it last changed: the reviewer's verdict, or what paused it. */
+  reason?: string;
+  /** Continuations sent since the goal was set or last resumed. */
+  rounds: number;
+  maxRounds: number;
+  updatedAt: number;
+}
+
 /** Read and change OpenCode's global config file, in the format it is written in. */
 export interface ConfigStore {
   read(): Promise<Record<string, unknown>>;
@@ -508,9 +521,11 @@ export interface OAuthAuthorization {
 
 // ---- MCP servers ----
 
+/** `codemode: false` lists a server's tools to the model directly instead of
+ *  through OpenCode's Code Mode (`execute`). */
 export type McpConfig =
-  | { type: "local"; command: string[]; enabled?: boolean; environment?: Record<string, string> }
-  | { type: "remote"; url: string; enabled?: boolean; headers?: Record<string, string> };
+  | { type: "local"; command: string[]; enabled?: boolean; codemode?: boolean; environment?: Record<string, string> }
+  | { type: "remote"; url: string; enabled?: boolean; codemode?: boolean; headers?: Record<string, string> };
 
 export interface McpServer {
   name: string;

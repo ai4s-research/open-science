@@ -198,9 +198,9 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     for (const t of ["user.message", "step.updated", "tool.updated", "text.updated", "message.usage", "session.idle"])
       expect(types, `missing ${t}`).toContain(t);
     const bash = events.filter((e): e is Extract<OpenCodeEvent, { type: "tool.updated" }> => e.type === "tool.updated" && e.tool === "bash");
-    expect(bash.at(-1)?.status).toBe("success");
-    expect(bash.at(-1)?.output).toContain("osd-live-ok");
-    expect(bash.at(-1)?.input?.command).toContain("echo osd-live-ok");
+    expect(bash.slice(-1)[0]?.status).toBe("success");
+    expect(bash.slice(-1)[0]?.output).toContain("osd-live-ok");
+    expect(bash.slice(-1)[0]?.input?.command).toContain("echo osd-live-ok");
 
     const history = await c.getMessages(id);
     expect(history[0].role).toBe("user");
@@ -210,7 +210,7 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     expect(tool?.tool).toBe("bash");
     expect(tool?.state?.status).toBe("completed");
     expect(tool?.state?.output).toContain("osd-live-ok");
-    const last = history.at(-1)!;
+    const last = history.slice(-1)[0]!;
     expect(last.role).toBe("assistant");
     expect(last.completed).toBeTypeOf("number");
     expect(last.usage?.input).toBeGreaterThan(0);
@@ -231,7 +231,7 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     expect(asked).toContain("bash");
     expect(events.some((e) => e.type === "permission.resolved")).toBe(true);
     const bash = events.filter((e): e is Extract<OpenCodeEvent, { type: "tool.updated" }> => e.type === "tool.updated" && e.tool === "bash");
-    expect(bash.at(-1)?.status).toBe("success");
+    expect(bash.slice(-1)[0]?.status).toBe("success");
     c.close();
   }, TURN_MS);
 
@@ -253,7 +253,7 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
       },
     );
     expect(questions.length).toBeGreaterThan(0);
-    const text = (await c.getMessages(id)).at(-1)?.parts.map((p) => p.text ?? "").join("") ?? "";
+    const text = (await c.getMessages(id)).slice(-1)[0]?.parts.map((p) => p.text ?? "").join("") ?? "";
     expect(text.toLowerCase()).toContain("blue");
     c.close();
   }, TURN_MS);
@@ -285,9 +285,9 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     const forked = await c.getMessages(fork);
     expect(forked.filter((m) => m.role === "user")).toHaveLength(1);
 
-    const checkpoint = before.filter((m) => m.role === "assistant").at(-1)!.id!;
+    const checkpoint = before.filter((m) => m.role === "assistant").slice(-1)[0]!.id!;
     await c.appendTextPart(id, checkpoint, "osd-live-appended");
-    const appended = (await c.getMessages(id)).at(-1)!;
+    const appended = (await c.getMessages(id)).slice(-1)[0]!;
     expect(appended.role).toBe("assistant");
     expect(appended.parts[0]).toMatchObject({ type: "text", text: "osd-live-appended", synthetic: true });
 

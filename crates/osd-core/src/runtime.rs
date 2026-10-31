@@ -442,449 +442,59 @@ fn deploy_bundled_skills(env: &Env) {
     }
 }
 
-const OPENCODE_PLUGIN_PACKAGE: &str = "@opencode-ai/plugin";
-
-fn package_dependency_version(path: &Path, package: &str) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str::<serde_json::Value>(&text)
-        .ok()?
-        .get("dependencies")?
-        .get(package)?
-        .as_str()
-        .map(str::to_owned)
-}
-
-/// Does a package.json dependency SPEC name exactly this version?
-///
-/// The spec is a range — `npm install pkg@1.18.18` writes `^1.18.18` — while
-/// the version bundled beside it is exact, so comparing the two as strings is
-/// never equal. That is not a theoretical mismatch: it made
-/// `deploy_goal_plugin_dependencies` fail its own post-check on every fresh
-/// profile, so the goal plugin was never deployed and `/goal` silently did
-/// nothing. Only a range that pins THIS version counts as a match; anything
-/// wider or different is a genuine mismatch and still refuses.
-fn dependency_pins(spec: &str, version: &str) -> bool {
-    spec.trim().trim_start_matches(['^', '~', '=', '>', '<', 'v', ' ']) == version
-}
-
-/// Bring the app's OWN dependency line in step with the runtime it bundles.
-///
-/// A profile carries the version the app that CREATED it bundled — a July
-/// profile still said `"@opencode-ai/plugin": "1.17.13"` — and the file above is
-/// only ever copied when absent, so that line outlived the bump to 1.18.18. The
-/// post-check then failed on every single start, `deploy_goal_plugin` returned
-/// before its "refresh on every start" copy, and the profile kept whichever
-/// plugin build it happened to receive first: an app upgrade could not deliver a
-/// goal-plugin fix, and a profile that had never registered the plugin never got
-/// `/goal` at all. Only this one dependency is rewritten — the user's other
-/// plugin dependencies and every other key are written back untouched — and an
-/// unparseable file is reported rather than replaced (#116).
-fn adopt_bundled_plugin_dependency(package_json: &Path, bundled_spec: &str) -> Result<(), String> {
-    let text = std::fs::read_to_string(package_json).map_err(|e| e.to_string())?;
-    let mut doc: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-        format!(
-            "{} is not readable JSON ({e}) — left as it is",
-            package_json.display()
-        )
-    })?;
-    let object = doc
-        .as_object_mut()
-        .ok_or_else(|| format!("{} is not a JSON object", package_json.display()))?;
-    match object.get_mut("dependencies") {
-        Some(serde_json::Value::Object(dependencies)) => {
-            if dependencies
-                .get(OPENCODE_PLUGIN_PACKAGE)
-                .and_then(serde_json::Value::as_str)
-                == Some(bundled_spec)
-            {
-                return Ok(());
-            }
-            dependencies.insert(OPENCODE_PLUGIN_PACKAGE.into(), serde_json::json!(bundled_spec));
-        }
-        Some(_) => {
-            return Err(format!(
-                "{} has a \"dependencies\" that is not an object",
-                package_json.display()
-            ))
-        }
-        None => {
-            object.insert(
-                "dependencies".into(),
-                serde_json::json!({ OPENCODE_PLUGIN_PACKAGE: bundled_spec }),
-            );
-        }
-    }
-    let mut out = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
-    out.push('\n');
-    std::fs::write(package_json, out).map_err(|e| e.to_string())
-}
-
-/// Drop the entry-point fields from the profile's own `package.json`.
-///
-/// This file is read by the runtime whenever it resolves a plugin the config
-/// names **by path** — not only the plugin whose package it is. `main` (and
-/// `exports`) there win over the file the `plugin` array actually names, so
-/// every path plugin sitting in this directory — `browser-guard.ts`,
-/// `history-guard.ts`, and this one — is loaded from `main` instead of itself.
-/// The guards then never register their hooks, silently: the module that does
-/// load is a valid plugin, so nothing is logged and nothing looks wrong until a
-/// browser call is refused for a lease that was never attached (#151).
-///
-/// `dependencies` and every other key are left exactly as they are — only our
-/// own entry-point fields go, so a user's own edits survive. A missing file is
-/// fine (a fresh profile has none yet), and the write happens only when
-/// something was actually removed, which keeps this idempotent across the
-/// "refresh on every start" passes.
-fn strip_plugin_entry_points(package_json: &Path) -> Result<(), String> {
-    let Ok(text) = std::fs::read_to_string(package_json) else {
-        return Ok(());
-    };
-    let mut doc: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-        format!(
-            "{} is not readable JSON ({e}) — left as it is",
-            package_json.display()
-        )
-    })?;
-    let object = doc
-        .as_object_mut()
-        .ok_or_else(|| format!("{} is not a JSON object", package_json.display()))?;
-    // Not `any`: it short-circuits, and `exports` would survive a removed `main`.
-    let mut removed = false;
-    for key in ["main", "exports"] {
-        removed |= object.remove(key).is_some();
-    }
-    if !removed {
-        return Ok(());
-    }
-    let mut out = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
-    out.push('\n');
-    std::fs::write(package_json, out).map_err(|e| e.to_string())
-}
-
-/// Is this lockfile ours alone to replace? It is when it resolves no root
-/// dependency other than the OpenCode plugin: a stale one pins the old version
-/// (the July profile's lock named 1.17.13), and the next `npm install` would
-/// resolve that right back over the tree just copied. A lockfile that also
-/// holds the user's own packages is theirs, and is left exactly as it is.
-fn lock_resolves_nothing_else(package_lock: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(package_lock) else {
-        return false;
-    };
-    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return false;
-    };
-    match doc.get("packages").and_then(|p| p.get("")).map(|root| root.get("dependencies")) {
-        Some(Some(serde_json::Value::Object(dependencies))) => {
-            dependencies.keys().all(|name| name == OPENCODE_PLUGIN_PACKAGE)
-        }
-        // A lockfile with no root dependencies at all has nothing of the
-        // user's in it to preserve.
-        Some(None) | None => true,
-        Some(Some(_)) => false,
-    }
-}
-
-fn installed_package_version(node_modules: &Path, package: &str) -> Option<String> {
-    let package_json = package
-        .split('/')
-        .fold(node_modules.to_path_buf(), |path, part| path.join(part))
-        .join("package.json");
-    let text = std::fs::read_to_string(package_json).ok()?;
-    serde_json::from_str::<serde_json::Value>(&text)
-        .ok()?
-        .get("version")?
-        .as_str()
-        .map(str::to_owned)
-}
-
-/// Deploy OpenCode's plugin SDK before registering the bundled goal plugin.
-/// OpenCode waits for this dependency before opening `/event`; without a local
-/// copy, a fresh install performs a live npm install and an unreachable
-/// registry leaves the desktop on "Connecting" for minutes.
-fn deploy_goal_plugin_dependencies(src: &Path, dst: &Path) -> Result<(), String> {
-    let expected = std::fs::read_to_string(src.join(".opencode-plugin-version"))
-        .map_err(|_| "bundled goal plugin dependencies are missing".to_string())?;
-    let expected = expected.trim();
-    if expected.is_empty() {
-        return Err("bundled OpenCode plugin version is empty".into());
-    }
-
-    let marker = dst.join(".opencode-plugin-version");
-    let package_json = dst.join("package.json");
-    let package_lock = dst.join("package-lock.json");
-    let node_modules = dst.join("node_modules");
-    // Before the "already deployed" fast path below, deliberately: a profile
-    // whose dependency tree is already correct still needs this, and that is
-    // exactly the affected install — shipped with `main`, otherwise up to date,
-    // so it would take the early return and never be repaired.
-    strip_plugin_entry_points(&package_json)?;
-    let dependency_ready = package_dependency_version(&package_json, OPENCODE_PLUGIN_PACKAGE)
-        .is_some_and(|spec| dependency_pins(&spec, expected))
-        && installed_package_version(&node_modules, OPENCODE_PLUGIN_PACKAGE).as_deref()
-            == Some(expected)
-        && package_lock.is_file();
-    let ready = dependency_ready
-        && std::fs::read_to_string(&marker)
-            .ok()
-            .is_some_and(|v| v.trim() == expected);
-    if ready {
-        return Ok(());
-    }
-    // Existing app profiles may predate the marker but already have the exact
-    // dependency from OpenCode's old live install. Adopt it without copying the
-    // bundled 60 MB tree over the user's profile.
-    if dependency_ready {
-        return std::fs::write(marker, format!("{expected}\n")).map_err(|e| e.to_string());
-    }
-
-    let src_package = src.join("package.json");
-    let src_lock = src.join("package-lock.json");
-    let src_modules = src.join("node_modules");
-    if !src_package.is_file() || !src_lock.is_file() || !src_modules.is_dir() {
-        return Err("bundled OpenCode plugin dependency tree is incomplete".into());
-    }
-
-    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
-    copy_dir(&src_modules, &node_modules).map_err(|e| e.to_string())?;
-
-    // A fresh app profile has neither file. Existing profiles created by
-    // OpenCode already carry the same dependency; never overwrite a user's
-    // additional plugin dependencies or lockfile.
-    if !package_json.exists() {
-        std::fs::copy(&src_package, &package_json).map_err(|e| e.to_string())?;
-    } else {
-        let bundled_spec = package_dependency_version(&src_package, OPENCODE_PLUGIN_PACKAGE)
-            .ok_or("bundled goal plugin declares no OpenCode plugin dependency")?;
-        adopt_bundled_plugin_dependency(&package_json, &bundled_spec)?;
-    }
-    if !package_lock.exists() || lock_resolves_nothing_else(&package_lock) {
-        std::fs::copy(&src_lock, &package_lock).map_err(|e| e.to_string())?;
-    }
-    // The copy branch above writes the bundled package.json verbatim — `main`
-    // included — so a fresh profile needs this after the write as well, not
-    // only in front of the fast path.
-    strip_plugin_entry_points(&package_json)?;
-
-    if !package_dependency_version(&package_json, OPENCODE_PLUGIN_PACKAGE)
-        .is_some_and(|spec| dependency_pins(&spec, expected))
-        || installed_package_version(&node_modules, OPENCODE_PLUGIN_PACKAGE).as_deref()
-            != Some(expected)
-    {
-        return Err("OpenCode plugin dependency version does not match the bundled runtime".into());
-    }
-    std::fs::write(marker, format!("{expected}\n")).map_err(|e| e.to_string())
-}
-
-/// Ship the bundled goal plugin and its already-resolved OpenCode dependency
-/// tree into the app-private profile, then return the plugin's absolute path.
-/// None in dev runs without the fetch script.
-fn deploy_goal_plugin(env: &Env) -> Option<PathBuf> {
-    let resource = env.resource("goal-plugin").filter(|p| p.is_dir())?;
-    let src = resource.join("goal-plugin.server.js");
-    if !src.is_file() {
-        return None;
-    }
-    let config_dir = xdg_config_home(env).ok()?.join("opencode");
-    if let Err(e) = deploy_goal_plugin_dependencies(&resource, &config_dir) {
-        eprintln!("failed to deploy goal plugin dependencies: {e}");
-        return None;
-    }
-    let dst = config_dir.join("goal-plugin.server.js");
-    std::fs::create_dir_all(&config_dir).ok()?;
-    // Refresh on every start so app upgrades replace the plugin in place.
-    if let Err(e) = std::fs::copy(&src, &dst) {
-        eprintln!("failed to deploy goal plugin: {e}");
+/// The app's own OpenCode plugin (`runtime/osd-plugin`): the host tools, the
+/// browser lease, the artifact-presentation contract and the origin of shell
+/// commands. Deployed as a directory — OpenCode 2 loads a configured local
+/// plugin only from one — beside `computer/`, which it imports as
+/// `../computer`. Refreshed on every start so app upgrades replace it in place.
+fn deploy_osd_plugin(env: &Env) -> Option<PathBuf> {
+    let src = env.resource("osd-plugin").filter(|p| p.is_dir())?;
+    let dst = xdg_config_home(env).ok()?.join("opencode").join("osd-plugin");
+    if let Err(e) = copy_dir(&src, &dst) {
+        eprintln!("failed to deploy the app plugin: {e}");
         return None;
     }
     Some(dst)
 }
 
-/// Deploy the dependency-free guard that removes model-supplied browser launch
-/// overrides before OpenCode forwards a tool call to the official MCP server.
-fn deploy_browser_guard_plugin(env: &Env) -> Option<PathBuf> {
-    let src = env
-        .resource("browser-plugin/browser-guard.ts")
-        .filter(|p| p.is_file())?;
-    let config_dir = xdg_config_home(env).ok()?.join("opencode");
-    let dst = config_dir.join("browser-guard.ts");
-    std::fs::create_dir_all(&config_dir).ok()?;
-    if let Err(e) = std::fs::copy(&src, &dst) {
-        eprintln!("failed to deploy browser guard plugin: {e}");
-        return None;
-    }
-    Some(dst)
-}
+/// What OpenCode 1 builds of this app deployed into the profile and OpenCode 2
+/// can no longer load: single-file plugins, custom tool files, and the goal
+/// plugin (OpenCode 2 has `/goal` built in). Their config entries are dropped
+/// by `opencode_config::ensure_osd_plugin`; this removes the files, by name,
+/// so a user's own files in the same folders are never touched. The goal
+/// plugin's npm tree (`package.json`, `node_modules`) is left: OpenCode 2
+/// ignores it, and it may hold the user's own packages too.
+const LEGACY_PROFILE_FILES: &[&str] = &[
+    "goal-plugin.server.js",
+    ".opencode-plugin-version",
+    "browser-guard.ts",
+    "history-guard.ts",
+    "origin.ts",
+    "tools/present_artifact.ts",
+    "tools/ssh_connect.ts",
+    "tools/computer.ts",
+];
 
-/// Deploy the dependency-free guard that restores the fields a stored message
-/// must carry, in the one window between OpenCode assembling the history and
-/// converting it for the model (#114).
-fn deploy_history_guard_plugin(env: &Env) -> Option<PathBuf> {
-    let src = env
-        .resource("history-plugin/history-guard.ts")
-        .filter(|p| p.is_file())?;
-    let config_dir = xdg_config_home(env).ok()?.join("opencode");
-    let dst = config_dir.join("history-guard.ts");
-    std::fs::create_dir_all(&config_dir).ok()?;
-    if let Err(e) = std::fs::copy(&src, &dst) {
-        eprintln!("failed to deploy history guard plugin: {e}");
-        return None;
-    }
-    Some(dst)
-}
-
-/// Deploy the plugin that names the session an agent's command runs for
-/// (`OSD_ORIGIN_SESSION`), so `osd` calls from inside a conversation say where
-/// they come from.
-fn deploy_origin_plugin(env: &Env) -> Option<PathBuf> {
-    let src = env.resource("origin-plugin/origin.ts").filter(|p| p.is_file())?;
-    let config_dir = xdg_config_home(env).ok()?.join("opencode");
-    let dst = config_dir.join("origin.ts");
-    std::fs::create_dir_all(&config_dir).ok()?;
-    if let Err(e) = std::fs::copy(&src, &dst) {
-        eprintln!("failed to deploy origin plugin: {e}");
-        return None;
-    }
-    Some(dst)
-}
-
-/// True when the runtime would load this file as a custom tool: it scans
-/// `{tool,tools}/*.{js,ts}` in every config directory (`tool/registry.ts`).
-/// Over-inclusive on purpose — a name the glob might pick up is checked even if
-/// a given platform would not, because missing one leaves the failure in place.
-fn is_tool_source(name: &std::ffi::OsStr) -> bool {
-    // Compare by suffix, not `Path::extension`: a file named `.ts` has no
-    // extension by the standard library's rule, while the runtime would still
-    // derive the id `.ts` from it. Case-insensitive because the glob's case
-    // behavior follows the filesystem.
-    let name = name.to_string_lossy().to_ascii_lowercase();
-    name.ends_with(".ts") || name.ends_with(".js")
-}
-
-/// True when the id this file would get can be sent to a model provider. The
-/// runtime takes the file stem VERBATIM as the tool id — only MCP names are
-/// sanitized — and providers enforce `^[a-zA-Z0-9_-]+$`. A stem outside that
-/// grammar is not a tool with an odd name: it makes OpenAI and DeepSeek reject
-/// EVERY request in the session, whichever model the user picks (#165).
-fn is_legal_tool_name(name: &std::ffi::OsStr) -> bool {
-    let Some(stem) = Path::new(name).file_stem().and_then(|s| s.to_str()) else {
-        return false;
-    };
-    !stem.is_empty() && stem.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-}
-
-/// Move aside every file in the app-owned tools directory that the runtime
-/// would load under a name no provider accepts. Such a file arrives from an
-/// install directory that was copied over an older one (Windows names the
-/// copies `present_artifact (2).ts`), and a later install into a new folder
-/// replaces the valid files but never prunes the rest — so the mistake
-/// survives, and the runtime keeps sending a tool id that makes every request
-/// fail (#165).
-///
-/// Moved, never deleted: the bytes are the user's, and the `.unusable-<ms>`
-/// suffix takes the file out of the runtime's `*.{js,ts}` glob while leaving it
-/// recoverable by hand.
-fn quarantine_unusable_tools(env: &Env, dst: &Path) {
-    let Ok(entries) = std::fs::read_dir(dst) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let name = entry.file_name();
-        if !is_tool_source(&name) || is_legal_tool_name(&name) {
-            continue;
-        }
-        let aside = path.with_file_name(format!(
-            "{}.unusable-{}",
-            name.to_string_lossy(),
-            now_ms()
-        ));
-        match std::fs::rename(&path, &aside) {
-            Ok(()) => {
-                let note = format!(
-                    "[tools] moved {} to {}: no provider accepts that tool id (#165)",
-                    path.display(),
-                    aside.display()
-                );
-                eprintln!("{note}");
-                crate::debug_log::append(env, &note);
-            }
-            Err(e) => eprintln!(
-                "failed to move unusable workbench tool {}: {e}",
-                path.display()
-            ),
-        }
-    }
-}
-
-/// Copy the deployable workbench tools from `src` into `dst`, creating `dst`.
-///
-/// A file whose name cannot be a tool id is skipped: the runtime would send that
-/// stem VERBATIM as a tool id, and every strictly validating provider would
-/// reject the whole request (#165). A copy that fails is logged and the rest
-/// still deploy — one unreadable file must not cost the others.
-fn sync_workbench_tools(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let Some(name) = path.file_name() else {
-            continue;
-        };
-        // Windows' "keep both files" names a copy `present_artifact (2).ts`.
-        // Deployed, the runtime would send that stem verbatim as a tool id and
-        // every strictly validating provider would reject the request (#165).
-        // The file can never work, so it is not deployed at all.
-        if is_tool_source(name) && !is_legal_tool_name(name) {
-            eprintln!(
-                "skipping workbench tool {}: its name cannot be a tool id",
-                path.display()
-            );
-            continue;
-        }
-        if let Err(e) = std::fs::copy(&path, dst.join(name)) {
-            eprintln!("failed to deploy workbench tool {}: {e}", path.display());
-        }
-    }
-    Ok(())
-}
-
-/// Ship app-owned custom tools into OpenCode's global tools directory. These
-/// tools expose safe, declarative host capabilities (for example, asking the
-/// UI to present an existing workspace artifact); they never hand the model a
-/// raw window handle or filesystem access outside the active workspace.
-///
-/// A file whose name cannot be a tool id is never deployed, and one already in
-/// the profile is moved aside — see `quarantine_unusable_tools`.
-fn deploy_workbench_tools(env: &Env) {
-    let Some(src) = env.resource("tools").filter(|p| p.is_dir()) else {
-        return;
-    };
+fn remove_legacy_profile_files(env: &Env) {
     let Ok(config_home) = xdg_config_home(env) else {
         return;
     };
-    let dst = config_home.join("opencode").join("tools");
-    if let Err(e) = std::fs::create_dir_all(&dst) {
-        eprintln!("failed to create workbench tools directory: {e}");
-        return;
+    let dir = config_home.join("opencode");
+    for name in LEGACY_PROFILE_FILES {
+        let path = dir.join(name);
+        if path.is_file() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("failed to remove {}: {e}", path.display());
+            }
+        }
     }
-    if let Err(e) = sync_workbench_tools(&src, &dst) {
-        eprintln!("failed to read workbench tools from {}: {e}", src.display());
-    }
-    quarantine_unusable_tools(env, &dst);
+    // Empty once our tools are gone, unless the user put their own there.
+    let _ = std::fs::remove_dir(dir.join("tools"));
 }
 
-/// Ship the computer-use host layer next to the tools that import it.
-///
-/// `tools/computer.ts` reaches it as `../computer/index`, so this has to land as
-/// a sibling of the tools directory rather than inside it — `deploy_workbench_tools`
-/// deliberately copies files only, and a directory dropped in there would be
-/// loaded as a tool and fail.
+/// Ship the computer-use host layer next to the plugin that imports it: the
+/// plugin's `computer.ts` reaches it as `../computer/index`, the same relative
+/// place it has in the repository (`runtime/computer`).
 fn deploy_computer_runtime(env: &Env) {
     let Some(src) = env.resource("computer").filter(|p| p.is_dir()) else {
         return; // a build without the bundled resources
@@ -1739,11 +1349,13 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     }
     // Ship the bundled scientific skills into the app-private OpenCode profile.
     deploy_bundled_skills(env);
-    // Host presentation tools are global to the app-owned OpenCode profile and
-    // available in every session workspace.
-    deploy_workbench_tools(env);
-    // …and the computer-use host layer one of them imports.
+    // The app's own plugin, global to the app-owned OpenCode profile and so
+    // present in every session workspace…
+    let osd_plugin = deploy_osd_plugin(env);
+    // …the computer-use host layer it imports…
     deploy_computer_runtime(env);
+    // …and nothing an OpenCode 1 build left that OpenCode 2 cannot load.
+    remove_legacy_profile_files(env);
     // The reviewer agent and its commands, same profile, same refresh-on-start.
     deploy_profile_prompts(env);
     // A config neither side can read stops the runtime from starting at all, so
@@ -1765,6 +1377,12 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     // never re-seeded. Back-fill once; it is additive and idempotent.
     let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
     if let Some(migrated) = crate::opencode_config::migrate_external_directory(&existing) {
+        write_atomic(&cfg_file, &migrated)?;
+    }
+    // OpenCode 2 allows paths outside the workspace unless a rule asks; approve
+    // mode relied on OpenCode 1 asking by itself.
+    let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
+    if let Some(migrated) = crate::opencode_config::migrate_external_directory_ask(&existing) {
         write_atomic(&cfg_file, &migrated)?;
     }
     // Same reason, same one-time shape: approve mode gained a browser ask rule
@@ -1834,42 +1452,13 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
             }
         }
     }
-    // Goal mode (/goal): register the bundled plugin under its deployed path.
-    // Forward slashes everywhere — Windows accepts them, and the config stays
-    // portable for opencode's path-spec detection.
-    if let Some(plugin_path) = deploy_goal_plugin(env) {
+    // Register the app plugin under its deployed path, replacing the entries
+    // OpenCode 1 builds wrote. Forward slashes everywhere — Windows accepts
+    // them, and the config stays portable.
+    {
         let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
-        let path_str = plugin_path.to_string_lossy().replace('\\', "/");
-        if let Some(updated) = crate::opencode_config::ensure_goal_plugin(&existing, &path_str) {
-            write_atomic(&cfg_file, &updated)?;
-        }
-    }
-    // Browser launch/session policy is an app invariant, not a model hint.
-    if let Some(plugin_path) = deploy_browser_guard_plugin(env) {
-        let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
-        let path_str = plugin_path.to_string_lossy().replace('\\', "/");
-        if let Some(updated) =
-            crate::opencode_config::ensure_browser_guard_plugin(&existing, &path_str)
-        {
-            write_atomic(&cfg_file, &updated)?;
-        }
-    }
-    // One malformed stored part otherwise ends a session permanently, and the
-    // defect that writes it is upstream and still unidentified.
-    if let Some(plugin_path) = deploy_history_guard_plugin(env) {
-        let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
-        let path_str = plugin_path.to_string_lossy().replace('\\', "/");
-        if let Some(updated) =
-            crate::opencode_config::ensure_history_guard_plugin(&existing, &path_str)
-        {
-            write_atomic(&cfg_file, &updated)?;
-        }
-    }
-    // `osd` run by an agent says which conversation it runs for.
-    if let Some(plugin_path) = deploy_origin_plugin(env) {
-        let existing = std::fs::read_to_string(&cfg_file).unwrap_or_default();
-        let path_str = plugin_path.to_string_lossy().replace('\\', "/");
-        if let Some(updated) = crate::opencode_config::ensure_origin_plugin(&existing, &path_str) {
+        let path_str = osd_plugin.map(|p| p.to_string_lossy().replace('\\', "/"));
+        if let Some(updated) = crate::opencode_config::ensure_osd_plugin(&existing, path_str.as_deref()) {
             write_atomic(&cfg_file, &updated)?;
         }
     }
@@ -2442,8 +2031,7 @@ mod shell_path_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        auth_has_provider, dependency_pins, deploy_goal_plugin_dependencies,
-        package_dependency_version, OPENCODE_PLUGIN_PACKAGE,
+        auth_has_provider,
         base_workspace_dir, ensure_base_layout, prune_stale_skills, random_hex, remove_key_from_config,
         normalize_proxy_bypass, proxy_setting_file, read_proxy_bypass, read_proxy_setting,
         resolve_proxy_env, set_workspace_base, skill_name_from_markdown, sync_skill_pack,
@@ -3097,142 +2685,6 @@ mod tests {
         let _ = fs::remove_dir_all(&dst);
     }
 
-    /// #165: an install directory copied over an older one can carry Windows'
-    /// duplicate-copy names (`present_artifact (2).ts`). The runtime derives a
-    /// custom tool's id from its file stem VERBATIM — only MCP names are
-    /// sanitized — and every provider rejects a name outside
-    /// `^[a-zA-Z0-9_-]+$`. Deploying one such file therefore makes DeepSeek and
-    /// OpenAI reject EVERY request in the session, whichever model the user
-    /// picks. It must never reach the profile.
-    #[test]
-    fn workbench_tools_never_deploy_a_duplicate_copy_name() {
-        let (_env, dir) = temp_env("tooldupcopy");
-        let src = dir.join("res/tools");
-        fs::create_dir_all(&src).unwrap();
-        let body = b"export default {}";
-        fs::write(src.join("present_artifact.ts"), body).unwrap();
-        fs::write(src.join("present_artifact (2).ts"), body).unwrap();
-
-        let dst = dir.join("runtime/xdg-config/opencode/tools");
-        super::sync_workbench_tools(&src, &dst).unwrap();
-
-        assert!(dst.join("present_artifact.ts").is_file(), "the real tool still deploys");
-        assert!(
-            !dst.join("present_artifact (2).ts").exists(),
-            "a name no provider accepts reached the profile: {:?}",
-            fs::read_dir(&dst).unwrap().flatten().map(|e| e.file_name()).collect::<Vec<_>>(),
-        );
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// …and a leftover of an older build is already in the profile, because a
-    /// later install into a new folder replaces the valid files but never
-    /// prunes the rest. Moving it aside (never deleting: the bytes are the
-    /// user's) lets an affected install recover on the next start without the
-    /// user finding the file by hand.
-    #[test]
-    fn workbench_tools_move_aside_an_unusable_leftover() {
-        let (env, dir) = temp_env("toolleftover");
-        let src = dir.join("res/tools");
-        fs::create_dir_all(&src).unwrap();
-        fs::write(src.join("present_artifact.ts"), b"export default {}").unwrap();
-        let dst = dir.join("runtime/xdg-config/opencode/tools");
-        fs::create_dir_all(&dst).unwrap();
-        let user_bytes = b"leftover bytes the user may still want";
-        fs::write(dst.join("present_artifact (2).ts"), user_bytes).unwrap();
-        // Only files the runtime would load can break a request; anything else
-        // in this directory is none of our business.
-        fs::write(dst.join("notes (2).md"), b"not a tool").unwrap();
-
-        super::deploy_workbench_tools(&env);
-
-        assert!(
-            !dst.join("present_artifact (2).ts").exists(),
-            "the unusable name stayed on the runtime's load path",
-        );
-        let aside: Vec<std::path::PathBuf> = fs::read_dir(&dst)
-            .unwrap()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                p.file_name()
-                    .map(|n| n.to_string_lossy().starts_with("present_artifact (2).ts.unusable-"))
-                    .unwrap_or(false)
-            })
-            .collect();
-        assert_eq!(aside.len(), 1, "moved aside exactly once: {aside:?}");
-        assert_eq!(fs::read(&aside[0]).unwrap(), user_bytes, "moved, never deleted");
-        assert!(dst.join("present_artifact.ts").is_file(), "the real tool still deploys");
-        assert!(dst.join("notes (2).md").is_file(), "a file the runtime never loads is left alone");
-
-        // A name that is legal is not ours to prune: only an id no provider
-        // accepts can break a request, so a stale-but-working tool stays.
-        fs::write(dst.join("old_tool.ts"), b"legal but stale").unwrap();
-        // This runs on every sidecar start, so it must be a no-op the second
-        // time: the moved file is no longer a tool source, and the install-dir
-        // copy is still skipped.
-        super::deploy_workbench_tools(&env);
-        assert!(dst.join("old_tool.ts").is_file(), "a legal name is never pruned");
-        let moved_again = fs::read_dir(&dst)
-            .unwrap()
-            .flatten()
-            .filter(|e| e.file_name().to_string_lossy().contains(".unusable-"))
-            .count();
-        assert_eq!(moved_again, 1, "the second start moves nothing again");
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// The guard is the provider's grammar, not a guess: every legal id shape
-    /// still deploys, so it cannot quietly drop a working tool.
-    #[test]
-    fn workbench_tools_deploy_every_legal_name_unchanged() {
-        let (_env, dir) = temp_env("toollegal");
-        let src = dir.join("res/tools");
-        fs::create_dir_all(&src).unwrap();
-        for name in ["present_artifact.ts", "ssh_connect.ts", "my-tool_2.js", "UPPER.ts"] {
-            fs::write(src.join(name), name.as_bytes()).unwrap();
-        }
-
-        let dst = dir.join("runtime/xdg-config/opencode/tools");
-        super::sync_workbench_tools(&src, &dst).unwrap();
-
-        for name in ["present_artifact.ts", "ssh_connect.ts", "my-tool_2.js", "UPPER.ts"] {
-            assert_eq!(fs::read(dst.join(name)).unwrap(), name.as_bytes(), "{name} did not deploy");
-        }
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// The two predicates are the provider's grammar and the runtime's glob,
-    /// pinned as a table: the edge shapes below are the ones that look harmless
-    /// and are not (a dotfile has no extension by the standard library's rule,
-    /// yet the runtime still derives an id from it; a space survives Windows'
-    /// copy but no provider accepts it).
-    #[test]
-    fn workbench_tool_name_grammar_matches_the_provider_pattern() {
-        use std::ffi::OsStr;
-        for (name, legal) in [
-            ("present_artifact.ts", true),
-            ("my-tool_2.js", true),
-            ("UPPER.ts", true),
-            ("present_artifact (2).ts", false),
-            ("工具.ts", false),
-            ("a b.ts", false),
-            ("..ts", false),
-        ] {
-            assert_eq!(super::is_legal_tool_name(OsStr::new(name)), legal, "{name}");
-        }
-        for (name, source) in [
-            ("present_artifact.ts", true),
-            ("present_artifact (2).JS", true),
-            (".ts", true),
-            ("README.md", false),
-            ("notes", false),
-            ("present_artifact.ts.bak", false),
-        ] {
-            assert_eq!(super::is_tool_source(OsStr::new(name)), source, "{name}");
-        }
-    }
-
     #[test]
     fn skill_name_comes_from_frontmatter_and_is_safe() {
         assert_eq!(
@@ -3354,339 +2806,6 @@ mod tests {
     }
 
     #[test]
-    fn deploys_goal_plugin_dependencies_without_network() {
-        let tmp = std::env::temp_dir().join(format!("goal-deps-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let src = tmp.join("src");
-        let dst = tmp.join("dst");
-        write(&src.join(".opencode-plugin-version"), "1.17.13\n");
-        write(
-            &src.join("package.json"),
-            r#"{"dependencies":{"@opencode-ai/plugin":"1.17.13"}}"#,
-        );
-        write(&src.join("package-lock.json"), "{}");
-        write(
-            &src.join("node_modules/@opencode-ai/plugin/package.json"),
-            r#"{"name":"@opencode-ai/plugin","version":"1.17.13"}"#,
-        );
-        write(
-            &src.join("node_modules/@opencode-ai/plugin/dist/tool.js"),
-            "export const tool = (x) => x;",
-        );
-
-        deploy_goal_plugin_dependencies(&src, &dst).unwrap();
-
-        assert_eq!(
-            fs::read_to_string(dst.join(".opencode-plugin-version")).unwrap(),
-            "1.17.13\n"
-        );
-        assert!(dst
-            .join("node_modules/@opencode-ai/plugin/dist/tool.js")
-            .is_file());
-        assert!(dst.join("package-lock.json").is_file());
-        fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    #[test]
-    fn deploys_the_caret_range_npm_actually_writes() {
-        // Regression: every test above pinned the dependency exactly, but
-        // `npm install @opencode-ai/plugin@1.18.18` — which is what
-        // fetch-goal-plugin.sh runs — writes `^1.18.18`. Comparing that range
-        // to the exact bundled version as strings never matched, so the
-        // post-copy check failed on EVERY fresh profile: no goal plugin was
-        // deployed, none was registered, and `/goal` silently did nothing.
-        // Found by unpacking a release archive and starting a server from it.
-        let tmp = std::env::temp_dir().join(format!("goal-deps-caret-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let src = tmp.join("src");
-        let dst = tmp.join("dst");
-        write(&src.join(".opencode-plugin-version"), "1.18.18\n");
-        write(
-            &src.join("package.json"),
-            r#"{"dependencies":{"@opencode-ai/plugin":"^1.18.18"}}"#,
-        );
-        write(&src.join("package-lock.json"), "{}");
-        write(
-            &src.join("node_modules/@opencode-ai/plugin/package.json"),
-            r#"{"name":"@opencode-ai/plugin","version":"1.18.18"}"#,
-        );
-
-        deploy_goal_plugin_dependencies(&src, &dst).expect("a caret range still pins 1.18.18");
-        assert!(dst.join("node_modules/@opencode-ai/plugin/package.json").is_file());
-
-        // A range that pins a DIFFERENT version is still a real mismatch.
-        assert!(dependency_pins("^1.18.18", "1.18.18"));
-        assert!(dependency_pins("~1.18.18", "1.18.18"));
-        assert!(dependency_pins("1.18.18", "1.18.18"));
-        assert!(!dependency_pins("^1.17.13", "1.18.18"));
-        assert!(!dependency_pins("*", "1.18.18"));
-        fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    #[test]
-    fn adopts_existing_goal_plugin_dependencies_without_recopying() {
-        let tmp =
-            std::env::temp_dir().join(format!("goal-deps-existing-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let src = tmp.join("src");
-        let dst = tmp.join("dst");
-        write(&src.join(".opencode-plugin-version"), "1.17.13\n");
-        write(
-            &dst.join("package.json"),
-            r#"{"dependencies":{"@opencode-ai/plugin":"1.17.13","user-plugin":"2.0.0"}}"#,
-        );
-        write(&dst.join("package-lock.json"), "{}");
-        write(
-            &dst.join("node_modules/@opencode-ai/plugin/package.json"),
-            r#"{"name":"@opencode-ai/plugin","version":"1.17.13"}"#,
-        );
-        write(&dst.join("node_modules/user-plugin/keep.txt"), "keep");
-
-        deploy_goal_plugin_dependencies(&src, &dst).unwrap();
-
-        assert_eq!(
-            fs::read_to_string(dst.join(".opencode-plugin-version")).unwrap(),
-            "1.17.13\n"
-        );
-        assert_eq!(
-            fs::read_to_string(dst.join("node_modules/user-plugin/keep.txt")).unwrap(),
-            "keep"
-        );
-        fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    /// The profile's own `package.json` is read when the runtime resolves EVERY
-    /// plugin the config names by path in that directory, so a `main` in it
-    /// replaces the file each of them names — the guards then never register and
-    /// say nothing (#151). The bundled package.json carries exactly such a
-    /// `main`, and a fresh profile gets it verbatim.
-    #[test]
-    fn a_fresh_profile_drops_the_entry_point_that_hijacks_sibling_plugins() {
-        let tmp = std::env::temp_dir().join(format!("goal-deps-hijack-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let src = tmp.join("src");
-        let dst = tmp.join("dst");
-        write(&src.join(".opencode-plugin-version"), "1.18.32\n");
-        // The shape the fetch script ships, plus an `exports` — the runtime
-        // consults it before `main`, so both must go.
-        write(
-            &src.join("package.json"),
-            r#"{"name":"goal-plugin","version":"1.0.0","main":"goal-plugin.server.js","exports":"./goal-plugin.server.js","dependencies":{"@opencode-ai/plugin":"^1.18.32"}}"#,
-        );
-        write(&src.join("package-lock.json"), "{}");
-        write(
-            &src.join("node_modules/@opencode-ai/plugin/package.json"),
-            r#"{"name":"@opencode-ai/plugin","version":"1.18.32"}"#,
-        );
-
-        deploy_goal_plugin_dependencies(&src, &dst).unwrap();
-
-        let deployed: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(dst.join("package.json")).unwrap()).unwrap();
-        assert!(
-            deployed.get("main").is_none(),
-            "a `main` here makes the runtime load this plugin for browser-guard.ts and \
-             history-guard.ts too, so their hooks never register: {deployed}"
-        );
-        assert!(deployed.get("exports").is_none(), "{deployed}");
-        // The dependency line is the reason the file exists; it must survive.
-        assert_eq!(
-            deployed
-                .get("dependencies")
-                .and_then(|d| d.get(OPENCODE_PLUGIN_PACKAGE))
-                .and_then(serde_json::Value::as_str),
-            Some("^1.18.32"),
-        );
-        fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    /// The affected install is the one that is otherwise up to date: it has the
-    /// dependency, the lockfile and the marker, so `deploy_goal_plugin_dependencies`
-    /// takes its "already deployed" early return — and would never repair the
-    /// `main` an earlier release put there.
-    #[test]
-    fn an_up_to_date_profile_is_still_cleaned_of_the_hijacking_entry_point() {
-        let tmp = std::env::temp_dir().join(format!("goal-deps-repair-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let src = tmp.join("src");
-        let dst = tmp.join("dst");
-        write(&src.join(".opencode-plugin-version"), "1.18.32\n");
-        write(
-            &src.join("package.json"),
-            r#"{"name":"goal-plugin","main":"goal-plugin.server.js","dependencies":{"@opencode-ai/plugin":"^1.18.32"}}"#,
-        );
-        // A profile that is fully deployed already — except for `main`.
-        write(
-            &dst.join("package.json"),
-            r#"{"main":"goal-plugin.server.js","dependencies":{"@opencode-ai/plugin":"^1.18.32","user-plugin":"2.0.0"},"userKey":true}"#,
-        );
-        write(
-            &dst.join("package-lock.json"),
-            r#"{"lockfileVersion":3,"packages":{"":{"dependencies":{"@opencode-ai/plugin":"^1.18.32","user-plugin":"2.0.0"}}}}"#,
-        );
-        write(
-            &dst.join("node_modules/@opencode-ai/plugin/package.json"),
-            r#"{"name":"@opencode-ai/plugin","version":"1.18.32"}"#,
-        );
-        write(&dst.join(".opencode-plugin-version"), "1.18.32\n");
-
-        deploy_goal_plugin_dependencies(&src, &dst).unwrap();
-
-        let repaired: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(dst.join("package.json")).unwrap()).unwrap();
-        assert!(repaired.get("main").is_none(), "not repaired: {repaired}");
-        // ...and only our entry point was touched.
-        assert_eq!(
-            repaired
-                .get("dependencies")
-                .and_then(|d| d.get("user-plugin"))
-                .and_then(serde_json::Value::as_str),
-            Some("2.0.0"),
-            "a user's own plugin dependency was dropped: {repaired}"
-        );
-        assert_eq!(
-            repaired.get("userKey").and_then(serde_json::Value::as_bool),
-            Some(true),
-            "a user's own key was dropped: {repaired}"
-        );
-        fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    #[test]
-    fn an_old_profiles_stale_pin_is_brought_up_to_the_bundled_version() {
-        // The shape of a real profile created in July, found by starting 0.5.0
-        // against it: package.json and the lockfile still name 1.17.13 (the
-        // version the app that created the profile bundled), while node_modules
-        // already holds 1.18.18. package.json was only ever copied when absent,
-        // so the stale line survived every upgrade, the post-check failed on
-        // every start, and `deploy_goal_plugin` bailed before its refresh —
-        // the profile was stuck with the plugin build it received first.
-        let tmp = std::env::temp_dir().join(format!("goal-deps-stale-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let src = tmp.join("src");
-        let dst = tmp.join("dst");
-        write(&src.join(".opencode-plugin-version"), "1.18.18\n");
-        write(
-            &src.join("package.json"),
-            r#"{"dependencies":{"@opencode-ai/plugin":"^1.18.18"}}"#,
-        );
-        write(
-            &src.join("package-lock.json"),
-            r#"{"lockfileVersion":3,"packages":{"":{"dependencies":{"@opencode-ai/plugin":"^1.18.18"}}}}"#,
-        );
-        write(
-            &src.join("node_modules/@opencode-ai/plugin/package.json"),
-            r#"{"name":"@opencode-ai/plugin","version":"1.18.18"}"#,
-        );
-        write(
-            &dst.join("package.json"),
-            "{\n  \"dependencies\": {\n    \"@opencode-ai/plugin\": \"1.17.13\"\n  }\n}\n",
-        );
-        write(
-            &dst.join("package-lock.json"),
-            r#"{"lockfileVersion":3,"packages":{"":{"dependencies":{"@opencode-ai/plugin":"1.17.13"}}}}"#,
-        );
-
-        deploy_goal_plugin_dependencies(&src, &dst).expect("a stale pin must be adopted, not fatal");
-
-        assert_eq!(
-            package_dependency_version(&dst.join("package.json"), OPENCODE_PLUGIN_PACKAGE)
-                .as_deref(),
-            Some("^1.18.18"),
-            "the app's own dependency line must follow the runtime it bundles"
-        );
-        // The lockfile named the old version too: left behind, the next
-        // `npm install` would resolve 1.17.13 back over the tree just copied.
-        assert!(
-            fs::read_to_string(dst.join("package-lock.json"))
-                .unwrap()
-                .contains("1.18.18"),
-            "a lockfile holding nothing but our dependency is refreshed"
-        );
-        assert_eq!(
-            fs::read_to_string(dst.join(".opencode-plugin-version")).unwrap(),
-            "1.18.18\n"
-        );
-        fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    #[test]
-    fn a_stale_pin_is_updated_without_disturbing_the_users_own_dependencies() {
-        let tmp = std::env::temp_dir().join(format!("goal-deps-mixed-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let src = tmp.join("src");
-        let dst = tmp.join("dst");
-        write(&src.join(".opencode-plugin-version"), "1.18.18\n");
-        write(
-            &src.join("package.json"),
-            r#"{"dependencies":{"@opencode-ai/plugin":"^1.18.18"}}"#,
-        );
-        write(&src.join("package-lock.json"), r#"{"lockfileVersion":3}"#);
-        write(
-            &src.join("node_modules/@opencode-ai/plugin/package.json"),
-            r#"{"name":"@opencode-ai/plugin","version":"1.18.18"}"#,
-        );
-        write(
-            &dst.join("package.json"),
-            r#"{"name":"opencode","dependencies":{"@opencode-ai/plugin":"1.17.13","user-plugin":"2.0.0"}}"#,
-        );
-        write(
-            &dst.join("package-lock.json"),
-            r#"{"lockfileVersion":3,"packages":{"":{"dependencies":{"@opencode-ai/plugin":"1.17.13","user-plugin":"2.0.0"}}}}"#,
-        );
-
-        deploy_goal_plugin_dependencies(&src, &dst).unwrap();
-
-        let text = fs::read_to_string(dst.join("package.json")).unwrap();
-        let doc: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(doc["dependencies"]["@opencode-ai/plugin"], "^1.18.18");
-        assert_eq!(
-            doc["dependencies"]["user-plugin"], "2.0.0",
-            "the user's own plugin dependency must survive"
-        );
-        assert_eq!(doc["name"], "opencode", "every other key is written back");
-        // Their lockfile resolves their package too, so it is not ours to replace.
-        assert!(
-            fs::read_to_string(dst.join("package-lock.json"))
-                .unwrap()
-                .contains("user-plugin"),
-            "a lockfile holding the user's packages is left alone"
-        );
-        fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    #[test]
-    fn an_unreadable_profile_package_json_is_reported_not_replaced() {
-        // #116's lesson: a config the app cannot parse must never be destroyed.
-        let tmp = std::env::temp_dir().join(format!("goal-deps-broken-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        let src = tmp.join("src");
-        let dst = tmp.join("dst");
-        write(&src.join(".opencode-plugin-version"), "1.18.18\n");
-        write(
-            &src.join("package.json"),
-            r#"{"dependencies":{"@opencode-ai/plugin":"^1.18.18"}}"#,
-        );
-        write(&src.join("package-lock.json"), r#"{"lockfileVersion":3}"#);
-        write(
-            &src.join("node_modules/@opencode-ai/plugin/package.json"),
-            r#"{"name":"@opencode-ai/plugin","version":"1.18.18"}"#,
-        );
-        let broken = "{ this is not json";
-        write(&dst.join("package.json"), broken);
-
-        let err = deploy_goal_plugin_dependencies(&src, &dst)
-            .expect_err("an unparseable package.json must not be adopted silently");
-        assert!(err.contains("not readable JSON"), "{err}");
-        assert_eq!(
-            fs::read_to_string(dst.join("package.json")).unwrap(),
-            broken,
-            "the file the app cannot read is left byte-for-byte"
-        );
-        fs::remove_dir_all(&tmp).unwrap();
-    }
-
-    #[test]
     fn sync_replaces_bundled_and_keeps_user_skills() {
         let tmp = std::env::temp_dir().join(format!("skillsync-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
@@ -3740,8 +2859,8 @@ mod tests {
 }
 
 /// Remove an entry from a map section of the app-private global OpenCode
-/// config ("provider" or "mcp") and restart the sidecar (PATCH /global/config
-/// cannot delete keys).
+/// config ("provider" or "mcp"). A merge patch cannot delete a key, so this
+/// edits the file; OpenCode 2 applies the edit itself.
 pub fn remove_config_entry(
     env: &Env,
     section: String,
@@ -3761,8 +2880,7 @@ pub fn remove_config_entry(
     let out = remove_key_from_config(&text, &section, &key)?;
     write_atomic(&path, &out)?;
     tighten_private(&path);
-
-    restart_sidecar_if_running(env)?;
+    // No restart: OpenCode 2 watches its config and applies the edit itself.
     Ok(())
 }
 
@@ -3792,8 +2910,8 @@ pub fn get_default_model(env: &Env) -> Result<Option<String>, String> {
     Ok(crate::opencode_config::default_model_of(&existing))
 }
 
-/// Set the default model on this machine and restart the sidecar if one is
-/// running, so the next turn uses it.
+/// Set the default model on this machine. A running OpenCode 2 picks it up
+/// within a second, so the next turn uses it.
 pub fn set_default_model(env: &Env, model: String) -> Result<(), String> {
     let path = effective_config_file(env)?;
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
@@ -3805,7 +2923,30 @@ pub fn set_default_model(env: &Env, model: String) -> Result<(), String> {
     })?;
     write_atomic(&path, &updated)?;
     tighten_private(&path);
-    restart_sidecar_if_running(env)?;
+    // No restart: OpenCode 2 applies the edit within a second, and a restart
+    // would cut every running turn short.
+    Ok(())
+}
+
+/// The OpenCode config file, parsed — what the SDK's `ConfigStore` reads.
+/// Holds provider keys: for the desktop webview only, never the gateway.
+pub fn read_opencode_config(env: &Env) -> Result<serde_json::Value, String> {
+    let existing = std::fs::read_to_string(effective_config_file(env)?).unwrap_or_default();
+    if existing.trim().is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+    crate::opencode_config::read_config(&existing)
+        .ok_or_else(|| "the OpenCode config could not be parsed".to_string())
+}
+
+/// Deep-merge `patch` into the OpenCode config file — what the SDK's
+/// `ConfigStore` writes. OpenCode 2 picks the change up on its own.
+pub fn patch_opencode_config(env: &Env, patch: serde_json::Value) -> Result<(), String> {
+    let path = effective_config_file(env)?;
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let updated = crate::opencode_config::patch_config(&existing, &patch)?;
+    write_atomic(&path, &updated)?;
+    tighten_private(&path);
     Ok(())
 }
 
@@ -3919,8 +3060,8 @@ pub fn get_memory_enabled(env: &Env) -> Result<bool, String> {
     Ok(crate::opencode_config::memory_enabled(&existing, &global))
 }
 
-/// Apply or stop applying the memory layers, restarting the sidecar so the
-/// change takes effect (instructions are read when a session's context is built).
+/// Apply or stop applying the memory layers. OpenCode 2 picks the config edit up
+/// itself; instructions are read when a session's context is built.
 pub fn set_memory_enabled(
     env: &Env,
     enabled: bool,
@@ -3930,11 +3071,12 @@ pub fn set_memory_enabled(
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
     let Some(updated) = crate::opencode_config::set_memory_enabled(&existing, &global, enabled)
     else {
-        return Ok(()); // already in the requested state — no restart
+        return Ok(()); // already in the requested state
     };
     write_atomic(&path, &updated)?;
     tighten_private(&path);
-    restart_sidecar_if_running(env)?;
+    // No restart: OpenCode 2 applies the edit within a second, and a restart
+    // would cut every running turn short.
     Ok(())
 }
 
@@ -3960,8 +3102,8 @@ pub fn get_agent_variants(env: &Env) -> Result<serde_json::Value, String> {
     Ok(serde_json::Value::Object(map))
 }
 
-/// Persist one rewritten config and restart the sidecar, unless the rewrite is a
-/// no-op. Shared by the per-agent model and effort writers.
+/// Persist one rewritten config, unless the rewrite is a no-op. Shared by the
+/// per-agent model and effort writers; OpenCode 2 applies the edit itself.
 fn write_agent_config(env: &Env, rewrite: impl FnOnce(&str) -> String) -> Result<(), String> {
     let path = effective_config_file(env)?;
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
@@ -3971,7 +3113,8 @@ fn write_agent_config(env: &Env, rewrite: impl FnOnce(&str) -> String) -> Result
     }
     write_atomic(&path, &updated)?;
     tighten_private(&path);
-    restart_sidecar_if_running(env)?;
+    // No restart: OpenCode 2 applies the edit within a second, and a restart
+    // would cut every running turn short.
     Ok(())
 }
 

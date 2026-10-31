@@ -59,7 +59,6 @@ import { LiveLine, latestLine } from "@/components/thread/LiveLine";
 import { Composer } from "@/components/thread/Composer";
 import { QueueDock } from "@/components/thread/QueueDock";
 import { GoalPill } from "@/components/thread/GoalPill";
-import { GOAL_RESUME_NUDGE } from "@/lib/goalPrompts";
 import { baseName } from "@/components/thread/WorkspaceChip";
 import { WorkflowStarters } from "@/components/thread/WorkflowStarters";
 import { SplitMenu } from "@/components/session/SplitMenu";
@@ -838,17 +837,13 @@ export function SessionView({
                 {title ?? ""}
               </h1>
             ))}
-          {/* Only while on display: the pill polls the plugin's state file every
+          {/* Only while on display: the pill polls the session's goal every
               few seconds, and its popover lives in a body portal — a hidden
               screen would keep polling and could leave that popover floating
               over the screen the user switched to. Re-mounting is free: the
               pill paints its last known goal from cache. */}
           {eid && visible && (
-            <GoalPill
-              sessionId={eid}
-              compact={headerCompact}
-              onResumed={() => void sendPrompt(GOAL_RESUME_NUDGE, sid ?? undefined)}
-            />
+            <GoalPill sessionId={eid} compact={headerCompact} />
           )}
           <div data-tauri-drag-region={asTitlebar || undefined} className="flex-1" />
           {/* The pane's tools stay out of sight until the header is hovered or

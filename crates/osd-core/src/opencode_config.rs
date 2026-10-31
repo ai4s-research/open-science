@@ -85,11 +85,19 @@ fn temp_roots() -> Vec<String> {
     roots
 }
 
-/// `external_directory` allow rules for the temp roots. OpenCode asks with the
-/// target's parent directory joined to `*`, so `<root>/*` covers a file sitting
-/// directly in the root and `<root>/**` covers anything nested below it.
+/// Approve mode's `external_directory` rules: ask for any path outside the
+/// workspace, except the temp roots. OpenCode asks with the target's parent
+/// directory joined to `*`, so `<root>/*` covers a file sitting directly in the
+/// root and `<root>/**` covers anything nested below it.
+///
+/// The `"*": "ask"` is not redundant. OpenCode 1 asked for outside paths on its
+/// own; OpenCode 2 allows them unless a rule says otherwise, which would turn
+/// "approve" into "full" for every file outside the workspace. Rules match
+/// last-wins in key order, and `*` sorts before every absolute path, so it is
+/// the fallback the temp-root allows override.
 fn temp_dir_rules() -> serde_json::Map<String, Value> {
     let mut rules = serde_json::Map::new();
+    rules.insert("*".to_string(), json!("ask"));
     for root in temp_roots() {
         rules.insert(format!("{root}/*"), json!("allow"));
         rules.insert(format!("{root}/**"), json!("allow"));
@@ -208,6 +216,26 @@ pub fn migrate_external_directory(existing: &str) -> Option<String> {
         _ => Value::Object(temp_dir_rules()),
     };
     permission.insert("external_directory".to_string(), rules);
+    serde_json::to_string_pretty(&root).ok()
+}
+
+/// Give an approve-mode config its outside-the-workspace ask. Configs written
+/// for OpenCode 1 left it to the runtime's own default, which OpenCode 2 turned
+/// from ask into allow (see `temp_dir_rules`). Approve mode only; a `*` the
+/// user set, to anything, is theirs and stays.
+pub fn migrate_external_directory_ask(existing: &str) -> Option<String> {
+    if permission_mode_of(existing)? != MODE_APPROVE {
+        return None;
+    }
+    let mut root: Value = read_config(existing)?;
+    let rules = root
+        .get_mut("permission")?
+        .get_mut("external_directory")?
+        .as_object_mut()?;
+    if rules.contains_key("*") {
+        return None;
+    }
+    rules.insert("*".to_string(), json!("ask"));
     serde_json::to_string_pretty(&root).ok()
 }
 
@@ -375,10 +403,16 @@ pub fn ensure_browser_mcp_proxy(
         "--tools",
         tools
     ]);
-    if server.get("command") == Some(&desired) {
+    // OpenCode 2 reaches MCP tools through Code Mode by default, where they
+    // run inside one `execute` call. The browser's tools must stay direct
+    // calls: the lease is applied to each call by name, and approve mode's
+    // ask rule matches that name.
+    let codemode = json!(false);
+    if server.get("command") == Some(&desired) && server.get("codemode") == Some(&codemode) {
         return None;
     }
     server.insert("command".to_string(), desired);
+    server.insert("codemode".to_string(), codemode);
     serde_json::to_string_pretty(&root).ok()
 }
 
@@ -416,6 +450,42 @@ pub fn permission_mode_of(existing: &str) -> Option<&'static str> {
     } else {
         Some(MODE_FULL)
     }
+}
+
+/// Deep-merge `patch` into the config: objects merge key by key, anything else
+/// (arrays included) replaces. The rule the SDK's `ConfigStore` promises, and
+/// the one OpenCode 1's config PATCH applied. Comments in a JSONC file do not
+/// survive the rewrite; every value does. An unreadable file is an error, never
+/// overwritten.
+pub fn patch_config(existing: &str, patch: &Value) -> Result<String, String> {
+    fn merge(base: &mut Value, patch: &Value) {
+        match (base, patch) {
+            (Value::Object(b), Value::Object(p)) => {
+                for (k, v) in p {
+                    match b.get_mut(k) {
+                        Some(slot) if slot.is_object() && v.is_object() => merge(slot, v),
+                        _ => {
+                            b.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+            }
+            (b, p) => *b = p.clone(),
+        }
+    }
+    if !patch.is_object() {
+        return Err("a config patch must be a JSON object".into());
+    }
+    let mut root: Value = if existing.trim().is_empty() {
+        json!({})
+    } else {
+        read_config(existing).ok_or("the OpenCode config could not be parsed, so it was left untouched")?
+    };
+    if !root.is_object() {
+        root = json!({});
+    }
+    merge(&mut root, patch);
+    serde_json::to_string_pretty(&root).map_err(|e| e.to_string())
 }
 
 /// The default model a config names, if any.
@@ -547,12 +617,26 @@ pub fn merge_config(existing: &str, creds: &ProviderCredentials) -> Result<Strin
     serde_json::to_string_pretty(&root).map_err(|e| e.to_string())
 }
 
-/// Point the config's `plugin` array at the deployed goal plugin, replacing
-/// any stale entry from a previous install location (our entries are
-/// recognized by the `goal-plugin.server.js` file name). Returns None when the
-/// config already lists exactly this path — no rewrite, no sidecar churn.
-/// User-added plugin entries are preserved untouched.
-fn ensure_named_plugin(existing: &str, plugin_path: &str, filename: &str) -> Option<String> {
+/// Plugin files OpenCode 1 builds of this app registered. OpenCode 2 loads a
+/// local plugin only from a directory, so these are dead entries — and the
+/// goal plugin is built into OpenCode 2 as `/goal`.
+const LEGACY_PLUGIN_FILES: &[&str] = &[
+    "goal-plugin.server.js",
+    "browser-guard.ts",
+    "history-guard.ts",
+    "origin.ts",
+];
+
+/// The deployed app plugin's directory name (`runtime/osd-plugin`).
+const OSD_PLUGIN_DIR: &str = "osd-plugin";
+
+/// Point the config's `plugin` array at the deployed app plugin and drop the
+/// entries OpenCode 1 builds wrote. Our entries are recognized by name: a
+/// stale path from an earlier install location is replaced, never kept beside
+/// the current one. `plugin_path` is None in a build without the plugin, which
+/// still clears the dead entries. Returns None when nothing changes — no
+/// rewrite, no sidecar churn. User-added plugin entries are left untouched.
+pub fn ensure_osd_plugin(existing: &str, plugin_path: Option<&str>) -> Option<String> {
     let mut root: Value = if existing.trim().is_empty() {
         json!({})
     } else {
@@ -567,34 +651,25 @@ fn ensure_named_plugin(existing: &str, plugin_path: &str, filename: &str) -> Opt
         *plugins = json!([]);
     }
     let arr = plugins.as_array_mut().unwrap();
-    let ours = |v: &Value| v.as_str().is_some_and(|s| s.ends_with(filename));
-    if arr.iter().any(|v| v.as_str() == Some(plugin_path)) && arr.iter().filter(|v| ours(v)).count() == 1 {
-        return None; // already exactly right
+    let before = arr.clone();
+    let named = |v: &Value, name: &str| {
+        v.as_str()
+            .is_some_and(|s| s.trim_end_matches('/').rsplit('/').next() == Some(name))
+    };
+    arr.retain(|v| {
+        let legacy = LEGACY_PLUGIN_FILES.iter().any(|f| named(v, f));
+        let stale = named(v, OSD_PLUGIN_DIR) && v.as_str() != plugin_path;
+        !legacy && !stale
+    });
+    if let Some(path) = plugin_path {
+        if !arr.iter().any(|v| v.as_str() == Some(path)) {
+            arr.push(json!(path));
+        }
     }
-    arr.retain(|v| !ours(v));
-    arr.push(json!(plugin_path));
+    if *arr == before {
+        return None;
+    }
     serde_json::to_string_pretty(&root).ok()
-}
-
-pub fn ensure_goal_plugin(existing: &str, plugin_path: &str) -> Option<String> {
-    ensure_named_plugin(existing, plugin_path, "goal-plugin.server.js")
-}
-
-pub fn ensure_browser_guard_plugin(existing: &str, plugin_path: &str) -> Option<String> {
-    ensure_named_plugin(existing, plugin_path, "browser-guard.ts")
-}
-
-/// The guard that restores the fields a stored message must carry before the
-/// runtime converts it for the model, so one damaged part cannot brick a
-/// session for good (#114).
-pub fn ensure_history_guard_plugin(existing: &str, plugin_path: &str) -> Option<String> {
-    ensure_named_plugin(existing, plugin_path, "history-guard.ts")
-}
-
-/// The plugin that puts the session an agent's command runs for into its
-/// environment (`OSD_ORIGIN_SESSION`).
-pub fn ensure_origin_plugin(existing: &str, plugin_path: &str) -> Option<String> {
-    ensure_named_plugin(existing, plugin_path, "origin.ts")
 }
 
 /// Project memory: OpenCode resolves a relative `instructions` entry against
@@ -912,8 +987,7 @@ mod tests {
         let broken = r#"{"model": "openai/gpt-5.6", "provider": {"openai": "#;
         assert!(seed_compaction(broken).is_none());
         assert!(set_memory_enabled(broken, "/m/MEMORY.md", true).is_none());
-        assert!(ensure_goal_plugin(broken, "/g/goal-plugin.server.js").is_none());
-        assert!(ensure_browser_guard_plugin(broken, "/g/browser-guard.ts").is_none());
+        assert!(ensure_osd_plugin(broken, Some("/g/osd-plugin")).is_none());
         assert!(migrate_external_directory(broken).is_none());
         assert!(migrate_browser_integration(broken).is_none());
         assert!(ensure_browser_mcp_proxy(broken, "/p", "/a").is_none());
@@ -938,13 +1012,10 @@ mod tests {
   "mcp": {"open-science-browser": {"enabled": true}},
   "plugin": ["/app/goal-plugin.server.js",],
 }"#;
-        let out = ensure_browser_guard_plugin(jsonc, "/g/browser-guard.ts")
+        let out = ensure_osd_plugin(jsonc, Some("/g/osd-plugin"))
             .expect("a JSONC config must still be repairable");
         let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(
-            v["plugin"],
-            json!(["/app/goal-plugin.server.js", "/g/browser-guard.ts"])
-        );
+        assert_eq!(v["plugin"], json!(["/g/osd-plugin"]));
         // Everything else survives, including the `//` inside a string value.
         assert_eq!(v["$schema"], json!("https://opencode.ai/config.json"));
         assert_eq!(v["provider"]["openai"]["options"]["apiKey"], json!("sk-SECRET"));
@@ -982,10 +1053,10 @@ mod tests {
             serde_json::from_str::<Value>(text).is_err(),
             "precondition: a BOM is what breaks the plain parse"
         );
-        let out = ensure_browser_guard_plugin(text, "/g/browser-guard.ts")
+        let out = ensure_osd_plugin(text, Some("/g/osd-plugin"))
             .expect("a config written by a Windows editor must stay editable");
         let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["plugin"], json!(["/g/browser-guard.ts"]));
+        assert_eq!(v["plugin"], json!(["/g/osd-plugin"]));
         assert_eq!(v["model"], json!("x"));
         // A file holding nothing but a BOM is a fresh profile, not a broken one.
         assert!(seed_compaction("\u{feff}").is_some());
@@ -1472,10 +1543,9 @@ mod tests {
             assert_eq!(ext[&format!("{root}/*")], "allow");
             assert_eq!(ext[&format!("{root}/**")], "allow");
         }
-        // No blanket allow: everything else outside the workspace still
-        // inherits the builtin ask, which is the point of this mode.
-        assert!(!ext.contains_key("*"));
-        assert!(!ext.is_empty());
+        // Everything else outside the workspace asks, which is the point of
+        // this mode — and it must say so: OpenCode 2's own default is allow.
+        assert_eq!(ext["*"], "ask");
     }
 
     #[test]
@@ -1485,8 +1555,7 @@ mod tests {
         let out = migrate_external_directory(stale).expect("approve config is back-filled");
         let v: Value = serde_json::from_str(&out).unwrap();
         let ext = v["permission"]["external_directory"].as_object().unwrap();
-        assert!(!ext.contains_key("*"), "approve keeps the builtin ask for other paths");
-        assert!(!ext.is_empty());
+        assert_eq!(ext["*"], "ask", "approve asks for every other outside path");
         // Existing rules survive, and a second pass is a no-op.
         assert_eq!(v["permission"]["bash"]["rm *"], "ask");
         assert_eq!(v["permission"]["webfetch"], "ask");
@@ -1534,69 +1603,77 @@ mod tests {
     }
 
     #[test]
-    fn ensure_goal_plugin_adds_entry_to_empty_config() {
-        let out = ensure_goal_plugin("", "/app/goal-plugin.server.js").unwrap();
+    fn patch_config_merges_objects_and_replaces_everything_else() {
+        let existing = r#"// profile
+{"model":"a/x","provider":{"p":{"name":"P","options":{"baseURL":"u","apiKey":"k"}}},"plugin":["one"],}"#;
+        let out = patch_config(
+            existing,
+            &json!({"model":"b/y","provider":{"p":{"options":{"region":"eu"}},"q":{"name":"Q"}},"plugin":["two"]}),
+        )
+        .unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["plugin"], json!(["/app/goal-plugin.server.js"]));
+        assert_eq!(v["model"], "b/y");
+        assert_eq!(v["provider"]["p"], json!({"name":"P","options":{"baseURL":"u","apiKey":"k","region":"eu"}}));
+        assert_eq!(v["provider"]["q"], json!({"name":"Q"}));
+        assert_eq!(v["plugin"], json!(["two"]));
+        assert!(patch_config("{ broken", &json!({"model":"m"})).is_err());
+        assert!(patch_config("{}", &json!(["not", "an", "object"])).is_err());
+        assert_eq!(serde_json::from_str::<Value>(&patch_config("", &json!({"model":"m"})).unwrap()).unwrap(), json!({"model":"m"}));
     }
 
     #[test]
-    fn ensure_goal_plugin_replaces_stale_path_and_keeps_others() {
-        let existing = r#"{"plugin":["my-other-plugin","/old/place/goal-plugin.server.js"],"model":"m"}"#;
-        let out = ensure_goal_plugin(existing, "/new/goal-plugin.server.js").unwrap();
+    fn approve_mode_asks_for_paths_outside_the_workspace_first() {
+        // OpenCode 2 allows outside paths unless a rule asks, and rules match
+        // last-wins in key order: the ask must come before the temp allows.
+        let v: Value = serde_json::from_str(&set_permission_mode("", MODE_APPROVE).unwrap()).unwrap();
+        let rules = v["permission"]["external_directory"].as_object().unwrap();
+        assert_eq!(rules.keys().next().map(String::as_str), Some("*"));
+        assert_eq!(rules["*"], "ask");
+        assert!(rules.iter().skip(1).all(|(k, v)| k.starts_with('/') && v == "allow"));
+    }
+
+    #[test]
+    fn an_opencode_1_approve_config_gains_the_outside_ask_once() {
+        let old = r#"{"permission":{"bash":{"rm *":"ask"},"external_directory":{"/tmp/*":"allow"}}}"#;
+        let out = migrate_external_directory_ask(old).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["plugin"], json!(["my-other-plugin", "/new/goal-plugin.server.js"]));
+        assert_eq!(v["permission"]["external_directory"], json!({"*":"ask","/tmp/*":"allow"}));
+        assert!(migrate_external_directory_ask(&out).is_none());
+        // Full mode means no approvals, and a user's own `*` stays theirs.
+        assert!(migrate_external_directory_ask(r#"{"permission":{"external_directory":{"*":"allow"}}}"#).is_none());
+        assert!(migrate_external_directory_ask(r#"{"permission":{"bash":{},"external_directory":{"*":"deny"}}}"#).is_none());
+    }
+
+    #[test]
+    fn ensure_osd_plugin_adds_the_plugin_to_an_empty_config() {
+        let out = ensure_osd_plugin("", Some("/app/osd-plugin")).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["plugin"], json!(["/app/osd-plugin"]));
+    }
+
+    #[test]
+    fn ensure_osd_plugin_retires_the_opencode_1_plugins_and_keeps_the_users() {
+        // What an OpenCode 1 build of the app left registered: four plugin
+        // files OpenCode 2 cannot load (it loads local plugins from directories
+        // only, and has /goal built in), beside the user's own plugin.
+        let existing = r#"{"plugin":["/app/goal-plugin.server.js","my-plugin","/app/browser-guard.ts","/app/history-guard.ts","C:/app/origin.ts"],"model":"m"}"#;
+        let out = ensure_osd_plugin(existing, Some("/app/osd-plugin")).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["plugin"], json!(["my-plugin", "/app/osd-plugin"]));
         assert_eq!(v["model"], "m"); // unrelated keys preserved
+        // A user's file that merely ends in one of the names is not ours.
+        let theirs = r#"{"plugin":["/x/my-origin.ts"]}"#;
+        let v: Value = serde_json::from_str(&ensure_osd_plugin(theirs, None).unwrap_or(theirs.into())).unwrap();
+        assert_eq!(v["plugin"], json!(["/x/my-origin.ts"]));
     }
 
     #[test]
-    fn ensure_goal_plugin_is_idempotent() {
-        let existing = r#"{"plugin":["/app/goal-plugin.server.js"]}"#;
-        assert!(ensure_goal_plugin(existing, "/app/goal-plugin.server.js").is_none());
-    }
-
-
-    #[test]
-    fn ensure_browser_guard_plugin_replaces_only_its_own_stale_path() {
-        let existing = r#"{"plugin":["/app/goal-plugin.server.js","/old/browser-guard.ts"]}"#;
-        let out = ensure_browser_guard_plugin(existing, "/new/browser-guard.ts").unwrap();
+    fn ensure_osd_plugin_replaces_a_stale_path_and_is_idempotent() {
+        let existing = r#"{"plugin":["/old/place/osd-plugin/"]}"#;
+        let out = ensure_osd_plugin(existing, Some("/new/osd-plugin")).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(
-            v["plugin"],
-            json!(["/app/goal-plugin.server.js", "/new/browser-guard.ts"])
-        );
-        assert!(ensure_browser_guard_plugin(&out, "/new/browser-guard.ts").is_none());
-    }
-
-    #[test]
-    fn ensure_history_guard_plugin_joins_the_others_without_disturbing_them() {
-        // All three of our plugins coexist; registering one must not retire
-        // another, and re-registering the same path must not grow the list.
-        let existing = r#"{"plugin":["/app/goal-plugin.server.js","/app/browser-guard.ts"]}"#;
-        let out = ensure_history_guard_plugin(existing, "/app/history-guard.ts").unwrap();
-        let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(
-            v["plugin"],
-            json!([
-                "/app/goal-plugin.server.js",
-                "/app/browser-guard.ts",
-                "/app/history-guard.ts"
-            ])
-        );
-        assert!(ensure_history_guard_plugin(&out, "/app/history-guard.ts").is_none());
-    }
-
-    #[test]
-    fn ensure_history_guard_plugin_replaces_only_its_own_stale_path() {
-        // An upgrade moves the deployed path; the old entry must go, or the
-        // runtime tries to load a plugin that is no longer there.
-        let existing = r#"{"plugin":["/old/history-guard.ts","/app/browser-guard.ts"]}"#;
-        let out = ensure_history_guard_plugin(existing, "/new/history-guard.ts").unwrap();
-        let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(
-            v["plugin"],
-            json!(["/app/browser-guard.ts", "/new/history-guard.ts"])
-        );
+        assert_eq!(v["plugin"], json!(["/new/osd-plugin"]));
+        assert!(ensure_osd_plugin(&out, Some("/new/osd-plugin")).is_none());
     }
 
     #[test]

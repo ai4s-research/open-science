@@ -8,7 +8,6 @@ mod debug_log;
 mod examples;
 mod gateway;
 mod git_snapshot;
-mod goal;
 mod compute;
 mod jupyter;
 mod kernel;
@@ -208,8 +207,6 @@ pub fn run() {
             runtime::set_workspace,
             runtime::mark_session,
             runtime::new_dated_workspace,
-            goal::goal_state,
-            goal::goal_update,
             project::create_project,
             project::import_project,
             project::list_projects,
@@ -236,6 +233,8 @@ pub fn run() {
             model_probe::model_catalog_apply,
             runtime::provider_auth_exists,
             runtime::remove_config_entry,
+            runtime::read_opencode_config,
+            runtime::patch_opencode_config,
             jupyter::jupyter_status,
             jupyter::setup_jupyter,
             jupyter::start_jupyter,

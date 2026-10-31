@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use crate::artifact_file::{locate_under, mime_for, resolve_under, scope_root};
 use crate::env::Env;
+use crate::opencode_v2 as v2;
 use crate::termd::{Control, Viewer};
 use crate::runtime::{random_hex, runtime_root, server_password, sidecar_url, tighten_private, workspace_dir};
 
@@ -898,7 +899,7 @@ fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
         }
         // Static assets are the ONLY GETs served from disk. Crucially, do NOT
         // let the asset resolver's SPA fallback answer OpenCode API paths
-        // (/event, /experimental/session, …) with index.html — that would break
+        // (/api/event, /api/session, …) with index.html — that would break
         // EventSource (MIME text/html) and every JSON fetch (sessions / runs /
         // notebooks come back as HTML and render blank).
         if looks_static(path) {
@@ -925,27 +926,15 @@ fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
         respond_json(stream, 403, "{\"error\":\"token is read-only\"}");
         return;
     }
-    // Secrets never cross the wire (AGENTS.md). `/auth` is pure OAuth/tokens →
-    // always blocked. Config/provider READS are proxied with API keys REDACTED
-    // (the model picker needs the model + provider names, not the keys); config
-    // WRITES (setting a key/model) stay desktop-only.
-    if path.starts_with("/auth") {
-        respond_json(stream, 403, "{\"error\":\"managed on the desktop\"}");
+    // Secrets never cross the wire (AGENTS.md), and the gateway's own scoped
+    // routes are the only way in to files and terminals. See `desktop_only`.
+    if let Some(reason) = desktop_only(&req.method, path) {
+        respond_json(stream, 403, &err_json(reason));
         return;
     }
-    if is_config_path(path) && req.method != "GET" {
-        // Allow the benign default-model write (setDefaultModel PATCHes
-        // /global/config with just `{model}`); block anything that could set a
-        // key / provider / auth.
-        let model_only = path.starts_with("/global/config") && body_only_sets_model(&req.body);
-        if !model_only {
-            respond_json(stream, 403, "{\"error\":\"provider/model config is managed on the desktop\"}");
-            return;
-        }
-    }
-    if req.method == "GET" && path == "/event" {
-        let dir = req.query_get("directory").unwrap_or_else(|| ws_dir(ctx));
-        events(stream, ctx, &dir);
+    // OpenCode 2's stream is global; each client keeps to its own folder.
+    if req.method == "GET" && path == "/api/event" {
+        events(stream, ctx);
         return;
     }
     proxy_opencode(stream, req, ctx);
@@ -1014,10 +1003,9 @@ fn session_patch(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str) {
     if let Some(archived) = v["archived"].as_bool() {
         // PATCH replaces `metadata` whole: start from what is there, so other
         // keys (another client's) survive.
-        let current: serde_json::Value = match upstream_get(ctx, &format!("/session/{}", enc(id)), &[]) {
-            Ok(r) if r.status().is_success() => r.bytes().ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default(),
-            Ok(r) => return respond_json(stream, r.status().as_u16(), &err_json("no such session")),
-            Err(e) => return respond_json(stream, 502, &err_json(&e)),
+        let current = match upstream_json(upstream_get(ctx, &format!("/api/session/{}", enc(id)), &[])) {
+            Ok(v) => v,
+            Err((status, e)) => return respond_json(stream, status, &err_json(&e)),
         };
         let mut metadata = current["metadata"].as_object().cloned().unwrap_or_default();
         let mut mine = metadata.get(META_NS).and_then(|m| m.as_object().cloned()).unwrap_or_default();
@@ -1037,7 +1025,7 @@ fn session_patch(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str) {
     if patch.is_empty() {
         return respond_json(stream, 400, &err_json("nothing to change: give a title or archived"));
     }
-    if forward(stream, upstream_patch(ctx, &format!("/session/{}", enc(id)), &serde_json::Value::Object(patch).to_string())) {
+    if forward(stream, upstream_patch(ctx, &format!("/api/session/{}", enc(id)), &serde_json::Value::Object(patch).to_string())) {
         ctx.sessions_changed();
     }
 }
@@ -1206,7 +1194,14 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
             respond_json(stream, 200, &payload.to_string());
         }
         ("GET", ["sessions"]) => {
-            forward(stream, upstream_get(ctx, "/experimental/session", &[]));
+            match upstream_json(upstream_get(ctx, "/api/session", &[("limit", "200"), ("order", "desc")])) {
+                Ok(list) => {
+                    let sessions: Vec<serde_json::Value> =
+                        list.as_array().into_iter().flatten().map(v2::session).collect();
+                    respond_json(stream, 200, &serde_json::Value::Array(sessions).to_string());
+                }
+                Err((status, e)) => respond_json(stream, status, &err_json(&e)),
+            }
         }
         // `directory` names the folder the session belongs to — a project's
         // workspace, typically. Without it a client could only ever create in
@@ -1220,24 +1215,27 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
                 },
                 _ => ws_dir(ctx),
             };
-            let body = match json_str_field(&req.body, "title") {
-                Some(t) if !t.trim().is_empty() => {
-                    serde_json::json!({ "title": t.trim() }).to_string()
+            let mut body = serde_json::json!({ "location": { "directory": dir } });
+            if let Some(t) = json_str_field(&req.body, "title").filter(|t| !t.trim().is_empty()) {
+                body["title"] = serde_json::json!(t.trim());
+            }
+            match upstream_json(upstream_post(ctx, "/api/session", &[], &body.to_string())) {
+                Ok(created) => {
+                    ctx.sessions_changed();
+                    respond_json(stream, 200, &v2::session(&created).to_string());
                 }
-                _ => "{}".to_string(),
-            };
-            if forward(stream, upstream_post(ctx, "/session", &[("directory", &dir)], &body)) {
-                ctx.sessions_changed();
+                Err((status, e)) => respond_json(stream, status, &err_json(&e)),
             }
         }
         ("DELETE", ["sessions", id]) => {
-            if forward(stream, upstream_delete(ctx, &format!("/session/{}", enc(id)))) {
+            if forward(stream, upstream_delete(ctx, &format!("/api/session/{}", enc(id)))) {
                 ctx.sessions_changed();
             }
         }
-        ("GET", ["sessions", id, "messages"]) => {
-            forward(stream, upstream_get(ctx, &format!("/session/{}/message", enc(id)), &[]));
-        }
+        ("GET", ["sessions", id, "messages"]) => match history(ctx, id) {
+            Ok(messages) => respond_json(stream, 200, &serde_json::Value::Array(messages).to_string()),
+            Err((status, e)) => respond_json(stream, status, &err_json(&e)),
+        },
         // `model` ("provider/model") and `agent` are what make a scripted run
         // reproducible: without them the turn silently inherits whatever the
         // session was created with, which a script cannot see or state.
@@ -1247,16 +1245,12 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
                 respond_json(stream, 400, "{\"error\":\"missing text\"}");
                 return;
             }
-            let mut body = serde_json::json!({ "parts": [{ "type": "text", "text": text }] });
-            let map = body.as_object_mut().expect("object literal");
-            if let Some(agent) = json_str_field(&req.body, "agent").filter(|a| !a.is_empty()) {
-                map.insert("agent".into(), serde_json::Value::String(agent));
-            }
-            if let Some(model) = json_str_field(&req.body, "model").filter(|m| !m.is_empty()) {
-                match split_model(&model) {
-                    Some(m) => {
-                        map.insert("model".into(), m);
-                    }
+            // OpenCode 2 keeps the agent and the model on the session: bind
+            // them first, then send the words.
+            let variant = json_str_field(&req.body, "variant");
+            let model = match json_str_field(&req.body, "model").filter(|m| !m.is_empty()) {
+                Some(m) => match v2::model_ref(&m, variant.as_deref()) {
+                    Some(r) => Some(r),
                     None => {
                         return respond_json(
                             stream,
@@ -1264,57 +1258,72 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
                             &err_json("model must be written provider/model, e.g. anthropic/claude-sonnet-4-5"),
                         )
                     }
+                },
+                None => None,
+            };
+            if let Some(agent) = json_str_field(&req.body, "agent").filter(|a| !a.is_empty()) {
+                let body = serde_json::json!({ "agent": agent }).to_string();
+                if let Err((status, e)) = upstream_json(upstream_post(ctx, &format!("/api/session/{}/agent", enc(id)), &[], &body)) {
+                    return respond_json(stream, status, &err_json(&e));
                 }
             }
-            if let Some(variant) = json_str_field(&req.body, "variant").filter(|v| !v.is_empty()) {
-                map.insert("variant".into(), serde_json::Value::String(variant));
+            if let Some(model) = model {
+                let body = serde_json::json!({ "model": model }).to_string();
+                if let Err((status, e)) = upstream_json(upstream_post(ctx, &format!("/api/session/{}/model", enc(id)), &[], &body)) {
+                    return respond_json(stream, status, &err_json(&e));
+                }
             }
-            forward(
-                stream,
-                upstream_post(ctx, &format!("/session/{}/prompt_async", enc(id)), &[], &body.to_string()),
-            );
+            let body = serde_json::json!({ "text": text }).to_string();
+            forward(stream, upstream_post(ctx, &format!("/api/session/{}/prompt", enc(id)), &[], &body));
         }
         // Whether a turn is still running. `prompt` returns as soon as the turn
         // is ACCEPTED, so without this there is nothing for a script to wait on.
         ("GET", ["sessions", id, "status"]) => session_status(stream, ctx, id),
         ("POST", ["sessions", id, "abort"]) => {
-            forward(stream, upstream_post(ctx, &format!("/session/{}/abort", enc(id)), &[], "{}"));
+            forward(stream, upstream_post(ctx, &format!("/api/session/{}/interrupt", enc(id)), &[], "{}"));
         }
-        // Permission requests and questions belong to a folder's runtime
-        // instance: `?dir=` names a session's folder, else the host's.
-        ("GET", ["permissions"]) => match req_dir(ctx, req) {
-            Ok(dir) => {
-                forward(stream, upstream_get(ctx, "/permission", &[("directory", &dir)]));
+        // Permission requests and questions are listed per folder: `?dir=`
+        // names a session's folder, else the host's.
+        ("GET", ["permissions"]) => match open_requests(ctx, req, "/api/permission/request") {
+            Ok(list) => {
+                let out: Vec<serde_json::Value> = list.iter().map(v2::permission).collect();
+                respond_json(stream, 200, &serde_json::Value::Array(out).to_string());
             }
-            Err(e) => respond_json(stream, 400, &err_json(&e)),
+            Err((status, e)) => respond_json(stream, status, &err_json(&e)),
         },
-        ("GET", ["questions"]) => match req_dir(ctx, req) {
-            Ok(dir) => {
-                forward(stream, upstream_get(ctx, "/question", &[("directory", &dir)]));
+        ("GET", ["questions"]) => match open_requests(ctx, req, "/api/form") {
+            Ok(list) => {
+                let out: Vec<serde_json::Value> = list.iter().map(v2::question).collect();
+                respond_json(stream, 200, &serde_json::Value::Array(out).to_string());
             }
-            Err(e) => respond_json(stream, 400, &err_json(&e)),
+            Err((status, e)) => respond_json(stream, status, &err_json(&e)),
         },
-        ("POST", ["permissions", rid, "reply"]) => match req_dir(ctx, req) {
-            Ok(dir) => {
-                let reply = json_str_field(&req.body, "reply").unwrap_or_else(|| "reject".into());
-                let body = serde_json::json!({ "reply": reply }).to_string();
-                forward(stream, upstream_post(ctx, &format!("/permission/{}/reply", enc(rid)), &[("directory", &dir)], &body));
+        // OpenCode answers a request under its session; `/v1` callers name only
+        // the request, so it is found among the folder's open ones first.
+        ("POST", ["permissions", rid, "reply"]) => match find_request(ctx, req, "/api/permission/request", rid) {
+            Ok(p) => {
+                let decision = json_str_field(&req.body, "reply").unwrap_or_else(|| "reject".into());
+                let body = serde_json::json!({ "decision": decision }).to_string();
+                let sid = p["sessionID"].as_str().unwrap_or_default();
+                forward(stream, upstream_post(ctx, &format!("/api/session/{}/permission/{}/reply", enc(sid), enc(rid)), &[], &body));
             }
-            Err(e) => respond_json(stream, 400, &err_json(&e)),
+            Err((status, e)) => respond_json(stream, status, &err_json(&e)),
         },
         // `{"answers": [[label, …], …]}`, one list per question, or reject to
         // let the agent go on without an answer.
-        ("POST", ["questions", rid, what @ ("reply" | "reject")]) => match req_dir(ctx, req) {
-            Ok(dir) => {
-                let body = if *what == "reply" {
+        ("POST", ["questions", rid, what @ ("reply" | "reject")]) => match find_request(ctx, req, "/api/form", rid) {
+            Ok(form) => {
+                let sid = form["sessionID"].as_str().unwrap_or_default();
+                let path = format!("/api/session/{}/form/{}", enc(sid), enc(rid));
+                if *what == "reply" {
                     let v: serde_json::Value = serde_json::from_slice(&req.body).unwrap_or_default();
-                    serde_json::json!({ "answers": v["answers"] }).to_string()
+                    let body = serde_json::json!({ "answer": v2::form_answer(&form, &v["answers"]) }).to_string();
+                    forward(stream, upstream_post(ctx, &format!("{path}/reply"), &[], &body));
                 } else {
-                    "{}".to_string()
-                };
-                forward(stream, upstream_post(ctx, &format!("/question/{}/{what}", enc(rid)), &[("directory", &dir)], &body));
+                    forward(stream, upstream_delete(ctx, &path));
+                }
             }
-            Err(e) => respond_json(stream, 400, &err_json(&e)),
+            Err((status, e)) => respond_json(stream, status, &err_json(&e)),
         },
         ("GET", ["sessions", "find"]) => {
             let q = req.query_get("q").unwrap_or_default();
@@ -1559,9 +1568,25 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
             }
             Err(e) => respond_json(stream, 502, &err_json(&e)),
         },
-        ("GET", ["events"]) => {
-            let dir = ws_dir(ctx);
-            events(stream, ctx, &dir);
+        ("GET", ["events"]) => events(stream, ctx),
+        // OpenCode's config as a web client sees it: keys redacted, and only
+        // the default model writable — the rest is managed on the desktop.
+        ("GET", ["opencode-config"]) => match crate::runtime::read_opencode_config(&ctx.env) {
+            Ok(mut cfg) => {
+                redact_secrets(&mut cfg);
+                respond_json(stream, 200, &cfg.to_string());
+            }
+            Err(e) => respond_json(stream, 500, &err_json(&e)),
+        },
+        ("PATCH", ["opencode-config"]) => {
+            if !body_only_sets_model(&req.body) {
+                return respond_json(stream, 403, &err_json("provider/model config is managed on the desktop"));
+            }
+            let patch: serde_json::Value = serde_json::from_slice(&req.body).unwrap_or_default();
+            match crate::runtime::patch_opencode_config(&ctx.env, patch) {
+                Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
+                Err(e) => respond_json(stream, 400, &err_json(&e)),
+            }
         }
         _ => respond_json(stream, 404, "{\"error\":\"not found\"}"),
     }
@@ -1628,17 +1653,10 @@ fn record_run(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
 /// The folder a session works in, as the sidecar reports it, validated like a
 /// caller-supplied session directory. Err carries the HTTP status to answer.
 fn session_root(ctx: &Ctx, session_id: &str) -> Result<PathBuf, (u16, String)> {
-    let response = match upstream_get(ctx, &format!("/session/{}", enc(session_id)), &[]) {
-        Ok(r) if r.status().is_success() => r,
-        _ => return Err((404, "session not found".into())),
-    };
-    let session: serde_json::Value = response
-        .bytes()
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .ok_or((502, "invalid session reply".to_string()))?;
+    let session = upstream_json(upstream_get(ctx, &format!("/api/session/{}", enc(session_id)), &[]))
+        .map_err(|_| (404, "session not found".to_string()))?;
     let dir = session
-        .get("directory")
+        .pointer("/location/directory")
         .and_then(|v| v.as_str())
         .ok_or((502, "session has no directory".to_string()))?;
     session_dir(ctx, dir).map(PathBuf::from).map_err(|e| (403, e))
@@ -1692,17 +1710,6 @@ fn record_provenance(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
     }
 }
 
-/// Split "provider/model" into the `{providerID, modelID}` OpenCode expects.
-/// None when there is no separator, or either half is empty — a typo must be
-/// reported, never silently dropped into a default model.
-fn split_model(model: &str) -> Option<serde_json::Value> {
-    let (provider, id) = model.split_once('/')?;
-    if provider.is_empty() || id.is_empty() {
-        return None;
-    }
-    Some(serde_json::json!({ "providerID": provider, "modelID": id }))
-}
-
 /// Validate a caller-supplied session directory. Same rule as file access: it
 /// must sit under the base workspace, be the active workspace, or BE a
 /// registered project's own folder (an in-place import lives outside the base).
@@ -1750,16 +1757,10 @@ fn turn_is_running(last: Option<&serde_json::Value>, runtime_started_at: u64) ->
 }
 
 fn session_status(stream: &mut TcpStream, ctx: &Ctx, id: &str) {
-    let resp = upstream_get(ctx, &format!("/session/{}/message", enc(id)), &[]);
-    let body = match resp {
-        Ok(r) if r.status().is_success() => r.bytes().map(|b| b.to_vec()).unwrap_or_default(),
-        Ok(r) => {
-            let status = r.status().as_u16();
-            return respond_json(stream, status, &err_json("session not found"));
-        }
-        Err(e) => return respond_json(stream, 502, &err_json(&format!("upstream: {e}"))),
+    let messages = match history(ctx, id) {
+        Ok(m) => m,
+        Err((status, e)) => return respond_json(stream, status, &err_json(&e)),
     };
-    let messages: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap_or_default();
     let last = messages.last().map(|m| m.get("info").unwrap_or(m));
     let started_at = crate::runtime::runtime_started_at(ctx.env.runtime()).unwrap_or(0);
     let working = turn_is_running(last, started_at);
@@ -1857,10 +1858,44 @@ fn proxy_opencode(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
     forward(stream, rb.send().map_err(|e| e.to_string()));
 }
 
-/// Config / provider endpoints — carry API keys, so reads are redacted and
-/// writes are blocked (see route()).
+/// The OpenCode routes a remote client may not use, and why. Credentials and
+/// sign-ins, config, MCP and plugin changes stay with the desktop; files and
+/// terminals go through the gateway's own routes, which keep to the workspace
+/// (OpenCode's would reach the whole disk); pairing and debugging are the
+/// runtime's own business.
+fn desktop_only(method: &str, path: &str) -> Option<&'static str> {
+    let under = |prefix: &str| path == prefix || path.starts_with(&format!("{prefix}/"));
+    if under("/auth") || under("/api/credential") || under("/api/pair") {
+        return Some("managed on the desktop");
+    }
+    if under("/api/integration") && method != "GET" {
+        return Some("provider sign-in is managed on the desktop");
+    }
+    if under("/api/experimental/config")
+        || under("/api/experimental/mcp")
+        || under("/api/experimental/client-mcp")
+        || (under("/api/plugin") && method != "GET")
+    {
+        return Some("provider/model config is managed on the desktop");
+    }
+    if under("/api/fs")
+        || under("/api/experimental/fs")
+        || under("/api/pty")
+        || under("/api/experimental/persistent-pty")
+        || under("/api/debug")
+        || (path.starts_with("/api/experimental/session/") && path.contains("/terminal"))
+    {
+        return Some("not available over the gateway");
+    }
+    None
+}
+
+/// OpenCode reads that can carry API keys (provider settings, MCP
+/// environments) — redacted before they leave the machine.
 fn is_config_path(path: &str) -> bool {
-    path.starts_with("/global/config") || path.starts_with("/config") || path.starts_with("/provider")
+    ["/api/config", "/api/provider", "/api/model", "/api/integration", "/api/mcp", "/api/agent"]
+        .iter()
+        .any(|p| path == *p || path.starts_with(&format!("{p}/")))
 }
 
 /// True only for a JSON object body whose sole key is `model` — the one config
@@ -2334,7 +2369,7 @@ fn terminal_output(stream: &mut TcpStream, ctx: &Ctx, rx: Receiver<String>) {
 
 /// Proxy the sidecar's SSE event stream verbatim (workspace-wide). Holds this
 /// connection thread until the sidecar closes or the client disconnects.
-fn events(stream: &mut TcpStream, ctx: &Ctx, directory: &str) {
+fn events(stream: &mut TcpStream, ctx: &Ctx) {
     let (base, pw) = match endpoint(ctx) {
         Some(v) => v,
         None => return respond_json(stream, 503, "{\"error\":\"runtime not started\"}"),
@@ -2346,7 +2381,7 @@ fn events(stream: &mut TcpStream, ctx: &Ctx, directory: &str) {
         Err(e) => return respond_json(stream, 502, &err_json(&e.to_string())),
     };
     let resp = client
-        .get(format!("{base}{}", with_query("/event", &[("directory", directory)])))
+        .get(format!("{base}/api/event"))
         .basic_auth("opencode", Some(pw))
         .send();
     let mut resp = match resp {
@@ -2522,8 +2557,10 @@ fn mux_change(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, who: &
         let (tx, ctx) = (mux.tx.clone(), ctx.clone());
         match sub.what {
             MuxWhat::Events { directory } => {
-                let dir = directory.filter(|d| !d.is_empty()).unwrap_or_else(|| ws_dir(&ctx));
-                std::thread::spawn(move || mux_events(&ctx, &sub.key, &dir, &tx, &stop));
+                // OpenCode 2 has one stream for every folder; the client keeps
+                // to its own, so the folder named here is not needed upstream.
+                let _ = directory;
+                std::thread::spawn(move || mux_events(&ctx, &sub.key, &tx, &stop));
             }
             MuxWhat::Terminal { id: tid, viewer } => {
                 // The same rule as `terminal_route`: the token reaches every
@@ -2558,7 +2595,7 @@ fn mux_change(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, who: &
 /// Forward one folder's sidecar events into a tab's stream, an event per
 /// frame. Stops at the next event after `stop` — the sidecar's heartbeat
 /// arrives every ten seconds, so an unfollowed folder lets go soon.
-fn mux_events(ctx: &Ctx, key: &str, directory: &str, tx: &Sender<String>, stop: &AtomicBool) {
+fn mux_events(ctx: &Ctx, key: &str, tx: &Sender<String>, stop: &AtomicBool) {
     let send = |field: &str, v: serde_json::Value| tx.send(mux_frame(key, field, v)).is_ok();
     let gone = || send("gone", serde_json::Value::Bool(true));
     let Some((base, pw)) = endpoint(ctx) else {
@@ -2571,7 +2608,7 @@ fn mux_events(ctx: &Ctx, key: &str, directory: &str, tx: &Sender<String>, stop: 
         return;
     };
     let resp = client
-        .get(format!("{base}{}", with_query("/event", &[("directory", directory)])))
+        .get(format!("{base}/api/event"))
         .basic_auth("opencode", Some(pw))
         .send();
     let mut resp = match resp {
@@ -2732,6 +2769,64 @@ fn upstream_delete(ctx: &Ctx, path: &str) -> UpstreamResult {
         .basic_auth("opencode", Some(pw))
         .send()
         .map_err(|e| e.to_string())
+}
+
+/// OpenCode 2's `location[directory]` query key, encoded as `with_query`
+/// writes keys verbatim.
+const LOCATION: &str = "location%5Bdirectory%5D";
+
+/// An upstream reply's `data`, or the status and reason to answer with.
+fn upstream_json(resp: UpstreamResult) -> Result<serde_json::Value, (u16, String)> {
+    let r = resp.map_err(|e| (502, format!("upstream: {e}")))?;
+    let status = r.status().as_u16();
+    let body: serde_json::Value = r.bytes().ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    if !(200..300).contains(&status) {
+        let reason = body["message"].as_str().or(body["error"].as_str()).unwrap_or("the runtime refused");
+        return Err((status, reason.to_string()));
+    }
+    Ok(v2::data(body))
+}
+
+/// A session's whole history, oldest first, in `/v1`'s shape.
+fn history(ctx: &Ctx, id: &str) -> Result<Vec<serde_json::Value>, (u16, String)> {
+    let path = format!("/api/session/{}/message", enc(id));
+    let mut wire: Vec<serde_json::Value> = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let query: Vec<(&str, &str)> = match &cursor {
+            Some(c) => vec![("limit", "200"), ("cursor", c.as_str())],
+            None => vec![("limit", "200"), ("order", "asc")],
+        };
+        let resp = upstream_get(ctx, &path, &query).map_err(|e| (502, format!("upstream: {e}")))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err((status, "session not found".into()));
+        }
+        let body: serde_json::Value = resp.bytes().ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let rows = body["data"].as_array().cloned().unwrap_or_default();
+        let count = rows.len();
+        wire.extend(rows);
+        cursor = body.pointer("/cursor/next").and_then(|c| c.as_str()).map(str::to_string);
+        if count < 200 || cursor.is_none() {
+            break;
+        }
+    }
+    Ok(v2::messages(&wire))
+}
+
+/// The open requests (permission asks or forms) of the folder `?dir=` names,
+/// else of the host's.
+fn open_requests(ctx: &Ctx, req: &Request, path: &str) -> Result<Vec<serde_json::Value>, (u16, String)> {
+    let dir = req_dir(ctx, req).map_err(|e| (400, e))?;
+    let list = upstream_json(upstream_get(ctx, path, &[(LOCATION, &dir)]))?;
+    Ok(list.as_array().cloned().unwrap_or_default())
+}
+
+fn find_request(ctx: &Ctx, req: &Request, path: &str, id: &str) -> Result<serde_json::Value, (u16, String)> {
+    open_requests(ctx, req, path)?
+        .into_iter()
+        .find(|r| r["id"] == id)
+        .ok_or((404, "that request is no longer open".into()))
 }
 
 /// Forward an upstream response to the client; returns whether it was 2xx.
@@ -3336,10 +3431,10 @@ mod tests {
         assert!(looks_static("/favicon.ico"));
         // OpenCode API paths → must NOT be treated as assets (else index.html
         // gets served and EventSource/JSON break).
-        assert!(!looks_static("/event"));
-        assert!(!looks_static("/experimental/session"));
-        assert!(!looks_static("/session/ses_07d47c275ffe6PKKbIF2DpjEhp/message"));
-        assert!(!looks_static("/permission"));
+        assert!(!looks_static("/api/event"));
+        assert!(!looks_static("/api/session"));
+        assert!(!looks_static("/api/session/ses_07d47c275ffe6PKKbIF2DpjEhp/message"));
+        assert!(!looks_static("/api/permission/request"));
         // SPA routes → extensionless, also not assets.
         assert!(!looks_static("/settings"));
         assert!(!looks_static("/live/ses_abc"));
@@ -3347,12 +3442,48 @@ mod tests {
 
     #[test]
     fn config_paths_recognized() {
-        assert!(is_config_path("/global/config"));
-        assert!(is_config_path("/config/providers"));
-        assert!(is_config_path("/provider/anthropic"));
-        assert!(!is_config_path("/session"));
-        assert!(!is_config_path("/experimental/session"));
-        assert!(!is_config_path("/auth/x")); // /auth handled separately (always blocked)
+        for p in ["/api/config", "/api/provider", "/api/provider/anthropic", "/api/model", "/api/model/default", "/api/integration", "/api/mcp", "/api/agent"] {
+            assert!(is_config_path(p), "{p}");
+        }
+        assert!(!is_config_path("/api/session"));
+        assert!(!is_config_path("/api/modelx"));
+    }
+
+    #[test]
+    fn what_stays_on_the_desktop() {
+        // Credentials, sign-ins, config and plugin changes.
+        for (m, p) in [
+            ("GET", "/api/credential"),
+            ("DELETE", "/api/credential/c1"),
+            ("POST", "/api/integration/anthropic/connect/key"),
+            ("POST", "/api/integration/x/connect/oauth"),
+            ("PATCH", "/api/experimental/config"),
+            ("PUT", "/api/experimental/mcp/jupyter"),
+            ("POST", "/api/plugin/update"),
+            ("POST", "/api/pair"),
+            ("GET", "/auth/connect/abc"),
+            // Files and terminals go through the gateway's own scoped routes.
+            ("GET", "/api/fs/read/etc/passwd"),
+            ("POST", "/api/experimental/fs/write"),
+            ("GET", "/api/pty"),
+            ("GET", "/api/experimental/persistent-pty/p1/connect"),
+            ("GET", "/api/experimental/session/s1/terminal/read"),
+            ("GET", "/api/debug/location"),
+        ] {
+            assert!(desktop_only(m, p).is_some(), "{m} {p}");
+        }
+        // What the web client needs.
+        for (m, p) in [
+            ("GET", "/api/integration"),
+            ("GET", "/api/plugin"),
+            ("GET", "/api/session"),
+            ("POST", "/api/session/s1/prompt"),
+            ("POST", "/api/session/s1/permission/p1/reply"),
+            ("GET", "/api/model"),
+            ("POST", "/api/rpc/opencode.goal/get"),
+        ] {
+            assert!(desktop_only(m, p).is_none(), "{m} {p}");
+        }
     }
 
     #[test]
@@ -3944,17 +4075,17 @@ mod tests {
 
     #[test]
     fn model_must_be_written_provider_slash_model() {
-        let m = split_model("anthropic/claude-sonnet-4-5").expect("a well-formed model");
+        let m = v2::model_ref("anthropic/claude-sonnet-4-5", None).expect("a well-formed model");
         assert_eq!(m["providerID"], "anthropic");
-        assert_eq!(m["modelID"], "claude-sonnet-4-5");
+        assert_eq!(m["id"], "claude-sonnet-4-5");
         // A model id may itself contain slashes (openrouter names do).
-        let m = split_model("openrouter/qwen/qwen3-coder").expect("nested model id");
-        assert_eq!(m["providerID"], "openrouter");
-        assert_eq!(m["modelID"], "qwen/qwen3-coder");
+        let m = v2::model_ref("openrouter/qwen/qwen3-coder", Some("high")).expect("nested model id");
+        assert_eq!(m["id"], "qwen/qwen3-coder");
+        assert_eq!(m["variant"], "high");
         // A typo must be reported, never silently answered by another model.
-        assert!(split_model("claude-sonnet-4-5").is_none());
-        assert!(split_model("/claude").is_none());
-        assert!(split_model("anthropic/").is_none());
+        assert!(v2::model_ref("claude-sonnet-4-5", None).is_none());
+        assert!(v2::model_ref("/claude", None).is_none());
+        assert!(v2::model_ref("anthropic/", None).is_none());
     }
 
     #[test]

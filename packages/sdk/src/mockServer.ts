@@ -1,344 +1,353 @@
-// A minimal OpenCode-protocol server for tests and local dev. Node-only.
-// Implements the endpoints the app uses (POST /session, POST /session/:id/prompt_async,
-// GET /event SSE) and streams an OpenCode-shaped agent turn.
+// A minimal OpenCode 2 server for tests and local dev. Node-only.
+// Implements the `/api/*` endpoints the app uses and streams turns as the real
+// server does. Every event shape here is copied from a recorded OpenCode 2.2.5
+// stream; the comments say where the real server differs in ways tests skip.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 export interface MockOpenCode {
   port: number;
-  /** Every request seen, as "METHOD /path" — lets tests assert call order. */
+  /** Every request seen, as "METHOD /path?query" — lets tests assert call order. */
   requests: string[];
-  /** Parsed prompt_async bodies, in order — lets tests assert the wire shape
-   *  (e.g. the optional agent field is present exactly when passed). */
+  /** Parsed prompt bodies, in order — lets tests assert the wire shape. */
   promptBodies: unknown[];
+  /** Every JSON body sent with a request, keyed "METHOD /path". */
+  bodies: Array<{ request: string; body: unknown }>;
   close: () => Promise<void>;
 }
+
+type Json = Record<string, unknown>;
 
 export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
   const clients = new Set<ServerResponse>();
   const requests: string[] = [];
   const promptBodies: unknown[] = [];
+  const bodies: Array<{ request: string; body: unknown }> = [];
+  const sessions = new Map<string, Json>();
+  const messages: Record<string, Json[]> = {};
+  let seq = 0;
 
-  const send = (res: ServerResponse, obj: unknown) =>
-    res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  const frame = (res: ServerResponse, obj: unknown) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  const dirOf = (sessionID: string) =>
+    ((sessions.get(sessionID)?.location as { directory?: string } | undefined)?.directory) ?? "/ws/mock";
+  /** One event, enveloped the way the server sends it. */
+  const push = (type: string, data: Json, located = true) => {
+    const sessionID = typeof data.sessionID === "string" ? data.sessionID : undefined;
+    const ev = {
+      id: `evt_${++seq}`,
+      created: 1_000 + seq,
+      type,
+      ...(located && sessionID ? { location: { directory: dirOf(sessionID) } } : {}),
+      data,
+    };
+    clients.forEach((c) => frame(c, ev));
+  };
 
-  const messages: Record<string, Array<{ info: unknown; parts: unknown[] }>> = {};
+  const tokens = (output: number) => ({ input: 3000, output, reasoning: 0, cache: { read: 118000, write: 2100 } });
 
+  // A turn: two streamed text deltas, one tool call, a second step, usage on
+  // each step's end, and the execution's end. `session.execution.*` carries no
+  // location on the real server either.
   const streamTurn = (sessionID: string) => {
-    const push = (obj: unknown) => clients.forEach((c) => send(c, obj));
-    const P = (part: Record<string, unknown>) =>
-      push({ type: "message.part.updated", properties: { part: { sessionID, ...part } } });
-    // Real OpenCode streams text as an empty part at text-start, per-token
-    // message.part.delta events, then the full part again at text-end.
-    const D = (partID: string, delta: string) =>
-      push({ type: "message.part.delta", properties: { sessionID, messageID: "m1", partID, field: "text", delta } });
-    // Real OpenCode republishes the whole assistant message as its token totals
-    // grow — the only place usage is reported at all.
-    const U = (tokens: Record<string, unknown>, completed?: number) =>
-      push({
-        type: "message.updated",
-        properties: {
-          info: {
-            id: "m1",
-            sessionID,
-            role: "assistant",
-            time: { created: 1, ...(completed ? { completed } : {}) },
-            cost: 0.42,
-            tokens,
-          },
-        },
-      });
-    P({ id: "p1", type: "text", messageID: "m1", text: "" });
-    D("p1", "Planning ");
-    U({ input: 3000, output: 12, reasoning: 0, cache: { read: 118000, write: 2100 } });
-    D("p1", "the analysis. ");
-    P({ id: "p1", type: "text", messageID: "m1", text: "Planning the analysis. " });
-    P({ id: "c1", type: "tool", callID: "c1", tool: "literature-search", state: { status: "running", title: "literature-search (OpenAlex)" } });
-    P({ id: "c1", type: "tool", callID: "c1", tool: "literature-search", state: { status: "completed", title: "literature-search (OpenAlex, PubMed)" } });
-    P({ id: "p2", type: "text", messageID: "m1", text: "Wrote data/corpus.csv and drafted report.md." });
-    U({ input: 3000, output: 900, reasoning: 0, cache: { read: 118000, write: 2100 } }, 2);
-    push({ type: "session.idle", properties: { sessionID } });
+    push("session.execution.started", { sessionID }, false);
+    push("session.step.started", { sessionID, agent: "build", assistantMessageID: "m1", started: 1 });
+    push("session.text.started", { sessionID, assistantMessageID: "m1", ordinal: 0 });
+    push("session.text.delta", { sessionID, assistantMessageID: "m1", ordinal: 0, delta: "Planning " });
+    push("session.text.delta", { sessionID, assistantMessageID: "m1", ordinal: 0, delta: "the analysis. " });
+    push("session.text.ended", { sessionID, assistantMessageID: "m1", ordinal: 0, text: "Planning the analysis. " });
+    push("session.tool.input.started", { sessionID, assistantMessageID: "m1", id: "c1", name: "literature-search" });
+    push("session.tool.called", { sessionID, assistantMessageID: "m1", id: "c1", input: { query: "OpenAlex" }, executed: false });
+    push("session.tool.success", {
+      sessionID,
+      assistantMessageID: "m1",
+      id: "c1",
+      content: [{ type: "text", text: "12 papers" }],
+      executed: false,
+    });
+    push("session.step.ended", { sessionID, assistantMessageID: "m1", finish: "tool-calls", tokens: tokens(12), cost: 0.1 });
+    push("session.step.started", { sessionID, agent: "build", assistantMessageID: "m2", started: 3 });
+    push("session.text.started", { sessionID, assistantMessageID: "m2", ordinal: 0 });
+    push("session.text.ended", { sessionID, assistantMessageID: "m2", ordinal: 0, text: "Wrote data/corpus.csv and drafted report.md." });
+    push("session.step.ended", { sessionID, assistantMessageID: "m2", finish: "stop", tokens: tokens(900), cost: 0.42 });
+    push("session.execution.succeeded", { sessionID }, false);
     messages[sessionID] = [
-      { info: { role: "user" }, parts: [{ type: "text", text: "run a literature review" }] },
+      { id: "msg_u1", type: "user", time: { created: 1 }, text: "run a literature review" },
       {
-        info: {
-          id: "m1",
-          role: "assistant",
-          time: { created: 1, completed: 2 },
-          cost: 0.42,
-          tokens: { input: 3000, output: 900, reasoning: 0, cache: { read: 118000, write: 2100 } },
-        },
-        parts: [{ type: "text", text: "Planning the analysis. Wrote data/corpus.csv." }],
-      },
-    ];
-  };
-
-  // A turn the runtime compacts. Mirrors SessionCompaction.create: OpenCode
-  // opens a message with role "user" and hangs the compaction part off THAT,
-  // which is why the echoed-user-text guard has to let this part through.
-  const streamCompactedTurn = (sessionID: string) => {
-    const push = (obj: unknown) => clients.forEach((c) => send(c, obj));
-    push({
-      type: "message.updated",
-      properties: { info: { id: "mc", sessionID, role: "user", time: { created: 1 } } },
-    });
-    push({
-      type: "message.part.updated",
-      properties: {
-        part: { id: "pc", sessionID, messageID: "mc", type: "compaction", auto: true, overflow: true },
-      },
-    });
-    push({ type: "message.part.updated", properties: { part: { id: "p9", sessionID, messageID: "m2", type: "text", text: "Carrying on." } } });
-    push({ type: "session.idle", properties: { sessionID } });
-    messages[sessionID] = [
-      { info: { id: "mc", role: "user", time: { created: 1 } }, parts: [{ type: "compaction", auto: true, overflow: true }] },
-      { info: { id: "m2", role: "assistant", time: { created: 2 } }, parts: [{ type: "text", text: "Carrying on." }] },
-    ];
-  };
-
-  // A turn whose model call fails: the server announces the retry via
-  // session.status, gives up with session.error, and the stored assistant
-  // message carries the error (that is all a reloaded history has to show).
-  const streamFlakyTurn = (sessionID: string) => {
-    const push = (obj: unknown) => clients.forEach((c) => send(c, obj));
-    const error = { name: "APICallError", data: { message: "no channel available for this model" } };
-    push({
-      type: "session.status",
-      properties: { sessionID, status: { type: "retry", attempt: 2, message: error.data.message, next: 1234 } },
-    });
-    push({ type: "session.error", properties: { sessionID, error } });
-    push({ type: "session.idle", properties: { sessionID } });
-    messages[sessionID] = [
-      { info: { role: "user" }, parts: [{ type: "text", text: "flaky" }] },
-      { info: { role: "assistant", time: { created: 1, completed: 2 }, error }, parts: [] },
-    ];
-  };
-
-  // A turn refused because the account cannot make the call at all: the retry
-  // status carries an `action` naming the cause, the provider and the way out.
-  // Copied from what the pinned runtime emits for OpenCode Zen's spent free
-  // allowance (its `FreeUsageLimitError` branch), which is the shape the app
-  // has to tell apart from an ordinary provider hiccup (#117).
-  const streamQuotaTurn = (sessionID: string) => {
-    const push = (obj: unknown) => clients.forEach((c) => send(c, obj));
-    const message = "Free usage exceeded, subscribe to Go";
-    push({
-      type: "session.status",
-      properties: {
-        sessionID,
-        status: {
-          type: "retry",
-          attempt: 1,
-          message,
-          next: 1234,
-          action: {
-            reason: "free_tier_limit",
-            provider: "opencode",
-            title: "Free limit reached",
-            message: "Subscribe to OpenCode Go for reliable access…",
-            label: "subscribe",
-            link: "https://opencode.ai/go",
+        id: "m1",
+        type: "assistant",
+        agent: "build",
+        model: { id: "mock-model", providerID: "mock" },
+        time: { created: 1, completed: 2 },
+        content: [
+          { type: "text", text: "Planning the analysis. " },
+          {
+            type: "tool",
+            id: "c1",
+            name: "literature-search",
+            state: { status: "completed", input: { query: "OpenAlex" }, content: [{ type: "text", text: "12 papers" }] },
+            time: { created: 1, ran: 1, completed: 2 },
           },
+        ],
+        cost: 0.1,
+        tokens: tokens(12),
+      },
+      {
+        id: "m2",
+        type: "assistant",
+        agent: "build",
+        model: { id: "mock-model", providerID: "mock" },
+        time: { created: 3, completed: 4 },
+        content: [{ type: "text", text: "Wrote data/corpus.csv and drafted report.md." }],
+        cost: 0.42,
+        tokens: tokens(900),
+      },
+      { id: "msg_idle", type: "idle", time: { created: 5 }, outcome: "succeeded" },
+    ];
+  };
+
+  // A turn the runtime compacts on its own, then carries on.
+  const streamCompactedTurn = (sessionID: string) => {
+    push("session.execution.started", { sessionID }, false);
+    push("session.compaction.started", { sessionID, reason: "auto" });
+    push("session.compaction.ended", { sessionID, reason: "auto", text: "summary" });
+    push("session.step.started", { sessionID, agent: "build", assistantMessageID: "m3", started: 1 });
+    push("session.text.ended", { sessionID, assistantMessageID: "m3", ordinal: 0, text: "Carrying on." });
+    push("session.step.ended", { sessionID, assistantMessageID: "m3", finish: "stop", tokens: tokens(5), cost: 0 });
+    push("session.execution.succeeded", { sessionID }, false);
+    messages[sessionID] = [
+      { id: "mc", type: "compaction", status: "completed", reason: "auto", summary: "summary", time: { created: 1 } },
+      { id: "m3", type: "assistant", agent: "build", time: { created: 2, completed: 3 }, content: [{ type: "text", text: "Carrying on." }] },
+      { id: "msg_idle", type: "idle", time: { created: 4 }, outcome: "succeeded" },
+    ];
+  };
+
+  // A turn whose model call fails: a retry is scheduled, then the execution
+  // fails, and the stored step carries the error (all a reload has to show).
+  const streamFlakyTurn = (sessionID: string) => {
+    const error = { type: "api", message: "no channel available for this model" };
+    push("session.execution.started", { sessionID }, false);
+    push("session.retry.scheduled", { sessionID, assistantMessageID: "mf", attempt: 2, at: 1234, error });
+    push("session.execution.failed", { sessionID, error }, false);
+    messages[sessionID] = [
+      { id: "msg_u", type: "user", time: { created: 1 }, text: "flaky" },
+      { id: "mf", type: "assistant", agent: "build", time: { created: 1, completed: 2 }, content: [], error },
+      { id: "msg_idle", type: "idle", time: { created: 3 }, outcome: "failed" },
+    ];
+  };
+
+  // A turn refused because the account cannot make the call at all: the
+  // retry status names the cause, the provider and the way out — the shape
+  // OpenCode emits for Zen's spent free allowance (#117).
+  const streamQuotaTurn = (sessionID: string) => {
+    const message = "Free usage exceeded, subscribe to Go";
+    push("session.execution.started", { sessionID }, false);
+    push("session.status", {
+      sessionID,
+      status: {
+        type: "retry",
+        attempt: 1,
+        message,
+        next: 1234,
+        action: {
+          reason: "free_tier_limit",
+          provider: "opencode",
+          title: "Free limit reached",
+          message: "Subscribe to OpenCode Go for reliable access…",
+          label: "subscribe",
+          link: "https://opencode.ai/go",
         },
       },
     });
-    push({
-      type: "session.error",
-      properties: { sessionID, error: { name: "APICallError", data: { message } } },
-    });
-    push({ type: "session.idle", properties: { sessionID } });
+    push("session.execution.failed", { sessionID, error: { type: "api", message } }, false);
   };
 
-  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const url = req.url ?? "";
-    requests.push(`${req.method} ${url}`);
-    if (req.method === "POST" && url.split("?")[0] === "/instance/dispose") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end("true");
-      return;
-    }
-    // A provider whose key the server rejects — carries a diagnostic message.
-    if (req.method === "PUT" && url === "/auth/bad") {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ name: "InvalidKey", data: { message: "invalid key format" } }));
-      return;
-    }
-    if (req.method === "POST" && url === "/provider/slow/oauth/callback") {
-      // Never answers — like a real "auto" flow waiting on the browser
-      // redirect. Lets tests exercise cancelling the pending login.
-      return;
-    }
-    if (req.method === "POST" && /^\/provider\/[^/]+\/oauth\/callback$/.test(url)) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end("true");
-      return;
-    }
-    if (req.method === "GET" && url.startsWith("/event")) {
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+  const json = (res: ServerResponse, status: number, body: unknown) => {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body));
+  };
+
+  const readBody = (req: IncomingMessage): Promise<unknown> =>
+    new Promise((resolve) => {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        if (!body) return resolve(undefined);
+        try {
+          resolve(JSON.parse(body));
+        } catch {
+          resolve(body);
+        }
       });
-      send(res, { type: "server.connected", properties: {} });
+    });
+
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const url = req.url ?? "";
+    const path = url.split("?")[0];
+    const method = req.method ?? "GET";
+    requests.push(`${method} ${url}`);
+
+    if (method === "GET" && path === "/api/event") {
+      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+      frame(res, { id: "evt_0", type: "server.connected", data: {} });
       clients.add(res);
       req.on("close", () => clients.delete(res));
       return;
     }
-    if (req.method === "POST" && /^\/session\/?$/.test(url)) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ id: "ses_mock", title: "New session", slug: "mock" }));
-      return;
+    // A login waiting on the browser: never settles.
+    if (method === "GET" && /^\/api\/integration\/slow\/connect\/oauth\/[^/]+$/.test(path)) {
+      return json(res, 200, { data: { status: "pending", time: { created: 1, expires: 2 } } });
     }
-    if (req.method === "GET" && /^\/session\/?$/.test(url)) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify([{ id: "ses_mock", title: "New session", slug: "mock" }]));
-      return;
+
+    const body = method === "GET" || method === "DELETE" ? undefined : await readBody(req);
+    if (body !== undefined) bodies.push({ request: `${method} ${path}`, body });
+
+    if (method === "POST" && path === "/api/session") {
+      const b = (body ?? {}) as Json;
+      const id = "ses_mock";
+      const s = { id, title: (b.title as string) ?? "New session", location: b.location ?? { directory: "/ws/mock" }, time: { created: 1, updated: 1 } };
+      sessions.set(id, s);
+      return json(res, 200, { data: s });
     }
-    if (req.method === "DELETE" && /^\/session\/[^/]+$/.test(url)) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end("true");
-      return;
+    if (method === "GET" && path === "/api/session") {
+      return json(res, 200, { data: [...sessions.values()], cursor: { next: null } });
     }
-    if (req.method === "POST" && /^\/session\/[^/]+\/abort$/.test(url)) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end("true");
-      return;
-    }
-    if (req.method === "POST" && /^\/session\/[^/]+\/(un)?revert$/.test(url)) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end("{}");
-      return;
-    }
-    const mm = url.match(/^\/session\/([^/]+)\/message/);
-    if (req.method === "GET" && mm) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(messages[decodeURIComponent(mm[1])] ?? []));
-      return;
-    }
-    // v1 shape: a bare array, unsorted (OpenCode returns discovery order).
-    if (req.method === "GET" && url.startsWith("/skill")) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify([
-          { name: "home-skill", description: "From ~/.claude/skills.", location: "/home/u/.claude/skills/home-skill/SKILL.md" },
-          { name: "customize-opencode", description: "Configure OpenCode.", location: "<built-in>" },
-        ]),
-      );
-      return;
-    }
-    if (req.method === "GET" && url === "/config") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ model: "mock/mock-model" }));
-      return;
-    }
-    if (req.method === "PATCH" && (url === "/config" || url === "/global/config")) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end("{}");
-      return;
-    }
-    if (req.method === "GET" && url === "/config/providers") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          providers: [
-            { id: "mock", name: "Mock Provider", models: { "mock-model": { name: "Mock Model" } } },
-          ],
-        }),
-      );
-      return;
-    }
-    if (req.method === "GET" && url === "/provider") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          all: [
-            { id: "mock", name: "Mock Provider", env: ["MOCK_API_KEY"] },
-            { id: "anthropic", name: "Anthropic", env: ["ANTHROPIC_API_KEY"] },
-          ],
-          connected: ["mock"],
-        }),
-      );
-      return;
-    }
-    if (req.method === "GET" && url === "/provider/auth") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ mock: [{ type: "api", label: "Manually enter API Key" }] }));
-      return;
-    }
-    if ((req.method === "PUT" || req.method === "DELETE") && url.startsWith("/auth/")) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end("true");
-      return;
-    }
-    if (req.method === "GET" && (url === "/agent" || url === "/api/agent")) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify([{ name: "build", description: "Default agent.", mode: "primary" }]));
-      return;
-    }
-    if (req.method === "GET" && url.startsWith("/command")) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify([
-          { name: "init", description: "guided AGENTS.md setup", source: "command" },
-          { name: "analyze-data", description: "Analyze a dataset end to end.", source: "skill" },
-        ]),
-      );
-      return;
-    }
-    const sh = url.match(/^\/session\/([^/]+)\/shell/);
-    if (req.method === "POST" && sh) {
-      const sessionID = decodeURIComponent(sh[1]);
-      const push = (obj: unknown) => clients.forEach((c) => send(c, obj));
-      push({
-        type: "message.part.updated",
-        properties: {
-          part: {
-            sessionID,
-            id: "psh",
-            type: "tool",
-            callID: "csh",
-            tool: "bash",
-            state: { status: "completed", title: "pwd", input: { command: "pwd" }, output: "/ws/mock\n" },
-          },
-        },
-      });
-      push({ type: "session.idle", properties: { sessionID } });
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ info: { role: "assistant" }, parts: [] }));
-      return;
-    }
-    const cm = url.match(/^\/session\/([^/]+)\/command/);
-    if (req.method === "POST" && cm) {
-      const sessionID = decodeURIComponent(cm[1]);
-      streamTurn(sessionID);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ info: { role: "assistant" }, parts: [] }));
-      return;
-    }
-    const m = url.match(/^\/session\/([^/]+)\/prompt_async/);
-    if (req.method === "POST" && m) {
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-      req.on("end", () => {
-        try {
-          promptBodies.push(JSON.parse(body));
-        } catch {
-          promptBodies.push(body);
-        }
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end("{}");
-        const turn = body.includes("flaky")
+    const sm = path.match(/^\/api\/session\/([^/]+)(\/.*)?$/);
+    if (sm) {
+      const sessionID = decodeURIComponent(sm[1]);
+      const rest = sm[2] ?? "";
+      if (rest === "" && method === "GET") {
+        const s = sessions.get(sessionID);
+        return s ? json(res, 200, { data: s }) : json(res, 404, { _tag: "SessionNotFoundError", sessionID, message: "not found" });
+      }
+      if (rest === "" && method === "PATCH") return json(res, 200, { data: sessions.get(sessionID) ?? {} });
+      if (rest === "" && method === "DELETE") {
+        sessions.delete(sessionID);
+        return json(res, 200, {});
+      }
+      if (rest === "/message" && method === "GET")
+        return json(res, 200, { data: messages[sessionID] ?? [], cursor: { next: null } });
+      if (rest === "/inbox" && method === "GET") return json(res, 200, { data: [] });
+      if (rest === "/prompt" && method === "POST") {
+        promptBodies.push(body);
+        const text = String((body as Json | undefined)?.text ?? "");
+        json(res, 200, { data: { id: "msg_u1", sessionID, type: "user", payload: { text }, delivery: "steer" } });
+        push("session.inbox.enqueued", { inboxID: "msg_u1", sessionID, item: { type: "user", payload: { text }, delivery: "steer" } });
+        const turn = text.includes("flaky")
           ? streamFlakyTurn
-          : body.includes("out of quota")
+          : text.includes("out of quota")
             ? streamQuotaTurn
-            : body.includes("compact")
+            : text.includes("compact")
               ? streamCompactedTurn
               : streamTurn;
-        setTimeout(() => turn(decodeURIComponent(m[1])), 5);
-      });
-      return;
+        setTimeout(() => turn(sessionID), 5);
+        return;
+      }
+      if (rest === "/command" && method === "POST") {
+        json(res, 200, { data: {} });
+        setTimeout(() => streamTurn(sessionID), 5);
+        return;
+      }
+      if (rest === "/shell" && method === "POST") {
+        const command = String((body as Json | undefined)?.command ?? "");
+        json(res, 200, { data: {} });
+        const shell = { id: "sh_1", command, status: "running" };
+        push("session.shell.started", { sessionID, shell });
+        push("session.shell.ended", { sessionID, shell: { ...shell, status: "exited" }, output: { output: "/ws/mock\n" } });
+        return;
+      }
+      if (["/agent", "/model", "/interrupt", "/compact", "/revert/stage", "/revert/commit", "/synthetic"].includes(rest) && method === "POST")
+        return json(res, 200, { data: {} });
+      if (rest === "/revert" && method === "DELETE") return json(res, 200, {});
+      if (rest === "/fork" && method === "POST") return json(res, 200, { data: { id: "ses_fork" } });
+      return json(res, 404, {});
     }
-    res.writeHead(404);
-    res.end();
+
+    if (method === "GET" && path === "/api/skill") {
+      // Discovery order, unsorted, as the server returns it.
+      return json(res, 200, {
+        data: [
+          { id: "home-skill", name: "home-skill", description: "From ~/.claude/skills.", path: "/home/u/.claude/skills/home-skill/SKILL.md", content: "" },
+          { id: "customize-opencode", name: "customize-opencode", description: "Configure OpenCode.", path: "<built-in>", content: "" },
+        ],
+      });
+    }
+    if (method === "GET" && path === "/api/agent") {
+      return json(res, 200, {
+        data: [
+          { id: "build", name: "build", description: "Default agent.", mode: "primary", hidden: false },
+          { id: "title", name: "title", mode: "primary", hidden: true },
+        ],
+      });
+    }
+    if (method === "GET" && path === "/api/command") {
+      return json(res, 200, {
+        data: [
+          { name: "init", description: "guided AGENTS.md setup" },
+          { name: "analyze-data", description: "Analyze a dataset end to end." },
+        ],
+      });
+    }
+    if (method === "GET" && path === "/api/model") {
+      return json(res, 200, {
+        data: [
+          {
+            id: "mock-model",
+            modelID: "mock-model",
+            providerID: "mock",
+            name: "Mock Model",
+            type: "chat",
+            enabled: true,
+            variants: [],
+            limit: { context: 200000, output: 8000 },
+            cost: [{ input: 1, output: 2, cache: { read: 0, write: 0 } }],
+          },
+        ],
+      });
+    }
+    if (method === "GET" && path === "/api/model/default") {
+      return json(res, 200, { data: { id: "mock-model", providerID: "mock" } });
+    }
+    if (method === "GET" && path === "/api/provider") {
+      return json(res, 200, { data: [{ id: "mock", name: "Mock Provider", activation: "auto", package: "x" }] });
+    }
+    if (method === "GET" && path === "/api/integration") {
+      return json(res, 200, {
+        data: [
+          {
+            id: "mock",
+            name: "Mock Provider",
+            methods: [{ type: "key", label: "Manually enter API Key" }, { type: "env", names: ["MOCK_API_KEY"] }],
+            connections: [{ type: "credential", id: "cred_mock" }],
+          },
+          {
+            id: "anthropic",
+            name: "Anthropic",
+            methods: [{ id: "claude", type: "oauth", label: "Claude Pro/Max" }, { type: "key" }, { type: "env", names: ["ANTHROPIC_API_KEY"] }],
+            connections: [],
+          },
+          { id: "slow", name: "Slow", methods: [{ id: "browser", type: "oauth", label: "Browser" }], connections: [] },
+        ],
+      });
+    }
+    // A provider whose key the server rejects — carries a diagnostic message.
+    if (method === "POST" && path === "/api/integration/bad/connect/key")
+      return json(res, 400, { _tag: "InvalidRequestError", message: "invalid key format" });
+    if (method === "POST" && /^\/api\/integration\/[^/]+\/connect\/key$/.test(path)) return json(res, 200, { data: {} });
+    const oauth = path.match(/^\/api\/integration\/([^/]+)\/connect\/oauth$/);
+    if (method === "POST" && oauth) {
+      return json(res, 200, {
+        data: { attemptID: `att_${oauth[1]}`, url: "https://login.example/authorize", instructions: "", mode: "auto", time: { created: 1, expires: 2 } },
+      });
+    }
+    if (method === "GET" && /^\/api\/integration\/[^/]+\/connect\/oauth\/[^/]+$/.test(path))
+      return json(res, 200, { data: { status: "complete", time: { created: 1, expires: 2 } } });
+    if (method === "GET" && path === "/api/credential")
+      return json(res, 200, { data: [{ id: "cred_mock", integrationID: "mock", label: "key", active: true, value: {} }] });
+    if (method === "DELETE" && /^\/api\/credential\/[^/]+$/.test(path)) return json(res, 200, {});
+    if (method === "GET" && path === "/api/mcp")
+      return json(res, 200, { data: [{ name: "jupyter", status: { status: "connected" } }] });
+    if (method === "GET" && (path === "/api/form" || path === "/api/permission/request")) return json(res, 200, { data: [] });
+
+    json(res, 404, {});
   });
 
   return new Promise((resolve) => {
@@ -349,6 +358,7 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
         port: actualPort,
         requests,
         promptBodies,
+        bodies,
         close: () =>
           new Promise((r) => {
             for (const c of clients) c.end();

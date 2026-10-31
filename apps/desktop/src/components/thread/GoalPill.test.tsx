@@ -2,20 +2,17 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
-import * as tauri from "@/lib/tauri";
+import * as runtime from "@/lib/runtime";
 import { GoalPill } from "./GoalPill";
 
-vi.mock("@/lib/tauri", async (importOriginal) => {
-  const mod = await importOriginal<typeof tauri>();
-  return { ...mod, goalState: vi.fn(), goalUpdate: vi.fn() };
-});
-const goalState = vi.mocked(tauri.goalState);
-const goalUpdate = vi.mocked(tauri.goalUpdate);
+vi.mock("@/lib/runtime", () => ({ goalState: vi.fn(), goalUpdate: vi.fn() }));
+const goalState = vi.mocked(runtime.goalState);
+const goalUpdate = vi.mocked(runtime.goalUpdate);
 
 const activeGoal = {
   objective: "Reproduce figure 3 from the paper",
   status: "active" as const,
-  autoTurns: 2,
+  rounds: 2,
 };
 
 describe("GoalPill", () => {
@@ -54,16 +51,15 @@ describe("GoalPill", () => {
     expect(screen.getByRole("button", { name: "Resume the goal" })).toBeInTheDocument();
   });
 
-  it("resume kicks one turn via onResumed (a paused session has no idle left)", async () => {
+  it("resumes through the goal itself, which sends its own continuation", async () => {
     goalState.mockResolvedValue({ ...activeGoal, status: "paused" });
     goalUpdate.mockResolvedValue({ ...activeGoal, status: "active" });
-    const onResumed = vi.fn();
-    render(<GoalPill sessionId="s1" onResumed={onResumed} />);
+    render(<GoalPill sessionId="s1" />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Resume the goal" }));
 
     expect(goalUpdate).toHaveBeenCalledWith("s1", "resume");
-    expect(onResumed).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("button", { name: /Pause the goal/ })).toBeInTheDocument();
   });
 
   it("clears the goal and disappears", async () => {
@@ -92,25 +88,19 @@ describe("GoalPill", () => {
     expect(dialog).toHaveTextContent("Reproduce figure 3 from the paper");
   });
 
-  it("shows the blocker tone when the goal is unmet", async () => {
-    goalState.mockResolvedValue({
-      objective: "x",
-      status: "unmet",
-      blocker: "missing dataset",
-    });
-    render(<GoalPill sessionId="s1" />);
-    expect(await screen.findByText("blocked")).toBeInTheDocument();
-    // Unmet goals keep only the clear control — nothing to pause.
-    expect(screen.queryByRole("button", { name: /Pause/ })).not.toBeInTheDocument();
+  it("says why a goal paused", async () => {
+    goalState.mockResolvedValue({ objective: "x", status: "paused", rounds: 0, reason: "Reached the limit of 50 rounds" });
+    const { container } = render(<GoalPill sessionId="s1" />);
+    expect(await screen.findByText("paused")).toBeInTheDocument();
+    expect(container.firstElementChild?.getAttribute("title")).toContain("Reached the limit of 50 rounds");
+    expect(screen.getByRole("button", { name: /Resume/ })).toBeInTheDocument();
   });
 
-  it("shows the limit tone for a budget-limited goal", async () => {
-    goalState.mockResolvedValue({
-      objective: "x",
-      status: "budgetLimited",
-      lastStatus: "Token budget exhausted",
-    });
-    render(<GoalPill sessionId="s1" />);
-    expect(await screen.findByText("limit reached")).toBeInTheDocument();
+  it("shows a finished goal with the reviewer's evidence and nothing to pause", async () => {
+    goalState.mockResolvedValue({ objective: "x", status: "complete", rounds: 3, reason: "All checks pass" });
+    const { container } = render(<GoalPill sessionId="s1" />);
+    expect(await screen.findByText("done")).toBeInTheDocument();
+    expect(container.firstElementChild?.getAttribute("title")).toContain("All checks pass");
+    expect(screen.queryByRole("button", { name: /Pause/ })).not.toBeInTheDocument();
   });
 });

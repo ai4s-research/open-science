@@ -552,48 +552,26 @@ export async function providerAuthExists(providerID: string): Promise<boolean> {
   }
 }
 
-/** Per-session goal-mode state, as the bundled goal plugin records it.
- *  Passed through verbatim from goals.json — the plugin owns the schema. */
-export interface GoalState {
-  objective: string;
-  /** The plugin's status enum (its schema owns the literals). */
-  status: "active" | "paused" | "budgetLimited" | "usageLimited" | "complete" | "unmet" | string;
-  autoTurns?: number | null;
-  blocker?: string | null;
-  completionEvidence?: string | null;
-  lastStatus?: string | null;
-}
-
-/** The session's current goal (null when none / in browser dev). Reads the
- *  plugin's state file directly — a status pill must not cost a model turn. */
-export async function goalState(sessionId: string): Promise<GoalState | null> {
-  if (!isTauri) return null;
-  const { invoke } = await import("@tauri-apps/api/core");
-  try {
-    return await invoke<GoalState | null>("goal_state", { sessionId });
-  } catch {
-    return null;
-  }
-}
-
-/** Pause / resume / clear the session's goal from the UI (no model turn).
- *  Continuation only fires while status is "active", so pause stops the loop
- *  at the next idle. Returns the new state (null after clear). */
-export async function goalUpdate(
-  sessionId: string,
-  action: "pause" | "resume" | "clear",
-): Promise<GoalState | null> {
-  if (!isTauri) return null;
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<GoalState | null>("goal_update", { sessionId, action });
-}
-
-/** Remove a provider/mcp entry from the global OpenCode config (restarts the sidecar). */
+/** Remove a provider/mcp entry from the global OpenCode config. The runtime
+ *  applies the edit itself. */
 export async function removeConfigEntry(section: "provider" | "mcp", key: string): Promise<void> {
   if (!isTauri) throw new Error("not running in the desktop app");
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("remove_config_entry", { section, key });
 }
+
+/** OpenCode's config file, as the SDK's `ConfigStore` (desktop only: it
+ *  holds provider keys). OpenCode 2 applies an edit within a second. */
+export const desktopConfigStore = {
+  async read(): Promise<Record<string, unknown>> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<Record<string, unknown>>("read_opencode_config");
+  },
+  async patch(patch: Record<string, unknown>): Promise<void> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("patch_opencode_config", { patch });
+  },
+};
 
 export interface JupyterStatus {
   installed: boolean;

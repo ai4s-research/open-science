@@ -76,6 +76,40 @@ export function gatewayOrigin(): string {
   return typeof window !== "undefined" ? window.location.origin : "";
 }
 
+/** OpenCode's config as the gateway lets a web client see it: provider keys
+ *  redacted on read, and only the default model writable — keys and providers
+ *  are managed on the desktop. A refusal carries the gateway's reason. */
+export const gatewayConfigStore = {
+  async read(): Promise<Record<string, unknown>> {
+    const res = await fetch(`${gatewayOrigin()}/v1/opencode-config`, { headers: authHeader() });
+    if (!res.ok) throw new Error(await refusal(res));
+    return (await res.json()) as Record<string, unknown>;
+  },
+  async patch(patch: Record<string, unknown>): Promise<void> {
+    const res = await fetch(`${gatewayOrigin()}/v1/opencode-config`, {
+      method: "PATCH",
+      headers: { ...authHeader(), "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(await refusal(res));
+  },
+};
+
+function authHeader(): Record<string, string> {
+  const token = gatewayToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function refusal(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string };
+    if (body.error) return body.error;
+  } catch {
+    /* not JSON */
+  }
+  return `the gateway answered ${res.status}`;
+}
+
 /** If the page was opened with a token in the URL (`#token=…`, or `?token=` as a
  *  fallback), store it and scrub it from the address bar. This lets a copied
  *  link auto-authenticate — no pasting the token. Using the hash keeps the token

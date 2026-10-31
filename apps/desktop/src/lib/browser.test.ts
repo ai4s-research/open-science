@@ -4,18 +4,12 @@ import {
   BROWSER_NAMESPACE,
   buildBrowserMcpConfig,
 } from "./browser";
-import * as guard from "../../../../runtime/browser-plugin/browser-guard";
+import { applyBrowserLease as lease } from "../../../../runtime/osd-plugin/browser";
+import { ShellOrigins } from "../../../../runtime/osd-plugin/origin";
 
-/** Drive the guard the way OpenCode does — through the registered hook. The
- *  helpers behind it are deliberately not exported; see the export test. */
-const applyBrowserLease = async (
-  tool: string,
-  args: unknown,
-  sessionID: string,
-): Promise<void> => {
-  const hook = (await guard.BrowserGuardPlugin())["tool.execute.before"];
-  await hook({ tool, sessionID }, { args });
-};
+/** The guard the plugin's `tool.execute.before` hook runs on every call. */
+const applyBrowserLease = async (tool: string, args: unknown, sessionID: string): Promise<void> =>
+  lease(tool, args, sessionID);
 
 describe("buildBrowserMcpConfig", () => {
   it("owns one namespace and reclaims an idle browser", () => {
@@ -57,25 +51,6 @@ describe("buildBrowserMcpConfig", () => {
 });
 
 describe("browser lease plugin", () => {
-  // The guard shipped in v0.4.0 and never once loaded: OpenCode's external
-  // plugin loader calls EVERY export as a plugin factory, so the exported
-  // helpers ran with no arguments and threw `tool.startsWith is not a
-  // function` — 51 ERROR lines in one local log across four days, each one a
-  // run with no lease injection at all. It fails at ERROR and the run
-  // continues, which is why nothing surfaced in the UI; what the user sees
-  // instead is the proxy rejecting every browser call it guards, since the
-  // lease it validates is the one this plugin was supposed to attach. Hence
-  // the export-shape test, and driving the rest through the hook.
-  it("exports the plugin factory and nothing else", () => {
-    expect(Object.keys(guard)).toEqual(["BrowserGuardPlugin"]);
-  });
-
-  it("survives the loader calling every export with no arguments", async () => {
-    for (const value of Object.values(guard)) {
-      await expect((value as () => unknown)()).resolves.toBeDefined();
-    }
-  });
-
   it("replaces model-owned launch and session overrides with the conversation lease", async () => {
     const args: Record<string, unknown> = {
       url: "https://example.com",
@@ -116,5 +91,30 @@ describe("browser lease plugin", () => {
     const args = { session: "keep", allowedDomains: ["example.com"] };
     await applyBrowserLease("another-browser_open", args, "ses_123abc");
     expect(args).toEqual({ session: "keep", allowedDomains: ["example.com"] });
+  });
+});
+
+describe("ShellOrigins (the conversation a shell command runs for)", () => {
+  it("hands each shell the session whose tool call started it, once", () => {
+    const origins = new ShellOrigins();
+    origins.expect("osd session send x", "ses_a");
+    origins.expect("ls", "ses_b");
+    expect(origins.take("ls")).toBe("ses_b");
+    expect(origins.take("osd session send x")).toBe("ses_a");
+    expect(origins.take("ls")).toBeUndefined();
+  });
+
+  it("gives a terminal the user opened no origin, and forgets calls no shell claimed", () => {
+    let now = 0;
+    const origins = new ShellOrigins(1000, 2, () => now);
+    expect(origins.take("vim")).toBeUndefined();
+    origins.expect("denied", "ses_a");
+    now = 5000;
+    expect(origins.take("denied")).toBeUndefined();
+    origins.expect("a", "s1");
+    origins.expect("b", "s2");
+    origins.expect("c", "s3");
+    expect(origins.take("a")).toBeUndefined();
+    expect(origins.take("c")).toBe("s3");
   });
 });

@@ -6,6 +6,7 @@ import {
   type AgentInfo,
   type AgentRuntime,
   type CommandInfo,
+  type GoalInfo,
   type HistoryMessage,
   type OpenCodeEvent,
   type PermissionAskedEvent,
@@ -34,6 +35,7 @@ import {
   setProjectPinned as setProjectPinnedCmd,
   moveSessionToProject as moveSessionToProjectCmd,
   deleteProject as deleteProjectCmd,
+  desktopConfigStore,
   getAgentModels,
   getAgentVariants,
   getApprovalMode,
@@ -60,7 +62,7 @@ import {
   type ProxyMode,
   type ToolStatus,
 } from "./tauri";
-import { isGatewayWeb, gatewayToken, gatewayOrigin, setSignedInAccount } from "./webMode";
+import { isGatewayWeb, gatewayToken, gatewayOrigin, gatewayConfigStore, setSignedInAccount } from "./webMode";
 import { followEvents } from "./gatewayMux";
 import {
   activeAcpAgent,
@@ -125,6 +127,10 @@ import i18n from "@/i18n";
 /** Web: every event stream of this tab rides its one connection (see
  *  gatewayMux) — a browser allows six per host, shared by all its tabs. */
 const eventStream = isGatewayWeb ? followEvents : undefined;
+
+/** Where OpenCode's config is read and written: the desktop edits the file;
+ *  a web client goes through the gateway, which keeps keys on the desktop. */
+const configStore = isGatewayWeb ? gatewayConfigStore : isTauri ? desktopConfigStore : undefined;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const URL_KEY = "ai4s.opencodeUrl";
@@ -1057,6 +1063,7 @@ async function shareMcpServers(runtime: AcpRuntime, baseUrl: string, password: s
     const config = new OpenCodeClient({
       baseUrl,
       password: password ?? undefined,
+      config: configStore,
       // The sidecar is local; a connector list is not worth stalling a connect.
       requestTimeoutMs: 4000,
     });
@@ -2743,6 +2750,46 @@ export function getClient(): OpenCodeClient | null {
   return opencodeClient;
 }
 
+/** A session's goal (/goal), as the session header shows it. */
+export interface GoalState {
+  objective: string;
+  status: GoalInfo["status"];
+  /** Continuations sent since the goal was set or last resumed. */
+  rounds: number;
+  /** Why it last changed: the reviewer's verdict, or what paused it. */
+  reason?: string;
+}
+
+/** The OpenCode client that answers for this session, if it is OpenCode's. */
+function goalClient(sessionId: string): OpenCodeClient | null {
+  const c = clientForSession(useRuntimeStore.getState, sessionId);
+  return c instanceof OpenCodeClient ? c : null;
+}
+
+function toGoalState(goal: GoalInfo | null): GoalState | null {
+  return goal
+    ? { objective: goal.objective, status: goal.status, rounds: goal.rounds, ...(goal.reason ? { reason: goal.reason } : {}) }
+    : null;
+}
+
+/** The session's goal, or null when it has none (or its runtime has no goal
+ *  mode). A status read: it costs no model turn. */
+export async function goalState(sessionId: string): Promise<GoalState | null> {
+  try {
+    return toGoalState((await goalClient(sessionId)?.getGoal(sessionId)) ?? null);
+  } catch {
+    return null;
+  }
+}
+
+/** Pause, resume or clear the session's goal. Resume sends the goal's own
+ *  continuation turn — the app adds none. */
+export async function goalUpdate(sessionId: string, action: "pause" | "resume" | "clear"): Promise<GoalState | null> {
+  const c = goalClient(sessionId);
+  if (!c) return null;
+  return toGoalState(await c.updateGoal(sessionId, action));
+}
+
 /** The reasoning variant to send with a turn: the user's pick, but only when the
  *  current default model actually exposes it. Variant vocabularies differ per
  *  model (OpenAI has "minimal", Anthropic has "max", many models have none), so
@@ -3506,6 +3553,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       directory: directory ?? undefined,
       password: password ?? undefined,
       eventStream,
+      config: configStore,
     });
     opencodeClient = c;
     client = c;

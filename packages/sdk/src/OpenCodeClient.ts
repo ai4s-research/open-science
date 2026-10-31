@@ -9,6 +9,7 @@ import type {
   McpServer,
   OAuthAuthorization,
   EventStreamOpener,
+  GoalInfo,
   OpenCodeClientOptions,
   OpenCodeRawEvent,
   PermissionReply,
@@ -310,6 +311,8 @@ interface WireMessage {
   metadata?: Record<string, unknown>;
   // user / synthetic
   text?: string;
+  /** A synthetic message's one-line notice (a goal's kickoff has one). */
+  description?: string;
   files?: Array<{ mime?: string; name?: string; data?: string; source?: { type?: string; uri?: string } }>;
   // assistant
   agent?: string;
@@ -404,13 +407,28 @@ export function toHistory(wire: WireMessage[]): HistoryMessage[] {
             ...(created ? { created, completed: created } : {}),
             parts: [{ type: "text", text: m.text ?? "", synthetic: true }],
           });
-        } else {
-          out.push({
+        } else if (m.metadata?.source === "goal" && m.description?.startsWith("Goal: ")) {
+          // A goal's kickoff: the user typed `/goal <objective>`, and that is
+          // what the thread shows, not the kickoff prompt it expanded to.
+          const msg: HistoryMessage = {
             role: "user",
             id: m.id,
             ...(created ? { created } : {}),
-            parts: [{ type: "text", text: m.text ?? "", synthetic: true }],
-          });
+            parts: [{ type: "text", text: `/goal ${m.description.slice("Goal: ".length)}` }],
+          };
+          pendingUsers.push(msg);
+          out.push(msg);
+          turnClosed = false;
+          openAssistant = null;
+        }
+        // Every other synthetic input — a goal's continuation, a finished
+        // background subagent's notice — is the runtime talking to the model.
+        // The thread never showed those, and as a user-role message the app
+        // would read it as the marker of a "!" shell run. It still starts a
+        // turn, which only an idle record ends.
+        else {
+          turnClosed = false;
+          openAssistant = null;
         }
         break;
       }
@@ -1659,6 +1677,26 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       text: args ?? "",
     });
     if (!res.ok) throw await this.apiError(res, `Failed to run /${command}`);
+  }
+
+  // ---- goal mode (OpenCode's built-in /goal) ----
+
+  /** The session's goal, or null when it has none. Read from the goal
+   *  plugin's own state (an RPC), so a status display costs no model turn. */
+  async getGoal(sessionId: string): Promise<GoalInfo | null> {
+    const res = await this.send("POST", this.url("/api/rpc/opencode.goal/get", {}, true), {
+      input: { sessionID: sessionId },
+    });
+    if (!res.ok) throw await this.apiError(res, "Failed to read the goal");
+    const out = ((await res.json()) as { output?: GoalInfo | null }).output;
+    return out ?? null;
+  }
+
+  /** Pause, resume or clear the session's goal. Pause and clear start no
+   *  turn; resume sends the goal's own continuation. */
+  async updateGoal(sessionId: string, action: "pause" | "resume" | "clear"): Promise<GoalInfo | null> {
+    await this.runCommand(sessionId, "goal", action);
+    return this.getGoal(sessionId);
   }
 
   // ---- interactive requests (question / permission) ----

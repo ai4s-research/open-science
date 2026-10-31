@@ -27,13 +27,11 @@ import type { HistoryMessage, HistoryPart } from "@ai4s/sdk";
  *    assistant turn with nothing but `step-start`/`reasoning` — cannot malform
  *    anything.
  *
- * `runtime/history-plugin/history-guard.ts` repairs this same set inside the
- * runtime, before the model ever sees it, so in a normal install nothing here
- * should ever fire. What remains for this scan is the case the guard cannot
- * cover: damage in a shape neither of us recognizes, where naming nothing and
- * saying so is the whole job. The guard additionally drops provider metadata
- * too shallow for the schema; that is deliberately not reported here, because a
- * defect the guard silently fixes is not one to show the user.
+ * OpenCode 1 could store a part like this and then refuse every later turn;
+ * OpenCode 2 converts that history on its first start, and the app reads
+ * OpenCode 2 history through the SDK, which only produces well-formed parts.
+ * What remains for this scan is history whose damage neither recognizes, where
+ * naming nothing and saying so is the whole job.
  */
 
 /** Which required field is missing. Each maps to one AI SDK schema violation. */

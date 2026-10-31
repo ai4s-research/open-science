@@ -29,7 +29,7 @@ const querySessions = vi.fn(async (q: SessionQuery = {}) => {
   let rows = ALL;
   if (!q.archived) rows = rows.filter((s) => s.archived == null);
   if (q.search) rows = rows.filter((s) => s.title.toLowerCase().includes(q.search!.toLowerCase()));
-  if (q.cursor != null) rows = rows.filter((s) => (s.updated ?? 0) < q.cursor!);
+  if (q.cursor != null) rows = rows.filter((s) => (s.updated ?? 0) < Number(q.cursor));
   const limit = q.limit ?? 100;
   const page = rows.slice(0, limit);
   return { sessions: page, nextCursor: rows.length > limit ? page[page.length - 1]!.updated! : null };

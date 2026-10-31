@@ -2,12 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Pause, Play, Target, X } from "lucide-react";
-import { goalState, goalUpdate, type GoalState } from "@/lib/tauri";
+import { goalState, goalUpdate, type GoalState } from "@/lib/runtime";
 import { cn } from "@/lib/cn";
 
-/** How often the pill re-reads the plugin's state file while a session is
- *  open. Goal turns take seconds-to-minutes; 4s keeps the pill honest without
- *  chatter (one small JSON read per tick, no model turns). */
+/** How often the pill re-reads the goal while a session is open. Goal turns
+ *  take seconds-to-minutes; 4s keeps the pill honest without chatter (one
+ *  small read per tick, no model turns). */
 const POLL_MS = 4000;
 
 /** Last known goal per session, so a re-mount (Screen switch, pane re-tile)
@@ -29,12 +29,9 @@ const POP_MARGIN = 8;
  */
 export function GoalPill({
   sessionId,
-  onResumed,
   compact = false,
 }: {
   sessionId: string;
-  /** Called after a successful resume — the page sends GOAL_RESUME_NUDGE. */
-  onResumed?: () => void;
   /** Collapse to a single status-coloured icon that opens the rest in a
    *  popover. A tiled pane's header has room for one control, not four: the
    *  inline pill (objective + status + pause + clear) overlapped its
@@ -129,7 +126,6 @@ export function GoalPill({
       const next = await goalUpdate(sessionId, action);
       LAST_GOAL.set(sessionId, next);
       setGoal(next);
-      if (action === "resume") onResumed?.();
     } catch {
       await refresh(); // the plugin may have raced us — show whatever won
     } finally {
@@ -140,48 +136,34 @@ export function GoalPill({
   if (!goal) return null;
 
   const status = goal.status;
-  const autoTurns = goal.autoTurns ?? 0;
-  // The plugin's status enum: active / paused / complete are the main line;
-  // "unmet" is a goal the model declared blocked, budget/usageLimited hit a
-  // guardrail. Anything unknown renders muted like paused (fail quiet).
-  const limited = status === "budgetLimited" || status === "usageLimited";
+  // Paused carries why: the user, a round limit, or a reviewer that judged it
+  // blocked. Complete carries the reviewer's evidence.
   const statusLabel =
     status === "active"
-      ? autoTurns > 0
-        ? t("goal.runningTurns", { count: autoTurns })
+      ? goal.rounds > 0
+        ? t("goal.runningTurns", { count: goal.rounds })
         : t("goal.running")
       : status === "complete"
         ? t("goal.done")
-        : status === "unmet"
-          ? t("goal.unmet")
-          : limited
-            ? t("goal.limited")
-            : t("goal.paused");
+        : t("goal.paused");
   const tooltip = [
     `${t("goal.label")}: ${goal.objective}`,
-    status === "unmet" && goal.blocker ? `⚠ ${goal.blocker}` : null,
-    limited && goal.lastStatus ? `⚠ ${goal.lastStatus}` : null,
-    status === "complete" && goal.completionEvidence ? `✓ ${goal.completionEvidence}` : null,
+    status === "paused" && goal.reason ? `⏸ ${goal.reason}` : null,
+    status === "complete" && goal.reason ? `✓ ${goal.reason}` : null,
   ]
     .filter(Boolean)
     .join("\n");
 
   const dotClass = cn(
     status === "active" && "text-accent",
-    status === "unmet" && "text-error",
-    limited && "text-warn",
     status === "complete" && "text-ok",
-    !["active", "unmet", "complete"].includes(status) && !limited && "text-muted",
+    status === "paused" && "text-muted",
   );
   const shellClass = cn(
     "flex min-w-0 shrink items-center rounded-full border text-xs",
     status === "active" && "border-accent/30 bg-accent/10 text-text",
-    status === "unmet" && "border-error/30 bg-error/10 text-text",
-    limited && "border-warn/30 bg-warn/10 text-text",
     status === "complete" && "border-ok/30 bg-ok/10 text-text",
-    !["active", "unmet", "complete"].includes(status) &&
-      !limited &&
-      "border-border bg-surface-2 text-muted",
+    status === "paused" && "border-border bg-surface-2 text-muted",
   );
 
   const controls = (

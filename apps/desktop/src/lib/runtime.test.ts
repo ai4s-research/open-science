@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpenCodeEvent, HistoryMessage } from "@ai4s/sdk";
 import { AUTO_REVIEW_PROMPT } from "./autoReview";
-import { GOAL_RESUME_NUDGE } from "./goalPrompts";
 import {
   datedWorkspaceName,
   explainRuntimeError,
@@ -771,7 +770,7 @@ describe("historyToThread", () => {
         ],
       },
       { role: "assistant", parts: [{ type: "text", text: "continued" }] },
-      { role: "user", parts: [{ type: "text", text: GOAL_RESUME_NUDGE }] },
+      { role: "user", parts: [{ type: "text", text: "Continue working toward the active goal." }] },
       { role: "assistant", parts: [{ type: "text", text: "resumed" }] },
     ];
     const t = historyToThread(msgs);

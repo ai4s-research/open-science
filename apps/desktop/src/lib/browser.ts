@@ -86,6 +86,9 @@ export function buildBrowserMcpConfig(opts: BrowserMcpOptions): McpConfig {
       opts.tools?.trim() || "core",
     ],
     enabled: true,
+    // Direct tool calls, not OpenCode's Code Mode: the browser lease and the
+    // approve-mode ask rule both match each call by its tool name.
+    codemode: false,
   };
   if (Object.keys(environment).length > 0) config.environment = environment;
   return config;

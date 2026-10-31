@@ -29,22 +29,25 @@ function fakeGateway() {
       res.end(JSON.stringify(body));
     };
     if (path === "/v1/whoami") return json({ directory: "/ws/project", mode: "full" });
-    if (path === "/event") {
+    if (path === "/api/event") {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
       // The client treats the first bytes as the handshake.
       res.write(": connected\n\n");
       push = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
       return;
     }
-    if (path === "/session" && req.method === "POST") return json({ id: "ses_gw" });
-    if (path === "/experimental/session")
-      return json([{ id: "ses_gw", title: "From the editor", directory: "/ws/project" }]);
-    if (path.endsWith("/prompt_async") && req.method === "POST") {
+    if (path === "/api/session" && req.method === "POST") return json({ data: { id: "ses_gw" } });
+    if (path === "/api/session")
+      return json({
+        data: [{ id: "ses_gw", title: "From the editor", location: { directory: "/ws/project" } }],
+        cursor: { next: null },
+      });
+    if (path.endsWith("/prompt") && req.method === "POST") {
       let body = "";
       req.on("data", (c) => (body += c));
       return req.on("end", () => {
-        prompts.push({ sessionId: path.split("/")[2] ?? "", body });
-        json({});
+        prompts.push({ sessionId: path.split("/")[3] ?? "", body });
+        json({ data: {} });
       });
     }
     res.writeHead(404, { "content-type": "application/json" });
@@ -96,30 +99,14 @@ describe("the ACP agent process an editor spawns", () => {
     const turn = client.sendPrompt(sessionId, "Summarize the data");
     // The prompt really reached the gateway, as a prompt the runtime understands.
     await vi_waitFor(() => gateway.prompts.length > 0);
-    expect(JSON.parse(gateway.prompts[0].body)).toMatchObject({
-      parts: [{ type: "text", text: "Summarize the data" }],
-    });
+    expect(JSON.parse(gateway.prompts[0].body)).toMatchObject({ text: "Summarize the data" });
 
     // Server-sent events → ACP notifications → the client's own event stream.
-    gateway.event({
-      type: "message.part.updated",
-      properties: {
-        part: { id: "p1", type: "text", text: "Half ", sessionID: sessionId, messageID: "m1" },
-      },
-    });
-    gateway.event({
-      type: "message.part.updated",
-      properties: {
-        part: {
-          id: "p1",
-          type: "text",
-          text: "Half an answer.",
-          sessionID: sessionId,
-          messageID: "m1",
-        },
-      },
-    });
-    gateway.event({ type: "session.idle", properties: { sessionID: sessionId } });
+    const at = { directory: "/ws/project" };
+    gateway.event({ type: "session.text.started", location: at, data: { sessionID: sessionId, assistantMessageID: "m1", ordinal: 0 } });
+    gateway.event({ type: "session.text.delta", location: at, data: { sessionID: sessionId, assistantMessageID: "m1", ordinal: 0, delta: "Half " } });
+    gateway.event({ type: "session.text.ended", location: at, data: { sessionID: sessionId, assistantMessageID: "m1", ordinal: 0, text: "Half an answer." } });
+    gateway.event({ type: "session.execution.succeeded", data: { sessionID: sessionId } });
     await turn;
 
     const texts = events.filter((e) => e.type === "text.updated") as Array<{ text: string }>;

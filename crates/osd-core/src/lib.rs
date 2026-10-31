@@ -24,6 +24,7 @@ pub mod model_catalog;
 pub mod model_prices;
 pub mod model_probe;
 pub mod opencode_config;
+pub mod opencode_v2;
 pub mod project;
 pub mod provenance;
 pub mod runs;

@@ -233,6 +233,18 @@ pub fn remove_config_entry(app: AppHandle, section: String, key: String) -> Resu
     osd_core::runtime::remove_config_entry(&env_of(&app), section, key)
 }
 
+/// The OpenCode config, for the SDK's config store (OpenCode 2 has no API
+/// that writes config; it watches the file).
+#[tauri::command(async)]
+pub fn read_opencode_config(app: AppHandle) -> Result<serde_json::Value, String> {
+    osd_core::runtime::read_opencode_config(&env_of(&app))
+}
+
+#[tauri::command(async)]
+pub fn patch_opencode_config(app: AppHandle, patch: serde_json::Value) -> Result<(), String> {
+    osd_core::runtime::patch_opencode_config(&env_of(&app), patch)
+}
+
 #[tauri::command(async)]
 pub fn configure_opencode(
     app: AppHandle,
