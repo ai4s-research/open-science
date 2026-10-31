@@ -181,13 +181,21 @@ pub fn messages(wire: &[Value]) -> Vec<Value> {
 
 /// An open permission request as `/v1/permissions` listed it (OpenCode 1's
 /// field names; the action under the name `/v1` readers know).
+/// `title` says what is asked in one line: the runtime's own message when it
+/// wrote one, else the action and what it would touch.
 pub fn permission(p: &Value) -> Value {
+    let action = tool_name(p["action"].as_str().unwrap_or(""));
+    let resources: Vec<&str> = p["resources"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let title = p["message"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{action} {}", resources.join(", ")).trim().to_string());
     json!({
         "id": p["id"],
         "sessionID": p["sessionID"],
-        "permission": tool_name(p["action"].as_str().unwrap_or("")),
+        "permission": action,
         "patterns": p["resources"],
-        "title": p["message"],
+        "title": title,
     })
 }
 
@@ -359,6 +367,8 @@ mod tests {
     fn permissions_and_models_in_v1_terms() {
         let p = permission(&json!({"id":"p","sessionID":"s","action":"shell","resources":["rm x"],"message":"Run rm?"}));
         assert_eq!(p, json!({"id":"p","sessionID":"s","permission":"bash","patterns":["rm x"],"title":"Run rm?"}));
+        let p = permission(&json!({"id":"p","sessionID":"s","action":"external_directory","resources":["/etc/*"]}));
+        assert_eq!(p["title"], "external_directory /etc/*");
         assert_eq!(model_ref("openrouter/qwen/x", Some("high")), Some(json!({"providerID":"openrouter","id":"qwen/x","variant":"high"})));
         assert_eq!(model_ref("nope", None), None);
         assert_eq!(model_ref("/x", None), None);
