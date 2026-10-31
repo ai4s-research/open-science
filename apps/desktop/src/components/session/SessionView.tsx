@@ -28,8 +28,8 @@ import {
   rootSessionOf,
   useRuntimeStore,
 } from "@/lib/runtime";
-import { resumeCommand, useLayoutStore } from "@/lib/layout";
-import { accountHome, accountKindOf, asAccountCommand, splitAgentId } from "@/lib/agentAccounts";
+import { useLayoutStore } from "@/lib/layout";
+import { accountHome, accountKindOf, splitAgentId } from "@/lib/agentAccounts";
 import { startPaneDrag } from "@/lib/dragPane";
 import { allowsNativeMenu } from "@/lib/nativeMenu";
 import { FindBar } from "@/components/ui/FindBar";
@@ -291,28 +291,22 @@ export function SessionView({
     if (!eid || !acpRecord || !terminalKind) return;
     try {
       // The agent lets go first: two processes writing one session would fork it.
-      // A conversation on an added account resumes as that account: the
-      // command names its folder.
       const { base, account } = splitAgentId(acpRecord.agentId);
       const accountKind = accountKindOf(base);
-      let asAccount: string | null = null;
+      let home: string | undefined;
       if (account && accountKind) {
-        const plain = resumeCommand({ kind: terminalKind, sessionId: eid, running: true });
-        const home = await accountHome(accountKind, account);
-        asAccount = plain && asAccountCommand(accountKind, home, plain, /Windows/i.test(navigator.userAgent));
-        if (!asAccount) throw new Error("This conversation's account cannot be opened in a terminal.");
+        home = await accountHome(accountKind, account);
       }
       await releaseAcpSession(eid);
       replacePane(leafId, {
-        content: asAccount
-          ? // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
-            { kind: "terminal", cwd: acpRecord.directory, command: asAccount }
-          : {
-              kind: "terminal",
-              cwd: acpRecord.directory,
-              // Running: the terminal resumes it on open (`terminalStartup`).
-              agent: { kind: terminalKind, sessionId: eid, running: true },
-            },
+        content: {
+          kind: "terminal",
+          cwd: acpRecord.directory,
+          // Running: the terminal resumes it on open (`terminalStartup`).
+          // `accountHome` on the agent lets `resumeCommand` set the account's
+          // env so the agent finds the session in the right folder.
+          agent: { kind: terminalKind, sessionId: eid, running: true, accountHome: home },
+        },
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));

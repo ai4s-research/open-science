@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ArtifactBlock, FileRoot } from "@ai4s/shared";
 import type { ArtifactPanelPlacement, ArtifactPanelTarget } from "./artifacts";
+import { asAccountCommand, type AccountKind } from "./agentAccounts";
 
 /**
  * Ghostty/tmux-style recursive tiling layout. Each leaf holds one session; a
@@ -56,6 +57,10 @@ export interface TerminalAgent {
   /** What the agent calls the session (Claude Code's title or `/rename`,
    *  Codex's thread name, pi's `/name`), once it has one. */
   title?: string;
+  /** The account's home folder, when the session runs on an added account
+   *  rather than the agent's own login. The resume command sets the account's
+   *  env var so the agent finds the session in the right folder. */
+  accountHome?: string;
 }
 
 /** The terminal agents whose sessions the app can resume and move. */
@@ -75,20 +80,31 @@ export function terminalName(content: { name?: string; agent?: TerminalAgent }, 
   return content.name || (content.agent?.running && content.agent.title) || fallback;
 }
 
+/** `TerminalAgentKind` → `AccountKind` for the agents that have accounts. */
+const AGENT_ACCOUNT_KIND: Partial<Record<TerminalAgentKind, AccountKind>> = { claude: "claude", codex: "codex" };
+
 /** The command that resumes `agent`'s session in a shell, or null when the
- *  session id is not a plain id. It is read from a file on disk and typed into
- *  a shell, so it is allowed only the characters an id has — which also makes
- *  it safe unquoted in every shell (cmd.exe has no single quotes). */
+ *  session id is not a plain id. When the session ran on an added account, the
+ *  command sets that account's env so the agent finds the session. */
 export function resumeCommand(agent: TerminalAgent): string | null {
   if (!/^[A-Za-z0-9_-]+$/.test(agent.sessionId)) return null;
+  let cmd: string;
   switch (agent.kind) {
     case "claude":
-      return `claude --resume ${agent.sessionId}`;
+      cmd = `claude --resume ${agent.sessionId}`;
+      break;
     case "codex":
-      return `codex resume ${agent.sessionId}`;
+      cmd = `codex resume ${agent.sessionId}`;
+      break;
     case "pi":
-      return `pi --session ${agent.sessionId}`;
+      cmd = `pi --session ${agent.sessionId}`;
+      break;
   }
+  const kind = agent.accountHome && AGENT_ACCOUNT_KIND[agent.kind];
+  if (kind) {
+    return asAccountCommand(kind, agent.accountHome!, cmd, /Windows/i.test(navigator.userAgent)) ?? cmd;
+  }
+  return cmd;
 }
 
 /** What `terminal_probe` reports for one terminal (see terminal_probe.rs). */
@@ -112,7 +128,8 @@ function isTerminalAgent(v: unknown): v is TerminalAgent {
     TERMINAL_AGENT_KINDS.includes(a.kind) &&
     typeof a.sessionId === "string" &&
     typeof a.running === "boolean" &&
-    (a.title === undefined || typeof a.title === "string")
+    (a.title === undefined || typeof a.title === "string") &&
+    (a.accountHome === undefined || typeof a.accountHome === "string")
   );
 }
 
@@ -643,7 +660,13 @@ function cloneForImport(node: PaneNode): PaneNode {
 
 function sameAgent(a: TerminalAgent | undefined, b: TerminalAgent | undefined): boolean {
   if (!a || !b) return a === b;
-  return a.kind === b.kind && a.sessionId === b.sessionId && a.running === b.running && a.title === b.title;
+  return (
+    a.kind === b.kind &&
+    a.sessionId === b.sessionId &&
+    a.running === b.running &&
+    a.title === b.title &&
+    a.accountHome === b.accountHome
+  );
 }
 
 // ---- The Screen each project was last on ----

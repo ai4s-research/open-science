@@ -284,9 +284,10 @@ interface RuntimeState {
    *  sessions; this is the app's record of the rest. */
   acpSessions: Record<string, AcpSessionRecord>;
   /** A draft's own choice of agent: an ACP agent id, or null for OpenCode. A
-   *  draft with no entry starts on the default agent from Settings. */
+   *  draft with no entry starts on the default agent from Settings.
+   *  `undefined` clears the entry so the draft follows the live default. */
   draftRuntimes: Record<string, string | null>;
-  setDraftRuntime: (draftKey: string, agentId: string | null) => void;
+  setDraftRuntime: (draftKey: string, agentId: string | null | undefined) => void;
   /** The agent a new conversation starts on (Settings), or null for OpenCode. */
   defaultRuntime: string | null;
   setDefaultRuntime: (agentId: string | null) => void;
@@ -1195,11 +1196,13 @@ export function openDraftScreen(projectId: string, path?: string): string {
 export async function startSessionScreen(projectId: string, agentId?: string): Promise<void> {
   const runtime = useRuntimeStore.getState();
   const project = runtime.projects.find((p) => p.id === projectId);
-  // `agentId`: the conversation runs on that ACP agent. Without one it starts on
-  // the default — set explicitly, since a reused blank draft may hold a pick.
-  const chosen = agentId ?? runtime.defaultRuntime;
+  // An explicit `agentId` is stored with its current default account baked in.
+  // Without one the entry is CLEARED so the draft follows the live default
+  // agent+account — a reused blank draft may hold a stale pick from an earlier
+  // `startSessionScreen`, and clearing it lets `acpAgentFor` fall through to
+  // the current default + the account chosen for it in Settings → Agents.
   const aim = (leafId: string) =>
-    runtime.setDraftRuntime(draftKeyFor(leafId), chosen && withDefaultAccount(chosen));
+    runtime.setDraftRuntime(draftKeyFor(leafId), agentId ? withDefaultAccount(agentId) : undefined);
   if (!project) {
     aim(openDraftScreen(DEFAULT_PROJECT));
     runtime.startDraft();
@@ -2843,6 +2846,13 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // Picks belong to the agent they were made for.
       const draftAcpPicks = { ...s.draftAcpPicks };
       delete draftAcpPicks[draftKey];
+      // `undefined` clears the entry so the draft follows the live default
+      // agent and its current account (Settings → Agents).
+      if (agentId === undefined) {
+        const draftRuntimes = { ...s.draftRuntimes };
+        delete draftRuntimes[draftKey];
+        return { draftRuntimes, draftAcpPicks };
+      }
       return { draftRuntimes: { ...s.draftRuntimes, [draftKey]: agentId }, draftAcpPicks };
     }),
   acpAgentOptions: loadAcpAgentOptions(),

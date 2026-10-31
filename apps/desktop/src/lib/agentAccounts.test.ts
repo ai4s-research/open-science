@@ -60,4 +60,39 @@ describe("the account a new conversation starts on", () => {
     useAccountsStore.getState().setDefault("cli-claude-code", null);
     expect(withDefaultAccount("cli-claude-code")).toBe("cli-claude-code");
   });
+
+  it("follows a later account switch when the draft has no explicit pick", async () => {
+    const { useAccountsStore } = await import("./agentAccounts");
+    const { acpAgentFor } = await import("./runtime");
+    // No draftRuntimes entry → falls through to the live default + account.
+    useAccountsStore.getState().setDefault("cli-claude-code", "acct-1");
+    expect(acpAgentFor({ acpSessions: {}, draftRuntimes: {}, defaultRuntime: "cli-claude-code" }, "draft:y")).toBe(
+      "cli-claude-code~acct-1",
+    );
+    // User switches to acct-2: the same draft now resolves to acct-2.
+    useAccountsStore.getState().setDefault("cli-claude-code", "acct-2");
+    expect(acpAgentFor({ acpSessions: {}, draftRuntimes: {}, defaultRuntime: "cli-claude-code" }, "draft:y")).toBe(
+      "cli-claude-code~acct-2",
+    );
+    useAccountsStore.getState().setDefault("cli-claude-code", null);
+  });
+});
+
+describe("terminal resume with an account", () => {
+  it("wraps the resume command with the account's env vars", async () => {
+    const { resumeCommand } = await import("./layout");
+    expect(resumeCommand({ kind: "claude", sessionId: "s1", running: true, accountHome: "/data/acct/home" })).toBe(
+      "env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u CLAUDE_CODE_OAUTH_TOKEN -u AWS_BEARER_TOKEN_BEDROCK " +
+        "CLAUDE_CONFIG_DIR='/data/acct/home' claude --resume s1",
+    );
+    expect(resumeCommand({ kind: "codex", sessionId: "s2", running: true, accountHome: "/data/codex/home" })).toBe(
+      "env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME='/data/codex/home' codex resume s2",
+    );
+  });
+
+  it("omits the wrapper when there is no account", async () => {
+    const { resumeCommand } = await import("./layout");
+    expect(resumeCommand({ kind: "claude", sessionId: "s1", running: true })).toBe("claude --resume s1");
+    expect(resumeCommand({ kind: "pi", sessionId: "s3", running: true })).toBe("pi --session s3");
+  });
 });
