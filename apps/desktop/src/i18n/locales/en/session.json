@@ -241,7 +241,8 @@
     "starting": {
       "bodyWeb": "Waiting for the host app to answer. Keep this page open — it connects on its own as soon as the host is reachable.",
       "title": "Starting the local runtime…",
-      "body": "The bundled agent runtime is coming up. On a first launch macOS may ask for permission to access your folders — allow it and this finishes on its own."
+      "body": "The bundled agent runtime is coming up. On a first launch macOS may ask for permission to access your folders — allow it and this finishes on its own.",
+      "upgrading": "Open Science is upgrading your conversation history for the new runtime ({{done}} of {{total}} conversations). This happens once."
     },
     "runtime": {
       "title": "OpenCode runtime",

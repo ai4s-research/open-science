@@ -406,6 +406,17 @@ export interface OpenCodeClientOptions {
    * providers, MCP servers) are unavailable and say so.
    */
   config?: ConfigStore;
+  /**
+   * Progress of OpenCode 2's one-time conversion of OpenCode 1 history, while
+   * connect() waits for it; null once it is over.
+   */
+  onHistoryUpgrade?: (progress: HistoryUpgrade | null) => void;
+}
+
+/** Sessions converted so far, out of how many (either may be unknown). */
+export interface HistoryUpgrade {
+  done: number | null;
+  total: number | null;
 }
 
 /** A session's goal (OpenCode's built-in `/goal`), as its plugin records it. */

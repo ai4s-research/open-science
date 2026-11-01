@@ -192,6 +192,10 @@ export function startMockOpenCode(port = 0): Promise<MockOpenCode> {
       req.on("close", () => clients.delete(res));
       return;
     }
+    // No OpenCode 1 history to convert.
+    if (method === "GET" && path === "/api/experimental/migration/v1") {
+      return json(res, 200, { status: "completed" });
+    }
     // A login waiting on the browser: never settles.
     if (method === "GET" && /^\/api\/integration\/slow\/connect\/oauth\/[^/]+$/.test(path)) {
       return json(res, 200, { data: { status: "pending", time: { created: 1, expires: 2 } } });

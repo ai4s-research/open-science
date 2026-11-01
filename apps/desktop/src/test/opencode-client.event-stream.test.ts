@@ -14,13 +14,27 @@ function carried() {
   return { opener, opens };
 }
 
+/** `fetchImpl`, plus the answer connect() asks for first: no history to convert. */
+function withNoUpgrade(fetchImpl: typeof fetch = async () => new Response("{}", { status: 404 })): typeof fetch {
+  return async (input, init) =>
+    new URL(String(input)).pathname === "/api/experimental/migration/v1"
+      ? new Response(JSON.stringify({ status: "completed" }))
+      : fetchImpl(input, init);
+}
+
 /** A connected client fed by hand; `send` delivers one OpenCode 2 event. */
 async function fed(opts: { directory?: string; fetchImpl?: typeof fetch } = {}) {
   const { opener, opens } = carried();
-  const client = new OpenCodeClient({ baseUrl: "http://gw", eventStream: opener, ...opts });
+  const client = new OpenCodeClient({
+    baseUrl: "http://gw",
+    eventStream: opener,
+    ...opts,
+    fetchImpl: withNoUpgrade(opts.fetchImpl),
+  });
   const events: OpenCodeEvent[] = [];
   client.onEvent((e) => events.push(e));
   const ready = client.connect();
+  await vi.waitFor(() => expect(opens).toHaveLength(1));
   opens[0].h.onOpen();
   await ready;
   const send = (type: string, data: Record<string, unknown>, directory?: string) =>
@@ -46,8 +60,9 @@ describe("OpenCodeClient with a carried event stream", () => {
 
   it("fails the connect when the stream cannot open", async () => {
     const { opener, opens } = carried();
-    const client = new OpenCodeClient({ baseUrl: "http://gw", eventStream: opener });
+    const client = new OpenCodeClient({ baseUrl: "http://gw", eventStream: opener, fetchImpl: withNoUpgrade() });
     const ready = client.connect();
+    await vi.waitFor(() => expect(opens).toHaveLength(1));
     opens[0].h.onError();
     await expect(ready).rejects.toThrow(/Could not open/);
     expect(opens[0].stop).toHaveBeenCalled();

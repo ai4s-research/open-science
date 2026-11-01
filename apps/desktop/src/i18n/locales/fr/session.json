@@ -241,7 +241,8 @@
     "starting": {
       "bodyWeb": "En attente de la réponse de l'application hôte. Laissez cette page ouverte — la connexion se fera d'elle-même dès que l'hôte sera joignable.",
       "title": "Démarrage du runtime local…",
-      "body": "Le runtime d'agent intégré démarre. Au premier lancement, macOS peut demander l'autorisation d'accéder à vos dossiers — accordez-la et l'opération se termine d'elle-même."
+      "body": "Le runtime d'agent intégré démarre. Au premier lancement, macOS peut demander l'autorisation d'accéder à vos dossiers — accordez-la et l'opération se termine d'elle-même.",
+      "upgrading": "Mise à niveau de l'historique des conversations pour le nouveau moteur ({{done}} sur {{total}}). Cette opération n'a lieu qu'une fois."
     },
     "runtime": {
       "title": "Runtime OpenCode",

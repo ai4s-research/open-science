@@ -10,6 +10,7 @@ import type {
   OAuthAuthorization,
   EventStreamOpener,
   GoalInfo,
+  HistoryUpgrade,
   OpenCodeClientOptions,
   OpenCodeRawEvent,
   PermissionReply,
@@ -584,6 +585,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
   private readonly customFetch: boolean;
   private readonly connectTimeoutMs: number;
   private readonly requestTimeoutMs: number;
+  private readonly onHistoryUpgrade: ((progress: HistoryUpgrade | null) => void) | null;
 
   // ---- event-stream state ----
   /** sessionID → its folder. The stream is global; this is how a client keeps
@@ -639,6 +641,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     this.connectTimeoutMs = opts.connectTimeoutMs ?? 5000;
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 15000;
     this.eventStream = opts.eventStream ?? null;
+    this.onHistoryUpgrade = opts.onHistoryUpgrade ?? null;
   }
 
   // ---- transport ----
@@ -729,14 +732,44 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
   // ---- event stream ----
 
   /** Open the SSE event stream. Resolves once the server acknowledges. */
-  connect(): Promise<void> {
+  async connect(): Promise<void> {
     this.closed = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     this.setStatus("connecting");
+    try {
+      await this.awaitHistoryUpgrade();
+    } catch (err) {
+      this.setStatus("error");
+      throw err;
+    }
+    return this.openStream();
+  }
 
+  /** OpenCode 2 serves while it converts OpenCode 1 history in the background,
+   *  and a session it has not reached yet answers 404: the first launch after
+   *  the upgrade showed "Session not found" for the tab it reopened. So the
+   *  client is not ready until the conversion is over. A server without this
+   *  endpoint (a gateway that does not pass it) has nothing to wait for; a
+   *  conversion that failed leaves what it did convert, so that ends it too. */
+  private async awaitHistoryUpgrade(): Promise<void> {
+    for (;;) {
+      const res = await this.get(this.url("/api/experimental/migration/v1"));
+      const body = (await res.json().catch(() => null)) as {
+        status?: string;
+        progress?: { numerator?: number | null; denominator?: number | null };
+      } | null;
+      if (!res.ok || body?.status !== "running") break;
+      this.onHistoryUpgrade?.({ done: body.progress?.numerator ?? null, total: body.progress?.denominator ?? null });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (this.closed) throw new Error("Closed while OpenCode was upgrading history");
+    }
+    this.onHistoryUpgrade?.(null);
+  }
+
+  private openStream(): Promise<void> {
     // Someone else carries the stream: the same open / message / error rules
     // as the EventSource below, reconnection included.
     const opener = this.eventStream;

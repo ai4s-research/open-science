@@ -13,6 +13,7 @@ export {
   type SessionRetryEvent,
   type RetryAction,
   type OpenCodeClientOptions,
+  type HistoryUpgrade,
   type ConfigStore,
   type GoalInfo,
   type SessionCursor,

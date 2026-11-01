@@ -241,7 +241,8 @@
     "starting": {
       "bodyWeb": "Esperando la respuesta de la app anfitriona. Deja esta página abierta: se conectará por su cuenta en cuanto el anfitrión esté accesible.",
       "title": "Iniciando el entorno de ejecución local…",
-      "body": "El entorno de ejecución del agente incluido está arrancando. En el primer inicio, macOS puede pedir permiso para acceder a tus carpetas: concédelo y esto terminará por sí solo."
+      "body": "El entorno de ejecución del agente incluido está arrancando. En el primer inicio, macOS puede pedir permiso para acceder a tus carpetas: concédelo y esto terminará por sí solo.",
+      "upgrading": "Actualizando el historial de conversaciones para el nuevo entorno ({{done}} de {{total}}). Solo ocurre una vez."
     },
     "runtime": {
       "title": "Entorno de ejecución de OpenCode",

@@ -241,7 +241,8 @@
     "starting": {
       "bodyWeb": "Warte auf eine Antwort der Host-App. Lassen Sie diese Seite offen — sie verbindet sich von selbst, sobald der Host erreichbar ist.",
       "title": "Lokale Runtime wird gestartet…",
-      "body": "Die gebündelte Agent-Runtime startet. Beim ersten Start fragt macOS möglicherweise nach Zugriff auf Ihre Ordner — erlauben Sie ihn, dann schließt der Vorgang von selbst ab."
+      "body": "Die gebündelte Agent-Runtime startet. Beim ersten Start fragt macOS möglicherweise nach Zugriff auf Ihre Ordner — erlauben Sie ihn, dann schließt der Vorgang von selbst ab.",
+      "upgrading": "Der Gesprächsverlauf wird für die neue Laufzeit aktualisiert ({{done}} von {{total}} Gesprächen). Das passiert nur einmal."
     },
     "runtime": {
       "title": "OpenCode-Runtime",

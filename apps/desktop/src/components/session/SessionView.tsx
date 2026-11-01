@@ -217,6 +217,7 @@ export function SessionView({
   // SSE folds must not repaint this pane. The active thread is selected on its
   // own below (#34).
   const status = useRuntimeStore((s) => s.status);
+  const historyUpgrade = useRuntimeStore((s) => s.historyUpgrade);
   const switching = useRuntimeStore((s) => s.switching);
   const webReadOnly = useRuntimeStore((s) => s.webReadOnly);
   // Session-keyed maps are read PER SESSION, never as the whole map: they churn
@@ -1108,7 +1109,12 @@ export function SessionView({
                   {/* The browser client waits on a gateway running on someone
                       else's machine — the local first-launch permission prompt
                       is not what is holding it up. */}
-                  {t(isGatewayWeb ? "live.starting.bodyWeb" : "live.starting.body")}
+                  {historyUpgrade
+                    ? t("live.starting.upgrading", {
+                        done: historyUpgrade.done ?? 0,
+                        total: historyUpgrade.total ?? "?",
+                      })
+                    : t(isGatewayWeb ? "live.starting.bodyWeb" : "live.starting.body")}
                 </p>
               </div>
             )}

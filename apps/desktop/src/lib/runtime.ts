@@ -8,6 +8,7 @@ import {
   type CommandInfo,
   type GoalInfo,
   type HistoryMessage,
+  type HistoryUpgrade,
   type OpenCodeEvent,
   type PermissionAskedEvent,
   type PermissionReply,
@@ -280,6 +281,8 @@ export type AcpOptionsProbe =
 
 interface RuntimeState {
   status: RuntimeStatus;
+  /** The runtime is converting OpenCode 1 history; connecting waits for it. */
+  historyUpgrade: HistoryUpgrade | null;
   serverUrl: string;
   /** Conversations that run on an ACP agent (#14), by session id. Every other
    *  session runs on the bundled OpenCode runtime. OpenCode lists its own
@@ -2881,6 +2884,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   // sidecar took to spawn, every time the app was opened. Plain browser dev
   // (no Tauri, no gateway) has nothing to dial and keeps that card.
   status: isTauri || isGatewayWeb ? "connecting" : "offline",
+  historyUpgrade: null,
   serverUrl: initialUrl(),
   acpSessions: loadAcpSessions(),
   draftRuntimes: {},
@@ -3550,6 +3554,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       password: password ?? undefined,
       eventStream,
       config: configStore(),
+      onHistoryUpgrade: (historyUpgrade) => set({ historyUpgrade }),
     });
     opencodeClient = c;
     client = c;

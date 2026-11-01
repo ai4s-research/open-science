@@ -294,6 +294,42 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     expect(client.getStatus()).toBe("error");
   });
 
+  it("is not ready until OpenCode 2 has finished converting OpenCode 1 history", async () => {
+    // The real server answers like this for its first seconds after an upgrade,
+    // while sessions it has not reached yet still answer 404.
+    const answers = [
+      { status: "running", progress: { label: "Migrating sessions", numerator: 4, denominator: 16 } },
+      { status: "running", progress: { label: "Migrating sessions", numerator: 14, denominator: 16 } },
+      { status: "completed" },
+    ];
+    const order: string[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      order.push(path);
+      if (path === "/api/experimental/migration/v1") return new Response(JSON.stringify(answers.shift()));
+      return fetch(input, init);
+    };
+    const progress: unknown[] = [];
+    const client = new OpenCodeClient({ baseUrl: base(), fetchImpl, onHistoryUpgrade: (p) => progress.push(p) });
+    await client.connect();
+    expect(client.getStatus()).toBe("ready");
+    expect(answers).toEqual([]);
+    expect(order.lastIndexOf("/api/experimental/migration/v1")).toBeLessThan(order.indexOf("/api/event"));
+    expect(progress).toEqual([{ done: 4, total: 16 }, { done: 14, total: 16 }, null]);
+    client.close();
+  });
+
+  it("does not wait on history when the server has no conversion to report or it failed", async () => {
+    for (const answer of [new Response("{}", { status: 404 }), new Response(JSON.stringify({ status: "error", error: "disk full" }))]) {
+      const fetchImpl: typeof fetch = async (input, init) =>
+        new URL(String(input)).pathname === "/api/experimental/migration/v1" ? answer : fetch(input, init);
+      const client = new OpenCodeClient({ baseUrl: base(), fetchImpl });
+      await client.connect();
+      expect(client.getStatus()).toBe("ready");
+      client.close();
+    }
+  });
+
   it("signs a provider in and out through its integration", async () => {
     const client = new OpenCodeClient({ baseUrl: base() });
     server.requests.length = 0;
