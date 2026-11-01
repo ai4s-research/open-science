@@ -25,17 +25,23 @@ const CONFIGS: &[&str] = &[
     "xdg-config/opencode/opencode.jsonc",
 ];
 
+/// `base` joined with a `/`-separated relative path, one component at a time,
+/// so the result uses the platform's separator (shown in logs and RESTORE.txt).
+fn under(base: &Path, rel: &str) -> PathBuf {
+    rel.split('/').fold(base.to_path_buf(), |p, c| p.join(c))
+}
+
 /// Copy the OpenCode 1 history under `root` (the runtime root) if OpenCode 2
 /// has not converted it yet and it changed since the last copy. Returns the
 /// backup folder when a copy was made. An error means no complete copy exists
 /// and OpenCode 2 must not be started.
 pub fn back_up_opencode_1(root: &Path) -> Result<Option<PathBuf>, String> {
-    let db = root.join(DB);
+    let db = under(root, DB);
     if !db.is_file() || !is_opencode_1(&db)? {
         return Ok(None);
     }
-    let dst = root.join(BACKUP_DIR);
-    if copy_is_current(&db, &dst.join(DB)) {
+    let dst = under(root, BACKUP_DIR);
+    if copy_is_current(&db, &under(&dst, DB)) {
         return Ok(None);
     }
     let partial = dst.with_extension("partial");
@@ -92,7 +98,7 @@ fn copy_is_current(db: &Path, copy: &Path) -> bool {
 }
 
 fn write_copy(root: &Path, db: &Path, out: &Path) -> Result<(), String> {
-    let out_db = out.join(DB);
+    let out_db = under(out, DB);
     std::fs::create_dir_all(out_db.parent().unwrap()).map_err(|e| e.to_string())?;
     let src = open_source(db)?;
     {
@@ -120,9 +126,9 @@ fn write_copy(root: &Path, db: &Path, out: &Path) -> Result<(), String> {
         return Err(format!("the copy has {copied} sessions, the original {source}"));
     }
     for rel in CONFIGS {
-        let from = root.join(rel);
+        let from = under(root, rel);
         if from.is_file() {
-            let to = out.join(rel);
+            let to = under(out, rel);
             std::fs::create_dir_all(to.parent().unwrap()).map_err(|e| e.to_string())?;
             std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
         }
@@ -137,7 +143,7 @@ fn restore_note(root: &Path) -> String {
          OpenCode 2 converts the history in place, and OpenCode 1 cannot fully use the result.\n\
          \n\
          To go back to an Open Science version built on OpenCode 1:\n\
-         1. Quit Open Science.\n\
+         1. Quit Open Science, and wait until no opencode process is left running.\n\
          2. Delete opencode.db, opencode.db-wal and opencode.db-shm in\n   {}\n\
          3. Copy the xdg-data and xdg-config folders from this folder into\n   {}\n   replacing the files there.\n\
          4. Install the older Open Science and open it.\n\
@@ -172,7 +178,7 @@ mod tests {
 
     /// A v1-shaped profile in WAL mode, with rows still in the WAL.
     fn v1_profile(root: &Path, sessions: i64) -> Connection {
-        let db = root.join(DB);
+        let db = under(root, DB);
         std::fs::create_dir_all(db.parent().unwrap()).unwrap();
         let c = Connection::open(&db).unwrap();
         c.execute_batch(
