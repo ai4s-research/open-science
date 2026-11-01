@@ -19,6 +19,7 @@ pub mod examples;
 pub mod gateway;
 pub mod git_snapshot;
 pub mod harness;
+pub mod history_backup;
 mod ledger;
 pub mod model_catalog;
 pub mod model_prices;

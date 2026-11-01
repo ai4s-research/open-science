@@ -1391,6 +1391,21 @@ fn spawn_sidecar(env: &Env, port: u16, generation: u64) -> Result<Child, String>
     for d in [&cfg, &data, &cache, &state_dir] {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
+    // Before anything below edits the profile and OpenCode 2 converts the
+    // history in place: without a complete copy there is no way back, so no copy
+    // means no start.
+    match crate::history_backup::back_up_opencode_1(&root) {
+        Ok(Some(dir)) => crate::debug_log::append(env, &format!("OpenCode 1 history copied to {}", dir.display())),
+        Ok(None) => {}
+        Err(e) => {
+            crate::debug_log::append(env, &format!("OpenCode 1 history backup failed: {e}"));
+            return Err(format!(
+                "Open Science could not back up your conversation history before upgrading it, \
+                 so it left everything as it was and did not start: {e}. \
+                 Free some disk space, then restart Open Science."
+            ));
+        }
+    }
     // Ship the bundled scientific skills into the app-private OpenCode profile.
     deploy_bundled_skills(env);
     // The app's own plugin, global to the app-owned OpenCode profile and so

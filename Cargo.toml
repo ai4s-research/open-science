@@ -30,5 +30,5 @@ reqwest = { version = "0.13", default-features = false, features = [
     "blocking",
     "native-tls",
 ] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 getrandom = "0.4.3"

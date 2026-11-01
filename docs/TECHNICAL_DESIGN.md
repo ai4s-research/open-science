@@ -108,6 +108,11 @@ OpenCode 2 has no config-writing API: it watches its config file and applies an
 edit within a second. The app writes that file itself (desktop) or through the
 gateway (web client), via the SDK's `ConfigStore`.
 
+OpenCode 2 converts an OpenCode 1 `opencode.db` in place on first start, and OpenCode 1
+cannot fully use the result. Before that start the app copies the database and config to
+`runtime/backup/opencode-1/` (`history_backup.rs`, with a `RESTORE.txt`), and does not start
+if the copy fails.
+
 Flow:
 
 ```text
