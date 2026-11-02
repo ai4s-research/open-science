@@ -88,7 +88,16 @@ pub fn messages(wire: &[Value]) -> Vec<Value> {
         let created = m.pointer("/time/created");
         match m["type"].as_str().unwrap_or("") {
             "user" => {
-                let mut parts = vec![json!({ "type": "text", "text": m["text"].as_str().unwrap_or("") })];
+                // A skill run by "/name" travels as an attachment: put the
+                // name back in front of the words, as it was typed.
+                let mut typed: Vec<String> = m["skills"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|s| s["id"].as_str().map(|id| format!("/{id}")))
+                    .collect();
+                typed.extend(m["text"].as_str().filter(|t| !t.is_empty()).map(str::to_string));
+                let mut parts = vec![json!({ "type": "text", "text": typed.join(" ") })];
                 for f in m["files"].as_array().into_iter().flatten() {
                     parts.push(json!({ "type": "file", "filename": f["name"] }));
                 }
@@ -126,7 +135,14 @@ pub fn messages(wire: &[Value]) -> Vec<Value> {
                     }
                 }
                 let mut msg = message(&m["id"], "assistant", created, m.pointer("/time/completed"), parts);
-                if let Some(e) = error_text(&m["error"]) {
+                // A user interrupt keeps OpenCode 1's words, which readers know
+                // is no failure (OpenCode 2 says "Step interrupted").
+                let e = if m["error"]["type"] == "aborted" {
+                    Some("The operation was aborted.".to_string())
+                } else {
+                    error_text(&m["error"])
+                };
+                if let Some(e) = e {
                     msg["info"]["error"] = json!({ "data": { "message": e } });
                 }
                 if let Some(agent) = m["agent"].as_str() {
@@ -314,6 +330,22 @@ mod tests {
         assert_eq!(m[1]["parts"][2]["state"]["error"], "boom");
         assert_eq!(m[2]["info"]["role"], "assistant");
         assert_eq!(m[2]["parts"][0]["text"], "review");
+    }
+
+    #[test]
+    fn a_skill_run_by_slash_reads_back_as_typed() {
+        let wire = vec![json!({"id":"u","type":"user","time":{"created":1},"text":"Attention Is All You Need","skills":[{"id":"paper-summary","text":"<skill_content>"}]})];
+        assert_eq!(messages(&wire)[0]["parts"][0]["text"], "/paper-summary Attention Is All You Need");
+    }
+
+    #[test]
+    fn an_interrupted_reply_reads_as_aborted_not_failed() {
+        let wire = vec![
+            json!({"id":"u","type":"user","time":{"created":1},"text":"go"}),
+            json!({"id":"a","type":"assistant","time":{"created":2},"content":[],"error":{"type":"aborted","message":"Step interrupted"}}),
+        ];
+        let m = messages(&wire);
+        assert_eq!(m[1]["info"]["error"]["data"]["message"], "The operation was aborted.");
     }
 
     #[test]

@@ -216,6 +216,20 @@ function errorText(error: unknown): string | undefined {
   return typeof full === "string" && full ? full.split("\n")[0] : undefined;
 }
 
+/** A user message as it was typed: a skill run by "/name" travels as an
+ *  attachment, so the name is put back in front of its words. */
+function typedText(text: string, skills?: Array<{ id?: string }>): string {
+  const names = (skills ?? []).map((s) => s.id).filter((id): id is string => !!id);
+  return names.length ? [...names.map((id) => `/${id}`), text].filter(Boolean).join(" ") : text;
+}
+
+/** A stored reply's error. A user interrupt is kept in OpenCode 1's words
+ *  (OpenCode 2 says "Step interrupted"), which readers know is no failure. */
+const ABORTED_TEXT ="The operation was aborted.";
+function messageErrorText(error: unknown): string | undefined {
+  return (error as { type?: string } | undefined)?.type === "aborted" ? ABORTED_TEXT : errorText(error);
+}
+
 /** The `action` a retry status may carry, kept only when it has the one field
  *  the app decides anything on. Every other field is optional and passed
  *  through as-is when it is a string, so a runtime that adds one loses
@@ -320,6 +334,8 @@ interface WireMessage {
   /** A synthetic message's one-line notice (a goal's kickoff has one). */
   description?: string;
   files?: Array<{ mime?: string; name?: string; data?: string; source?: { type?: string; uri?: string } }>;
+  /** Skills the user ran by "/name" (OpenCode 2 sends them as attachments). */
+  skills?: Array<{ id?: string }>;
   // assistant
   agent?: string;
   content?: WireContent[];
@@ -392,7 +408,7 @@ export function toHistory(wire: WireMessage[]): HistoryMessage[] {
         assignAgent(m.agent);
         break;
       case "user": {
-        const parts: HistoryPart[] = [{ type: "text", text: m.text ?? "" }];
+        const parts: HistoryPart[] = [{ type: "text", text: typedText(m.text ?? "", m.skills) }];
         for (const f of m.files ?? []) parts.push({ type: "file", text: f.name ?? "" });
         const msg: HistoryMessage = { role: "user", id: m.id, ...(created ? { created } : {}), parts };
         pendingUsers.push(msg);
@@ -470,7 +486,7 @@ export function toHistory(wire: WireMessage[]): HistoryMessage[] {
             });
           }
         }
-        const error = errorText(m.error);
+        const error = messageErrorText(m.error);
         const usage = toUsage(m.tokens, m.cost);
         const msg: HistoryMessage = {
           role: "assistant",
@@ -1954,11 +1970,11 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
         // the message may not be ours — another agent, another tab, the CLI —
         // and the app matches it to its own echo; its id lets the app tag the
         // live block so it can be edited (revert + resend).
-        const item = d.item as { type?: string; payload?: { text?: string } } | undefined;
+        const item = d.item as { type?: string; payload?: { text?: string; skills?: Array<{ id?: string }> } } | undefined;
         const inboxID = typeof d.inboxID === "string" ? d.inboxID : "";
         if (item?.type !== "user" || !inboxID) break;
         this.emit({ type: "message.agent", sessionId, messageID: inboxID });
-        this.emit({ type: "user.message", sessionId, messageID: inboxID, text: item.payload?.text ?? "" });
+        this.emit({ type: "user.message", sessionId, messageID: inboxID, text: typedText(item.payload?.text ?? "", item.payload?.skills) });
         break;
       }
       case "session.agent.selected": {

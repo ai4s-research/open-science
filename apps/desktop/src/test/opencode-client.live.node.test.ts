@@ -268,6 +268,10 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     await waitFor(() => events.some((e) => e.type === "tool.updated" && e.tool === "bash" && e.status === "running"));
     await c.abortSession(id);
     await waitFor(() => events.some((e) => e.type === "session.idle" && e.sessionId === id), 30_000);
+    // On reload the app hides an interrupt's error by its wording (/abort/),
+    // so a stopped turn does not come back as a red failure line.
+    const last = (await c.getMessages(id)).filter((m) => m.role === "assistant").slice(-1)[0];
+    expect(last?.error).toMatch(/abort/i);
     c.close();
   }, TURN_MS);
 
@@ -341,6 +345,107 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     c.close();
   }, TURN_MS);
 
+  it("lists a pending permission and question, so a reload can show them again", async () => {
+    const c = client();
+    await c.connect();
+    const id = await c.createSession();
+    const events: OpenCodeEvent[] = [];
+    c.onEvent((e) => events.push(e));
+    await c.sendPrompt(id, "Run the shell command `rm -f osd-pending-file` exactly once, then say done.", undefined, MODEL);
+    await waitFor(() => events.some((e) => e.type === "permission.asked"));
+    const perms = await c.listPermissions(id);
+    expect(perms.map((p) => p.sessionId)).toContain(id);
+    expect(perms[0]?.action).toBe("bash");
+    await c.replyPermission(perms[0]!.requestId, "reject");
+    await waitFor(() => events.some((e) => e.type === "session.idle" && e.sessionId === id));
+
+    const id2 = await c.createSession();
+    await c.sendPrompt(
+      id2,
+      'Use the question tool to ask me exactly one question, "Pick a fruit", with the options "Apple" and "Pear".',
+      undefined,
+      MODEL,
+    );
+    await waitFor(() => events.some((e) => e.type === "question.asked" && e.sessionId === id2));
+    const qs = await c.listQuestions(id2);
+    expect(qs.find((q) => q.sessionId === id2)?.questions[0]?.options.map((o) => o.label)).toEqual(
+      expect.arrayContaining(["Apple", "Pear"]),
+    );
+    await c.rejectQuestion(qs.find((q) => q.sessionId === id2)!.requestId);
+    await waitFor(() => events.some((e) => e.type === "session.idle" && e.sessionId === id2));
+    expect(await c.listQuestions(id2)).toEqual([]);
+    c.close();
+  }, TURN_MS * 2);
+
+  it("sets, pauses, resumes and clears a goal", async () => {
+    const c = client();
+    await c.connect();
+    const id = await c.createSession();
+    // Run once the turn ends, a goal this small is already complete; pause it
+    // while it still runs, as the pill's button does.
+    const run = c.runCommand(id, "goal", "Write the word KIWI into a file named fruit.txt in the current folder.");
+    let set = await c.getGoal(id);
+    for (const start = Date.now(); !set && Date.now() - start < 30_000; set = await c.getGoal(id))
+      await new Promise((r) => setTimeout(r, 200));
+    expect(set?.objective ?? "").toContain("KIWI");
+    expect(set?.status).toBe("active");
+    expect((await c.updateGoal(id, "pause"))?.status).toBe("paused");
+    await run.catch(() => undefined);
+    expect((await c.updateGoal(id, "resume"))?.status).not.toBe("paused");
+    await c.abortSession(id);
+    expect(await c.updateGoal(id, "clear")).toBeNull();
+    c.close();
+  }, TURN_MS * 2);
+
+  it("lists sessions, providers and their sign-in methods", async () => {
+    const c = client();
+    await c.connect();
+    const id = await c.createSession();
+    expect((await c.listSessions()).map((s) => s.id)).toContain(id);
+    const catalog = await c.listProviderCatalog();
+    expect(catalog.all.length).toBeGreaterThan(5);
+    expect(catalog.all.map((p) => p.id)).toEqual(expect.arrayContaining(["anthropic", "openai"]));
+    const methods = await c.listAuthMethods();
+    expect(methods.anthropic?.length).toBeGreaterThan(0);
+    c.close();
+  }, TURN_MS);
+
+  it("connects and disconnects a provider by API key", async () => {
+    const c = client();
+    await c.connect();
+    await c.setProviderApiKey("deepseek", "sk-osd-live-not-a-real-key");
+    expect((await c.listProviderCatalog()).connected).toContain("deepseek");
+    await c.removeProviderAuth("deepseek");
+    expect((await c.listProviderCatalog()).connected).not.toContain("deepseek");
+    c.close();
+  }, TURN_MS);
+
+  it("adds a custom provider and an MCP server through the config", async () => {
+    const c = client();
+    await c.connect();
+    await c.addCustomProvider("lab-llm", {
+      name: "Lab LLM",
+      npm: "@ai-sdk/openai-compatible",
+      baseURL: "http://127.0.0.1:9/v1",
+      models: ["lab-7b"],
+    });
+    expect(await c.listCustomProviderIds()).toContain("lab-llm");
+    await c.setProviderRegion("lab-llm", "eu");
+    expect(await c.getProviderRegion("lab-llm")).toBe("eu");
+    await c.addMcpServer("lab-notes", { type: "local", command: ["osd-no-such-binary"], enabled: true });
+    const start = Date.now();
+    for (;;) {
+      const row = (await c.listMcpServers()).find((s) => s.name === "lab-notes");
+      if (row && row.status !== "pending") {
+        expect(row.status).not.toBe("connected");
+        break;
+      }
+      if (Date.now() - start > 30_000) throw new Error(`MCP server never settled: ${JSON.stringify(row)}`);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    c.close();
+  }, TURN_MS);
+
   it("compacts a conversation on request (/compact)", async () => {
     const c = client();
     await c.connect();
@@ -376,9 +481,16 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
       await new Promise((r) => setTimeout(r, 500));
     }
     const id = await c.createSession();
+    const echoes: string[] = [];
+    c.onEvent((e) => {
+      if (e.type === "user.message" && e.sessionId === id) echoes.push(e.text);
+    });
     await c.runCommand(id, "lab-motto", "go");
-    const last = (await c.getMessages(id)).slice(-1)[0];
-    expect(last.parts.map((p) => p.text ?? "").join("")).toContain("MOTTO-OK");
+    const history = await c.getMessages(id);
+    expect(history.slice(-1)[0].parts.map((p) => p.text ?? "").join("")).toContain("MOTTO-OK");
+    // Live and on reload, the user's line reads as typed.
+    expect(echoes).toContain("/lab-motto go");
+    expect(history.find((m) => m.role === "user")?.parts[0].text).toBe("/lab-motto go");
     c.close();
   }, TURN_MS);
 
