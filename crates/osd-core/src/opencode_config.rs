@@ -1629,7 +1629,14 @@ mod tests {
         let rules = v["permission"]["external_directory"].as_object().unwrap();
         assert_eq!(rules.keys().next().map(String::as_str), Some("*"));
         assert_eq!(rules["*"], "ask");
-        assert!(rules.iter().skip(1).all(|(k, v)| k.starts_with('/') && v == "allow"));
+        // Every remaining rule is an absolute temp-root glob that allows. Only
+        // Unix spells an absolute path with a leading slash — Windows starts
+        // with a drive — so the question goes to the path parser, not to a
+        // character that only one platform has.
+        assert!(rules
+            .iter()
+            .skip(1)
+            .all(|(k, v)| v == "allow" && std::path::Path::new(k).is_absolute()));
     }
 
     #[test]
