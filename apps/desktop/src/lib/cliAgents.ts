@@ -73,6 +73,17 @@ export const CLI_AGENTS: readonly CliAgent[] = [
     args: ["-y", "pi-acp"],
     install: { unix: "npm install -g @earendil-works/pi-coding-agent" },
   },
+  // DeepSeek Harness ships an ACP profile. Checked 2026-11-02 against
+  // 0.2.1-rc.2 (#171): protocol 1, list and resume, model and thought_level
+  // selectors; no session/load, so a reopened conversation has no replay.
+  {
+    id: "cli-dsh",
+    name: "DeepSeek Harness",
+    detect: "dsh",
+    command: "dsh",
+    args: ["--profile", "acp"],
+    install: { unix: "npm install -g @deepseek-ai/dsh" },
+  },
 ];
 
 /** Which of the catalog this machine can actually run, in catalog order.
