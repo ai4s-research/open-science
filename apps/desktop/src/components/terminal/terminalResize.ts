@@ -65,15 +65,28 @@ const MIN_MATCH_CHARS = 12;
  * are the same text, found once and only once on each side. With none
  * (`matched` false), the repaint goes below everything on screen: a copy too
  * many, no line lost.
+ *
+ * A resize's repaint redraws what is already there, so the lines above the
+ * match can be skipped as they are. A repaint Claude Code makes on its own may
+ * carry new lines (the end of a reply), so pass `scrollback` for it: a match
+ * is then taken only if every line it skips is already in the scrollback or on
+ * screen above it. Skip only what is shown to be there, never guess.
  */
 export function spliceRepaint(
   { lines, tail }: Repaint,
   oldScreen: string[],
+  scrollback?: string[],
 ): { clear: string; repaint: string; matched: boolean } {
   const newText = lines.map(bare);
   const oldText = oldScreen.map(bare);
   const newJoined = newText.join("");
   const oldJoined = oldText.join("");
+  const history = scrollback?.map(bare).join("");
+  const alreadyThere = (r: number, l: number) => {
+    if (history === undefined) return true;
+    const above = history + oldText.slice(0, r).join("");
+    return newText.slice(0, l).every((text) => above.includes(text));
+  };
   const once = (whole: string, part: string) => {
     const at = whole.indexOf(part);
     return at >= 0 && whole.indexOf(part, at + 1) < 0;
@@ -87,7 +100,7 @@ export function spliceRepaint(
       if (n < MIN_MATCH_CHARS) continue;
       const key = oldText[r].slice(0, n);
       if (newText[l].slice(0, n) !== key) continue;
-      if (once(oldJoined, key) && once(newJoined, key)) {
+      if (once(oldJoined, key) && once(newJoined, key) && alreadyThere(r, l)) {
         row = r;
         from = l;
       }

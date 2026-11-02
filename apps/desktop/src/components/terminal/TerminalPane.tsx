@@ -474,7 +474,12 @@ export function TerminalPane({
             { length: term.rows },
             (_, y) => buffer.getLine(buffer.baseY + y)?.translateToString(true) ?? "",
           );
-          const splice = spliceRepaint(repaint, screen);
+          // Its own repaint may carry new lines: check what it skips against
+          // what is already there.
+          const scrollback = own
+            ? Array.from({ length: buffer.baseY }, (_, y) => buffer.getLine(y)?.translateToString(true) ?? "")
+            : undefined;
+          const splice = spliceRepaint(repaint, screen, scrollback);
           // A repaint of its own that lines up with nothing on screen is a new
           // screen, not a redraw: /clear draws its banner this way. As sent.
           if (own && !splice.matched) return resizeAndWrite(data.slice(repaint.before.length) + (reply?.data ?? ""));
