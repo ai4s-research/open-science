@@ -1234,12 +1234,9 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
   /** Every skill OpenCode has loaded for this workspace: built-in, the app's
    *  bundled packs, `.opencode/skills/`, and the home-level skill folders. */
   async listSkills(): Promise<SkillInfo[]> {
-    const rows = await this.data<Array<{ id: string; name: string; description?: string; path?: string }>>(
-      await this.get(this.url("/api/skill", {}, true)),
-      "Failed to list skills",
-    );
+    const rows = await this.skillRows();
     // Discovery order is scan order — sort so the list is stable across reloads.
-    return (rows ?? [])
+    return rows
       .map((s) => ({ name: s.name ?? s.id, description: s.description ?? "", ...(s.path ? { location: s.path } : {}) }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -1256,14 +1253,36 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       .map((a) => ({ name: a.id, description: a.description ?? "", ...(a.mode ? { mode: a.mode } : {}) }));
   }
 
-  /** Slash commands the runtime can run — config commands, skills and MCP
-   *  prompts all surface in this one list. */
+  /** Slash commands the runtime can run: config commands and MCP prompts,
+   *  then skills. OpenCode 1 listed skills as commands; OpenCode 2 keeps them
+   *  apart, so they are merged back here. A command wins a shared name. */
   async listCommands(): Promise<CommandInfo[]> {
-    const rows = await this.data<Array<{ name: string; description?: string }>>(
-      await this.get(this.url("/api/command", {}, true)),
-      "Failed to list commands",
+    const [rows, skills] = await Promise.all([
+      this.data<Array<{ name: string; description?: string }>>(
+        await this.get(this.url("/api/command", {}, true)),
+        "Failed to list commands",
+      ),
+      this.skillRows().catch(() => []),
+    ]);
+    const commands: CommandInfo[] = (rows ?? []).map((c) => ({
+      name: c.name,
+      ...(c.description ? { description: c.description } : {}),
+    }));
+    const taken = new Set(commands.map((c) => c.name));
+    for (const s of skills) {
+      if (taken.has(s.id)) continue;
+      commands.push({ name: s.id, source: "skill", ...(s.description ? { description: s.description } : {}) });
+    }
+    return commands;
+  }
+
+  private async skillRows(): Promise<Array<{ id: string; name?: string; description?: string; path?: string }>> {
+    return (
+      (await this.data<Array<{ id: string; name?: string; description?: string; path?: string }>>(
+        await this.get(this.url("/api/skill", {}, true)),
+        "Failed to list skills",
+      )) ?? []
     );
-    return (rows ?? []).map((c) => ({ name: c.name, ...(c.description ? { description: c.description } : {}) }));
   }
 
   // ---- model selection ----
@@ -1718,11 +1737,23 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     await this.turnOver(sessionId, before.busy);
   }
 
+  /** A config command runs by name; a skill (OpenCode 2 lists those apart)
+   *  runs as a prompt with the skill attached. */
   private async postCommand(sessionId: string, command: string, args?: string): Promise<void> {
-    const res = await this.send("POST", this.url(this.sessionPath(sessionId, "/command")), {
-      name: command,
-      text: args ?? "",
-    });
+    const [commands, skills] = await Promise.all([
+      this.data<Array<{ name: string }>>(await this.get(this.url("/api/command", {}, true)), "Failed to list commands"),
+      this.skillRows().catch(() => []),
+    ]);
+    const isSkill = !(commands ?? []).some((c) => c.name === command) && skills.some((s) => s.id === command);
+    const res = isSkill
+      ? await this.send("POST", this.url(this.sessionPath(sessionId, "/prompt")), {
+          text: args ?? "",
+          skills: [{ id: command }],
+        })
+      : await this.send("POST", this.url(this.sessionPath(sessionId, "/command")), {
+          name: command,
+          text: args ?? "",
+        });
     if (!res.ok) throw await this.apiError(res, `Failed to run /${command}`);
   }
 

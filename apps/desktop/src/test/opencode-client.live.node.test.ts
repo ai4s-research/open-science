@@ -341,6 +341,47 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     c.close();
   }, TURN_MS);
 
+  it("compacts a conversation on request (/compact)", async () => {
+    const c = client();
+    await c.connect();
+    const id = await c.createSession();
+    await turn(c, id, "My cat is called Miso. Reply with one short sentence.");
+    const events: OpenCodeEvent[] = [];
+    c.onEvent((e) => events.push(e));
+    await c.compactSession(id);
+    const start = Date.now();
+    while (!events.some((e) => e.type === "session.compacted" && e.sessionId === id)) {
+      if (Date.now() - start > TURN_MS - 5_000) throw new Error("compaction never ended");
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const parts = (await c.getMessages(id)).flatMap((m) => m.parts);
+    expect(parts.some((p) => p.type === "compaction" && p.auto === false)).toBe(true);
+    c.close();
+  }, TURN_MS);
+
+  it("lists a skill as a slash command and runs it", async () => {
+    // OpenCode 2 lists skills apart from commands; the "/" palette still offers them.
+    const dir = join(workspace, ".opencode", "skills", "lab-motto");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      "---\nname: lab-motto\ndescription: Answer with the lab motto\n---\nWhen this skill is used, reply with exactly the word MOTTO-OK and nothing else.\n",
+    );
+    const c = client();
+    await c.connect();
+    const start = Date.now();
+    for (;;) {
+      if ((await c.listCommands()).some((cmd) => cmd.name === "lab-motto" && cmd.source === "skill")) break;
+      if (Date.now() - start > 20_000) throw new Error("the skill was never listed as a command");
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const id = await c.createSession();
+    await c.runCommand(id, "lab-motto", "go");
+    const last = (await c.getMessages(id)).slice(-1)[0];
+    expect(last.parts.map((p) => p.text ?? "").join("")).toContain("MOTTO-OK");
+    c.close();
+  }, TURN_MS);
+
   it("keeps each folder's client to its own sessions", async () => {
     const here = client(workspace);
     const there = client(otherWorkspace);

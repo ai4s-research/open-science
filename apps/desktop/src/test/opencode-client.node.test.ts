@@ -100,10 +100,11 @@ describe("OpenCodeClient ↔ OpenCode server", () => {
     expect(client.getStatus()).toBe("offline");
   });
 
-  it("lists slash commands", async () => {
+  it("lists slash commands, then skills (OpenCode 2 keeps those apart)", async () => {
     const client = new OpenCodeClient({ baseUrl: base() });
     const commands = await client.listCommands();
-    expect(commands.map((c) => c.name)).toEqual(["init", "analyze-data"]);
+    expect(commands.map((c) => c.name)).toEqual(["init", "analyze-data", "home-skill", "customize-opencode"]);
+    expect(commands.filter((c) => c.source === "skill").map((c) => c.name)).toEqual(["home-skill", "customize-opencode"]);
   });
 
   it("lists skills sorted by name, with where each was found", async () => {
