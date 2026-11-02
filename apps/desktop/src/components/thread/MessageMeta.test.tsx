@@ -89,7 +89,30 @@ describe("agent message meta", () => {
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
   });
 
-  it("renders nothing for a runtime that reports no usage at all (ACP)", () => {
+  it("uses the agent's own window when it reports context (ACP)", () => {
+    // An ACP agent reports one number for the whole conversation plus the
+    // window it is measured against (`usage_update`), so this needs nothing
+    // from the model catalog — and there is no breakdown or cost to show.
+    render(
+      <>
+        {renderBlock(
+          {
+            kind: "agent",
+            markdown: "hi",
+            created,
+            completed: created + 1_000,
+            contextUsage: { used: 80_960, size: 200_000 },
+          },
+          0,
+        )}
+      </>,
+    );
+
+    expect(screen.getByText("81k / 200k (40%)")).toBeInTheDocument();
+    expect(screen.queryByText(/\\$/)).not.toBeInTheDocument();
+  });
+
+  it("renders nothing when the runtime reports no usage at all", () => {
     const { container } = render(<>{renderBlock({ kind: "agent", markdown: "hi" }, 0)}</>);
 
     // The copy button still stands alone; no empty separators beside it.

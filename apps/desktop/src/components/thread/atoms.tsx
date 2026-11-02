@@ -6,6 +6,7 @@ import { toast } from "@/lib/toast";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type {
   ArtifactBlock,
+  ContextUsage,
   DataTableBlock,
   HistoryRepairBlock,
   MessageUsage,
@@ -239,6 +240,7 @@ export const AgentMessage = memo(function AgentMessage({
   created,
   completed,
   usage,
+  contextUsage,
   contextLimit,
   onOpenArtifact,
   directory,
@@ -249,6 +251,10 @@ export const AgentMessage = memo(function AgentMessage({
   created?: number;
   completed?: number;
   usage?: MessageUsage;
+  /** How full the agent says the conversation is (ACP `usage_update`) — the
+   *  alternative to `usage`, not an addition: an ACP agent reports one number
+   *  for the whole context instead of a per-message breakdown. */
+  contextUsage?: ContextUsage;
   contextLimit?: number;
   onOpenArtifact?: (a: ArtifactBlock) => void;
   /** The session's folder, where the files it mentions are looked up. */
@@ -366,6 +372,7 @@ export const AgentMessage = memo(function AgentMessage({
           created={created}
           completed={completed}
           usage={usage}
+          contextUsage={contextUsage}
           contextLimit={contextLimit}
         />
       </div>

@@ -871,11 +871,26 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
         }));
         return;
       }
+      case "usage_update": {
+        // The agent's OWN reading of how full the conversation is — the one
+        // context number ACP carries, and the reason an ACP session can show a
+        // gauge at all (OpenCode reports per-message token breakdowns instead).
+        // Session-scoped: no message id, so the app stamps it on the newest
+        // answer. A report without a window is not a measurement — drop it
+        // rather than render a percentage against zero.
+        const used = update.used;
+        const size = update.size;
+        if (typeof used !== "number" || typeof size !== "number") return;
+        if (!Number.isFinite(used) || !Number.isFinite(size) || size <= 0 || used < 0) return;
+        this.emit({ type: "context.usage", sessionId, used, size });
+        return;
+      }
       // Deliberately ignored: `plan` (no thread block for it yet),
-      // `usage_update` (agent-specific bookkeeping), `current_mode_update`
-      // (superseded by config options), and `user_message_chunk` — live, the
-      // app already shows what the user sent; during a replay it is history and
-      // never reaches here (see the collector above).
+      // `compaction_update` (no block or copy for it in this app yet),
+      // `current_mode_update` (superseded by config options), and
+      // `user_message_chunk` — live, the app already shows what the user sent;
+      // during a replay it is history and never reaches here (see the collector
+      // above).
       default:
         return;
     }

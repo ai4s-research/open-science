@@ -77,6 +77,7 @@ export function renderBlock(
           created={block.created}
           completed={block.completed}
           usage={block.usage}
+          contextUsage={block.contextUsage}
           contextLimit={contextLimit}
           onOpenArtifact={handlers?.onArtifactOpen}
           directory={workspaceDirectory}

@@ -320,6 +320,45 @@ describe("message usage", () => {
   });
 });
 
+describe("context usage from an ACP agent", () => {
+  it("stamps the newest answer with the agent's own numbers", () => {
+    const s = foldAll([
+      { type: "text.updated", sessionId: S, partId: "p1", text: "Done", messageID: "m1" },
+      { type: "context.usage", sessionId: S, used: 80_960, size: 200_000 },
+    ]);
+    expect(s.blocks[0]).toMatchObject({
+      kind: "agent",
+      contextUsage: { used: 80_960, size: 200_000 },
+    });
+  });
+
+  it("overwrites as the conversation grows", () => {
+    const s = foldAll([
+      { type: "text.updated", sessionId: S, partId: "p1", text: "First", messageID: "m1" },
+      { type: "context.usage", sessionId: S, used: 10_000, size: 200_000 },
+      { type: "context.usage", sessionId: S, used: 24_000, size: 200_000 },
+    ]);
+    expect(s.blocks[0]).toMatchObject({ contextUsage: { used: 24_000, size: 200_000 } });
+  });
+
+  it("stamps only the newest answer, not every message in the thread", () => {
+    // One number describes the whole conversation, so repeating it on older
+    // answers would claim they were sent with a context they never had.
+    const s = foldAll([
+      { type: "text.updated", sessionId: S, partId: "p1", text: "First", messageID: "m1" },
+      { type: "text.updated", sessionId: S, partId: "p2", text: "Second", messageID: "m2" },
+      { type: "context.usage", sessionId: S, used: 80_960, size: 200_000 },
+    ]);
+    expect(s.blocks[0]).not.toHaveProperty("contextUsage");
+    expect(s.blocks[1]).toMatchObject({ contextUsage: { used: 80_960, size: 200_000 } });
+  });
+
+  it("is a no-op when no answer exists yet", () => {
+    const s = foldAll([{ type: "context.usage", sessionId: S, used: 80_960, size: 200_000 }]);
+    expect(s.blocks).toHaveLength(0);
+  });
+});
+
 describe("subagent activity", () => {
   it("records the child session id on a task tool block", () => {
     const s = foldAll([

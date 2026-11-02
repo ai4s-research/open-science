@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { contextUsed, type MessageUsage } from "@ai4s/shared";
+import { contextUsed, type ContextUsage, type MessageUsage } from "@ai4s/shared";
 import { cn } from "@/lib/cn";
 
 /** Share of the context window at which the readout starts warning. Below the
@@ -44,27 +44,40 @@ function formatCost(usd: number): string | null {
  * carries the newest numbers, "how full is the context right now" is answered
  * by the bottom of the thread without a separate always-on gauge.
  *
- * Every field is optional and rendered only when real: ACP sessions report no
- * usage at all, a streaming turn has no duration yet, and a model whose window
- * OpenCode does not know (`contextLimit` 0) shows tokens with no percentage
- * rather than a made-up denominator.
+ * Every field is optional and rendered only when real: an ACP agent reports the
+ * conversation's context instead of a per-message breakdown (see `contextUsage`),
+ * a streaming turn has no duration yet, and a model whose window this app does
+ * not know (`contextLimit` 0) shows tokens with no percentage rather than a
+ * made-up denominator.
  */
 export const MessageMeta = memo(function MessageMeta({
   created,
   completed,
   usage,
+  contextUsage,
   contextLimit,
 }: {
   created?: number;
   completed?: number;
   usage?: MessageUsage;
+  /** The AGENT's own context numbers, when it reports them (ACP). The window
+   *  travels with them, so this needs nothing from the model catalog; it is
+   *  used only when there is no `usage`, which is the richer shape OpenCode
+   *  reports for the same question. */
+  contextUsage?: ContextUsage;
   /** Model context window in tokens; 0/undefined means unknown. */
   contextLimit?: number;
 }) {
   const { t, i18n } = useTranslation("session");
   const duration = created && completed && completed > created ? completed - created : null;
-  const used = usage ? contextUsed(usage) : null;
-  const limit = contextLimit && contextLimit > 0 ? contextLimit : null;
+  const used = usage ? contextUsed(usage) : (contextUsage?.used ?? null);
+  const limit = usage
+    ? contextLimit && contextLimit > 0
+      ? contextLimit
+      : null
+    : contextUsage && contextUsage.size > 0
+      ? contextUsage.size
+      : null;
   const share = used !== null && limit ? used / limit : null;
   const cost = usage ? formatCost(usage.cost) : null;
 
@@ -102,7 +115,16 @@ export const MessageMeta = memo(function MessageMeta({
                   used: (used ?? 0).toLocaleString(i18n.language),
                 }),
           ].join("\n")
-        : undefined,
+        : used !== null
+          ? // No breakdown to offer: an ACP agent reports the context alone, so
+            // the tooltip carries the same two numbers the line shows.
+            limit
+            ? t("meta.tooltip.context", {
+                used: used.toLocaleString(i18n.language),
+                limit: limit.toLocaleString(i18n.language),
+              })
+            : t("meta.tooltip.contextUnknown", { used: used.toLocaleString(i18n.language) })
+          : undefined,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t/i18n.language move together
     [usage, used, limit, i18n.language],
   );

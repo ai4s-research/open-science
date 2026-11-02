@@ -205,11 +205,28 @@ export interface MessageUsageEvent {
   completed?: number;
 }
 
+/** The agent's own context accounting, as ACP reports it
+ *  (`session/update` → `usage_update`).
+ *
+ *  Session-scoped, unlike `MessageUsageEvent`: the agent says how much the whole
+ *  conversation now holds and how large its window is, with no per-message
+ *  breakdown and no message id. The denominator travels with the number, so
+ *  nothing here needs this app's model catalog. */
+export interface ContextUsageEvent {
+  type: "context.usage";
+  sessionId: string;
+  /** Tokens currently in context, as the agent counts them. */
+  used: number;
+  /** Total context window in tokens; always > 0 (a report without one is dropped). */
+  size: number;
+}
+
 export type OpenCodeEvent =
   | TextUpdatedEvent
   | ReasoningUpdatedEvent
   | CompactedEvent
   | MessageUsageEvent
+  | ContextUsageEvent
   | StepUpdatedEvent
   | ToolUpdatedEvent
   | SessionIdleEvent
