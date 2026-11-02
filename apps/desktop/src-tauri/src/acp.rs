@@ -174,15 +174,23 @@ fn start_blocking(
         )?),
         None => None,
     };
+    // GUI-launched apps get a minimal PATH; an ACP agent is usually a node or
+    // cargo binary the user installed, so give it the real one. Resolved once
+    // and used for both the lookup and the child, so "found" and "started"
+    // cannot disagree about which PATH they meant.
+    let path_env = crate::runtime::enriched_path();
+    // Resolve the name the way this machine's shell would BEFORE spawning.
+    // `std::process::Command` does not expand PATHEXT on Windows, so `npx` —
+    // which npm installs as `npx.cmd` — would be found by the picker (which
+    // does expand it) and then fail to start (#172).
+    let program = osd_core::which::resolve_program(&command, Some(&path_env));
     // quiet_command: an ACP agent is a console-subsystem binary, and a console
     // window opening beside the app for it is noise the user never asked for.
-    let mut command_line = crate::runtime::quiet_command(&command);
+    let mut command_line = crate::runtime::quiet_command(&program);
     command_line
         .args(&args)
         .current_dir(&cwd)
-        // GUI-launched apps get a minimal PATH; an ACP agent is usually a node
-        // or cargo binary the user installed, so give it the real one.
-        .env("PATH", crate::runtime::enriched_path());
+        .env("PATH", &path_env);
     // The app's proxy setting, the same a terminal gets: Claude Code or Codex
     // run here must reach their API the way they do in the app's terminal.
     for (k, v) in crate::runtime::sidecar_proxy_env(&app) {
