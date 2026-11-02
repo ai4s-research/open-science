@@ -35,26 +35,33 @@ pub fn find_on_path(command: &str, path_var: Option<&str>) -> Option<PathBuf> {
     // A command carrying a separator is a path, not a PATH lookup — the shell
     // treats `./my-agent` and `agent` differently, and so must this.
     if command.contains('/') || command.contains('\\') {
-        let direct = PathBuf::from(command);
-        return is_executable(&direct).then_some(direct);
+        return program_at(PathBuf::from(command));
     }
-    for dir in std::env::split_paths(path_var.unwrap_or_default()) {
-        if dir.as_os_str().is_empty() {
-            continue;
-        }
-        let candidate = dir.join(command);
-        if is_executable(&candidate) {
-            return Some(candidate);
-        }
-        #[cfg(windows)]
-        for suffix in WINDOWS_SUFFIXES {
-            let with_suffix = dir.join(format!("{command}{suffix}"));
-            if is_executable(&with_suffix) {
-                return Some(with_suffix);
-            }
-        }
+    std::env::split_paths(path_var.unwrap_or_default())
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .find_map(|dir| program_at(dir.join(command)))
+}
+
+/// The file a spawn can start for `base`, if any.
+///
+/// On Windows the PATHEXT suffixes come first, and a file with no extension is
+/// never a program: npm puts an extensionless `npx` (a sh script for Git Bash)
+/// beside `npx.cmd`, and `CreateProcess` refuses it with os error 193.
+fn program_at(base: PathBuf) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let with_suffix = WINDOWS_SUFFIXES.iter().map(|suffix| {
+            let mut name = base.clone().into_os_string();
+            name.push(suffix);
+            PathBuf::from(name)
+        });
+        let bare = base.extension().is_some().then(|| base.clone());
+        return with_suffix.chain(bare).find(|p| is_executable(p));
     }
-    None
+    #[cfg(not(windows))]
+    {
+        is_executable(&base).then_some(base)
+    }
 }
 
 /// The program to hand a process spawn for a user-configured command name.
@@ -188,6 +195,9 @@ mod tests {
     #[cfg(windows)]
     fn a_cmd_shim_resolves_to_the_file_a_spawn_can_start() {
         let dir = temp_dir("cmdshim");
+        // npm installs an extensionless sh script beside the shim; Windows
+        // cannot start it (os error 193), so it must never win.
+        fs::write(dir.join("npx"), b"#!/bin/sh\n").unwrap();
         let shim = write_shim(&dir, "npx.cmd");
         let path_var = dir.to_string_lossy().to_string();
 
