@@ -77,9 +77,26 @@ export interface AgentMessageBlock {
    *  while the turn is still streaming. */
   created?: number;
   completed?: number;
-  /** What the turn cost in tokens. Absent until the runtime reports it, and
-   *  always absent for ACP sessions — ACP v1 has no usage channel. */
+  /** What the turn cost in tokens, as OpenCode reports it per message. Absent
+   *  until that runtime reports it, and always absent for ACP sessions — an
+   *  ACP agent reports the conversation's context instead, see `contextUsage`. */
   usage?: MessageUsage;
+  /** How full the AGENT says the conversation is, as ACP reports it
+   *  (`usage_update`). Session-scoped: one number for the whole context and the
+   *  window it is measured against, with no per-message breakdown and no
+   *  message id. Stamped on the newest answer because that is where a reader
+   *  asks "how full is it right now". */
+  contextUsage?: ContextUsage;
+}
+
+/** Context accounting as an ACP agent reports it: tokens currently in context,
+ *  and the window they are measured against. Self-contained — unlike
+ *  `MessageUsage`, the denominator comes from the agent rather than from this
+ *  app's model catalog. */
+export interface ContextUsage {
+  used: number;
+  /** Total context window in tokens (> 0; a report with no window is ignored). */
+  size: number;
 }
 
 /** Token accounting for one assistant turn, as OpenCode reports it.

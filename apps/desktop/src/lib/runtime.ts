@@ -5729,6 +5729,22 @@ export function foldEvent(
       // republish after the text arrives carries the same numbers.
       return touched ? { blocks, index } : state;
     }
+    case "context.usage": {
+      // ACP's accounting is SESSION-scoped, not per message: how much the whole
+      // conversation holds and how large the window is. It lands on the newest
+      // answer, which is where a reader asks "how full is it right now" — the
+      // same row OpenCode's per-message numbers appear in.
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const b = blocks[i];
+        if (b.kind !== "agent") continue;
+        if (b.contextUsage?.used === event.used && b.contextUsage.size === event.size) return state;
+        blocks[i] = { ...b, contextUsage: { used: event.used, size: event.size } };
+        return { blocks, index };
+      }
+      // Nothing to stamp yet: a turn that reports usage before writing an
+      // answer. The agent reports again as the turn goes on.
+      return state;
+    }
     case "session.idle": {
       const last = blocks[blocks.length - 1];
       // A turn that already ended in a red line must not then be told it is

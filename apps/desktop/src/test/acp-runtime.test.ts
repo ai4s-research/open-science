@@ -190,6 +190,46 @@ describe("AcpRuntime", () => {
     });
   });
 
+  it("reports the agent's own context numbers as a session-scoped event", async () => {
+    // ACP's one context signal: `usage_update {used, size}`. Session-scoped and
+    // with no message id — OpenCode reports a per-message token breakdown
+    // instead — and it is what lets an ACP session show a context gauge at all.
+    const { runtime, events, sessionId } = await connected((msg, a) => {
+      if (msg.method !== "session/prompt") return;
+      a.notify("session/update", {
+        sessionId,
+        update: { sessionUpdate: "usage_update", used: 80_960, size: 200_000 },
+      });
+      a.reply(msg.id, { stopReason: "end_turn" });
+    });
+
+    await runtime.sendPrompt(sessionId, "summarise");
+
+    expect(events.filter((e) => e.type === "context.usage")).toEqual([
+      { type: "context.usage", sessionId, used: 80_960, size: 200_000 },
+    ]);
+  });
+
+  it("ignores a usage report with no window to measure against", async () => {
+    // A zero/absent `size` is not a measurement: rendering it would divide by
+    // zero or invent a denominator, so it never becomes an event.
+    const { runtime, events, sessionId } = await connected((msg, a) => {
+      if (msg.method !== "session/prompt") return;
+      for (const update of [
+        { sessionUpdate: "usage_update", used: 10, size: 0 },
+        { sessionUpdate: "usage_update", used: 10 },
+        { sessionUpdate: "usage_update", used: -1, size: 100 },
+        { sessionUpdate: "usage_update", used: 10, size: "100" },
+      ]) {
+        a.notify("session/update", { sessionId, update });
+      }
+      a.reply(msg.id, { stopReason: "end_turn" });
+    });
+
+    await runtime.sendPrompt(sessionId, "summarise");
+    expect(events.filter((e) => e.type === "context.usage")).toEqual([]);
+  });
+
   it("keeps id-less chunks from different turns apart", async () => {
     // codex-acp precedes an answer with an id-less notice (a skills-budget
     // warning, seen on a real turn). A single shared fallback key would glue
