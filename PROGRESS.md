@@ -1,5 +1,7 @@
 # Progress
 
+2026-11-02 17:40 · ACP sessions now show the agent's own context usage under the newest answer (`usage_update` → `used / size (pct)`, PR #174 merged). Fixed its no-cost test, whose regex matched a trailing backslash instead of `$` and could never fail. Not seen in the GUI yet: echo's dsh has no DeepSeek key.
+
 2026-11-02 15:25 · Windows: npm-installed ACP agents (Codex, Claude Code, pi, dsh) start again (#172, PR #173 merged with a fix on top). Spawn now resolves the command like detection does, and on Windows tries PATHEXT before a bare name, so `npx` is `npx.cmd`, never Node's extensionless sh script (os error 193). Verified with the resolver cross-built and run on Win11; core CI green on all three.
 
 2026-11-02 15:10 · Agents: DeepSeek Harness (`dsh --profile acp`) added to the catalog (#171, probe by its reporter: protocol 1, list/resume, model and thought_level selectors, no session/load replay). On Windows it starts only once #172 is fixed; #173 as filed still resolves `npx` to Node's extensionless sh script and fails with os error 193 (PR's own which.rs, cross-built, run on Win11).
