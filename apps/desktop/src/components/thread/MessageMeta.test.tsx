@@ -109,7 +109,7 @@ describe("agent message meta", () => {
     );
 
     expect(screen.getByText("81k / 200k (40%)")).toBeInTheDocument();
-    expect(screen.queryByText(/\\$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
   });
 
   it("renders nothing when the runtime reports no usage at all", () => {
