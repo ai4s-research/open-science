@@ -391,6 +391,18 @@ describe("layout store — groups", () => {
     expect(S().tree).toBeNull();
   });
 
+  it("closing the active Screen returns to the one shown before it", () => {
+    // A terminal in g0, two more Screens to its right; back on the terminal, a
+    // file opened from it gets a new Screen at the end. Closing that preview
+    // must land on the terminal, not on the rightmost Screen left.
+    S().addGroup();
+    S().addGroup();
+    S().setActiveGroup("g0");
+    const preview = S().addGroup({ kind: "editor", path: "results/summary.csv" });
+    S().closeGroup(preview);
+    expect(S().activeGroupId).toBe("g0");
+  });
+
   it("closing the last pane empties the group (onboarding), not disallowed", () => {
     // g0 has a single leaf "A".
     S().closePane(S().focusedLeafId!);

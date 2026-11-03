@@ -1,5 +1,7 @@
 # Progress
 
+2026-11-03 09:00 · Closing the active Screen now returns to the Screen shown before it, so a file opened from a terminal and closed lands back on that terminal instead of the rightmost Screen; with that one gone, the neighbor rule as before. New layout test fails without the fix; vitest 2030, typecheck, lint green. Not seen in the GUI.
+
 2026-11-02 17:40 · ACP sessions now show the agent's own context usage under the newest answer (`usage_update` → `used / size (pct)`, PR #174 merged). Fixed its no-cost test, whose regex matched a trailing backslash instead of `$` and could never fail. Not seen in the GUI yet: echo's dsh has no DeepSeek key.
 
 2026-11-02 15:25 · Windows: npm-installed ACP agents (Codex, Claude Code, pi, dsh) start again (#172, PR #173 merged with a fix on top). Spawn now resolves the command like detection does, and on Windows tries PATHEXT before a bare name, so `npx` is `npx.cmd`, never Node's extensionless sh script (os error 193). Verified with the resolver cross-built and run on Win11; core CI green on all three.

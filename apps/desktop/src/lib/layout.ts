@@ -819,6 +819,11 @@ interface LayoutState {
   pruneSessions: (gone: Set<string>) => void;
 }
 
+/** Screens most recently shown first: where closing the active Screen goes
+ *  back to, as a browser tab returns to the one it was opened from. Kept by a
+ *  subscription below, so every way of switching Screens counts. Not persisted. */
+let screenHistory: string[] = [];
+
 export const useLayoutStore = create<LayoutState>((set, get) => {
   // Restore the saved workspace, else start as a single pane seeded from the URL.
   const restored = loadPersisted();
@@ -1038,12 +1043,16 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
         }
         const idx = siblings.findIndex((g) => g.id === groupId);
         const groups = s.groups.filter((g) => g.id !== groupId);
-        // If the active group closed, activate its neighbor IN THE SAME
-        // project — closing a Screen must not hop to another project.
+        // Only Screens of the SAME project are candidates: closing a Screen
+        // must not hop to another project.
         const remaining = siblings.filter((g) => g.id !== groupId);
+        // If the active group closed, go back to the Screen shown before it
+        // (a file opened from a terminal returns to that terminal), else to
+        // its neighbor.
+        const previous = screenHistory.find((id) => id !== groupId && remaining.some((g) => g.id === id));
         const active =
           s.activeGroupId === groupId
-            ? remaining[Math.min(idx, remaining.length - 1)]
+            ? (remaining.find((g) => g.id === previous) ?? remaining[Math.min(idx, remaining.length - 1)])
             : groups.find((g) => g.id === s.activeGroupId)!;
         return {
           groups,
@@ -1503,6 +1512,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
         return { groups, tree: active.tree, focusedLeafId: active.focusedLeafId, zoomedLeafId: active.zoomedLeafId };
       }),
   };
+});
+
+screenHistory = [useLayoutStore.getState().activeGroupId];
+useLayoutStore.subscribe((s, prev) => {
+  if (s.activeGroupId !== prev.activeGroupId) screenHistory = recentScreens(screenHistory, s.activeGroupId, 50);
 });
 
 /** Display label for a group tab: its name, or an index-based default. */
