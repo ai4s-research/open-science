@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { terminalKindOf } from "@/lib/cliAgents";
+import { acpSlashCommands } from "@/lib/acpAgents";
 import { toast } from "@/lib/toast";
 import type { RuntimeStatus } from "@ai4s/shared";
 import {
@@ -197,6 +198,7 @@ export function SessionView({
   // The ACP agent this conversation runs on, or null for OpenCode (#14).
   const acpAgentId = useRuntimeStore((s) => acpAgentFor(s, key));
   const acp = acpAgentId !== null;
+  const agentCommands = useRuntimeStore((s) => (acpAgentId ? s.acpAgentCommands[acpAgentId] : undefined));
   const setDraftRuntime = useRuntimeStore((s) => s.setDraftRuntime);
   const setDraftAcpOption = useRuntimeStore((s) => s.setDraftAcpOption);
   const fetchAcpAgentOptions = useRuntimeStore((s) => s.fetchAcpAgentOptions);
@@ -390,11 +392,12 @@ export function SessionView({
       { name: "new", description: t("localCommand.newDescription"), source: "local", immediate: true },
       { name: "clear", description: t("localCommand.clearDescription"), source: "local", immediate: true },
     ];
-    // OpenCode's commands, skills and MCP prompts mean nothing to an ACP agent.
-    if (acp) return local;
+    // OpenCode's commands, skills and MCP prompts mean nothing to an ACP agent;
+    // its own do, and win over the app's of the same name.
+    if (acp) return acpSlashCommands(agentCommands ?? [], local);
     const localNames = new Set(local.map((c) => c.name));
     return [...local, ...commands.filter((c) => !localNames.has(c.name))];
-  }, [commands, t, acp]);
+  }, [commands, t, acp, agentCommands]);
 
   // Which subagent the transcript last asked the panel to show. The counter
   // makes a repeat ask distinct from the previous one (see SubagentPane).
@@ -1279,8 +1282,9 @@ export function SessionView({
                     : undefined
                 }
                 modelSessionId={key}
+                // Compacting is OpenCode's; an ACP agent offers its own /compact.
                 onCompactContext={
-                  connected && !webReadOnly
+                  connected && !webReadOnly && !acp
                     ? () => {
                         if (eid) void compactContext(eid);
                       }

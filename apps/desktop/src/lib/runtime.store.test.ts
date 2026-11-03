@@ -1121,6 +1121,22 @@ describe("per-session workspace folders", () => {
     expect(s.runningSessions["ses_new"]).toBeUndefined();
   });
 
+  it("/clear goes to an ACP agent that has its own, not to the app", async () => {
+    useRuntimeStore.setState({
+      currentId: "ses_claude",
+      clearedFrom: {},
+      acpSessions: { ses_claude: { agentId: "cli-claude-code", title: "Refactor the loader" } },
+      acpAgentCommands: { "cli-claude-code": [{ name: "clear", description: "Clear the conversation", source: "command" }] },
+      threads: { ses_claude: { blocks: [{ kind: "user", text: "old context" }], index: {}, loaded: true } },
+    });
+    await useRuntimeStore.getState().runCommand("clear", undefined, "ses_claude");
+    const s = useRuntimeStore.getState();
+    // The app did not swap in a fresh draft: the command went to the session.
+    expect(s.currentId).toBe("ses_claude");
+    expect(s.clearedFrom).toEqual({});
+    expect(s.threads.ses_claude.blocks[1]).toEqual({ kind: "user", text: "/clear" });
+  });
+
   it("/clear starts a new draft in the same folder and keeps the cleared session above it", async () => {
     useRuntimeStore.setState({
       currentId: "ses_old",

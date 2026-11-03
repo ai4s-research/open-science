@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 
-import { AcpRuntime, pickPermissionOption } from "@ai4s/sdk/acp";
+import { AcpRuntime, pickPermissionOption, type AcpRuntimeOptions } from "@ai4s/sdk/acp";
 import type { JsonRpcTransport, OpenCodeEvent } from "@ai4s/sdk/acp";
 
 /** Last element. `Array.prototype.at` is outside this tsconfig's lib target. */
@@ -109,7 +109,10 @@ const NEW_SESSION_RESULT = {
 
 /** A runtime whose agent answers initialize + session/new, plus whatever the
  *  test's own handler does on top. */
-async function connected(extra?: (msg: Record<string, unknown>, agent: FakeAgent) => void) {
+async function connected(
+  extra?: (msg: Record<string, unknown>, agent: FakeAgent) => void,
+  opts?: Pick<AcpRuntimeOptions, "onCommands">,
+) {
   const events: OpenCodeEvent[] = [];
   const { transport, agent } = fakeAgent((msg, a) => {
     if (msg.method === "initialize") return a.reply(msg.id, INITIALIZE_RESULT);
@@ -120,7 +123,7 @@ async function connected(extra?: (msg: Record<string, unknown>, agent: FakeAgent
     // dropped by the peer.
     if (msg.method === "session/list") a.reply(msg.id, { sessions: [] });
   });
-  const runtime = new AcpRuntime({ transport, cwd: "/ws/project" });
+  const runtime = new AcpRuntime({ transport, cwd: "/ws/project", ...opts });
   runtime.onEvent((e) => events.push(e));
   await runtime.connect();
   const sessionId = await runtime.createSession("Trend analysis");
@@ -311,6 +314,24 @@ describe("AcpRuntime", () => {
       { name: "plan", description: "Turn plan mode on.", source: "command" },
       { name: "review", description: "Review uncommitted changes", source: "command" },
     ]);
+  });
+
+  it("tells its owner when the agent announces its commands", async () => {
+    const seen: string[][] = [];
+    const { agent, sessionId } = await connected(undefined, {
+      onCommands: (commands) => seen.push(commands.map((c) => c.name)),
+    });
+    agent.notify("session/update", {
+      sessionId,
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          { name: "compact", description: "Compact the conversation", input: null },
+          { name: "clear", description: "Clear the conversation", input: null },
+        ],
+      },
+    });
+    expect(seen).toEqual([["compact", "clear"]]);
   });
 
   it("routes a permission request to the app and answers the blocked agent", async () => {

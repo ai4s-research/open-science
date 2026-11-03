@@ -1,5 +1,7 @@
 # Progress
 
+2026-11-03 10:30 · ACP conversations: "/" now lists the agent's own commands (from `available_commands_update`, remembered per agent so a new conversation has them; Claude Code announces ~110 incl. compact, context, init), ahead of the app's /new and /clear, and an agent's command of the same name wins. The app's /compact is no longer offered there (it only ever failed on ACP). dsh announces no commands, modes or permission levels over ACP (its README: unsupported), so its mode and permission pickers cannot appear until dsh exposes them as config options, which OSD already renders. vitest 2033, typecheck, lint green; not seen in the GUI.
+
 2026-11-03 09:00 · Closing the active Screen now returns to the Screen shown before it, so a file opened from a terminal and closed lands back on that terminal instead of the rightmost Screen; with that one gone, the neighbor rule as before. New layout test fails without the fix; vitest 2030, typecheck, lint green. Not seen in the GUI.
 
 2026-11-02 17:40 · ACP sessions now show the agent's own context usage under the newest answer (`usage_update` → `used / size (pct)`, PR #174 merged). Fixed its no-cost test, whose regex matched a trailing backslash instead of `$` and could never fail. Not seen in the GUI yet: echo's dsh has no DeepSeek key.

@@ -84,6 +84,9 @@ export interface AcpRuntimeOptions {
   /** Optional label for errors and Settings ("Codex", "Gemini CLI"). Falls back
    *  to whatever the agent calls itself in `initialize`. */
   name?: string;
+  /** Called with the agent's slash commands each time it announces them
+   *  (`available_commands_update`), so a client can offer them before asking. */
+  onCommands?: (commands: CommandInfo[]) => void;
 }
 
 /** Pages of `session/list` to walk. A bound, not a policy: an agent with a
@@ -141,6 +144,7 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
    *  them ("it offers ChatGPT") instead of leaving the user guessing. */
   private authMethods: AcpAuthMethod[] = [];
   private commands: CommandInfo[] = [];
+  private readonly onCommands?: (commands: CommandInfo[]) => void;
   /** Permission requests the agent is blocked on, keyed by our own request id.
    *  ACP answers a permission by RESPONDING to the agent's request, so the
    *  resolver has to be held until the user replies. */
@@ -154,6 +158,7 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
     super();
     this.cwd = opts.cwd;
     this.label = opts.name;
+    this.onCommands = opts.onCommands;
     this.peer = new JsonRpcPeer(opts.transport, {
       onNotification: (method, params) => this.onNotification(method, params),
       onRequest: (method, params) => this.onAgentRequest(method, params),
@@ -869,6 +874,7 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
           description: c.description,
           source: "command",
         }));
+        this.onCommands?.(this.commands);
         return;
       }
       case "usage_update": {

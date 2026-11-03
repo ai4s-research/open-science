@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  acpSlashCommands,
   activeAcpAgent,
   activeAcpAgentId,
   formatCommandArgs,
@@ -97,5 +98,23 @@ describe("argument line", () => {
   it("re-quotes what it split, so an edit round-trips", () => {
     const args = ["--config", "/Users/me/My Agents/acp.json", "--acp"];
     expect(parseCommandArgs(formatCommandArgs(args))).toEqual(args);
+  });
+});
+
+describe("acpSlashCommands", () => {
+  it("lists the agent's commands first, and the app's only where the agent has none", () => {
+    const own = [
+      { name: "compact", source: "command" },
+      { name: "clear", source: "command" },
+    ];
+    const local = [
+      { name: "new", source: "local" },
+      { name: "clear", source: "local" },
+    ];
+    expect(acpSlashCommands(own, local)).toEqual([
+      { name: "compact", source: "command" },
+      { name: "clear", source: "command" },
+      { name: "new", source: "local" },
+    ]);
   });
 });

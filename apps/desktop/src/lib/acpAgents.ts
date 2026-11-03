@@ -9,6 +9,7 @@
 // Stored locally rather than in OpenCode's config: it is app behaviour (which
 // runtime the desktop drives), and OpenCode must not be asked to describe a
 // runtime that replaces it.
+import type { CommandInfo } from "@ai4s/sdk";
 import type { AcpConfigOption } from "@ai4s/sdk/acp";
 
 /** A configured ACP agent. `id` is also the key the Rust supervisor tracks its
@@ -194,6 +195,43 @@ export function saveAcpAgentOptions(options: Record<string, AcpConfigOption[]>):
   } catch {
     /* remembered for this run only */
   }
+}
+
+const COMMANDS_KEY = "ai4s.acp.commands.v1";
+
+/** The slash commands each agent last announced, by agent id. Like its
+ *  selectors, an agent sends them only once a session exists; remembering them
+ *  lets "/" offer them in a new conversation. */
+export function loadAcpAgentCommands(): Record<string, CommandInfo[]> {
+  const store = storage();
+  if (!store) return {};
+  try {
+    const raw: unknown = JSON.parse(store.getItem(COMMANDS_KEY) ?? "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out: Record<string, CommandInfo[]> = {};
+    for (const [id, list] of Object.entries(raw as Record<string, unknown>))
+      if (Array.isArray(list)) out[id] = list.filter((c) => c && typeof c.name === "string");
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function saveAcpAgentCommands(commands: Record<string, CommandInfo[]>): void {
+  const store = storage();
+  if (!store) return;
+  try {
+    store.setItem(COMMANDS_KEY, JSON.stringify(commands));
+  } catch {
+    /* remembered for this run only */
+  }
+}
+
+/** The "/" list of an ACP conversation: the agent's own commands, then the
+ *  app's local ones it does not have itself. An agent's `/clear` or `/compact`
+ *  is the one the user means; OpenCode's commands mean nothing to it. */
+export function acpSlashCommands<T extends { name: string }>(own: readonly T[], local: readonly T[]): T[] {
+  return [...own, ...local.filter((l) => !own.some((c) => c.name === l.name))];
 }
 
 /** A conversation that runs on an ACP agent rather than on OpenCode. OpenCode

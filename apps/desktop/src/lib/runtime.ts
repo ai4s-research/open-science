@@ -70,6 +70,8 @@ import {
   loadAcpAgents,
   loadAcpSessions,
   saveAcpAgentOptions,
+  loadAcpAgentCommands,
+  saveAcpAgentCommands,
   saveAcpSessions,
   loadAcpAgentOptions,
   setActiveAcpAgentId,
@@ -298,6 +300,8 @@ interface RuntimeState {
   setDefaultRuntime: (agentId: string | null) => void;
   /** Each ACP agent's selectors as it last reported them, by agent id. */
   acpAgentOptions: Record<string, AcpConfigOption[]>;
+  /** Each ACP agent's slash commands as it last announced them, by agent id. */
+  acpAgentCommands: Record<string, CommandInfo[]>;
   /** A draft's choices among them (configId → value), applied to the session
    *  the moment its agent creates it. */
   draftAcpPicks: Record<string, Record<string, string>>;
@@ -940,7 +944,12 @@ async function startAcpRuntime(agentId: string, cwd: string): Promise<AcpRuntime
       acpRuntimes.delete(agentId);
     }
     const transport = await acpTransport(agentId, agent.command, agent.args, runAs);
-    const rt = new AcpRuntime({ transport, cwd, name: agent.name });
+    const rt = new AcpRuntime({
+      transport,
+      cwd,
+      name: agent.name,
+      onCommands: (commands) => rememberAgentCommands(agentId, commands),
+    });
     try {
       if (sharedEventHandler) rt.onEvent(sharedEventHandler);
       // The app's connectors are per session in ACP, so the agent must know
@@ -1095,6 +1104,15 @@ function syncAcpConfig(set: StoreSet, get: StoreGet, sessionId: string): void {
     return { acpConfigOptions: { ...s.acpConfigOptions, [sessionId]: options } };
   });
   rememberAgentOptions(set, get, get().acpSessions[sessionId]?.agentId, options);
+}
+
+/** Keep an agent's latest slash commands, for "/" in its conversations. */
+function rememberAgentCommands(agentId: string, commands: CommandInfo[]): void {
+  const known = useRuntimeStore.getState().acpAgentCommands;
+  if (JSON.stringify(known[agentId]) === JSON.stringify(commands)) return;
+  const acpAgentCommands = { ...known, [agentId]: commands };
+  useRuntimeStore.setState({ acpAgentCommands });
+  saveAcpAgentCommands(acpAgentCommands);
 }
 
 /** Keep an agent's latest selector list, for the next new conversation on it. */
@@ -2903,6 +2921,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       return { draftRuntimes: { ...s.draftRuntimes, [draftKey]: agentId }, draftAcpPicks };
     }),
   acpAgentOptions: loadAcpAgentOptions(),
+  acpAgentCommands: loadAcpAgentCommands(),
   acpOptionsProbe: {},
   fetchAcpAgentOptions: async (agentId) => {
     const s = get();
@@ -4976,7 +4995,11 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   },
 
   runCommand: async (name, args, sessionId, draftKey) => {
-    if (name === "new" || name === "clear") {
+    // An ACP agent with a command of the same name (Claude Code's /clear) gets
+    // it; the app's own /new and /clear are for everything else.
+    const acpAgent = acpAgentFor(get(), sessionId ?? draftKey ?? get().currentId ?? DRAFT_KEY);
+    const agentOwns = !!acpAgent && (get().acpAgentCommands[acpAgent] ?? []).some((c) => c.name === name);
+    if ((name === "new" || name === "clear") && !agentOwns) {
       const s = get();
       // The session being cleared: this pane's own, or (single pane) the focused
       // one. A draft has none — then /clear keeps the conversation it showed.
