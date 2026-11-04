@@ -73,15 +73,20 @@ export const CLI_AGENTS: readonly CliAgent[] = [
     args: ["-y", "pi-acp"],
     install: { unix: "npm install -g @earendil-works/pi-coding-agent" },
   },
-  // DeepSeek Harness ships an ACP profile. Checked 2026-11-02 against
-  // 0.2.1-rc.2 (#171): protocol 1, list and resume, model and thought_level
-  // selectors; no session/load, so a reopened conversation has no replay.
+  // DeepSeek Harness's own ACP profile sends no slash commands, modes or
+  // permission choices, so it runs through openma's bridge
+  // (github.com/openma-ai/deepseek-harness-acp, Apache-2.0). Checked 2026-11-03
+  // against 0.4.40: modes read-only / workspace-write / danger-full-access,
+  // model and effort options, /compact /plan /goal /permission. It bundles its
+  // own dsh and reads the same key store (~/.dsh/.credentials.yaml). With no
+  // key there, the app hands it the user's DeepSeek key from OpenCode
+  // (`osd_core::agent_keys`).
   {
     id: "cli-dsh",
     name: "DeepSeek Harness",
     detect: "dsh",
-    command: "dsh",
-    args: ["--profile", "acp"],
+    command: "npx",
+    args: ["-y", "@openma/deepseek-harness-acp"],
     install: { unix: "npm install -g @deepseek-ai/dsh" },
   },
 ];

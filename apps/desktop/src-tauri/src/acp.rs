@@ -203,6 +203,11 @@ fn start_blocking(
         for k in unset {
             command_line.env_remove(k);
         }
+    } else if let Some((var, key)) =
+        osd_core::agent_keys::launch_key(&crate::env_of(&app), &agent_id, &cwd)
+    {
+        // The API key the user already gave OpenCode, for an agent with none.
+        command_line.env(var, key);
     }
     let mut child = command_line
         .stdin(Stdio::piped())
