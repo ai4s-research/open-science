@@ -22,7 +22,9 @@ const STYLES: Record<Variant, Record<string, string>> = {
     // paragraph cannot shrink below it — the message then stuck out past the
     // pane and the whole conversation could be dragged sideways.
     root: "text-[15px] leading-relaxed text-text break-words",
-    p: "my-3.5 first:mt-0 last:mb-0",
+    // pre-line: a single newline is a line break, as in every chat UI. An
+    // agent's plain-text output (dsh's `/model` list) otherwise ran together.
+    p: "my-3.5 whitespace-pre-line first:mt-0 last:mb-0",
     a: "text-link underline underline-offset-2",
     code: "rounded bg-surface-2 px-1 py-0.5 font-mono text-[13px] text-link",
     pre: "my-4 overflow-x-auto overflow-y-hidden rounded-input bg-surface-2 p-3 font-mono text-[13px] leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-text",

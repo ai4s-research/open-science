@@ -174,6 +174,18 @@
       "title": "에이전트가 조사하고 계획만 작성하며 파일은 수정하지 않습니다. Shift+Tab 또는 /plan off로 종료",
       "exitAria": "계획 모드 종료"
     },
+    "todos": {
+      "title": "작업",
+      "done": "완료 {{count}}",
+      "active": "진행 중 {{count}}",
+      "pending": "할 일 {{count}}",
+      "status": {
+        "completed": "완료",
+        "in_progress": "진행 중",
+        "pending": "할 일",
+        "cancelled": "취소됨"
+      }
+    },
     "queue": {
       "aria": "대기 중인 메시지",
       "edit": "대기 메시지 편집",

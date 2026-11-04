@@ -177,6 +177,18 @@
       "title": "Der Agent recherchiert und schreibt einen Plan; er ändert keine Dateien. Shift+Tab oder /plan off beendet",
       "exitAria": "Planmodus beenden"
     },
+    "todos": {
+      "title": "Aufgaben",
+      "done": "{{count}} erledigt",
+      "active": "{{count}} in Arbeit",
+      "pending": "{{count}} offen",
+      "status": {
+        "completed": "Erledigt",
+        "in_progress": "In Arbeit",
+        "pending": "Offen",
+        "cancelled": "Abgebrochen"
+      }
+    },
     "queue": {
       "aria": "Wartende Nachrichten",
       "edit": "Wartende Nachricht bearbeiten",

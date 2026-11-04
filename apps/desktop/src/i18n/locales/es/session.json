@@ -177,6 +177,18 @@
       "title": "El agente investiga y escribe un plan; no edita archivos. Shift+Tab o /plan off para salir",
       "exitAria": "Salir del modo plan"
     },
+    "todos": {
+      "title": "Tareas",
+      "done": "{{count}} hechas",
+      "active": "{{count}} en curso",
+      "pending": "{{count}} pendientes",
+      "status": {
+        "completed": "Hecha",
+        "in_progress": "En curso",
+        "pending": "Pendiente",
+        "cancelled": "Cancelada"
+      }
+    },
     "queue": {
       "aria": "Mensajes en cola",
       "edit": "Editar mensaje en cola",

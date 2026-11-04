@@ -40,6 +40,7 @@ import type {
   SessionPage,
   SessionQuery,
   SkillInfo,
+  TodoItem,
   ToolCallStatus,
 } from "../types";
 import type { AcpMcpServer } from "./mcp";
@@ -116,6 +117,9 @@ interface SessionState {
    *  skills-budget warning) arrive id-less, and a single shared fallback key
    *  would glue every such notice in the session into one growing block. */
   turn: number;
+  /** The running turn is the user's `/compact`, so a compaction in it was
+   *  asked for rather than decided by the agent. */
+  compactAsked: boolean;
 }
 
 export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
@@ -295,7 +299,13 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
         // inside the app — which AGENTS.md puts behind approval. The agent still
         // reads and writes through its OWN tools, which stay subject to its own
         // permission requests, and those we do answer.
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientCapabilities: {
+          fs: { readTextFile: false, writeTextFile: false },
+          terminal: false,
+          // Asks for `compaction_update` (unstable). Without it Claude Code
+          // reports a compaction as a tool call, which reads as work done.
+          session: { compaction: {} },
+        },
       });
       this.agentInfo = result.agentInfo;
       this.agentCapabilities = result.agentCapabilities;
@@ -347,6 +357,7 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
       currentModelId: result.models?.currentModelId,
       promptRunning: false,
       turn: 0,
+      compactAsked: false,
     });
     return result.sessionId;
   }
@@ -614,6 +625,7 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
       models: [],
       promptRunning: false,
       turn: 0,
+      compactAsked: false,
     };
   }
 
@@ -637,6 +649,7 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
     const state = await this.ensureSession(sessionId);
     state.promptRunning = true;
     state.turn += 1;
+    state.compactAsked = /^\/compact(\s|$)/.test(text.trim());
     // `agent`, `model` and `variant` are deliberately dropped, not silently
     // approximated: ACP v1 has no per-turn agent, no `session/set_model`, and no
     // effort vocabulary. codex-acp folds effort INTO the model id, so honouring
@@ -868,6 +881,24 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
         });
         return;
       }
+      case "plan": {
+        const entries = (update.entries as { content?: unknown; status?: unknown }[] | undefined) ?? [];
+        const todos = entries.flatMap((e): TodoItem[] =>
+          typeof e?.content === "string" &&
+          (e.status === "pending" || e.status === "in_progress" || e.status === "completed")
+            ? [{ content: e.content, status: e.status }]
+            : [],
+        );
+        this.emit({ type: "todos.updated", sessionId, todos });
+        return;
+      }
+      case "compaction_update": {
+        // One marker per finished compaction, like OpenCode's. Its summary is
+        // the agent's to keep; the marker says only that it happened.
+        if (update.status !== "completed") return;
+        this.emit({ type: "session.compacted", sessionId, auto: !state?.compactAsked });
+        return;
+      }
       case "available_commands_update": {
         this.commands = (update.availableCommands ?? []).map((c: AcpCommand) => ({
           name: c.name,
@@ -891,9 +922,7 @@ export class AcpRuntime extends BaseAgentRuntime implements AgentRuntime {
         this.emit({ type: "context.usage", sessionId, used, size });
         return;
       }
-      // Deliberately ignored: `plan` (no thread block for it yet),
-      // `compaction_update` (no block or copy for it in this app yet),
-      // `current_mode_update` (superseded by config options), and
+      // Deliberately ignored: `current_mode_update` (superseded by config options), and
       // `user_message_chunk` — live, the app already shows what the user sent;
       // during a replay it is history and never reaches here (see the collector
       // above).

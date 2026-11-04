@@ -177,6 +177,18 @@
       "title": "The agent researches and writes a plan; it does not edit files. Shift+Tab or /plan off leaves",
       "exitAria": "Leave plan mode"
     },
+    "todos": {
+      "title": "Tasks",
+      "done": "{{count}} done",
+      "active": "{{count}} in progress",
+      "pending": "{{count}} to do",
+      "status": {
+        "completed": "Done",
+        "in_progress": "In progress",
+        "pending": "To do",
+        "cancelled": "Cancelled"
+      }
+    },
     "queue": {
       "aria": "Queued messages",
       "edit": "Edit queued message",

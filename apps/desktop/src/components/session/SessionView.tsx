@@ -71,6 +71,7 @@ import {
 } from "@/components/ui/ContextMenu";
 import { InlineName } from "@/components/ui/InlineName";
 import { InteractionPrompt } from "@/components/thread/InteractionPrompt";
+import { TodoDock } from "@/components/thread/TodoDock";
 import { InspectorShell } from "@/components/inspector/InspectorShell";
 import {
   HOVER_REVEAL,
@@ -1220,6 +1221,7 @@ export function SessionView({
             {/* One unit: the queue strip sits flush on the composer's top edge,
                 outside the space-y gap. */}
             <div>
+              {eid && <TodoDock sessionId={eid} />}
               {eid && <QueueDock sessionId={eid} />}
               <Composer
                 onSend={onSend}

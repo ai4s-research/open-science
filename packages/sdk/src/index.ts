@@ -8,6 +8,8 @@ export {
   type OpenCodeEvent,
   type TextUpdatedEvent,
   type ToolUpdatedEvent,
+  type TodoItem,
+  type TodosUpdatedEvent,
   type SessionIdleEvent,
   type RuntimeErrorEvent,
   type SessionRetryEvent,

@@ -189,6 +189,20 @@ export interface CompactedEvent {
   overflow?: boolean;
 }
 
+/** One item of an agent's task list. */
+export interface TodoItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+}
+
+/** The agent's task list, whole: each update replaces the previous one (ACP's
+ *  `plan`). OpenCode's list arrives as its todo tool's input instead. */
+export interface TodosUpdatedEvent {
+  type: "todos.updated";
+  sessionId: string;
+  todos: TodoItem[];
+}
+
 /** Running token totals for an assistant turn. OpenCode republishes the whole
  *  message on every update, so this arrives repeatedly during a turn and one
  *  last time with the final numbers — the app just overwrites.
@@ -225,6 +239,7 @@ export type OpenCodeEvent =
   | TextUpdatedEvent
   | ReasoningUpdatedEvent
   | CompactedEvent
+  | TodosUpdatedEvent
   | MessageUsageEvent
   | ContextUsageEvent
   | StepUpdatedEvent

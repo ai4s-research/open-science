@@ -17,6 +17,7 @@ import {
   type RetryAction,
   type SessionMeta,
   type SkillInfo,
+  type TodoItem,
   type ToolCallStatus,
 } from "@ai4s/sdk";
 import { AcpRuntime, toAcpMcpServers, type AcpConfigOption } from "@ai4s/sdk/acp";
@@ -246,6 +247,8 @@ function persistStallGuardConfig(config: StallGuardConfig): void {
 export interface Thread {
   blocks: ThreadBlock[];
   index: Record<string, number>;
+  /** The agent's current task list, shown above the composer. */
+  todos?: TodoItem[];
   loaded: boolean;
   /** Set when loading this session's history failed (openSession's catch).
    *  `loaded` alone cannot carry that: a failure must still stop the loading
@@ -5498,6 +5501,20 @@ export function datedWorkspaceName(now = new Date()): string {
 export interface FoldState {
   blocks: ThreadBlock[];
   index: Record<string, number>;
+  /** Set only when the event replaced the task list; absent keeps the last. */
+  todos?: TodoItem[];
+}
+
+/** A todo tool's `todos` input as the app's task list; null when it is not one. */
+export function todosFromInput(input: unknown): TodoItem[] | null {
+  const raw = (input as { todos?: unknown } | undefined)?.todos;
+  if (!Array.isArray(raw)) return null;
+  const statuses = ["pending", "in_progress", "completed", "cancelled"];
+  return raw.flatMap((t): TodoItem[] =>
+    t && typeof t.content === "string" && statuses.includes(t.status)
+      ? [{ content: t.content, status: t.status }]
+      : [],
+  );
 }
 
 /** Pure reducer: fold one normalized OpenCode event into a thread's blocks. */
@@ -5631,8 +5648,13 @@ export function foldEvent(
       // The interactive `question`/`permission` tools render as their own
       // answerable card (InteractionPrompt), not as a blank thread row. `todo*`
       // tools only report an opaque "N todos" count with no useful content —
-      // pure noise in the conversation, so drop them.
-      if (/question|permission|^ask$|todo/i.test(event.tool)) return { blocks, index };
+      // pure noise in the conversation, so drop them. A todo tool's input is
+      // the task list itself, which the composer shows instead.
+      if (/todo/i.test(event.tool)) {
+        const todos = todosFromInput(event.input);
+        return todos ? { blocks, index, todos } : { blocks, index };
+      }
+      if (/question|permission|^ask$/i.test(event.tool)) return { blocks, index };
       const key = `tool:${event.callId}`;
       const command = str(event.input?.command);
       const filePath = str(event.input?.filePath) || str(event.input?.path);
@@ -5719,6 +5741,8 @@ export function foldEvent(
       }
       return { blocks, index };
     }
+    case "todos.updated":
+      return { blocks, index, todos: event.todos };
     case "session.compacted": {
       // One marker per compaction, appended where it happened so the reader
       // can see which stretch of the conversation was summarized away.
@@ -5916,6 +5940,7 @@ export function commandEchoReader(commands?: CommandInfo[]): (text: string) => s
 
 export function historyToThread(messages: HistoryMessage[], commands?: CommandInfo[]): FoldState {
   const blocks: ThreadBlock[] = [];
+  let todos: TodoItem[] | undefined;
   const asTypedCommand = commandEchoReader(commands);
   // A step frozen mid-run (the runtime restarted or the turn was killed before
   // it finished) must not spin forever in history — render it quietly and say
@@ -6005,8 +6030,13 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
         }
         else if (p.type === "tool") {
           // Interactive tools are surfaced by InteractionPrompt, not the thread;
-          // `todo*` tools are opaque "N todos" noise — skip both.
-          if (/question|permission|^ask$|todo/i.test(p.tool ?? "")) continue;
+          // `todo*` tools are opaque "N todos" noise — skip both, keeping the
+          // last todo list for the composer.
+          if (/todo/i.test(p.tool ?? "")) {
+            todos = todosFromInput(p.state?.input) ?? todos;
+            continue;
+          }
+          if (/question|permission|^ask$/i.test(p.tool ?? "")) continue;
           const status = mapToolStatus(p.state?.status);
           const frozen = status === "running" || status === "pending";
           if (frozen) interrupted = true;
@@ -6091,5 +6121,5 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
     }
   }
   closeTurn();
-  return { blocks, index: {} };
+  return { blocks, index: {}, ...(todos ? { todos } : {}) };
 }

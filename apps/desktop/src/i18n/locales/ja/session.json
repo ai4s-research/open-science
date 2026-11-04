@@ -174,6 +174,18 @@
       "title": "エージェントは調査して計画を書くだけで、ファイルは変更しません。Shift+Tab または /plan off で終了",
       "exitAria": "計画モードを終了"
     },
+    "todos": {
+      "title": "タスク",
+      "done": "完了 {{count}}",
+      "active": "進行中 {{count}}",
+      "pending": "未着手 {{count}}",
+      "status": {
+        "completed": "完了",
+        "in_progress": "進行中",
+        "pending": "未着手",
+        "cancelled": "取り消し"
+      }
+    },
     "queue": {
       "aria": "キュー済みメッセージ",
       "edit": "キュー済みメッセージを編集",

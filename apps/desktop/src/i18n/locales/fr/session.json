@@ -177,6 +177,18 @@
       "title": "L'agent explore et rédige un plan ; il ne modifie aucun fichier. Maj+Tab ou /plan off pour quitter",
       "exitAria": "Quitter le mode plan"
     },
+    "todos": {
+      "title": "Tâches",
+      "done": "{{count}} terminées",
+      "active": "{{count}} en cours",
+      "pending": "{{count}} à faire",
+      "status": {
+        "completed": "Terminée",
+        "in_progress": "En cours",
+        "pending": "À faire",
+        "cancelled": "Annulée"
+      }
+    },
     "queue": {
       "aria": "Messages en attente",
       "edit": "Modifier le message en attente",

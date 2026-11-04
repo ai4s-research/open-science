@@ -122,6 +122,30 @@ describe("foldEvent", () => {
     expect(s.blocks[1]).toEqual({ kind: "agent", markdown: "Here is the answer" });
   });
 
+  it("takes the task list from a todo tool and from the agent's plan, latest wins", () => {
+    const fromTool = foldAll([
+      {
+        type: "tool.updated",
+        sessionId: S,
+        callId: "t1",
+        tool: "todowrite",
+        status: "success",
+        input: { todos: [{ content: "Load the CSV", status: "in_progress", priority: "high" }] },
+      },
+    ]);
+    expect(fromTool.todos).toEqual([{ content: "Load the CSV", status: "in_progress" }]);
+    expect(fromTool.blocks).toHaveLength(0);
+
+    const replaced = foldEvent(fromTool, {
+      type: "todos.updated",
+      sessionId: S,
+      todos: [{ content: "Load the CSV", status: "completed" }],
+    });
+    expect(replaced.todos).toEqual([{ content: "Load the CSV", status: "completed" }]);
+    // Any other event leaves the list alone.
+    expect(foldEvent(replaced, { type: "session.idle", sessionId: S }).todos).toBeUndefined();
+  });
+
   it("upserts a tool call by callId and reflects status transitions", () => {
     const s = foldAll([
       { type: "tool.updated", sessionId: S, callId: "c1", tool: "search", status: "running", title: "search" },
@@ -521,6 +545,32 @@ describe("historyToThread", () => {
     ]);
     expect(t.blocks.map((b) => b.kind)).toEqual(["user", "compaction", "agent"]);
     expect(t.blocks[1]).toMatchObject({ kind: "compaction", auto: true, at: 9_100 });
+  });
+
+  it("keeps the last todo list of a reopened conversation for the composer, not the thread", () => {
+    const todo = (todos: unknown) => ({
+      type: "tool",
+      tool: "todowrite",
+      state: { status: "completed", input: { todos } },
+    });
+    const t = historyToThread([
+      { role: "user", parts: [{ type: "text", text: "clean the survey data" }] },
+      {
+        role: "assistant",
+        parts: [
+          todo([{ content: "Drop empty rows", status: "in_progress", priority: "high" }]),
+          todo([
+            { content: "Drop empty rows", status: "completed", priority: "high" },
+            { content: "Normalise dates", status: "pending", priority: "medium" },
+          ]),
+        ],
+      },
+    ] as never);
+    expect(t.todos).toEqual([
+      { content: "Drop empty rows", status: "completed" },
+      { content: "Normalise dates", status: "pending" },
+    ]);
+    expect(t.blocks.some((b) => b.kind === "tool-call")).toBe(false);
   });
 
   it("does not render the marker message as an empty user turn", () => {

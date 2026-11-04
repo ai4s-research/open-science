@@ -141,8 +141,67 @@ describe("AcpRuntime", () => {
       // fs and terminal stay false: advertising them would hand an external
       // process file access from inside the app, which AGENTS.md puts behind
       // approval. The agent's own tools still ask permission.
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      clientCapabilities: {
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: false,
+        // Asked for, so Claude Code reports a compaction as one, not as a tool.
+        session: { compaction: {} },
+      },
     });
+  });
+
+  it("passes the agent's plan on as the task list, whole", async () => {
+    const { runtime, events, sessionId } = await connected((msg, a) => {
+      if (msg.method !== "session/prompt") return;
+      a.notify("session/update", {
+        sessionId,
+        update: {
+          sessionUpdate: "plan",
+          entries: [
+            { content: "Read the survey data", priority: "high", status: "completed" },
+            { content: "Fit the regression", priority: "medium", status: "in_progress" },
+            { content: "Plot residuals", priority: "low", status: "pending" },
+            { content: 42, priority: "low", status: "pending" },
+          ],
+        },
+      });
+      a.reply(msg.id, { stopReason: "end_turn" });
+    });
+
+    await runtime.sendPrompt(sessionId, "analyse the survey");
+
+    expect(events.filter((e) => e.type === "todos.updated")).toEqual([
+      {
+        type: "todos.updated",
+        sessionId,
+        todos: [
+          { content: "Read the survey data", status: "completed" },
+          { content: "Fit the regression", status: "in_progress" },
+          { content: "Plot residuals", status: "pending" },
+        ],
+      },
+    ]);
+  });
+
+  it("marks a finished compaction, as asked for after /compact and as automatic otherwise", async () => {
+    const { runtime, events, sessionId } = await connected((msg, a) => {
+      if (msg.method !== "session/prompt") return;
+      for (const status of ["in_progress", "completed"]) {
+        a.notify("session/update", {
+          sessionId,
+          update: { sessionUpdate: "compaction_update", compactionId: "c1", status },
+        });
+      }
+      a.reply(msg.id, { stopReason: "end_turn" });
+    });
+
+    await runtime.sendPrompt(sessionId, "/compact");
+    await runtime.sendPrompt(sessionId, "keep going with the residuals");
+
+    expect(events.filter((e) => e.type === "session.compacted")).toEqual([
+      { type: "session.compacted", sessionId, auto: false },
+      { type: "session.compacted", sessionId, auto: true },
+    ]);
   });
 
   it("creates the session in the workspace folder and keeps the app's own title", async () => {
