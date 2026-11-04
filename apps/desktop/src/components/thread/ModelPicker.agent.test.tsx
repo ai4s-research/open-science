@@ -95,7 +95,7 @@ describe("ModelPicker with an agent", () => {
       },
     });
     renderPicker(control({ value: "cli-claude-code~acct-1", locked: true, options: [MODEL] }));
-    expect(screen.getByRole("button", { name: /switch model/i })).toHaveTextContent("Claude Code (second) · Opus");
+    expect(screen.getByRole("button", { name: /switch model/i })).toHaveTextContent(/^Opus \(second\)$/);
   });
 
   it("offers the agents in a new conversation and switches on a pick", async () => {
@@ -109,12 +109,13 @@ describe("ModelPicker with an agent", () => {
     expect(agent.onChange).toHaveBeenCalledWith("cli-claude-code");
   });
 
-  it("names the agent and its model on the chip, and lists the agent's own models", async () => {
+  it("shows the agent's model on the chip, names both on hover, and lists the agent's own models", async () => {
     const user = userEvent.setup();
     const agent = control({ value: "cli-claude-code", options: [MODEL] });
     renderPicker(agent);
     const chip = screen.getByRole("button", { name: /switch model/i });
-    expect(chip).toHaveTextContent("Claude Code · Opus");
+    expect(chip).toHaveTextContent(/^Opus$/);
+    expect(chip.getAttribute("title")).toMatch(/^Claude Code · Opus · /);
 
     await user.click(chip);
     await user.click(screen.getByRole("button", { name: /Sonnet/ }));

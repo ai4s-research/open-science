@@ -502,9 +502,16 @@ export function ModelPicker({
     if (needsOptions) onNeedOptions?.();
   }, [needsOptions, onNeedOptions, agent?.value]);
 
+  // An agent's chip shows its model alone, like OpenCode's: "DeepSeek Harness ·
+  // DeepSeek-V4.1-Flash (DeepSeek)" crowded the composer. The Bot icon marks
+  // it as an agent, and the tooltip names both. A chosen account stays on the
+  // chip: nothing else in the window says which account a conversation uses.
+  const agentLabel = acpModelName ? `${agentName} · ${acpModelName}` : agentName;
   const chipLabel = acp
     ? acpModelName
-      ? `${agentName} · ${acpModelName}`
+      ? accountName
+        ? `${acpModelName} (${accountName.split("@")[0]})`
+        : acpModelName
       : agentName
     : (current?.modelName ?? t("composer.model.none"));
 
@@ -1070,7 +1077,7 @@ export function ModelPicker({
         // without opening the picker, not only inside it.
         title={
           acp
-            ? t("composer.agent.title")
+            ? `${agentLabel} · ${t("composer.agent.title")}`
             : currentRetired
               ? t("composer.model.retiredTitle")
               : t("composer.model.title")
