@@ -115,6 +115,17 @@ describe("spliceRepaint, a repaint of its own carrying new lines", () => {
     expect(splice.clear).toBe("\x1b[1;1H\x1b[J");
   });
 
+  it("writes the prompt a rewind restores, though that message is still in scrollback", () => {
+    const rule = "────────────────────────────────────────";
+    const status = "⏵⏵ auto mode on (shift+tab to cycle)";
+    const asked = "❯ 请输出 1 到 80 的数字，每行一个，不要别的";
+    const scrollback = ["⏺ Earlier reply, long enough to be found", "", asked];
+    const screen = ["  80", "", rule, "❯", rule, `  ${status}`];
+    const lines = ["⏺ Earlier reply, long enough to be found", "", rule, asked, rule, status];
+    const splice = spliceRepaint(readRepaint(answer(6, lines), 6)!, screen, scrollback);
+    expect(splice.matched).toBe(false);
+  });
+
   it("still lines up a repaint whose skipped lines went into scrollback", () => {
     const scrollback = ["⏺ First message, long enough to be found again", "  its second line"];
     const screen = ["", "⏺ Second message, also long enough to be found", "  wrapped once at the new width", "", "❯"];

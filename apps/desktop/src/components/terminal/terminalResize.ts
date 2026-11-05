@@ -69,8 +69,10 @@ const MIN_MATCH_CHARS = 12;
  * A resize's repaint redraws what is already there, so the lines above the
  * match can be skipped as they are. A repaint Claude Code makes on its own may
  * carry new lines (the end of a reply), so pass `scrollback` for it: a match
- * is then taken only if every line it skips is already in the scrollback or on
- * screen above it. Skip only what is shown to be there, never guess.
+ * is then taken only if the lines it skips are, in order, exactly what ends
+ * just above it. Found anywhere is not enough: a rewind puts the message it
+ * goes back to in the prompt, and that message is still in the scrollback.
+ * Skip only what is shown to be there, never guess.
  */
 export function spliceRepaint(
   { lines, tail }: Repaint,
@@ -85,7 +87,7 @@ export function spliceRepaint(
   const alreadyThere = (r: number, l: number) => {
     if (history === undefined) return true;
     const above = history + oldText.slice(0, r).join("");
-    return newText.slice(0, l).every((text) => above.includes(text));
+    return above.endsWith(newText.slice(0, l).join(""));
   };
   const once = (whole: string, part: string) => {
     const at = whole.indexOf(part);
