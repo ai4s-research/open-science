@@ -1,0 +1,98 @@
+/* Reasoning disclosure, same skeleton as ToolGroup (ChatGroupSeat):
+   leading icon slot swaps to chevron on hover/open, label, collapse body. */
+.title {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 14px;
+  font-style: italic;
+  line-height: 24px;
+  text-align: left;
+  cursor: pointer;
+  transition: color 100ms ease;
+}
+
+.title:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.title[aria-expanded="true"] {
+  padding-bottom: 4px;
+}
+
+.leading {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.thinkIcon,
+.chevron {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 100ms ease;
+}
+
+.thinkIcon {
+  opacity: 1;
+}
+
+.chevron {
+  opacity: 0;
+}
+
+.title:is(:hover, :focus-visible) .thinkIcon,
+.title[aria-expanded="true"] .thinkIcon {
+  opacity: 0;
+}
+
+.title:is(:hover, :focus-visible) .chevron,
+.title[aria-expanded="true"] .chevron {
+  opacity: 1;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body {
+  max-height: min(400px, 50vh);
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  scrollbar-gutter: stable;
+  margin: 0;
+  padding: 6px 12px 10px 22px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-style: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title,
+  .thinkIcon,
+  .chevron {
+    transition: none;
+  }
+}

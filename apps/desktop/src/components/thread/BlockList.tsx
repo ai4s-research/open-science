@@ -21,6 +21,7 @@ import { FigureBlock } from "./FigureBlock";
 import { ArtifactCard } from "./ArtifactCard";
 import { InlineArtifact } from "./InlineArtifact";
 import { CompactionRow } from "./CompactionRow";
+import { ReasoningDisclosure } from "./ReasoningDisclosure";
 
 export interface BlockHandlers {
   /** Open an artifact in the inspector (live session). */
@@ -84,10 +85,7 @@ export function renderBlock(
         />
       );
     case "reasoning":
-      // Thinking is shown live beside "Working…" and never kept — `dropReasoning`
-      // removes these before they reach here. This arm stays only because the
-      // switch is exhaustive over the block union.
-      return null;
+      return <ReasoningDisclosure key={i} block={block} />;
     case "step-summary":
       return <StepSummaryRow key={i} block={block} />;
     case "tool-call":

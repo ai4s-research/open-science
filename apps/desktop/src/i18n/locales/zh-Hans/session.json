@@ -652,6 +652,8 @@
     "tools": "工具",
     "turn": "第 {{n}} 轮",
     "noOutput": "无输出",
+    "thinking": "思考",
+    "result": "结果",
     "empty": "还没有步骤。",
     "noMatch": "没有匹配的步骤。",
     "steps_one": "{{count}} 步",

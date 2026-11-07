@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type CSSProperties } from "react";
+import { memo, useMemo, useState, useCallback, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import type { ThreadBlock } from "@ai4s/shared";
@@ -26,6 +26,8 @@ interface Step {
   /** One-line text for message rows. */
   text: string;
   thinking?: boolean;
+  /** Full reasoning text, present only for thinking rows. */
+  fullText?: string;
   tool?: { name: string; payload: string; result: string; error: boolean };
   /** Timeline placement; absent when the step carries no timing. */
   lane?: Lane;
@@ -98,7 +100,7 @@ function buildSteps(blocks: ThreadBlock[], t: (key: string, o?: Record<string, u
         });
         break;
       case "reasoning":
-        steps.push({ ...base, kind: "assistant", text: oneLine(b.text), thinking: true, lane: "model" });
+        steps.push({ ...base, kind: "assistant", text: oneLine(b.text), thinking: true, fullText: b.text, lane: "model" });
         break;
       case "tool-call": {
         const error = b.status === "failed";
@@ -173,7 +175,12 @@ export const TrajectoryPane = memo(function TrajectoryPane({
   const [turnsCollapsed, setTurnsCollapsed] = useState(false);
   const [callsCollapsed, setCallsCollapsed] = useState(false);
   const [query, setQuery] = useState("");
+  const [selectedKey, setSelectedKey] = useState<number | null>(null);
   const needle = query.trim().toLowerCase();
+  const selectedStep = selectedKey !== null ? steps.find((s) => s.key === selectedKey) ?? null : null;
+  const selectRow = useCallback((key: number) => {
+    setSelectedKey((prev) => (prev === key ? null : key));
+  }, []);
 
   const matches = (s: Step) =>
     needle === "" ||
@@ -296,75 +303,126 @@ export const TrajectoryPane = memo(function TrajectoryPane({
           </div>
         )}
 
-        <div className={css.scroll}>
-          {steps.length === 0 ? (
-            <div className={css.empty}>{t("trajectory.empty")}</div>
-          ) : visible.length === 0 ? (
-            <div className={css.empty}>{t("trajectory.noMatch")}</div>
-          ) : (
-            <table className={css.table}>
-              <colgroup>
-                <col className={css.eventColumn} />
-                <col />
-              </colgroup>
-              <tbody>
-                {turnsCollapsed
-                  ? Array.from({ length: turnCount }, (_, turn) => {
-                      const sum = turnSummaries.get(turn);
-                      if (!sum) return null;
-                      return (
-                        <tr
-                          key={`turn-${turn}`}
-                          className={css.collapsedRow}
-                          data-turn-start="true"
-                          onClick={() => setTurnsCollapsed(false)}
-                        >
-                          <td className={css.event}>
-                            <span className={css.turnRail} />
-                            <span className={css.turnLabel}>{t("trajectory.turn", { n: turn + 1 })}</span>
-                          </td>
-                          <td className={css.content}>
-                            <span className={css.collapsedTurn}>
-                              <span className={css.collapsedEllipsis}>…</span>
-                              <span className={css.contentText}>
-                                {sum.ask} · {t("trajectory.steps", { count: sum.count })}
-                              </span>
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  : visible.map((s) => (
-                      <tr
-                        key={s.key}
-                        data-turn-start={s.turnStart || undefined}
-                        data-error={s.tool?.error || undefined}
-                      >
-                        {eventCell(s)}
-                        <td className={css.content}>
-                          {s.tool ? (
-                            <span className={css.resultPreview}>
-                              <span className={css.resultRequest}>
-                                <span className={css.toolName}>{s.tool.name}</span>
-                                <span className={css.toolPayload}>{s.tool.payload}</span>
-                              </span>
-                              <span className={css.inlineResult}>
-                                <span className={css.arrow}>→</span>
-                                <span
-                                  className={`${css.inlineResultText} ${s.tool.error ? css.error : ""} ${s.tool.result ? "" : css.noOutput}`}
-                                >
-                                  {s.tool.result || t("trajectory.noOutput")}
+        <div className={css.split}>
+          <div className={css.tablePane}>
+            {steps.length === 0 ? (
+              <div className={css.empty}>{t("trajectory.empty")}</div>
+            ) : visible.length === 0 ? (
+              <div className={css.empty}>{t("trajectory.noMatch")}</div>
+            ) : (
+              <table className={css.table}>
+                <colgroup>
+                  <col className={css.eventColumn} />
+                  <col />
+                </colgroup>
+                <tbody>
+                  {turnsCollapsed
+                    ? Array.from({ length: turnCount }, (_, turn) => {
+                        const sum = turnSummaries.get(turn);
+                        if (!sum) return null;
+                        return (
+                          <tr
+                            key={`turn-${turn}`}
+                            className={css.collapsedRow}
+                            data-turn-start="true"
+                            onClick={() => setTurnsCollapsed(false)}
+                          >
+                            <td className={css.event}>
+                              <span className={css.turnRail} />
+                              <span className={css.turnLabel}>{t("trajectory.turn", { n: turn + 1 })}</span>
+                            </td>
+                            <td className={css.content}>
+                              <span className={css.collapsedTurn}>
+                                <span className={css.collapsedEllipsis}>…</span>
+                                <span className={css.contentText}>
+                                  {sum.ask} · {t("trajectory.steps", { count: sum.count })}
                                 </span>
                               </span>
-                            </span>
-                          ) : (
-                            <span className={`${css.contentText} ${s.thinking ? css.thinking : ""}`}>{s.text}</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-              </tbody>
-            </table>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    : visible.map((s) => (
+                        <tr
+                          key={s.key}
+                          data-turn-start={s.turnStart || undefined}
+                          data-error={s.tool?.error || undefined}
+                          data-selected={selectedKey === s.key || undefined}
+                          onClick={() => selectRow(s.key)}
+                        >
+                          {eventCell(s)}
+                          <td className={css.content}>
+                            {s.tool ? (
+                              <span className={css.resultPreview}>
+                                <span className={css.resultRequest}>
+                                  <span className={css.toolName}>{s.tool.name}</span>
+                                  <span className={css.toolPayload}>{s.tool.payload}</span>
+                                </span>
+                                <span className={css.inlineResult}>
+                                  <span className={css.arrow}>→</span>
+                                  <span
+                                    className={`${css.inlineResultText} ${s.tool.error ? css.error : ""} ${s.tool.result ? "" : css.noOutput}`}
+                                  >
+                                    {s.tool.result || t("trajectory.noOutput")}
+                                  </span>
+                                </span>
+                              </span>
+                            ) : (
+                              <span className={`${css.contentText} ${s.thinking ? css.thinking : ""}`}>{s.text}</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {selectedStep !== null && (
+            <div className={css.details}>
+              <div className={css.detailsHeader}>
+                <div className={css.detailsTitle}>
+                  <span className={`${css.kindTag} ${KIND_CLASS[selectedStep.kind]}`}>
+                    {kindLabel(selectedStep.kind)}
+                  </span>
+                  <span className={css.detailsName}>
+                    {selectedStep.tool?.name ?? (selectedStep.thinking ? t("trajectory.thinking") : "")}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={css.detailsClose}
+                  aria-label={t("trajectory.close")}
+                  onClick={() => setSelectedKey(null)}
+                >
+                  <X size={13} strokeWidth={1.5} />
+                </button>
+              </div>
+              <div className={css.detailBody}>
+                {selectedStep.tool ? (
+                  <dl className={css.detailOverview}>
+                    <div>
+                      <dt>{t("trajectory.tool")}</dt>
+                      <dd>{selectedStep.tool.name}</dd>
+                    </div>
+                    <div>
+                      <dt>{t("trajectory.input")}</dt>
+                      <dd className={css.detailPayload}>{selectedStep.tool.payload}</dd>
+                    </div>
+                    <div>
+                      <dt>{t("trajectory.result")}</dt>
+                      <dd className={`${css.detailPayload} ${selectedStep.tool.error ? css.error : ""}`}>
+                        {selectedStep.tool.result || t("trajectory.noOutput")}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : selectedStep.thinking && selectedStep.fullText ? (
+                  <pre className={css.detailPayload}>{selectedStep.fullText}</pre>
+                ) : (
+                  <pre className={css.detailPayload}>{selectedStep.text}</pre>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>

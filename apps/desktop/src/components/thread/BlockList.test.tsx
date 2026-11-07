@@ -76,11 +76,8 @@ describe("BlockList", () => {
   });
 });
 
-describe("BlockList · thinking never enters the conversation", () => {
-  it("renders no reasoning at all — it belongs on the status row, live", async () => {
-    // It was indistinguishable from what the model actually SAID (both plain
-    // black paragraphs) and, on a model that thinks a lot, was the bulk of
-    // every fold — so the answer sat buried in the deliberation behind it.
+describe("BlockList · reasoning renders as a collapsed disclosure", () => {
+  it("hides the full text until expanded — collapsed by default", async () => {
     const blocks = [
       { kind: "user", text: "go" },
       { kind: "reasoning", text: "Let me look at the workspace" },
@@ -89,20 +86,18 @@ describe("BlockList · thinking never enters the conversation", () => {
     ] as ThreadBlock[];
     const { container } = render(<BlockList blocks={blocks} />);
     expect(container.textContent).not.toContain("Let me look at the workspace");
-    // And it leaves no empty fold or blank segment behind it.
     expect(await screen.findByText("Done.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Worked/ })).toBeInTheDocument();
   });
 
-  it("does not make a fold out of a turn whose only work was thinking", () => {
-    // Nothing visible happened, so there is nothing to hide.
+  it("folds a turn whose only work was thinking", () => {
     const blocks = [
       { kind: "user", text: "go" },
       { kind: "reasoning", text: "thinking about it" },
       { kind: "agent", markdown: "Done." },
     ] as ThreadBlock[];
     render(<BlockList blocks={blocks} />);
-    expect(screen.queryByRole("button", { name: /Worked/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Worked/ })).toBeInTheDocument();
   });
 });
 
