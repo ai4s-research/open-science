@@ -31,6 +31,7 @@ tauri-plugin-clipboard-manager = "2"
 # files copied in Finder / Explorer, which the plugin does not expose.
 arboard = "3.6"
 tauri-plugin-notification = "2"
+tauri-plugin-window-state = "~2.4"
 getrandom.workspace = true
 opener = { version = "0.8.5", features = ["reveal"] }
 reqwest.workspace = true

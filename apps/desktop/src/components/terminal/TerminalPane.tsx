@@ -314,6 +314,20 @@ export function TerminalPane({
       // output after it is still there to follow on with.
       let screen = created ? null : (opened.screen ?? null);
       let first = true;
+      // A running shell comes back at its last size, which this pane may not
+      // have: its screen is drawn at that size, erased and drawn again at the
+      // pane's. Kept out of sight until that is over, so the pane appears
+      // once, as it will stay.
+      let veiled = !created;
+      let sized = false;
+      if (veiled) container.style.visibility = "hidden";
+      const unveil = (force = false) => {
+        if (!veiled || (!force && (!sized || first || reply || drawing))) return;
+        veiled = false;
+        clearTimeout(veilTimer);
+        container.style.visibility = "";
+      };
+      const veilTimer = setTimeout(() => unveil(true), VEIL_MAX_MS);
 
       // How far into the shell's output the pane has got (desktop): `received`
       // up to the last chunk in, `written` up to the last one xterm has drawn.
@@ -335,7 +349,10 @@ export function TerminalPane({
       // empty one never goes in. The same flush can replay writes already
       // drawn, calling their callbacks twice: each counts once.
       const draw = (text: string, done?: () => void) => {
-        if (!text) return void done?.();
+        if (!text) {
+          done?.();
+          return unveil();
+        }
         if (!drawing++) lastDrawn = Date.now();
         let counted = false;
         term.write(text, () => {
@@ -344,6 +361,7 @@ export function TerminalPane({
           drawing--;
           lastDrawn = Date.now();
           done?.();
+          unveil();
         });
       };
       const stuckCheck = setInterval(() => {
@@ -509,7 +527,8 @@ export function TerminalPane({
         }
         const follow = following();
         const size = follow && control ? { cols: control.cols, rows: control.rows } : fit.proposeDimensions();
-        if (!size || (size.cols === sent.cols && size.rows === sent.rows)) return;
+        sized = true;
+        if (!size || (size.cols === sent.cols && size.rows === sent.rows)) return unveil();
         trace(`size ${size.cols}x${size.rows} from ${follow ? `view ${control?.by?.kind}` : "this pane"}`);
         expectRepaint(size.cols, size.rows);
         if (!follow) void terminalTransport.resize(leafId, size.cols, size.rows);
@@ -623,6 +642,7 @@ export function TerminalPane({
           clearTimeout(settle);
           clearTimeout(saveTimer);
           clearInterval(stuckCheck);
+          clearTimeout(veilTimer);
           if (reply) clearTimeout(reply.timer);
         },
       });
@@ -834,6 +854,9 @@ const DRAW_STUCK_MS = 5_000;
 /** How long a resize waits for Claude Code's repaint before xterm resizes
  *  anyway. Claude Code answers within 10ms; a shell waits this long. */
 const RESIZE_REPLY_MS = 100;
+
+/** The longest a reopened pane stays out of sight while it settles. */
+const VEIL_MAX_MS = 1_000;
 
 /**
  * Terminal defaults, borrowed from Orca's `lib/pane-manager/pane-terminal-options.ts`

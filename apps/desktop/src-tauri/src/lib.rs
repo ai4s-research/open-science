@@ -133,6 +133,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
+        // The window opens at the size it closed at. Its terminals' shells
+        // outlive the app at that size, so a reopened pane needs no resize.
+        // Never its visibility: a window quit while hidden would open hidden.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags({
+                    use tauri_plugin_window_state::StateFlags;
+                    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN
+                })
+                .build(),
+        )
         .manage(KernelState::default())
         .manage(JupyterState::default())
         .manage(PreviewState::default())

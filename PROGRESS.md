@@ -1,5 +1,7 @@
 # Progress
 
+2026-11-07 00:10 · Terminal: a reopened pane flickered on first view after a relaunch (old-size screen, then a blank pane, then Claude Code's repaint), because the window opened at its default size while the shells kept their last one. A reopened pane now stays hidden until its first resize is drawn (1 s at most), and the window keeps its size, position, maximized and fullscreen state across launches (tauri-plugin-window-state ~2.4; 2.5 needs tauri 2.12). Filmed frame by frame in headless Chrome before and after; new test fails without the fix; vitest, typecheck, lint green; accepted in the installed app.
+
 2026-11-05 00:10 · Terminal: CJK glyphs garbling across terminals after a while is fixed for good by moving to xterm 6.1.0-beta.304 + addon-webgl 0.20.0-beta.300 (the shared glyph atlas bug, xterm#6042/#6055), with resize moved out of xterm's write callback so repaints are not replayed (xterm#6271). Rebased onto 2a96d56; typecheck, lint, vitest 2038 green; test package built, not yet seen on screen.
 
 2026-11-04 19:50 · Terminal: after a Claude Code rewind the restored prompt showed as an empty `❯` in OSD only. Claude Code's same-size repaint was spliced in at its status line, every line above skipped because each was found somewhere in scrollback, and the restored message always is. A skipped run must now be exactly what ends just above the match. Reproduced in a real OSD pane (raw pty recording vs saved screen); new test fails without the fix; terminal vitest 72 green.

@@ -248,6 +248,39 @@ describe("TerminalPane reopen", () => {
     subscribed().send({ kind: "data", data: "everything", from: 120, end: 900 });
     expect(xterm.writes).toEqual(["everything"]);
   });
+
+  const box = () => document.querySelector<HTMLElement>(".overflow-clip")!;
+
+  it("stays out of sight until the screen is redrawn at the pane's size", async () => {
+    await reopen("reopen-3", { end: 500, data: "<saved>" });
+    const { send } = subscribed();
+    xterm.screen = ["an earlier line of output", "turn line 1 of the latest turn", "turn line 2"];
+    act(() => send({ kind: "data", data: "", from: 500, end: 500 }));
+    // The pane is 80x24, the shell 61x22: the saved screen is drawn at 61x22
+    // and the shell told the pane's size.
+    act(() => send({ kind: "control", by: null, cols: 61, rows: 22 }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_resize", { id: "reopen-3", cols: 80, rows: 24 }));
+    expect(box().style.visibility).toBe("hidden");
+
+    const erase = `\x1b[H${"\x1b[2K\x1b[1B".repeat(24)}\x1b[H`;
+    act(() => send({ kind: "data", data: `${erase}turn line 1 of the latest turn\nturn line 2\x1b[?25h`, end: 600 }));
+    await waitFor(() => expect(box().style.visibility).toBe(""));
+    expect([xterm.last!.cols, xterm.last!.rows]).toEqual([80, 24]);
+    xterm.screen = [];
+  });
+
+  it("shows at once a screen saved at the pane's own size", async () => {
+    opened.value = { created: false, cols: 80, rows: 24, screen: { end: 500, data: "<saved>" } };
+    vi.mocked(invoke).mockClear();
+    render(<TerminalPane leafId="reopen-4" />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_subscribe", expect.anything()));
+    opened.value = { created: true };
+    const { send } = subscribed();
+    act(() => send({ kind: "data", data: "", from: 500, end: 500 }));
+    act(() => send({ kind: "control", by: null, cols: 80, rows: 24 }));
+    await waitFor(() => expect(box().style.visibility).toBe(""));
+    expect(invoke).not.toHaveBeenCalledWith("terminal_resize", expect.anything());
+  });
 });
 
 describe("TerminalPane control", () => {
