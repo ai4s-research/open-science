@@ -175,10 +175,16 @@
 
 /* ---- Split: table + detail panel ---- */
 .split {
+  position: relative; /* the narrow overlay sits over the table, not the toolbar */
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.split[data-dragging='true'] {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .tablePane {
@@ -443,6 +449,7 @@
 
 /* ---- Detail panel (DSH TrajectoryTable .details) ---- */
 .details {
+  position: relative;
   display: flex;
   flex: none;
   flex-direction: column;
@@ -459,9 +466,35 @@
   align-items: center;
   justify-content: space-between;
   box-sizing: border-box;
-  height: 38px;
-  padding: 0 8px 0 12px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  height: 30px; /* one table row, so the header's rule continues the row rules */
+  padding: 0 4px 0 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.resizeHandle {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.resizeHandle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  content: '';
+  transition: background-color 120ms;
+}
+
+.resizeHandle:hover::after,
+.split[data-dragging='true'] .resizeHandle::after {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color) 50%, transparent);
 }
 
 .detailsTitle {
@@ -487,8 +520,8 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: var(--dsw-radius-sm);
@@ -548,19 +581,32 @@
   overflow-wrap: anywhere;
 }
 
+.kindShort {
+  display: none;
+}
+
 @container trajectory-table (max-width: 620px) {
-  .eventColumn {
-    width: 50px;
+  /* Room for the turn label (第 12 轮 / Turn 12) and a 19px chip beside it. */
+  .eventColumn,
+  .eventColumn:where(:lang(zh)) {
+    width: 66px;
   }
 
   .event {
-    padding-right: 3px !important;
-    padding-left: 28px !important;
+    padding-right: 4px !important;
+    padding-left: 0 !important;
   }
 
-  .kindTag {
-    max-width: 22px;
-    overflow: hidden;
+  .kindFull {
+    display: none;
+  }
+
+  .kindShort {
+    display: inline-flex;
+    justify-content: center;
+    width: 19px;
+    padding: 0;
+    letter-spacing: 0;
   }
 
   .details {

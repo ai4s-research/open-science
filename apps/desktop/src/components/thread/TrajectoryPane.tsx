@@ -1,9 +1,10 @@
-import { memo, useMemo, useState, useCallback, type CSSProperties } from "react";
+import { memo, useMemo, useRef, useState, useCallback, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import type { ThreadBlock } from "@ai4s/shared";
 import { IconBranchOutlineRegular, IconSearchOutlineRegular } from "@/components/icons/dsh";
 import { PANE_HEADER, PaneTitlebarInset, PANE_ICON_BUTTON } from "@/components/inspector/RightPane";
+import { useDragDivider } from "@/lib/useDragDivider";
 import css from "./TrajectoryPane.module.css";
 
 /**
@@ -136,6 +137,10 @@ const KIND_CLASS: Record<Kind, string> = {
 
 const LANE_ROW: Record<Lane, number> = { user: 0, model: 1, tool: 2 };
 
+/** Drag limits for the detail panel: it stays readable, and so does the table beside it. */
+const DETAILS_MIN = 240;
+const TABLE_MIN = 120;
+
 /** Timeline spans: actual timing when every timed step has it (DSH "Duration"),
  *  else equal-width operations in order. Untimed steps borrow their
  *  neighbours' time so a user message still lands between the turns. */
@@ -182,6 +187,21 @@ export const TrajectoryPane = memo(function TrajectoryPane({
     setSelectedKey((prev) => (prev === key ? null : key));
   }, []);
 
+  // Detail width: null until dragged, so CSS picks the default for the layout.
+  const splitRef = useRef<HTMLDivElement>(null);
+  const detailsRef = useRef<HTMLDivElement>(null);
+  const [detailsWidth, setDetailsWidth] = useState<number | null>(null);
+  const { dragging, dragValue, handleProps } = useDragDivider({
+    value: detailsWidth ?? detailsRef.current?.offsetWidth ?? DETAILS_MIN,
+    compute: ({ x }) => {
+      const split = splitRef.current!.getBoundingClientRect();
+      const max = Math.max(DETAILS_MIN, split.width - TABLE_MIN);
+      return Math.min(max, Math.max(DETAILS_MIN, split.right - x));
+    },
+    onCommit: setDetailsWidth,
+  });
+  const shownWidth = dragValue ?? detailsWidth;
+
   const matches = (s: Step) =>
     needle === "" ||
     [s.text, s.tool?.name, s.tool?.payload, s.tool?.result].some((v) => v?.toLowerCase().includes(needle));
@@ -212,7 +232,11 @@ export const TrajectoryPane = memo(function TrajectoryPane({
         <span className={css.turnLabel}>{t("trajectory.turn", { n: s.turn + 1 })}</span>
       )}
       <span className={css.eventInner}>
-        <span className={`${css.kindTag} ${KIND_CLASS[s.kind]}`}>{kindLabel(s.kind)}</span>
+        {/* Narrow tables show the first character in a square chip; CSS picks one. */}
+        <span className={`${css.kindTag} ${css.kindFull} ${KIND_CLASS[s.kind]}`}>{kindLabel(s.kind)}</span>
+        <span className={`${css.kindTag} ${css.kindShort} ${KIND_CLASS[s.kind]}`} title={kindLabel(s.kind)}>
+          {Array.from(kindLabel(s.kind))[0]}
+        </span>
       </span>
     </td>
   );
@@ -303,7 +327,7 @@ export const TrajectoryPane = memo(function TrajectoryPane({
           </div>
         )}
 
-        <div className={css.split}>
+        <div ref={splitRef} className={css.split} data-dragging={dragging || undefined}>
           <div className={css.tablePane}>
             {steps.length === 0 ? (
               <div className={css.empty}>{t("trajectory.empty")}</div>
@@ -379,7 +403,12 @@ export const TrajectoryPane = memo(function TrajectoryPane({
           </div>
 
           {selectedStep !== null && (
-            <div className={css.details}>
+            <div
+              ref={detailsRef}
+              className={css.details}
+              style={shownWidth !== null ? { width: shownWidth, maxWidth: "none" } : undefined}
+            >
+              <div {...handleProps} className={css.resizeHandle} />
               <div className={css.detailsHeader}>
                 <div className={css.detailsTitle}>
                   <span className={`${css.kindTag} ${KIND_CLASS[selectedStep.kind]}`}>
