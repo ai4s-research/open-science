@@ -35,6 +35,7 @@ Formerly Open Science. Claude Science 및 유사한 AI-for-science 워크벤치�
 
 ## 소식
 
+- **2026-11-07** — 🧠 **OpenCode 2로, 에이전트가 하는 일을 더 잘 보이게.** 내장 런타임이 OpenCode 2로 바뀌며, OpenCode 1 기록은 먼저 백업됩니다. 모델의 추론이 대화에 표시되고, ACP 에이전트는 자체 슬래시 명령·컨텍스트 사용량·작업 목록을 가져옵니다. DeepSeek Harness가 카탈로그에 추가되었습니다. 터미널의 CJK 글자가 오래 선명하게 유지되고, 창은 크기와 위치를 기억합니다. *(v0.7.2)*
 - **2026-10-29** — 🖥️ **계속 살아 있는 터미널, 나란히 일하는 에이전트.** 터미널이 앱 밖에서 실행되어 업데이트·재시작·충돌 후에도 그대로 남습니다. Claude Code·Codex·pi가 OpenCode 옆에서 대화로 실행되고, 세션은 클릭 한 번으로 터미널과 대화 사이를 오갑니다. 에이전트별 여러 계정, 테마 변형, 느린 네트워크에서도 받는 새 모델, 한 번에 입력되는 중국어 문장부호도 추가되었습니다. *(v0.7.1)*
 - **2026-10-26** — 🌐 **어느 브라우저에서나 전체 워크벤치, 그리고 서로 대화하는 에이전트.** 원격 접속에서 분할 화면·Screen·터미널을 쓸 수 있고 휴대폰도 지원하며, 이름과 비밀번호 계정으로 로그인합니다. 지침·스킬·커넥터·모델을 갖춘 나만의 전문가 에이전트를 정의할 수 있고, 에이전트는 `osd`로 다른 대화와 터미널을 읽고 메시지를 보냅니다. 에이전트 작업 중 메시지 예약, root 없는 Linux 설치도 추가. *(v0.7.0)*
 - **2026-10-04** — 🖱️ **Computer Use, 터미널과 에디터.** 에이전트가 이제 ImageJ, Origin, 장비 제어 소프트웨어 같은 데스크톱 앱을 조작합니다. 패널에 터미널·파일·코드 에디터를 둘 수 있고, Claude Code / Codex는 재실행 후 이어서 재개됩니다. 찾기(⌘F), 세션·프로젝트로 바로 이동(⌘J), DGX Spark용 Linux ARM64도 추가. *(v0.6.0)*
@@ -347,7 +348,7 @@ pnpm lint
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.7.2},
-  doi     = {10.5281/zenodo.23755472},
+  doi     = {10.5281/zenodo.24034527},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

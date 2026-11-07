@@ -8,7 +8,7 @@ repository-code: "https://github.com/ai4s-research/open-science"
 url: "https://openedscience.com"
 license: MIT
 version: 0.7.2
-doi: 10.5281/zenodo.23755472
+doi: 10.5281/zenodo.24034527
 date-released: 2026-11-07
 keywords:
   - AI for science

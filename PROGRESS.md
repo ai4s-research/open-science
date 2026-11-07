@@ -1,5 +1,7 @@
 # Progress
 
+2026-11-07 11:45 · v0.7.2 published (tag at 0fc3c53, 15 assets; both macOS DMGs verified Notarized Developer ID, archs and version correct; bundled OpenCode 2.2.5, first public release on OpenCode 2). Zenodo v0.7.2 DOI 10.5281/zenodo.24034527 written to CITATION.cff and the 7 README BibTeX blocks; News updated in all seven READMEs.
+
 2026-11-07 00:10 · Terminal: a reopened pane flickered on first view after a relaunch (old-size screen, then a blank pane, then Claude Code's repaint), because the window opened at its default size while the shells kept their last one. A reopened pane now stays hidden until its first resize is drawn (1 s at most), and the window keeps its size, position, maximized and fullscreen state across launches (tauri-plugin-window-state ~2.4; 2.5 needs tauri 2.12). Filmed frame by frame in headless Chrome before and after; new test fails without the fix; vitest, typecheck, lint green; accepted in the installed app.
 
 2026-11-05 00:10 · Terminal: CJK glyphs garbling across terminals after a while is fixed for good by moving to xterm 6.1.0-beta.304 + addon-webgl 0.20.0-beta.300 (the shared glyph atlas bug, xterm#6042/#6055), with resize moved out of xterm's write callback so repaints are not replayed (xterm#6271). Rebased onto 2a96d56; typecheck, lint, vitest 2038 green; test package built, not yet seen on screen.
