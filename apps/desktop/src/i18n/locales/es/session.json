@@ -668,6 +668,8 @@
     "tools": "Herramientas",
     "turn": "Turno {{n}}",
     "noOutput": "sin salida",
+    "thinking": "Razonamiento",
+    "result": "Resultado",
     "empty": "Aún no hay pasos.",
     "noMatch": "Ningún paso coincide.",
     "steps_one": "{{count}} paso",

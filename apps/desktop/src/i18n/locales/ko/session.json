@@ -652,6 +652,8 @@
     "tools": "도구",
     "turn": "{{n}}번째 턴",
     "noOutput": "출력 없음",
+    "thinking": "생각",
+    "result": "결과",
     "empty": "아직 단계가 없습니다.",
     "noMatch": "일치하는 단계가 없습니다.",
     "steps_one": "{{count}}단계",

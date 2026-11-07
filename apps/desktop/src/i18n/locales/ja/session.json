@@ -652,6 +652,8 @@
     "tools": "ツール",
     "turn": "ターン {{n}}",
     "noOutput": "出力なし",
+    "thinking": "思考",
+    "result": "結果",
     "empty": "まだステップはありません。",
     "noMatch": "一致するステップはありません。",
     "steps_one": "{{count}} ステップ",

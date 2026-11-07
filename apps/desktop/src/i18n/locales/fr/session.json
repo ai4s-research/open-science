@@ -668,6 +668,8 @@
     "tools": "Outils",
     "turn": "Tour {{n}}",
     "noOutput": "aucune sortie",
+    "thinking": "Réflexion",
+    "result": "Résultat",
     "empty": "Aucune étape pour l’instant.",
     "noMatch": "Aucune étape correspondante.",
     "steps_one": "{{count}} étape",

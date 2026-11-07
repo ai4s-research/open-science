@@ -668,6 +668,8 @@
     "tools": "Tools",
     "turn": "Runde {{n}}",
     "noOutput": "keine Ausgabe",
+    "thinking": "Denken",
+    "result": "Ergebnis",
     "empty": "Noch keine Schritte.",
     "noMatch": "Keine passenden Schritte.",
     "steps_one": "{{count}} Schritt",
