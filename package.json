@@ -16,7 +16,7 @@
   },
   "packageManager": "pnpm@9.4.0",
   "//overrides": {
-    "security": "Patched transitive floors for brace-expansion (GHSA-rgw5-rvv9-x895), js-yaml (GHSA-5p4m-2wfm-xmqj) and nanoid (GHSA-2v37-7h3g-55p8, reached through postcss), browserslist and baseline-browser-mapping (DoS on untrusted input). Keep each override on its existing major line until the dependency tree resolves a safe version without help."
+    "security": "Patched transitive floors for brace-expansion (GHSA-rgw5-rvv9-x895), js-yaml (GHSA-5p4m-2wfm-xmqj) and nanoid (GHSA-2v37-7h3g-55p8, reached through postcss), browserslist and baseline-browser-mapping (DoS on untrusted input). Keep each override on its existing major line until the dependency tree resolves a safe version without help. The one exception is minimatch 10 -> 11 (GHSA-g3hv-75wg-m249, no patched 10.x): only @typescript-eslint/typescript-estree pulls in 10, and it calls just minimatch(path, pattern, { dot: true }), which 11 keeps."
   },
   "pnpm": {
     "overrides": {
@@ -30,7 +30,8 @@
       "katex": "^0.18.2",
       "nanoid@3": "^3.3.18",
       "browserslist@4": "^4.28.7",
-      "baseline-browser-mapping@2": "^2.11.0"
+      "baseline-browser-mapping@2": "^2.11.0",
+      "minimatch@10": "^11.0.1"
     }
   },
   "devDependencies": {
