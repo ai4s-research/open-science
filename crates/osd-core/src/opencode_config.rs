@@ -332,6 +332,7 @@ pub fn migrate_browser_integration(existing: &str) -> Option<String> {
         for (key, value) in [
             ("AGENT_BROWSER_NAMESPACE", BROWSER_NAMESPACE),
             ("AGENT_BROWSER_IDLE_TIMEOUT_MS", BROWSER_IDLE_TIMEOUT_MS),
+            ("AGENT_BROWSER_NO_WEBMCP", "1"),
         ] {
             if environment.get(key) != Some(&json!(value)) {
                 environment.insert(key.to_string(), json!(value));
@@ -1097,7 +1098,8 @@ mod tests {
                 "command":["agent-browser","mcp"],
                 "environment": {
                     "AGENT_BROWSER_NAMESPACE": "open-science-desktop",
-                    "AGENT_BROWSER_IDLE_TIMEOUT_MS": "600000"
+                    "AGENT_BROWSER_IDLE_TIMEOUT_MS": "600000",
+                    "AGENT_BROWSER_NO_WEBMCP": "1"
                 }
             })
         );
@@ -1152,6 +1154,7 @@ mod tests {
         assert_eq!(env["AGENT_BROWSER_PROFILE"], "Default");
         assert_eq!(env["AGENT_BROWSER_NAMESPACE"], "open-science-desktop");
         assert_eq!(env["AGENT_BROWSER_IDLE_TIMEOUT_MS"], "600000");
+        assert_eq!(env["AGENT_BROWSER_NO_WEBMCP"], "1");
         assert!(!browser_uses_legacy_namespace(&out));
         assert!(migrate_browser_integration(&out).is_none());
     }

@@ -5,7 +5,7 @@
 # agent-browser ships raw (unarchived) binaries per platform on its releases.
 set -euo pipefail
 
-AGENT_BROWSER_VERSION="${AGENT_BROWSER_VERSION:-0.32.1}"
+AGENT_BROWSER_VERSION="${AGENT_BROWSER_VERSION:-0.41.2}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="$ROOT/apps/desktop/src-tauri/binaries"
 mkdir -p "$OUT_DIR"
@@ -83,7 +83,8 @@ When Browser Control is enabled in Settings, this app provides the version-match
 - Never install, upgrade, or run `agent-browser` through Bash. Do not load a user skill named `browser-control`; it belongs to a different integration.
 - If the `agent_browser_*` tools are unavailable, ask the user to enable Browser Control in Settings; do not fall back to the CLI.
 - Before the first browser action, call `agent_browser_inventory`. It reports this conversation's browser and tabs, whether to open or reuse them, and only aggregate counts for other conversations.
-- A browser lease is assigned automatically from the current conversation. Never pass `session`, `namespace`, restore fields, `extraArgs`, `headed`, or `webgpu`; the MCP boundary does not expose them.
+- A browser lease is assigned automatically from the current conversation. Never pass `session`, `namespace`, restore fields, `extraArgs`, `headed`, `webgpu`, `webmcp`, CA certificate fields, or `idleTimeout`; the MCP boundary does not expose them. The lease is this conversation's session, so skip the official guide's `session id` and `--session` steps.
+- The official guide's references and templates are files next to this skill; read them directly instead of running `agent-browser skills get`.
 - Never pass the per-call `allowedDomains` argument. The app owns domain policy through Settings; upstream rejects `allowedDomains` when a Chrome profile is active.
 - Browsers opened by the user outside Open Science Desktop are external resources: never attach to, inspect, navigate, or close them. Other conversations' managed browsers are equally off-limits.
 - If inventory shows a current browser, reuse a suitable current tab. Otherwise open the target URL directly. Never call `open` without a URL; never create a tab merely to test availability.

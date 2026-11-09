@@ -19,6 +19,11 @@ const APP_OWNED_ARGUMENTS = [
   "extraArgs",
   "headed",
   "webgpu",
+  "webmcp",
+  "caCert",
+  "useSystemCa",
+  "clearCaCert",
+  "idleTimeout",
 ] as const;
 
 /** Drop every argument the app owns from a browser call's input. */

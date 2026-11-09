@@ -67,6 +67,7 @@ export function buildBrowserMcpConfig(opts: BrowserMcpOptions): McpConfig {
   const environment: Record<string, string> = {
     AGENT_BROWSER_NAMESPACE: BROWSER_NAMESPACE,
     AGENT_BROWSER_IDLE_TIMEOUT_MS: BROWSER_IDLE_TIMEOUT_MS,
+    AGENT_BROWSER_NO_WEBMCP: "1",
   };
   if (profile) environment.AGENT_BROWSER_PROFILE = profile;
   if (opts.executablePath?.trim())

@@ -22,6 +22,7 @@ describe("buildBrowserMcpConfig", () => {
     expect(config.environment).toMatchObject({
       AGENT_BROWSER_NAMESPACE: BROWSER_NAMESPACE,
       AGENT_BROWSER_IDLE_TIMEOUT_MS: BROWSER_IDLE_TIMEOUT_MS,
+      AGENT_BROWSER_NO_WEBMCP: "1",
     });
   });
 

@@ -28,6 +28,11 @@ const APP_OWNED_ARGUMENTS: &[&str] = &[
     "extraArgs",
     "headed",
     "webgpu",
+    "webmcp",
+    "caCert",
+    "useSystemCa",
+    "clearCaCert",
+    "idleTimeout",
 ];
 
 /// The one tool that actually launches Chrome.
