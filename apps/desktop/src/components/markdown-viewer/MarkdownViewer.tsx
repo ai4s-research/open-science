@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { Children, createContext, useContext, useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Options as ReactMarkdownOptions } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -7,7 +7,7 @@ import "katex/dist/katex.min.css";
 import { cn } from "@/lib/cn";
 import { HSCROLL_ATTR } from "@/lib/wheelChain";
 import { openExternal } from "@/lib/tauri";
-import { activateLink, cleanPath, looksLikePath, resolveLink, type LinkTarget } from "@/lib/links";
+import { activateLink, cleanPath, linkCandidates, looksLikePath, resolveLink, type LinkTarget } from "@/lib/links";
 
 /** Two contexts render markdown: chat bubbles (theme colors, compact) and the
  *  file-preview "paper" (document-neutral black-on-white, editorial scale —
@@ -133,7 +133,7 @@ export function MarkdownViewer({
       <ReactMarkdown
         {...plugins}
         components={{
-          p: ({ children }) => <p className={s.p}>{children}</p>,
+          p: ({ children }) => <p className={s.p}>{links ? linkifyChildren(children) : children}</p>,
           a: ({ children, href }) => (
             <a
               href={href}
@@ -175,7 +175,7 @@ export function MarkdownViewer({
           ),
           ul: ({ children }) => <ul className={s.ul}>{children}</ul>,
           ol: ({ children }) => <ol className={s.ol}>{children}</ol>,
-          li: ({ children }) => <li>{children}</li>,
+          li: ({ children }) => <li>{links ? linkifyChildren(children) : children}</li>,
           // Document elements (headings, quotes, tables, rules) — Tailwind's
           // preflight strips the browser defaults, so each needs explicit style.
           h1: ({ children }) => <h1 className={s.h1}>{children}</h1>,
@@ -254,5 +254,45 @@ function LinkCode({ children, className }: { children: string; className: string
     >
       {children}
     </code>
+  );
+}
+
+function InlineLink({ children }: { children: string }) {
+  const target = useLinkTarget(children);
+  if (!target) return <>{children}</>;
+  return (
+    <span
+      role="link"
+      tabIndex={0}
+      className="cursor-pointer decoration-1 underline-offset-[3px] hover:underline"
+      onClick={(event) => activateLink(target, event)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        const r = event.currentTarget.getBoundingClientRect();
+        activateLink(target, { clientX: r.left, clientY: r.bottom, metaKey: false, ctrlKey: false, shiftKey: false });
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function LinkText({ children }: { children: string }) {
+  const spans = useMemo(() => linkCandidates(children), [children]);
+  if (spans.length === 0) return <>{children}</>;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const s of spans) {
+    if (s.start > last) parts.push(children.slice(last, s.start));
+    parts.push(<InlineLink key={s.start}>{s.text}</InlineLink>);
+    last = s.end;
+  }
+  if (last < children.length) parts.push(children.slice(last));
+  return <>{parts}</>;
+}
+
+function linkifyChildren(nodes: React.ReactNode): React.ReactNode {
+  return Children.map(nodes, (child) =>
+    typeof child === "string" && child.includes("/") ? <LinkText>{child}</LinkText> : child,
   );
 }
