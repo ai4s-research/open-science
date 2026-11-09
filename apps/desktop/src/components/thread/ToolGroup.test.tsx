@@ -34,20 +34,34 @@ describe("groupToolBlocks", () => {
     expect(items[2]).toMatchObject({ kind: "group", start: 3 });
   });
 
-  it("leaves reasoning OUT of the run, so prose and activity alternate", () => {
-    // The shape Codex has: paragraph, one muted line of "what I did",
-    // paragraph. Folding thought in gave a summary line that opened into a wall
-    // of monospace rows with the narration buried among them as stubs.
+  it("folds thinking between tool calls into the same run, so one stretch of work is one line", () => {
     const items = groupToolBlocks([
       { kind: "reasoning", text: "let me look at the data" },
       tool({ title: "a" }),
       { kind: "reasoning", text: "now transform it" },
       tool({ title: "b" }),
+      { kind: "agent", markdown: "Here is what I found." },
+      tool({ title: "c" }),
     ]);
-    expect(items.map((i) => i.kind)).toEqual(["block", "group", "block", "group"]);
-    // Each group is the work done since the last thing the model said, which is
-    // also what keeps the summary lines short enough to read.
-    expect((items[1] as { blocks: ThreadBlock[] }).blocks).toHaveLength(1);
+    expect(items.map((i) => i.kind)).toEqual(["group", "block", "group"]);
+    expect(items[0]).toMatchObject({ kind: "group", start: 0 });
+    expect((items[0] as { blocks: ThreadBlock[] }).blocks).toHaveLength(4);
+    expect(items[1]).toMatchObject({ kind: "block", index: 4 });
+  });
+
+  it("keeps the thinking inside an opened group, in order between the steps", () => {
+    render(
+      <ToolGroup
+        blocks={[
+          tool({ title: "ls" }),
+          { kind: "reasoning", text: "look closer" },
+          tool({ title: "cat a.txt" }),
+        ]}
+      />,
+    );
+    expect(screen.getByText(/2 tool calls/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    expect(screen.getByRole("button", { name: /Thought/ })).toBeInTheDocument();
   });
 
   it("renders reasoning that precedes the final answer on its own (nothing to group)", () => {

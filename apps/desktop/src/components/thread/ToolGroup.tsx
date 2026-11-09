@@ -20,6 +20,7 @@ import { DiffView } from "@/components/code-viewer/DiffView";
 import { STATUS, ToolTitle } from "./ToolCallRow";
 import { SubagentActivity } from "./SubagentActivity";
 import { RunningDot } from "./RunningDot";
+import { ReasoningDisclosure } from "./ReasoningDisclosure";
 import { ICON_SLOT } from "./rowLayout";
 
 // Codex-style tool activity: consecutive quiet tool steps fold into one
@@ -32,38 +33,41 @@ export type BlockListItem =
   | { kind: "group"; start: number; blocks: ThreadBlock[] }
   | { kind: "block"; index: number; block: ThreadBlock };
 
-/** Fold a run of consecutive tool calls into ONE activity group.
+/** Fold a run of consecutive tool calls, and the thinking between them, into
+ *  ONE activity group.
  *
- *  Reasoning is NOT folded in, and that is the whole shape of the thing. What
- *  the model says while it works is the narration a reader follows; the commands
- *  are the receipts. Folding both produced a summary line that opened into
- *  twenty cramped monospace rows, with the narration buried among them as
- *  one-line stubs. Leaving thought outside gives the alternation Codex has —
- *  paragraph, one muted line of "what I did", paragraph — where the prose is the
- *  backbone and the activity is an aside.
+ *  What the model SAYS while it works (agent prose) is the narration a reader
+ *  follows, so it breaks the run: paragraph, one muted line of "what I did",
+ *  paragraph. Thinking is not narration. It renders as a collapsed one-line
+ *  disclosure, and left outside it cut one stretch of work into a ladder of
+ *  alternating "Thinking" and "Ran commands" lines, one pair per command. Inside
+ *  the group it sits in order between the steps, one click away.
  *
- *  It costs what the old rule bought: a thought between two commands now splits
- *  them into two groups. That is the point, not a regression — each group is the
- *  work done since the last thing the model said, which is also why the summary
- *  lines get short enough to read.
+ *  A run with no tool call in it (thinking right before the answer) is not a
+ *  group; its blocks render on their own.
  *
  *  Failures stay IN the group (routine trial-and-error; the summary counts
- *  them). A step that needs the USER (waiting-approval) or any non-groupable
- *  block breaks the run. Pure — exported for tests. */
+ *  them). A step that needs the USER (waiting-approval) or any other block
+ *  breaks the run. Pure — exported for tests. */
 export function groupToolBlocks(blocks: ThreadBlock[]): BlockListItem[] {
   const items: BlockListItem[] = [];
-  let group: { start: number; blocks: ThreadBlock[] } | null = null;
+  let run: { start: number; blocks: ThreadBlock[] } | null = null;
   const flush = () => {
-    const g = group;
-    group = null;
-    if (!g) return;
-    items.push({ kind: "group", start: g.start, blocks: g.blocks });
+    const r = run;
+    run = null;
+    if (!r) return;
+    if (r.blocks.some((b) => b.kind === "tool-call")) {
+      items.push({ kind: "group", start: r.start, blocks: r.blocks });
+    } else {
+      r.blocks.forEach((block, k) => items.push({ kind: "block", index: r.start + k, block }));
+    }
   };
   blocks.forEach((b, i) => {
-    const groupable = b.kind === "tool-call" && b.status !== "waiting-approval";
+    const groupable =
+      b.kind === "reasoning" || (b.kind === "tool-call" && b.status !== "waiting-approval");
     if (groupable) {
-      group ??= { start: i, blocks: [] };
-      group.blocks.push(b);
+      run ??= { start: i, blocks: [] };
+      run.blocks.push(b);
     } else {
       flush();
       items.push({ kind: "block", index: i, block: b });
@@ -443,7 +447,11 @@ export function ToolGroup({
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? false;
   const rows = blocks.map((b, i) =>
-    b.kind === "tool-call" ? <ToolRow key={i} block={b} onOpenSubagent={onOpenSubagent} /> : null,
+    b.kind === "tool-call" ? (
+      <ToolRow key={i} block={b} onOpenSubagent={onOpenSubagent} />
+    ) : b.kind === "reasoning" ? (
+      <ReasoningDisclosure key={i} block={b} />
+    ) : null,
   );
   // A lone tool step (no interleaved thinking) keeps the bare-row look.
   if (blocks.length === 1 && blocks[0].kind === "tool-call") return <div>{rows}</div>;

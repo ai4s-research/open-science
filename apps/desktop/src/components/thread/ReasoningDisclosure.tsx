@@ -59,9 +59,9 @@ export const ReasoningDisclosure = memo(function ReasoningDisclosure({
             {open ? <IconChevronUpOutlineRegular /> : <IconChevronDownOutlineRegular />}
           </span>
         </span>
-        <span className={css.label}>
-          {open ? t("reasoning.thought") : t("reasoning.thinking")}
-        </span>
+        {/* A block in the thread is a finished thought; the live one is on
+            the status row beside "Working…". */}
+        <span className={css.label}>{t("reasoning.thought")}</span>
       </button>
       <Collapse open={open}>
         <pre className={css.body}>{block.text}</pre>
