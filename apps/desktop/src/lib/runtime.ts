@@ -4935,16 +4935,18 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   // prompts, "!" shell commands and "/" slash commands — see performTurn.
   createDraftSession: (draftKey) => createFromDraft(set, get, draftKey, ""),
   sendPrompt: (text, sessionId, draftKey, attachments) => {
-    // Capture the mode BEFORE performTurn: on a draft, currentId is still null
+    // Capture the agent BEFORE performTurn: on a draft, currentId is still null
     // here (the session is created inside), so this reads the pane's draft slot
-    // correctly. Pin "plan" only when the catalog actually has it — a stale mode
-    // against an older/custom sidecar must not fail every send with "Agent not
-    // found".
+    // correctly. Name the mode the pill shows, in BOTH modes: OpenCode 2 keeps
+    // the agent on the SESSION, so a session left in plan stays read-only until
+    // something binds it back — sending no agent in build mode left every later
+    // turn in plan while the pill claimed Build (#177). `agentForTurn` answers
+    // null when the catalog has no such agent (an older or custom sidecar), and
+    // then nothing is pinned: a stale mode must not fail every send with
+    // "Agent not found", and the runtime's own default runs the turn.
     const s = get();
     const key = sessionId ?? draftKey ?? s.currentId ?? DRAFT_KEY;
-    const mode = s.sessionAgents[key];
-    const agent =
-      mode === "plan" && s.agents.some((a) => a.name === "plan") ? "plan" : undefined;
+    const agent = agentForTurn(s, key) ?? undefined;
     // This pane's own model + effort (falling back to the global default),
     // captured now so a draft's later graft still sends the pane's choice.
     const { model, variant } = modelForSession(s, key);
