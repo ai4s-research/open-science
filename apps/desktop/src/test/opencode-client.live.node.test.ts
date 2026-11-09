@@ -76,7 +76,13 @@ async function waitFor(pred: () => boolean, timeout = TURN_MS): Promise<void> {
 }
 
 /** Run one turn and return every event it produced. */
-async function turn(c: OpenCodeClient, sessionId: string, text: string, answer?: (e: OpenCodeEvent) => void) {
+async function turn(
+  c: OpenCodeClient,
+  sessionId: string,
+  text: string,
+  answer?: (e: OpenCodeEvent) => void,
+  agent?: string,
+) {
   const events: OpenCodeEvent[] = [];
   const off = c.onEvent((e) => {
     if ("sessionId" in e && e.sessionId !== sessionId) return;
@@ -84,7 +90,7 @@ async function turn(c: OpenCodeClient, sessionId: string, text: string, answer?:
     answer?.(e);
   });
   try {
-    await c.sendPrompt(sessionId, text, undefined, MODEL);
+    await c.sendPrompt(sessionId, text, agent, MODEL);
     await waitFor(() => events.some((e) => e.type === "session.idle"));
   } finally {
     off();
@@ -215,6 +221,33 @@ describe.skipIf(!BIN)("OpenCodeClient ↔ a real OpenCode server", () => {
     expect(last.completed).toBeTypeOf("number");
     expect(last.usage?.input).toBeGreaterThan(0);
     c.close();
+  }, TURN_MS);
+
+  it("keeps a session's agent until something binds it back (#177)", async () => {
+    // OpenCode 2 keeps the agent on the SESSION, so "which agent" is state the
+    // caller has to write, not a per-prompt default. What this pins down: a
+    // prompt that names no agent after a plan turn runs in plan again — the
+    // trap behind "switching Plan to Build does nothing" — and naming build is
+    // what actually leaves it.
+    const c = client();
+    await c.connect();
+    const id = await c.createSession();
+    const lastUserAgent = async () => {
+      const users = (await c.getMessages(id)).filter((m) => m.role === "user");
+      return users[users.length - 1]?.agent;
+    };
+
+    await turn(c, id, "Reply with exactly: OK", undefined, "plan");
+    expect(await lastUserAgent()).toBe("plan");
+
+    // No agent named: the session stays in plan. (A provider error does not
+    // void this — the runtime stamps the agent on the turn either way.)
+    await turn(c, id, "Reply with exactly: OK");
+    expect(await lastUserAgent()).toBe("plan");
+
+    // Naming build flips the session, so build mode must name build too.
+    await turn(c, id, "Reply with exactly: OK", undefined, "build");
+    expect(await lastUserAgent()).toBe("build");
   }, TURN_MS);
 
   it("asks permission for a gated command and continues once it is granted", async () => {

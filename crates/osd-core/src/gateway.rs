@@ -3510,6 +3510,10 @@ mod tests {
             ("GET", "/api/plugin"),
             ("GET", "/api/session"),
             ("POST", "/api/session/s1/prompt"),
+            // The SPA names the composer's agent on the session before a prompt
+            // (#177). Without this the proxy would leave remote clients on a
+            // stale plan/build binding while the desktop switched correctly.
+            ("POST", "/api/session/s1/agent"),
             ("POST", "/api/session/s1/permission/p1/reply"),
             ("GET", "/api/model"),
             ("POST", "/api/rpc/opencode.goal/get"),

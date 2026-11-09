@@ -1807,7 +1807,7 @@ describe("edit a past user message", () => {
     await useRuntimeStore.getState().editMessage("msg_1", "hi fixed");
 
     expect(mocks.revertSpy).toHaveBeenCalledWith("ses_new", "msg_1", undefined);
-    expect(mocks.sendPromptSpy).toHaveBeenLastCalledWith("ses_new", "hi fixed", undefined);
+    expect(mocks.sendPromptSpy).toHaveBeenLastCalledWith("ses_new", "hi fixed", "build");
     const blocks = useRuntimeStore.getState().threads["ses_new"].blocks;
     const users = blocks.filter((b) => b.kind === "user");
     expect(users).toHaveLength(1);
@@ -1830,7 +1830,7 @@ describe("edit a past user message", () => {
     await sendAndFinish("msg_1");
     await useRuntimeStore.getState().editMessage("msg_1", "hi fixed");
     expect(mocks.revertSpy).toHaveBeenCalledTimes(3);
-    expect(mocks.sendPromptSpy).toHaveBeenLastCalledWith("ses_new", "hi fixed", undefined);
+    expect(mocks.sendPromptSpy).toHaveBeenLastCalledWith("ses_new", "hi fixed", "build");
   });
 
   it("surfaces an error and does not resend when revert keeps failing", async () => {
@@ -2183,7 +2183,7 @@ describe("reasoning-effort variant", () => {
     expect(mocks.sendPromptFullSpy).toHaveBeenLastCalledWith(
       "ses_new",
       "hi",
-      undefined,
+      "build",
       "openai/gpt-5",
       "high",
     );
@@ -2213,7 +2213,7 @@ describe("reasoning-effort variant", () => {
     expect(mocks.sendPromptFullSpy).toHaveBeenLastCalledWith(
       "ses_new",
       "hi",
-      undefined,
+      "build",
       "openai/gpt-5.6-sol",
       "max",
     );
@@ -2321,12 +2321,29 @@ describe("plan agent mode", () => {
     expect(sessionAgents["draft"]).toBeUndefined();
   });
 
-  it("omits the agent field entirely in build mode", async () => {
+  it("pins build too, so a session left in plan actually leaves it (#177)", async () => {
     await useRuntimeStore.getState().sendPrompt("hello");
-    expect(mocks.sendPromptSpy).toHaveBeenLastCalledWith("ses_new", "hello", undefined);
+    expect(mocks.sendPromptSpy).toHaveBeenLastCalledWith("ses_new", "hello", "build");
   });
 
-  it("never pins a stale plan mode when the runtime has no plan agent", async () => {
+  it("switching plan -> build pins build on the next send (#177)", async () => {
+    // The runtime keeps the agent on the SESSION, so a session bound to plan
+    // stays read-only until something binds it back. The app used to send no
+    // agent in build mode, which left such a session in plan for every later
+    // turn while the pill claimed Build.
+    useRuntimeStore.getState().setAgentMode("plan");
+    const id = await useRuntimeStore.getState().sendPrompt("plan it");
+    expect(mocks.sendPromptSpy).toHaveBeenLastCalledWith(id, "plan it", "plan");
+
+    useRuntimeStore.getState().setAgentMode("build", id!);
+    await useRuntimeStore.getState().sendPrompt("now write the file", id!);
+    expect(mocks.sendPromptSpy).toHaveBeenLastCalledWith(id, "now write the file", "build");
+  });
+
+  it("pins nothing when the catalog lacks the mode the pill shows", async () => {
+    // The app names an agent only when the runtime offers it. A stale Plan mode
+    // against an older/custom sidecar must not fail every send with "Agent not
+    // found": nothing is pinned, and the runtime's own default runs the turn.
     useRuntimeStore.setState({ agents: [{ name: "build", description: "", mode: "primary" }] });
     useRuntimeStore.getState().setAgentMode("plan");
     await useRuntimeStore.getState().sendPrompt("hi");
@@ -3235,7 +3252,7 @@ describe("per-agent model precedence", () => {
     await withAgents({ build: "anthropic/claude-opus-4-8" });
     await useRuntimeStore.getState().sendPrompt("hi");
     const [, , agent, model] = lastSend();
-    expect(agent).toBeUndefined();
+    expect(agent).toBe("build");
     expect(model).toBeNull();
   });
 
