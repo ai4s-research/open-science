@@ -352,6 +352,15 @@ fn protect_tool_list(response: &mut Value, include_inventory: bool) {
                 properties.remove("all");
             }
         }
+        // OpenCode 2 repairs tool input against the advertised schema, and
+        // under `additionalProperties: false` it deletes every undeclared key,
+        // including the `session` the guard plugin has just injected.
+        if let Some(schema) = tool
+            .pointer_mut("/inputSchema")
+            .and_then(Value::as_object_mut)
+        {
+            schema.remove("additionalProperties");
+        }
         if let Some(required) = tool
             .pointer_mut("/inputSchema/required")
             .and_then(Value::as_array_mut)
@@ -386,8 +395,7 @@ fn protect_tool_list(response: &mut Value, include_inventory: bool) {
             "description": "Inspect the current conversation's managed browser and tabs before deciding whether to open, reuse, or close it. Other conversations are reported without URLs or titles. Browsers opened by the user outside Open Science Desktop are never inspected or controlled.",
             "inputSchema": {
                 "type": "object",
-                "properties": {},
-                "additionalProperties": false
+                "properties": {}
             },
             "annotations": { "readOnlyHint": true }
         }));
@@ -754,6 +762,7 @@ mod tests {
                     "description": "Open.",
                     "inputSchema": {
                         "properties": { "url": {}, "session": {}, "allowedDomains": {} },
+                        "additionalProperties": false,
                         "required": ["url"]
                     }
                 },
@@ -789,6 +798,9 @@ mod tests {
             .pointer("/inputSchema/properties/allowedDomains")
             .is_none());
         assert!(tools[1].pointer("/inputSchema/properties/all").is_none());
+        for tool in tools {
+            assert!(tool.pointer("/inputSchema/additionalProperties").is_none());
+        }
     }
 
     #[test]
