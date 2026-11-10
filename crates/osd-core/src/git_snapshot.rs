@@ -600,9 +600,25 @@ pub fn commit(root: &Path, message: &str) -> Result<bool, String> {
     stage_all(root, &index)?;
     unstage_oversized(root, &index)?;
     unstage_bulk_dirs(root, &index)?;
-    let tree = String::from_utf8_lossy(&capture_indexed(root, &index, &["write-tree"])?)
-        .trim()
-        .to_string();
+    let tree = match capture_indexed(root, &index, &["write-tree"]) {
+        Ok(out) => String::from_utf8_lossy(&out).trim().to_string(),
+        // The index names an object git no longer has. The index is a cache, not
+        // a record: the working tree is the truth, so rebuild it from there and
+        // write the tree again. See `wrote_unresolvable_object`.
+        Err(e) if wrote_unresolvable_object(&e) => {
+            eprintln!(
+                "workspace snapshot: rebuilding the snapshot index (it named a missing object)"
+            );
+            rebuild_index(root, &index)?;
+            stage_all(root, &index)?;
+            unstage_oversized(root, &index)?;
+            unstage_bulk_dirs(root, &index)?;
+            String::from_utf8_lossy(&capture_indexed(root, &index, &["write-tree"])?)
+                .trim()
+                .to_string()
+        }
+        Err(e) => return Err(e),
+    };
 
     // Parent: continue this branch's snapshot chain if it exists; otherwise root
     // the first snapshot on the branch's current tip (HEAD) so the history reads
@@ -682,6 +698,39 @@ fn commitless_repos(stderr: &str) -> Vec<String> {
             Some(rest[..end].trim_end_matches('/').to_string())
         })
         .collect()
+}
+
+/// Did `git write-tree` fail because the index names an object the object store
+/// no longer has?
+///
+/// ```text
+/// error: invalid object 100644 9c595a6fb769… for '.openscience/env/x.txt'
+/// fatal: git-write-tree: error building trees
+/// ```
+///
+/// A snapshot index is not a ref, so nothing keeps its blobs alive across a
+/// routine `git gc` — and because the entry's stat data still matches its file,
+/// `git add -A` skips it and never rebuilds the blob. Every later snapshot then
+/// failed the same way, silently, for the life of that workspace (#179). That
+/// message is the one condition where throwing the index away is the correct
+/// repair rather than a workaround: it is a cache of the working tree.
+///
+/// Matched in the C locale, which `git()` pins for every call (see its comment),
+/// so this cannot drift with the user's language.
+fn wrote_unresolvable_object(stderr: &str) -> bool {
+    // Matched anywhere in the line, not at its start: `run_indexed` prefixes the
+    // captured stderr with `git <args> failed: `.
+    stderr
+        .lines()
+        .any(|l| l.contains("error: invalid object ") && l.contains(" for '"))
+}
+
+/// Throw the dedicated index away and let the caller re-stage from the working
+/// tree. `read-tree --empty` rather than deleting the file: it works even when
+/// the file on disk is corrupt, and on Windows it cannot collide with a handle
+/// another process still holds.
+fn rebuild_index(root: &Path, index: &Path) -> Result<(), String> {
+    run_indexed(root, index, &["read-tree", "--empty"])
 }
 
 pub fn commit_best_effort(root: &Path, message: &str) {
@@ -1124,6 +1173,109 @@ mod tests {
             .filter(|l| l.trim() == ".openscience/")
             .count();
         assert_eq!(count, 1);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The snapshot index with one entry naming a blob that is gone from the
+    /// object store, which is what a routine `git gc` leaves behind: the index
+    /// is not a root, so a blob only it references is pruned, and its stat data
+    /// still matches the file afterwards.
+    ///
+    /// The index file's mtime is pushed forward so the entry is no longer
+    /// "racily clean" — that is what makes `git add -A` skip it instead of
+    /// re-hashing. Without it git re-reads the file and the damage heals itself.
+    fn dangling_snapshot_index(root: &std::path::Path, stale: &str) {
+        let index = root.join(".git").join(super::SNAPSHOT_INDEX);
+        let git = |args: &[&str]| {
+            super::git_indexed(root, &index)
+                .args(args)
+                .output()
+                .expect("git runs")
+        };
+        assert!(git(&["add", "-A", "--", "."]).status.success());
+        let sha = String::from_utf8_lossy(&git(&["rev-parse", &format!(":{stale}")]).stdout)
+            .trim()
+            .to_string();
+        assert_eq!(sha.len(), 40, "no blob for {stale}");
+        let object = root
+            .join(".git")
+            .join("objects")
+            .join(&sha[..2])
+            .join(&sha[2..]);
+        fs::remove_file(&object).expect("drop the blob the index still names");
+        let f = fs::File::options().write(true).open(&index).unwrap();
+        f.set_times(
+            fs::FileTimes::new()
+                .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3)),
+        )
+        .unwrap();
+        // `add` exits 0 and leaves the entry alone: this is the state #179
+        // describes, and the reason a snapshot could never repair itself.
+        assert!(git(&["add", "-A", "--", "."]).status.success());
+        assert!(
+            !git(&["write-tree"]).status.success(),
+            "the recipe must leave write-tree failing"
+        );
+    }
+
+    #[test]
+    fn a_dangling_snapshot_index_entry_does_not_end_file_history() {
+        if !git_available() {
+            eprintln!("git unavailable; skipping git snapshot test");
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("os-git-dangling-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        super::run(&root, &["init"]).unwrap();
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        fs::write(root.join("b.txt"), "two\n").unwrap();
+        dangling_snapshot_index(&root, "a.txt");
+
+        // The workspace must keep its file history: the snapshot is recorded,
+        // not skipped for the rest of that workspace's life.
+        assert_eq!(commit(&root, "snapshot").unwrap(), true);
+        assert!(rev_parse(&root, &snapshot_ref(&root)).is_some());
+        let files = snapshot_files(&root);
+        assert!(
+            files.contains("a.txt"),
+            "the repaired snapshot holds a.txt: {files}"
+        );
+        assert!(
+            files.contains("b.txt"),
+            "the repaired snapshot holds b.txt: {files}"
+        );
+        // And the index is trustworthy again: the next snapshot is a normal no-op.
+        assert_eq!(commit(&root, "unchanged").unwrap(), false);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn repairing_the_snapshot_index_leaves_the_users_index_and_branch_alone() {
+        if !git_available() {
+            eprintln!("git unavailable; skipping git snapshot test");
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("os-git-repair-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        super::run(&root, &["init"]).unwrap();
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        super::run(&root, &["add", "a.txt"]).unwrap();
+        super::run(&root, &["commit", "-m", "user commit"]).unwrap();
+        let head_before = rev_parse(&root, "HEAD").unwrap();
+        // Staged work of the user's, which a repair must not touch.
+        fs::write(root.join("staged.txt"), "in progress\n").unwrap();
+        super::run(&root, &["add", "staged.txt"]).unwrap();
+        let staged_before = super::capture(&root, &["diff", "--cached", "--name-only"]).unwrap();
+
+        dangling_snapshot_index(&root, "a.txt");
+        assert_eq!(commit(&root, "snapshot").unwrap(), true);
+
+        assert_eq!(rev_parse(&root, "HEAD").unwrap(), head_before);
+        let staged_after = super::capture(&root, &["diff", "--cached", "--name-only"]).unwrap();
+        assert_eq!(staged_before, staged_after);
+        assert!(snapshot_files(&root).contains("a.txt"));
         let _ = fs::remove_dir_all(&root);
     }
 
