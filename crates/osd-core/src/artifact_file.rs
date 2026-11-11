@@ -895,11 +895,11 @@ mod tests {
     use super::{
         attach_paths, base64_decode, base64_encode, dir_entries, encode_for_preview,
         is_discardable_name, Attached,
-        exceeds_preview_cap, host_path_with, locate_local, locate_under, mime_for, strip_windows_verbatim,
+        exceeds_preview_cap, locate_local, locate_under, mime_for, strip_windows_verbatim,
         native_path, resolve_under, unique_name, workspace_relative, wsl_path, LocalPath,
     };
     #[cfg(windows)]
-    use super::WSL_RUNNING_ARGS;
+    use super::{host_path_with, WSL_RUNNING_ARGS};
 
     /// A project's linked session folder is a link in the project folder: it
     /// lists as the folder it points at, saying where that really is.
@@ -1009,8 +1009,6 @@ mod tests {
         };
         assert_eq!(wsl_path("/home/me/a.png", &[], never), None);
         assert_eq!(asked.get(), 0, "a stopped distro is never reached into");
-        assert_eq!(host_path_with("/home/me/a.png", &[], never), PathBuf::from("/home/me/a.png"));
-        assert_eq!(asked.get(), 0, "and the link resolver keeps its hands off it too");
         // The drive mapping needs no distro at all: a Windows path is settled
         // from the path alone, so it still resolves while nothing runs.
         assert_eq!(
@@ -1018,6 +1016,21 @@ mod tests {
             Some(r"D:\linux\Ubuntu\ext4.vhdx")
         );
         assert_eq!(asked.get(), 0);
+    }
+
+    /// The resolver's own half: what it does with the list it is handed. The
+    /// walk itself is `#[cfg(windows)]` (it translates to a Windows path), so
+    /// this test is too, and it says so rather than passing vacuously.
+    #[test]
+    #[cfg(windows)]
+    fn the_resolver_never_reaches_into_a_stopped_distro() {
+        let asked = std::cell::Cell::new(0);
+        let never = |_: &str| {
+            asked.set(asked.get() + 1);
+            true
+        };
+        assert_eq!(host_path_with("/home/me/a.png", &[], never), PathBuf::from("/home/me/a.png"));
+        assert_eq!(asked.get(), 0, "the link resolver keeps its hands off it too");
         // A running distro is still reached into, the way it always was.
         let running = vec![r"\\wsl$\Ubuntu".to_string()];
         let ubuntu_has_it = |p: &str| {
