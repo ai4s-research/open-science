@@ -239,8 +239,22 @@ pub fn locate_local(home: &Path, path: &str, cwd: Option<&str>, anchors: &[Strin
 /// `wsl_path`); any other path is itself.
 fn host_path(path: &str) -> PathBuf {
     #[cfg(windows)]
+    {
+        host_path_with(path, wsl_running_distros(), |p| Path::new(p).exists())
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from(path)
+    }
+}
+
+/// `host_path` over an explicit distro list, so the choice of which distros may
+/// be reached into is testable without a WSL installation. Windows-only, as the
+/// translation it performs is.
+#[cfg(windows)]
+fn host_path_with(path: &str, distros: &[String], exists: impl Fn(&str) -> bool) -> PathBuf {
     if path.starts_with('/') && !path.starts_with("//") {
-        if let Some(p) = wsl_path(path, wsl_distros(), |p| Path::new(p).exists()) {
+        if let Some(p) = wsl_path(path, distros, exists) {
             return PathBuf::from(p);
         }
     }
@@ -250,6 +264,9 @@ fn host_path(path: &str) -> PathBuf {
 /// Where Windows reaches a WSL Linux path: `/mnt/<drive>/…` is that drive;
 /// any other is the same path in the one WSL distro (`\\wsl$\<name>`) that
 /// has it — in none, or in several, it is no path, never a guess.
+///
+/// `distros` must name only distros that are **running** (see
+/// `wsl_running_distros`): reaching a path inside a stopped one starts it.
 pub fn wsl_path(path: &str, distros: &[String], exists: impl Fn(&str) -> bool) -> Option<String> {
     let parts: Vec<&str> = path.strip_prefix('/')?.split('/').filter(|s| !s.is_empty()).collect();
     if let ["mnt", drive, rest @ ..] = parts.as_slice() {
@@ -262,26 +279,44 @@ pub fn wsl_path(path: &str, distros: &[String], exists: impl Fn(&str) -> bool) -
     found.next().is_none().then_some(first)
 }
 
-/// The installed WSL distros, as `\\wsl$\<name>`; listed once per run
-/// (`wsl.exe` writes UTF-16). Empty where WSL is not installed.
+/// The WSL distros that are **already running**, as `\\wsl$\<name>`; listed
+/// once per run (`wsl.exe` writes UTF-16). Empty where WSL is not installed or
+/// nothing in it is running.
+///
+/// Only running distros: `wsl.exe --list` is harmless by itself, but *touching a
+/// path under `\\wsl$\<name>` starts that distro* — a whole WSL2 utility VM,
+/// tens of seconds of disk work on a cold boot, which then idles out again and
+/// is cold-booted by the next look (#182). Resolving a link in a conversation is
+/// not a reason to start the user's VM. `--list --running` answers from
+/// bookkeeping and starts nothing (measured: ~49 ms, no VM).
 #[cfg(windows)]
-fn wsl_distros() -> &'static [String] {
+fn wsl_running_distros() -> &'static [String] {
     static DISTROS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-    DISTROS.get_or_init(|| {
-        let Ok(out) = crate::runtime::quiet_command("wsl.exe").args(["--list", "--quiet"]).output() else {
-            return Vec::new();
-        };
-        if !out.status.success() {
-            return Vec::new();
-        }
-        let units: Vec<u16> = out.stdout.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
-        String::from_utf16_lossy(&units)
-            .lines()
-            .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\0'))
-            .filter(|l| !l.is_empty())
-            .map(|name| format!(r"\\wsl$\{name}"))
-            .collect()
-    })
+    DISTROS.get_or_init(|| list_distros(WSL_RUNNING_ARGS))
+}
+
+/// `--running` is the whole point (see `wsl_running_distros`); without it every
+/// distro that merely exists would be probed, and probing one starts it.
+#[cfg(windows)]
+const WSL_RUNNING_ARGS: [&str; 3] = ["--list", "--running", "--quiet"];
+
+/// `wsl.exe <args>`, one distro name per line as `\\wsl$\<name>`; empty when
+/// WSL is absent (a non-zero exit) or nothing is listed.
+#[cfg(windows)]
+fn list_distros(args: [&str; 3]) -> Vec<String> {
+    let Ok(out) = crate::runtime::quiet_command("wsl.exe").args(args).output() else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let units: Vec<u16> = out.stdout.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+    String::from_utf16_lossy(&units)
+        .lines()
+        .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\0'))
+        .filter(|l| !l.is_empty())
+        .map(|name| format!(r"\\wsl$\{name}"))
+        .collect()
 }
 
 // Bounds for the basename search so a huge workspace can't stall a resolve call.
@@ -860,9 +895,11 @@ mod tests {
     use super::{
         attach_paths, base64_decode, base64_encode, dir_entries, encode_for_preview,
         is_discardable_name, Attached,
-        exceeds_preview_cap, locate_local, locate_under, mime_for, strip_windows_verbatim,
+        exceeds_preview_cap, host_path_with, locate_local, locate_under, mime_for, strip_windows_verbatim,
         native_path, resolve_under, unique_name, workspace_relative, wsl_path, LocalPath,
     };
+    #[cfg(windows)]
+    use super::WSL_RUNNING_ARGS;
 
     /// A project's linked session folder is a link in the project folder: it
     /// lists as the folder it points at, saying where that really is.
@@ -957,6 +994,55 @@ mod tests {
         // `/mnt/wsl` is no drive; a relative path is no WSL path.
         assert_eq!(wsl_path("/mnt/wsl/x", &distros, only_ubuntu).as_deref(), Some(r"\\wsl$\Ubuntu\mnt\wsl\x"));
         assert_eq!(wsl_path("home/me", &distros, |_| true), None);
+    }
+
+    #[test]
+    fn no_running_distro_means_no_wsl_probe() {
+        // #182: resolving a link must never start a stopped distro, so only
+        // running ones are offered to `wsl_path`. With none running there is
+        // nothing to probe — and in particular `exists` is never asked, which is
+        // the call that boots the utility VM.
+        let asked = std::cell::Cell::new(0);
+        let never = |_: &str| {
+            asked.set(asked.get() + 1);
+            true
+        };
+        assert_eq!(wsl_path("/home/me/a.png", &[], never), None);
+        assert_eq!(asked.get(), 0, "a stopped distro is never reached into");
+        assert_eq!(host_path_with("/home/me/a.png", &[], never), PathBuf::from("/home/me/a.png"));
+        assert_eq!(asked.get(), 0, "and the link resolver keeps its hands off it too");
+        // The drive mapping needs no distro at all: a Windows path is settled
+        // from the path alone, so it still resolves while nothing runs.
+        assert_eq!(
+            wsl_path("/mnt/d/linux/Ubuntu/ext4.vhdx", &[], never).as_deref(),
+            Some(r"D:\linux\Ubuntu\ext4.vhdx")
+        );
+        assert_eq!(asked.get(), 0);
+        // A running distro is still reached into, the way it always was.
+        let running = vec![r"\\wsl$\Ubuntu".to_string()];
+        let ubuntu_has_it = |p: &str| {
+            asked.set(asked.get() + 1);
+            p.starts_with(r"\\wsl$\Ubuntu\")
+        };
+        assert_eq!(
+            host_path_with("/home/me/a.png", &running, ubuntu_has_it),
+            PathBuf::from(r"\\wsl$\Ubuntu\home\me\a.png")
+        );
+        assert_eq!(asked.get(), 1, "a running distro is probed, and only it");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn the_distro_probe_asks_only_about_running_distros() {
+        // #182's root cause in one line: any path reached into a stopped distro
+        // starts it. So the list the resolver is handed must be the running
+        // ones — `wsl.exe --list` without `--running` names every installed
+        // distro, and every one of those would then be probed.
+        assert!(
+            WSL_RUNNING_ARGS.contains(&"--running"),
+            "probing a stopped distro cold-boots its VM: {WSL_RUNNING_ARGS:?}"
+        );
+        assert!(WSL_RUNNING_ARGS.contains(&"--quiet"), "and the list stays parseable");
     }
 
     #[test]
