@@ -61,6 +61,9 @@ enum Step {
 /// Run the agent's CLI on a hidden terminal in `cwd`. `step` sees the cleaned
 /// output so far, the cleaned new chunk (empty on a tick) and the elapsed time,
 /// may type into the terminal, and says when to stop. Returns the cleaned output.
+///
+/// A CLI that is not installed gets no terminal: one would be opened for
+/// nothing, every refresh.
 fn run_hidden(
     env: &LaunchEnv,
     kind: AgentKind,
@@ -69,6 +72,10 @@ fn run_hidden(
     limit: Duration,
     mut step: impl FnMut(&str, &str, Duration, &mut dyn Write) -> Step,
 ) -> Result<String, String> {
+    let path = env.0.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone()).or_else(|| std::env::var("PATH").ok());
+    if osd_core::which::find_on_path(kind.binary(), path.as_deref()).is_none() {
+        return Err(format!("{} CLI not found", kind.binary()));
+    }
     let pair = native_pty_system()
         .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("could not open a terminal: {e}"))?;
@@ -97,12 +104,14 @@ fn run_hidden(
     let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let (tx, rx) = channel::<String>();
+    // Read until the terminal itself ends, even after nobody listens: before
+    // Windows 11 24H2, closing a ConPTY waits for its output to be drained, so
+    // a reader that stopped first left the close (and this thread) waiting
+    // forever, and its `conhost.exe` with it, outliving the app (#181).
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
-        while let Ok(n) = reader.read(&mut buf) {
-            if n == 0 || tx.send(String::from_utf8_lossy(&buf[..n]).into_owned()).is_err() {
-                break;
-            }
+        while let Ok(n @ 1..) = reader.read(&mut buf) {
+            let _ = tx.send(String::from_utf8_lossy(&buf[..n]).into_owned());
         }
     });
 
@@ -135,6 +144,8 @@ fn run_hidden(
         }
     }
     let _ = child.kill();
+    drop(writer);
+    drop(pair.master); // closes the terminal while the reader still drains it
     let _ = child.wait();
     Ok(output)
 }
@@ -717,6 +728,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_cli_that_is_not_installed_gets_no_terminal() {
+        let env = (vec![("PATH".to_string(), fresh_dir("empty-path").display().to_string())], vec![]);
+        let run = run_hidden(&env, AgentKind::Claude, &[], &fresh_dir("no-cli"), Duration::from_secs(5), |_, _, _, _| Step::Done);
+        // Turned away before a terminal is opened, not by a failed start on one.
+        assert_eq!(run.unwrap_err(), "claude CLI not found");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_installed_cli_still_runs_on_a_hidden_terminal() {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = fresh_dir("stand-in-bin");
+        let claude = bin.join("claude");
+        std::fs::write(&claude, "#!/bin/sh\necho stand-in ran\nsleep 5\n").unwrap();
+        std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let env = (vec![("PATH".to_string(), format!("{}:/bin:/usr/bin", bin.display()))], vec![]);
+        let out = run_hidden(&env, AgentKind::Claude, &[], &fresh_dir("stand-in"), Duration::from_secs(5), |out, _, _, _| {
+            if out.contains("stand-in ran") { Step::Done } else { Step::Continue }
+        })
+        .unwrap();
+        assert!(out.contains("stand-in ran"));
     }
 
     #[test]
