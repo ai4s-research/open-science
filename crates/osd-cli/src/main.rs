@@ -170,11 +170,21 @@ fn fail(message: &str) -> ! {
 
 /// The terminal host. Its own session first, so nothing aimed at the app's
 /// terminal or process group (a hangup, a Ctrl-C) reaches the shells it holds.
+///
+/// Its open-file limit goes up to the hard one: a macOS app starts at 256, and
+/// each terminal holds about three files and each viewer connection two, so a
+/// few dozen terminals hit 256 and every new connection is reset (2026-11-12).
 fn termd(args: &Args) -> Result<(), String> {
     let dir = args.value("dir").ok_or("termd needs --dir")?;
     #[cfg(unix)]
     unsafe {
         libc::setsid();
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) == 0 {
+            // macOS refuses more than OPEN_MAX (10240) even under an unlimited hard limit.
+            limit.rlim_cur = limit.rlim_max.min(10240);
+            libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+        }
     }
     osd_core::termd::serve(std::path::Path::new(&dir))
 }

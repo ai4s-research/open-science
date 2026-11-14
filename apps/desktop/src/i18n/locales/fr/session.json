@@ -575,6 +575,7 @@
   "terminal": {
     "title": "Terminal",
     "exited": "[processus terminé]",
+    "openFailed": "[terminal injoignable : {{message}}. Nouvel essai dans {{seconds}} s]",
     "desktopOnly": "Le terminal nécessite l'app de bureau.",
     "webOff": "Les terminaux sont désactivés pour l’accès web. Activez-les dans l’application de bureau : Réglages › Accès à distance.",
     "new": "Terminal",

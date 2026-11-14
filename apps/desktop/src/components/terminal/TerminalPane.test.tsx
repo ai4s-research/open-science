@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { TerminalPane } from "./TerminalPane";
 
@@ -100,6 +100,13 @@ vi.mock("@xterm/addon-unicode11", () => ({ Unicode11Addon: addon }));
 vi.mock("@xterm/addon-webgl", () => ({ WebglAddon: addon }));
 
 const key = (init: KeyboardEventInit) => new KeyboardEvent("keydown", { cancelable: true, ...init });
+
+// A pane on display has a box; jsdom lays nothing out, so every box is given one.
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(600);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
+});
+afterEach(() => vi.restoreAllMocks());
 
 describe("TerminalPane find", () => {
   it("opens on ⌘F and closes on Escape after the pane was remounted (as maximizing does)", async () => {
@@ -319,6 +326,28 @@ describe("TerminalPane control", () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("terminal_resize", { id: "ctl-2", cols: 80, rows: 24 }),
     );
+  });
+});
+
+describe("TerminalPane off display", () => {
+  it("tells the shell no size while its Screen is not on display", async () => {
+    // A warm Screen: laid out by nobody (content-visibility: hidden), so its
+    // box is not zero but its size is nonsense.
+    const proto = HTMLElement.prototype as { checkVisibility?: () => boolean };
+    const had = proto.checkVisibility;
+    proto.checkVisibility = () => false;
+    try {
+      vi.mocked(invoke).mockClear();
+      render(<TerminalPane leafId="off-1" />);
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith("terminal_subscribe", expect.anything()));
+      const call = vi.mocked(invoke).mock.calls.find(([cmd]) => cmd === "terminal_subscribe")!;
+      const send = (m: unknown) => (call[1] as { onEvent: { onmessage: (m: unknown) => void } }).onEvent.onmessage(m);
+      act(() => send({ kind: "control", by: { id: "desktop", kind: "desktop" }, cols: 50, rows: 21 }));
+      await new Promise((r) => setTimeout(r, 400));
+      expect(invoke).not.toHaveBeenCalledWith("terminal_resize", expect.anything());
+    } finally {
+      proto.checkVisibility = had;
+    }
   });
 });
 

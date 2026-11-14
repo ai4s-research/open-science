@@ -575,6 +575,7 @@
   "terminal": {
     "title": "Terminal",
     "exited": "[proceso terminado]",
+    "openFailed": "[no se pudo conectar con la terminal: {{message}}. Reintentando en {{seconds}} s]",
     "desktopOnly": "El terminal requiere la app de escritorio.",
     "webOff": "Las terminales están desactivadas para el acceso web. Actívalas en la app de escritorio: Ajustes › Acceso remoto.",
     "new": "Terminal",

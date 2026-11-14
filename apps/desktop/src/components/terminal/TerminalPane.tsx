@@ -119,6 +119,8 @@ export function TerminalPane({
     if (!available || !host.current) return;
     const parent = host.current;
     let disposed = false;
+    // A terminal whose open failed: dropped with this mount.
+    let unopened: (() => void) | undefined;
 
     // Already running: adopt it. Everything — scrollback, the running program,
     // what the user had half-typed — is still there.
@@ -290,7 +292,7 @@ export function TerminalPane({
       } catch {
         // No WebGL here; the DOM renderer is already in place.
       }
-      fit.fit();
+      if (isOnDisplay(container)) fit.fit();
       // Where the shell is NOW (the layout follows it, see `recordTerminal`),
       // so a relative path printed after a `cd` resolves where it should.
       const links = registerTerminalLinks(term, () => {
@@ -301,7 +303,27 @@ export function TerminalPane({
         return cwd ?? null;
       });
 
-      const opened = await terminalTransport.open(leafId, cwd, term.cols, term.rows);
+      let opened: Awaited<ReturnType<typeof terminalTransport.open>>;
+      try {
+        opened = await terminalTransport.open(leafId, cwd, term.cols, term.rows);
+      } catch (err) {
+        // Said in the pane, not left blank, and tried again until it opens:
+        // nothing is registered, so the next build starts from scratch.
+        const message = err instanceof Error ? err.message : String(err);
+        void logDebug(`[terminal ${leafId}] open failed: ${message}`);
+        term.write(`\r\n${t("terminal.openFailed", { message, seconds: OPEN_RETRY_MS / 1000 })}\r\n`);
+        const retry = setTimeout(
+          () => useTerminalBuild.setState((s) => ({ ...s, [leafId]: (s[leafId] ?? 0) + 1 })),
+          OPEN_RETRY_MS,
+        );
+        unopened = () => {
+          clearTimeout(retry);
+          term.dispose();
+          container.remove();
+        };
+        if (disposed) unopened();
+        return;
+      }
       const created = opened.created;
       // Each sizing decision goes to debug.log: a terminal that redraws over
       // itself is told apart by which view asked for which size, and when.
@@ -526,6 +548,9 @@ export function TerminalPane({
           return;
         }
         const follow = following();
+        // Measured off display, the grid is nonsense; the box's first real
+        // size reaches the observer once its Screen is shown.
+        if (!follow && !isOnDisplay(container)) return;
         const size = follow && control ? { cols: control.cols, rows: control.rows } : fit.proposeDimensions();
         sized = true;
         if (!size || (size.cols === sent.cols && size.rows === sent.rows)) return unveil();
@@ -584,14 +609,8 @@ export function TerminalPane({
         if (queued) return;
         queued = requestAnimationFrame(() => {
           queued = 0;
-          // Parked, or on a Screen that is not on display: a zero box would
-          // have xterm propose a nonsense grid.
-          if (
-            !container.isConnected ||
-            !container.clientWidth ||
-            !container.clientHeight
-          )
-            return;
+          // Parked, or on a Screen that is not on display (see `isOnDisplay`).
+          if (!isOnDisplay(container)) return;
           // A box out of display loses its scroll position, and xterm does
           // not notice: it still draws the bottom while the scrollbar sits at
           // the top, so wheeling up does nothing and wheeling down jumps to
@@ -652,6 +671,7 @@ export function TerminalPane({
 
     return () => {
       disposed = true;
+      unopened?.();
       getTerminal(leafId)?.container.remove();
     };
     // `cwd`, `command` and `agent` belong to the pane's first open. `cwd` and
@@ -857,6 +877,8 @@ const RESIZE_REPLY_MS = 100;
 
 /** The longest a reopened pane stays out of sight while it settles. */
 const VEIL_MAX_MS = 1_000;
+/** A terminal that could not be opened (the host refused or was restarting) is tried again after this. */
+const OPEN_RETRY_MS = 5_000;
 
 /**
  * Terminal defaults, borrowed from Orca's `lib/pane-manager/pane-terminal-options.ts`
@@ -899,6 +921,17 @@ const TERMINAL_OPTIONS = {
   macOptionClickForcesSelection: true,
   drawBoldTextInBrightColors: true,
 } as const;
+
+/**
+ * Whether a pane's box is laid out where it can be seen, so its size is real.
+ * A Screen kept warm is hidden with `content-visibility: hidden`, which skips
+ * the layout of everything in it: a pane built there (a rebuild, say) measures
+ * a box that is not zero but wrong. One measured 11x5, and Claude Code redrew
+ * the whole conversation 11 columns wide into the scrollback (2026-11-13).
+ */
+function isOnDisplay(el: HTMLElement): boolean {
+  return el.isConnected && el.clientWidth > 0 && el.clientHeight > 0 && (el.checkVisibility?.() ?? true);
+}
 
 /** Waits for the terminal's own font before a terminal opens. xterm measures
  *  its cell when it opens and again on every resize, and JetBrains Mono is a

@@ -98,7 +98,10 @@ fn claude(path: &Path) -> (Vec<Entry>, bool) {
     for v in lines(path) {
         let msg = &v["message"];
         match v["type"].as_str() {
-            Some("user") if v["isMeta"].as_bool() != Some(true) => {
+            // Neither is something anyone said. A compaction summary also comes
+            // after the last answer when Claude Code compacts an idle session:
+            // read as a prompt, it hid that answer and showed the session working.
+            Some("user") if v["isMeta"].as_bool() != Some(true) && v["isCompactSummary"].as_bool() != Some(true) => {
                 let text = match &msg["content"] {
                     Value::String(s) => s.clone(),
                     Value::Array(parts) => parts
@@ -267,6 +270,8 @@ mod tests {
             r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"cargo build"}}]}}"#,
             r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}"#,
             r#"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"thinking","thinking":""},{"type":"text","text":"Fixed."}]}}"#,
+            r#"{"type":"system","subtype":"compact_boundary"}"#,
+            r#"{"type":"user","isCompactSummary":true,"message":{"content":"This session is being continued from a previous conversation."}}"#,
             "not json",
             r#"{"type":"user","message":{"content":"now the tests"}}"#,
             r#"{"type":"queue-operation","operation":"enqueue","content":"and the docs"}"#,
@@ -290,6 +295,25 @@ mod tests {
         assert_eq!(transcript(&home, "claude", "abc-123", 2).unwrap().entries.len(), 2);
         assert!(transcript(&home, "claude", "../abc-123", 5).is_none());
         assert!(transcript(&home, "claude", "nope", 5).is_none());
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn a_session_compacted_while_idle_shows_its_last_answer() {
+        let body = [
+            r#"{"type":"user","message":{"content":"fix the build"}}"#,
+            r#"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Fixed."}]}}"#,
+            r#"{"type":"system","subtype":"compact_boundary"}"#,
+            r#"{"type":"user","isCompactSummary":true,"message":{"content":"This session is being continued from a previous conversation."}}"#,
+        ]
+        .join("\n");
+        let home = home_with(".claude/projects/-Users-x-repo/idle-1.jsonl", &body);
+        let t = transcript(&home, "claude", "idle-1", 1).unwrap();
+        assert_eq!(
+            t.entries,
+            vec![Entry { role: "user", text: "fix the build".into() }, Entry { role: "assistant", text: "Fixed.".into() }]
+        );
+        assert!(!t.busy, "a compaction is not a prompt");
         std::fs::remove_dir_all(&home).unwrap();
     }
 

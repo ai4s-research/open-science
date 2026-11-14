@@ -25,7 +25,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -51,6 +51,12 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 /// real terminals sent ~430 KB each with no gap over 5 ms.
 const RECENT_PAUSE: Duration = Duration::from_millis(50);
 const RECENT_WAIT: Duration = Duration::from_secs(1);
+
+/// How often a reader of a quiet terminal is checked for having gone away.
+/// Only a write would notice otherwise, and a quiet terminal writes nothing:
+/// each app restart left its readers' connections open in the host for good,
+/// until it ran out of files (2026-11-12: 35 dead readers of 36 terminals).
+const READER_CHECK: Duration = Duration::from_secs(5);
 
 // ---- output fan-out ---------------------------------------------------------
 
@@ -723,12 +729,30 @@ impl Host {
             (None, _) => None,
         };
         if let Some(rx) = rx {
-            for chunk in rx {
-                send(&mut out, &json!({ "data": chunk }))?;
+            loop {
+                match rx.recv_timeout(READER_CHECK) {
+                    Ok(chunk) => send(&mut out, &json!({ "data": chunk }))?,
+                    Err(RecvTimeoutError::Timeout) if reader_gone(&out) => return Ok(()),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
             }
         }
         send(&mut out, &json!({ "exit": true }))
     }
+}
+
+/// A reader sends nothing after its attach, so a connection with something to
+/// read has been closed (or reset) at the other end.
+fn reader_gone(out: &TcpStream) -> bool {
+    if out.set_nonblocking(true).is_err() {
+        return true;
+    }
+    let gone = match out.peek(&mut [0u8; 1]) {
+        Ok(n) => n == 0,
+        Err(e) => e.kind() != std::io::ErrorKind::WouldBlock,
+    };
+    gone || out.set_nonblocking(false).is_err()
 }
 
 #[cfg(unix)]
@@ -1226,6 +1250,20 @@ mod tests {
         assert!(second.list().unwrap().is_empty());
         assert!(second.write("t1", "x").is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_reader_that_went_away_is_seen_without_a_write() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let reader = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (host_side, _) = listener.accept().unwrap();
+        assert!(!reader_gone(&host_side), "a connected reader is still there");
+        drop(reader);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !reader_gone(&host_side) {
+            assert!(Instant::now() < deadline, "a closed reader is never seen");
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     #[test]

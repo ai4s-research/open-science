@@ -575,6 +575,7 @@
   "terminal": {
     "title": "Terminal",
     "exited": "[Prozess beendet]",
+    "openFailed": "[Terminal nicht erreichbar: {{message}}. Neuer Versuch in {{seconds}} s]",
     "desktopOnly": "Ein Terminal braucht die Desktop-App.",
     "webOff": "Terminals sind für den Webzugriff aus. Schalten Sie sie in der Desktop-App ein: Einstellungen › Fernzugriff.",
     "new": "Terminal",

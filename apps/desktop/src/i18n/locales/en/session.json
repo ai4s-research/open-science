@@ -575,6 +575,7 @@
   "terminal": {
     "title": "Terminal",
     "exited": "[process exited]",
+    "openFailed": "[could not reach the terminal: {{message}}. Trying again in {{seconds}} s]",
     "desktopOnly": "A terminal needs the desktop app.",
     "webOff": "Terminals are off for web access. Turn them on in the desktop app: Settings › Remote access.",
     "new": "Terminal",
