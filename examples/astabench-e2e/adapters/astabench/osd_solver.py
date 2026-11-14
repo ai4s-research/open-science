@@ -31,12 +31,17 @@ from mcp.server.fastmcp import FastMCP
 
 from astabench.util.model import record_model_usage_with_inspect
 
-from open_science_solver import load_open_science_policy
+try:
+    from .open_science_solver import load_open_science_policy
+except ImportError:  # loaded as a file, not as a package
+    from open_science_solver import load_open_science_policy
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKSPACE = PROJECT_ROOT / "runtime/astabench-osd"
-DEFAULT_PROFILE = PROJECT_ROOT / "configs/profiles/astabench-paper-finder.json"
+DEFAULT_PROFILE = PROJECT_ROOT / "configs/profiles/astabench-e2e-discovery.json"
+# The repository this example lives in, for its product skills.
+REPO_ROOT = Path(__file__).resolve().parents[4]
 PRODUCT_SKILLS = (
     "literature-review",
     "bibliometric-analysis",
@@ -54,7 +59,7 @@ MAX_E2E_EVIDENCE_ITEMS = 12
 
 def load_product_skills(target_repo: Path | None = None) -> str:
     """Read the new product skills from the repo the run is pointed at."""
-    root = target_repo or Path(os.environ.get("OPEN_SCIENCE_REPO", "/Users/zjh/Documents/Agent/open-science"))
+    root = target_repo or Path(os.environ.get("OPEN_SCIENCE_REPO", REPO_ROOT))
     parts: list[str] = []
     for name in PRODUCT_SKILLS:
         path = root / "runtime/skills/core" / name / "SKILL.md"
@@ -214,6 +219,7 @@ class InspectToolBridge:
             port=self.port,
         )
         low = fast._mcp_server  # FastMCP's public registration API cannot accept an existing JSON schema.
+        # A private attribute: re-check it whenever the `mcp` package is upgraded.
 
         @low.list_tools()
         async def list_tools() -> list[mcp_types.Tool]:

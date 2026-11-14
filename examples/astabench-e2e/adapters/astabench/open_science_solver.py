@@ -13,7 +13,9 @@ from pathlib import Path
 from inspect_ai.solver import Solver, basic_agent, solver, system_message
 
 
-DEFAULT_TARGET_REPO = Path("/Users/zjh/Documents/Agent/open-science")
+# This example folder: it holds the harness policy overlay the E2E runs used.
+# OPEN_SCIENCE_REPO points the adapter at another copy.
+DEFAULT_TARGET_REPO = Path(__file__).resolve().parents[2]
 HARNESS_POLICY = Path("runtime/harness/AGENTS.md")
 
 

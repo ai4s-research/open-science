@@ -16,3 +16,4 @@ This directory contains the Inspect AI solver adapter and frozen-harness configu
 - **AstaBench revision**: `5c844b7451e3a98cd0df71ea626bb217803d2bed` (`inspect_ai==0.3.114`)
 - `open_science_solver.py`, `configs/profiles/astabench-e2e-discovery.json`, `skills/scientific-discovery/SKILL.md`, and `runtime/harness/AGENTS.md` match the exact SHA-256 hashes recorded in the September 2026 E2E run manifests.
 - `adapters/astabench/osd_solver.py` is the retained adapter snapshot (`1d72df1d16ded72e989a88b1f47b7deabe967cf2c196fc2e576fc6e2b245cb8f`) from the local evaluation harness repository.
+- After merge, both adapters lost their machine-specific default path (the policy now defaults to this folder, the product skills to this repository; `OPEN_SCIENCE_REPO` still overrides both), `osd_solver.py` defaults to the E2E profile shipped here, and the import works both as a package and as a file. The recorded hashes refer to the files before these changes.
