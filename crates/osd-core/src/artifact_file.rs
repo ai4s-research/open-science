@@ -185,9 +185,26 @@ pub fn locate_local(home: &Path, path: &str, cwd: Option<&str>, anchors: &[Strin
         };
         Some(LocalPath { root, rel, is_dir: full.is_dir() })
     };
+    // The WSL distros this resolution may reach into. Asked of `wsl.exe` at most
+    // once per call, and fresh on every call: which distros are running changes
+    // while the app is open, and an answer kept for the life of the process is
+    // wrong both ways — a distro started later stays invisible, and one that
+    // idled out is still probed, which cold-boots its VM (#182, #183 review).
+    #[cfg(windows)]
+    let wsl = std::cell::OnceCell::<Vec<String>>::new();
     let full_path = |p: &str| -> PathBuf {
         let tilde = p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\").filter(|_| cfg!(windows)));
-        tilde.map(|rest| home.join(rest)).unwrap_or_else(|| host_path(p))
+        if let Some(rest) = tilde {
+            return home.join(rest);
+        }
+        #[cfg(windows)]
+        {
+            host_path(p, &wsl, wsl_running_distros, |q| Path::new(q).exists())
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from(p)
+        }
     };
     let raw = full_path(path);
     if raw.is_absolute() {
@@ -237,15 +254,21 @@ pub fn locate_local(home: &Path, path: &str, cwd: Option<&str>, anchors: &[Strin
 /// A full path as this machine reaches it. On Windows a Linux path printed by
 /// a WSL shell (`/mnt/c/a.png`, `/home/me/a.png`) is translated (see
 /// `wsl_path`); any other path is itself.
-fn host_path(path: &str) -> PathBuf {
-    #[cfg(windows)]
-    {
-        host_path_with(path, wsl_running_distros(), |p| Path::new(p).exists())
+///
+/// The distro list is asked of `list` on first need and kept in `distros` for
+/// the rest of the call: one `wsl.exe` per resolution, not one per path, and
+/// never an answer carried over from an earlier resolution (#183 review).
+#[cfg(windows)]
+fn host_path(
+    path: &str,
+    distros: &std::cell::OnceCell<Vec<String>>,
+    list: impl FnOnce() -> Vec<String>,
+    exists: impl Fn(&str) -> bool,
+) -> PathBuf {
+    if path.starts_with('/') && !path.starts_with("//") {
+        return host_path_with(path, distros.get_or_init(list), exists);
     }
-    #[cfg(not(windows))]
-    {
-        PathBuf::from(path)
-    }
+    PathBuf::from(path)
 }
 
 /// `host_path` over an explicit distro list, so the choice of which distros may
@@ -279,9 +302,9 @@ pub fn wsl_path(path: &str, distros: &[String], exists: impl Fn(&str) -> bool) -
     found.next().is_none().then_some(first)
 }
 
-/// The WSL distros that are **already running**, as `\\wsl$\<name>`; listed
-/// once per run (`wsl.exe` writes UTF-16). Empty where WSL is not installed or
-/// nothing in it is running.
+/// The WSL distros that are **already running**, as `\\wsl$\<name>` (listed
+/// once per caller's resolution — `wsl.exe` writes UTF-16). Empty where WSL is
+/// not installed or nothing in it is running.
 ///
 /// Only running distros: `wsl.exe --list` is harmless by itself, but *touching a
 /// path under `\\wsl$\<name>` starts that distro* — a whole WSL2 utility VM,
@@ -289,10 +312,12 @@ pub fn wsl_path(path: &str, distros: &[String], exists: impl Fn(&str) -> bool) -
 /// is cold-booted by the next look (#182). Resolving a link in a conversation is
 /// not a reason to start the user's VM. `--list --running` answers from
 /// bookkeeping and starts nothing (measured: ~49 ms, no VM).
+///
+/// Deliberately not cached: the set changes while the app is open, and a stale
+/// answer goes wrong both ways (#183 review).
 #[cfg(windows)]
-fn wsl_running_distros() -> &'static [String] {
-    static DISTROS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-    DISTROS.get_or_init(|| list_distros(WSL_RUNNING_ARGS))
+fn wsl_running_distros() -> Vec<String> {
+    list_distros(WSL_RUNNING_ARGS)
 }
 
 /// `--running` is the whole point (see `wsl_running_distros`); without it every
@@ -1056,6 +1081,50 @@ mod tests {
             "probing a stopped distro cold-boots its VM: {WSL_RUNNING_ARGS:?}"
         );
         assert!(WSL_RUNNING_ARGS.contains(&"--quiet"), "and the list stays parseable");
+    }
+
+    /// #183 review: the list of running distros is asked **once per resolution**
+    /// and asked **again by the next one**. Caching it for the life of the app
+    /// went wrong both ways — a distro started later stayed invisible, and one
+    /// that idled out was probed again, which cold-boots the VM (#182).
+    #[test]
+    #[cfg(windows)]
+    fn the_running_distros_are_asked_once_per_resolution_and_fresh_each_time() {
+        let asked = std::cell::Cell::new(0);
+        let list = || {
+            asked.set(asked.get() + 1);
+            vec![r"\\wsl$\Ubuntu".to_string()]
+        };
+        let has_it = |p: &str| p.starts_with(r"\\wsl$\Ubuntu\");
+
+        // One resolution, several WSL paths: a single ask, and each path
+        // resolved against the same answer.
+        let first = std::cell::OnceCell::new();
+        // A Windows path needs no distro list at all: asking would be 49 ms of
+        // bookkeeping for nothing. Asserted on a fresh resolution, where the
+        // answer could still be asked for.
+        assert_eq!(
+            super::host_path(r"C:\work\a.png", &first, &list, has_it),
+            PathBuf::from(r"C:\work\a.png")
+        );
+        assert_eq!(asked.get(), 0, "a path that is not a WSL path never asks");
+        assert_eq!(
+            super::host_path("/home/me/a.png", &first, &list, has_it),
+            PathBuf::from(r"\\wsl$\Ubuntu\home\me\a.png")
+        );
+        assert_eq!(
+            super::host_path("/home/me/b.png", &first, &list, has_it),
+            PathBuf::from(r"\\wsl$\Ubuntu\home\me\b.png")
+        );
+        assert_eq!(asked.get(), 1, "one `wsl.exe` per resolution, not one per path");
+        // The next resolution asks again: what is running is not a property of
+        // the process, and an answer kept from before can be wrong either way.
+        let second = std::cell::OnceCell::new();
+        assert_eq!(
+            super::host_path("/home/me/a.png", &second, &list, has_it),
+            PathBuf::from(r"\\wsl$\Ubuntu\home\me\a.png")
+        );
+        assert_eq!(asked.get(), 2, "a new resolution asks WSL again, never a stale answer");
     }
 
     #[test]
