@@ -35,6 +35,7 @@ Formerly Open Science. Eine quelloffene Desktop-Alternative zu Claude Science un
 
 ## Neuigkeiten
 
+- **2026-11-16** — 🛟 **Stabile Durchläufe auf langsamen Rechnern und Netzen.** Eine ausgelastete Laufzeit behält ihre laufenden Turns, statt unter ihnen neu gestartet zu werden; ein Turn, dessen Laufzeit abstürzte, hört auf zu kreiseln; Nachrichten mit Fotos bekommen genug Zeit und gehen genau einmal raus; eine fehlgeschlagene Nachricht lässt sich erneut senden oder bearbeiten; Kimis Coding-Plan geht direkt; die Browsersteuerung funktioniert wieder. Dazu Fixes für Terminals, Dateiverlauf und Windows. *(v0.7.3)*
 - **2026-11-07** — 🧠 **OpenCode 2 und mehr Einblick in jeden Agenten.** Die mitgelieferte Laufzeit wechselt auf OpenCode 2, der OpenCode‑1‑Verlauf wird vorher gesichert; das Denken des Modells erscheint im Verlauf; ACP‑Agenten bringen eigene Slash‑Befehle, Kontextnutzung und Aufgabenliste mit; DeepSeek Harness kommt in den Katalog. Dazu schärferer CJK‑Text in Terminals und ein Fenster, das seine Größe behält. *(v0.7.2)*
 - **2026-10-29** — 🖥️ **Terminals, die bleiben, und Agenten Seite an Seite.** Terminals laufen jetzt außerhalb der App und überstehen Updates, Neustarts und Abstürze; Claude Code, Codex und pi laufen als Unterhaltungen neben OpenCode, und eine Sitzung wechselt mit einem Klick zwischen Terminal und Unterhaltung. Dazu mehrere Konten pro Agent, Theme-Varianten, neue Modelle auch in langsamen Netzen und chinesische Satzzeichen, die beim ersten Tastendruck ankommen. *(v0.7.1)*
 - **2026-10-26** — 🌐 **Die ganze Werkbank in jedem Browser, und Agenten, die miteinander sprechen.** Splits, Screens und Terminals funktionieren jetzt über den Fernzugriff, auch auf dem Smartphone, mit Konten aus Name und Passwort; eigene Spezialisten mit eigenen Anweisungen, Skills, Konnektoren und Modell; und Agenten lesen über `osd` die Unterhaltungen und Terminals anderer und schreiben ihnen. Dazu Nachrichten in der Warteschlange, während der Agent arbeitet, und eine Linux-Installation ohne Root. *(v0.7.0)*
@@ -389,7 +390,7 @@ Wenn Sie Open Science Desktop in Ihrer Forschung verwenden, zitieren Sie es bitt
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.7.3},
-  doi     = {10.5281/zenodo.24034527},
+  doi     = {10.5281/zenodo.24286110},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

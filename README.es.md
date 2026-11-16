@@ -35,6 +35,7 @@ Formerly Open Science. Una alternativa desktop open source a Claude Science y wo
 
 ## Novedades
 
+- **2026-11-16** — 🛟 **Turnos más firmes en máquinas y redes lentas.** Un runtime ocupado conserva sus turnos en curso en vez de reiniciarse bajo ellos; un turno cuyo runtime cayó deja de girar; un envío con fotos tiene tiempo para llegar y sale una sola vez; un mensaje fallido se puede reintentar o editar; el plan de código de Kimi va directo; el control del navegador vuelve a funcionar. Además, arreglos para terminales, historial de archivos y Windows. *(v0.7.3)*
 - **2026-11-07** — 🧠 **OpenCode 2 y más visibilidad de cada agente.** El runtime incluido pasa a OpenCode 2, con una copia previa del historial de OpenCode 1; el razonamiento del modelo aparece en la conversación; los agentes ACP traen sus propios comandos de barra, uso de contexto y lista de tareas; DeepSeek Harness entra en el catálogo. Además, texto CJK nítido en los terminales y una ventana que conserva su tamaño. *(v0.7.2)*
 - **2026-10-29** — 🖥️ **Terminales que permanecen y agentes lado a lado.** Los terminales ahora se ejecutan fuera de la app y sobreviven a actualizaciones, reinicios y bloqueos; Claude Code, Codex y pi funcionan como conversaciones junto a OpenCode, y una sesión pasa entre terminal y conversación con un clic. Además, varias cuentas por agente, variantes de tema, modelos nuevos en redes lentas y puntuación china que entra a la primera. *(v0.7.1)*
 - **2026-10-26** — 🌐 **El banco de trabajo completo desde cualquier navegador, y agentes que hablan entre sí.** Paneles divididos, Screens y terminales funcionan ahora por acceso remoto, también en el móvil, con cuentas de nombre y contraseña; define tus propios especialistas con sus instrucciones, habilidades, conectores y modelo; y los agentes leen y escriben a las conversaciones y terminales de otros mediante `osd`. Además, mensajes en cola mientras el agente trabaja e instalación en Linux sin root. *(v0.7.0)*
@@ -388,7 +389,7 @@ Si usas Open Science Desktop en tu investigación, cítalo así:
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.7.3},
-  doi     = {10.5281/zenodo.24034527},
+  doi     = {10.5281/zenodo.24286110},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

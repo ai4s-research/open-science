@@ -40,6 +40,7 @@ runs, and review into one auditable desktop workflow.
 
 ## News
 
+- **2026-11-16** — 🛟 **Steadier turns on slow machines and networks.** A busy runtime keeps its running turns instead of being restarted under them; a turn whose runtime died stops spinning; a send with photos gets time to land and goes out once; a failed message can be retried or edited; Kimi's coding plan goes direct; browser control works again. Plus fixes for terminals, file history and Windows. *(v0.7.3)*
 - **2026-11-07** — 🧠 **OpenCode 2, and more from every agent.** The bundled runtime moves to OpenCode 2, with your OpenCode 1 history backed up first; a model's reasoning shows in the thread; ACP agents bring their own slash commands, context usage and task list; DeepSeek Harness joins the catalog. Plus sharper CJK text in terminals and a window that keeps its size. *(v0.7.2)*
 - **2026-10-29** — 🖥️ **Terminals that stay, agents side by side.** Terminals now run outside the app and survive updates, relaunches and crashes; Claude Code, Codex and pi run as conversations beside OpenCode, and a session moves between terminal and conversation in one click. Plus several accounts per agent, theme variants, new models on slow networks, and Chinese punctuation that goes in on the first press. *(v0.7.1)*
 - **2026-10-26** — 🌐 **The workbench from any browser, and agents that talk to each other.** Splits, Screens and terminals now work over Remote Access, on a phone too, with name-and-password accounts; define your own Specialists with their own instructions, skills, connectors and model; and agents read and message each other's conversations and terminals through `osd`. Plus queued messages while the agent works, and a no-root Linux install. *(v0.7.0)*
@@ -512,7 +513,7 @@ If you use Open Science Desktop in your research, please cite it:
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.7.3},
-  doi     = {10.5281/zenodo.24034527},
+  doi     = {10.5281/zenodo.24286110},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }

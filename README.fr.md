@@ -35,6 +35,7 @@ Formerly Open Science. Une alternative desktop open source à Claude Science et 
 
 ## Actualités
 
+- **2026-11-16** — 🛟 **Des tours plus sûrs sur les machines et réseaux lents.** Un runtime chargé garde ses tours en cours au lieu d'être redémarré sous eux ; un tour dont le runtime est tombé cesse de tourner en rond ; un envoi avec photos a le temps d'arriver et part une seule fois ; un message en échec peut être renvoyé ou modifié ; l'offre de code de Kimi passe en direct ; le contrôle du navigateur fonctionne de nouveau. Et des correctifs pour les terminaux, l'historique des fichiers et Windows. *(v0.7.3)*
 - **2026-11-07** — 🧠 **OpenCode 2, et chaque agent plus lisible.** Le runtime intégré passe à OpenCode 2, après une sauvegarde de l'historique OpenCode 1 ; le raisonnement du modèle s'affiche dans la conversation ; les agents ACP apportent leurs propres commandes slash, leur usage du contexte et leur liste de tâches ; DeepSeek Harness rejoint le catalogue. Avec aussi un texte CJK net dans les terminaux et une fenêtre qui garde sa taille. *(v0.7.2)*
 - **2026-10-29** — 🖥️ **Des terminaux qui restent, des agents côte à côte.** Les terminaux tournent désormais hors de l'app et survivent aux mises à jour, redémarrages et plantages ; Claude Code, Codex et pi fonctionnent comme des conversations à côté d'OpenCode, et une session passe du terminal à la conversation en un clic. Avec aussi plusieurs comptes par agent, des variantes de thème, les nouveaux modèles sur les réseaux lents et une ponctuation chinoise qui passe du premier coup. *(v0.7.1)*
 - **2026-10-26** — 🌐 **Tout l'atelier depuis n'importe quel navigateur, et des agents qui se parlent.** Panneaux divisés, Screens et terminaux fonctionnent désormais via l'accès à distance, sur téléphone aussi, avec des comptes nom et mot de passe ; définissez vos propres spécialistes avec leurs instructions, compétences, connecteurs et modèle ; et les agents lisent les conversations et terminaux des autres et leur écrivent via `osd`. Plus des messages mis en file pendant que l'agent travaille, et une installation Linux sans root. *(v0.7.0)*
@@ -388,7 +389,7 @@ Si vous utilisez Open Science Desktop dans vos recherches, merci de le citer ain
   title   = {Open Science Desktop: a local-first, model-agnostic AI research workbench},
   year    = {2026},
   version = {0.7.3},
-  doi     = {10.5281/zenodo.24034527},
+  doi     = {10.5281/zenodo.24286110},
   url     = {https://github.com/ai4s-research/open-science},
   license = {MIT}
 }
