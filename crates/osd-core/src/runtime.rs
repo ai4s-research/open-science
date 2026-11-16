@@ -1128,17 +1128,22 @@ fn read_proxy_setting(env: &Env) -> (String, String) {
     }
 }
 
-/// Hosts reached directly when no bypass list has been saved: the mainland-China
-/// endpoints of the providers in OpenCode's catalog. Behind an overseas proxy
-/// these are slow for no gain — a 1 MB DeepSeek request (four screenshots) took
-/// 30–40 s through a Clash global proxy uploading at ~30 KB/s, and 1 s direct,
-/// and every turn re-uploads the whole history. Domain suffixes: the bundled
-/// Bun matches `deepseek.com` against `api.deepseek.com` but not `seek.com`.
+/// Hosts reached directly when no bypass list has been saved: mainland-China
+/// model endpoints, both those in OpenCode's catalog and common ones users add
+/// as custom endpoints. Behind an overseas proxy these are slow for no gain — a
+/// 1 MB DeepSeek request (four screenshots) took 30–40 s through a Clash global
+/// proxy uploading at ~30 KB/s, and 1 s direct, and every turn re-uploads the
+/// whole history. Domain suffixes: the bundled Bun matches `deepseek.com`
+/// against `api.deepseek.com` but not `seek.com`. Their overseas twins
+/// (`api.kimi.ai`, `api.moonshot.ai`, `dashscope-intl…`) stay on the proxy.
 const DEFAULT_PROXY_BYPASS: &[&str] = &[
+    // In OpenCode's catalog
     "deepseek.com",
     "moonshot.cn",
+    "kimi.com", // Kimi coding plan (kimi-code-plan-cn)
     "bigmodel.cn",
     "dashscope.aliyuncs.com",
+    "cn-beijing.maas.aliyuncs.com", // Alibaba token plan (alibaba-token-plan-cn)
     "volces.com",
     "minimax.cn",
     "siliconflow.cn",
@@ -1146,6 +1151,34 @@ const DEFAULT_PROXY_BYPASS: &[&str] = &[
     "xiaomimimo.com",
     "modelscope.cn",
     "lkeap.cloud.tencent.com",
+    "tencentmaas.com",
+    "sensenova.cn",
+    "scnet.cn",
+    "qnaigc.com",
+    "modelarts-maas.com",
+    "ant-ling.com",
+    "kuaecloud.net",
+    "longcat.chat",
+    "moark.com",
+    "302.ai",
+    "qhaigc.net",
+    "amd.com.cn",
+    // Common custom endpoints
+    "minimaxi.com",
+    "baidubce.com",
+    "xf-yun.com",
+    "hunyuan.cloud.tencent.com",
+    "tencentcloudapi.com",
+    "lingyiwanwu.com",
+    "baichuan-ai.com",
+    "infini-ai.com",
+    "ppinfra.com",
+    "ai.gitee.com",
+    "modelverse.cn",
+    "ctyun.cn",
+    "ecloud.10086.cn",
+    "jdcloud.com",
+    "streamlakeapi.com",
 ];
 
 /// The persisted bypass list. No `bypass` line ⇒ the defaults; an empty one ⇒
@@ -2700,6 +2733,12 @@ mod tests {
         for bad in ["https://api.deepseek.com", "api.deepseek.com:443", "*.cn", "a b", "a/b", "a..b"] {
             assert!(normalize_proxy_bypass(&[bad.into()]).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn the_default_bypass_list_is_valid_and_has_no_repeats() {
+        let defaults: Vec<String> = super::DEFAULT_PROXY_BYPASS.iter().map(|h| h.to_string()).collect();
+        assert_eq!(normalize_proxy_bypass(&defaults).unwrap(), defaults);
     }
 
     #[test]
