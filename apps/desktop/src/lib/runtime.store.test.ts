@@ -85,6 +85,8 @@ const mocks = vi.hoisted(() => ({
   failCommand: false,
   /** Next sendPrompt call throws (HTTP-level failure). */
   failSend: false,
+  /** sendPrompt times out (RequestTimeoutError) — must not be retried. */
+  timeoutSend: false,
   /** Next runCommand call streams an event, then throws — the WKWebView
    *  ~60 s fetch kill on a long sync turn ("Load failed"). */
   dropCommandPost: false,
@@ -238,6 +240,7 @@ vi.mock("@ai4s/sdk", () => {
     ) {
       mocks.sendPromptSpy(sid, text, agent);
       mocks.sendPromptFullSpy(sid, text, agent, model, variant);
+      if (mocks.timeoutSend) throw new RequestTimeoutError("Timed out waiting for OpenCode");
       if (mocks.failSend) throw new Error("provider exploded");
     }
     async listCommands() {
@@ -313,7 +316,8 @@ vi.mock("@ai4s/sdk", () => {
   // permission (404) from a reply that genuinely failed.
   const isApiStatus = (err: unknown, status: number) =>
     err instanceof Error && (err as { status?: unknown }).status === status;
-  return { OpenCodeClient, isApiStatus, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
+  class RequestTimeoutError extends Error {}
+  return { OpenCodeClient, RequestTimeoutError, isApiStatus, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
 });
 
 import type { ArtifactBlock, ThreadBlock } from "@ai4s/shared";
@@ -330,6 +334,7 @@ beforeEach(async () => {
   mocks.failShell = false;
   mocks.failCommand = false;
   mocks.failSend = false;
+  mocks.timeoutSend = false;
   mocks.dropCommandPost = false;
   mocks.abortTrailing = [];
   mocks.messages = [];
@@ -729,6 +734,38 @@ describe("per-session workspace folders", () => {
     });
     // The orphaned draft slot must not hold the failure (or exist at all).
     expect(state.threads["draft:leaf-9"]).toBeUndefined();
+  });
+
+  it("a failed send leaves a message that can be sent again, attachments and all", async () => {
+    mocks.failSend = true;
+    await useRuntimeStore.getState().sendPrompt("look at this", "ses_x", undefined, ["photo.jpg"]);
+    const failed = useRuntimeStore.getState().threads["ses_x"].blocks.find((b) => b.kind === "user");
+    expect(failed).toMatchObject({ kind: "user", text: "look at this", failed: { attachments: ["photo.jpg"] } });
+
+    // Retry takes the failed message and its error line out, then sends anew.
+    mocks.failSend = false;
+    useRuntimeStore.getState().dropFailedMessage("ses_x", failed as never);
+    expect(useRuntimeStore.getState().threads["ses_x"].blocks).toEqual([]);
+    await useRuntimeStore.getState().sendPrompt("look at this", "ses_x", undefined, ["photo.jpg"]);
+    const blocks = useRuntimeStore.getState().threads["ses_x"].blocks;
+    expect(blocks).toEqual([{ kind: "user", text: "look at this" }]);
+  });
+
+  it("a new turn starts without the last turn's task list", async () => {
+    useRuntimeStore.setState({
+      threads: {
+        ses_x: { blocks: [], index: {}, loaded: true, todos: [{ content: "Fix Unit 1", status: "completed" }] },
+      },
+    });
+    await useRuntimeStore.getState().sendPrompt("next subject", "ses_x");
+    expect(useRuntimeStore.getState().threads["ses_x"].todos).toBeUndefined();
+  });
+
+  it("a send that times out is not resent: the server may have taken the first one", async () => {
+    mocks.timeoutSend = true;
+    mocks.sendPromptSpy.mockClear();
+    await useRuntimeStore.getState().sendPrompt("hi", "ses_x");
+    expect(mocks.sendPromptSpy).toHaveBeenCalledTimes(1);
   });
 
   // "+ new session in project X" opens its own pane, and that pane's composer
@@ -1566,6 +1603,20 @@ describe("stale running locks and interrupt", () => {
     ];
     await useRuntimeStore.getState().reconcileRunning();
     expect(useRuntimeStore.getState().runningSessions["ses_new"]).toBe(true);
+  });
+
+  it("reconcileRunning clears a lock whose turn died with an earlier runtime", async () => {
+    // Reproduced from a real install: the runtime was force-restarted while the
+    // answer streamed, leaving an assistant message with neither `completed`
+    // nor `error`. The lock outlived it for two and a half hours.
+    await useRuntimeStore.getState().sendPrompt("hi");
+    useRuntimeStore.setState({ runtimeStartedAt: 2_000 });
+    mocks.messages = [
+      { role: "user", parts: [{ type: "text", text: "hi" }], created: 900 },
+      { role: "assistant", parts: [], created: 1_000 }, // before this runtime
+    ];
+    await useRuntimeStore.getState().reconcileRunning();
+    expect(useRuntimeStore.getState().runningSessions["ses_new"]).toBeUndefined();
   });
 
   it("connect() reconciles running locks left over from before the reconnect", async () => {

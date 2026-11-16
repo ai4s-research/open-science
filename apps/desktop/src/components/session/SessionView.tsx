@@ -267,6 +267,7 @@ export function SessionView({
   const loadHistory = useRuntimeStore((s) => s.loadHistory);
   const editMessage = useRuntimeStore((s) => s.editMessage);
   const revertMessage = useRuntimeStore((s) => s.revertMessage);
+  const dropFailedMessage = useRuntimeStore((s) => s.dropFailedMessage);
   const setComposerDraft = useUiStore((s) => s.setComposerDraft);
   // Settings → Appearance → Font size scales the conversation only (DSH), on
   // top of this pane's own zoom; the composer keeps the pane zoom alone.
@@ -426,6 +427,14 @@ export function SessionView({
       onRevertMessage: async (id, text) => {
         if (await revertMessage(id, sid ?? undefined)) setComposerDraft(text);
       },
+      // A message that never reached the server: send it again (as typed, or as
+      // edited), with the attachments it had.
+      onResendMessage: async (block, text) => {
+        pinEphemeral();
+        dropFailedMessage(key, block);
+        const created = await sendPrompt(text, sid ?? undefined, draftKey, block.failed?.attachments);
+        if (created && sid === null) bindSession(leafId, created);
+      },
       onOpenSubagent: (childSessionId) => {
         pinEphemeral();
         setShowAgents(true, sid ?? undefined);
@@ -454,6 +463,11 @@ export function SessionView({
       editMessage,
       revertMessage,
       setComposerDraft,
+      dropFailedMessage,
+      key,
+      draftKey,
+      bindSession,
+      leafId,
       sid,
       pinEphemeral,
       setShowAgents,

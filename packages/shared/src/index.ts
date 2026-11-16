@@ -64,6 +64,9 @@ export interface UserMessageBlock {
    *  (revert + resend). Absent on synthetic echoes (shell/command) and until
    *  the server confirms a freshly-sent message. No id ⇒ not editable. */
   messageID?: string;
+  /** A prompt whose send never reached the server, with what a resend needs.
+   *  It can be retried or edited in place: there is nothing to roll back. */
+  failed?: { attachments?: string[] };
 }
 
 export interface AgentMessageBlock {

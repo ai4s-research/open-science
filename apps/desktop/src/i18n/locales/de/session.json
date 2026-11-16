@@ -480,6 +480,7 @@
       "send": "Senden"
     },
     "revert": "Zurücksetzen",
+    "retry": "Erneut senden",
     "confirm": {
       "title": "Alles danach verwerfen?",
       "body": "Dies setzt die Unterhaltung auf diese Nachricht zurück und verwirft sie sowie alle nachfolgenden Nachrichten samt der in diesen Runden vorgenommenen Dateiänderungen. Das lässt sich nicht rückgängig machen.",

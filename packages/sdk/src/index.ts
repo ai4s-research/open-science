@@ -1,4 +1,4 @@
-export { OpenCodeClient, ApiError, isApiStatus, toHistory } from "./OpenCodeClient";
+export { OpenCodeClient, ApiError, RequestTimeoutError, isApiStatus, toHistory } from "./OpenCodeClient";
 export type { CustomProviderModality, CustomProviderModel } from "./OpenCodeClient";
 export type { AgentRuntime } from "./runtime";
 export { BaseAgentRuntime } from "./base-runtime";

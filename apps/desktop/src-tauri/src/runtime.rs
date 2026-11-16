@@ -64,11 +64,11 @@ pub fn start_runtime(app: AppHandle) -> Result<String, String> {
     osd_core::runtime::start_runtime(&env_of(&app))
 }
 
-/// Force a fresh sidecar, whatever state the current one is in (the escape
-/// hatch for a process that is alive but no longer serving).
-#[tauri::command]
+/// Force a fresh sidecar when the current one is wedged (the reconnect loop's
+/// escape hatch). `async`: it probes the sidecar first, which can take seconds.
+#[tauri::command(async)]
 pub fn restart_runtime(app: AppHandle) -> Result<String, String> {
-    osd_core::runtime::restart_runtime(&env_of(&app))
+    osd_core::runtime::restart_wedged_runtime(&env_of(&app))
 }
 
 #[tauri::command]

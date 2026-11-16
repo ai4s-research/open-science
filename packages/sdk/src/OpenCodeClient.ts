@@ -71,6 +71,21 @@ export interface CustomProviderModel {
  * request that the runtime has already resolved is the former, and it must not
  * read to the user as a broken action.
  */
+/** The request got no answer in time. The server may still have acted on it,
+ *  so a caller must not blindly resend a request that changes state. */
+export class RequestTimeoutError extends Error {
+  constructor() {
+    super("Timed out waiting for OpenCode");
+    this.name = "RequestTimeoutError";
+  }
+}
+
+/** How long a prompt POST may take to be accepted. Acceptance includes decoding
+ *  inline images, which on a memory-starved machine (an 8 GB laptop deep in
+ *  swap) took past the default 15 s for two phone photos. Kept under the ~60 s
+ *  at which WKWebView kills a fetch on its own. */
+const PROMPT_ACCEPT_TIMEOUT_MS = 50_000;
+
 export class ApiError extends Error {
   readonly status: number;
   constructor(message: string, status: number) {
@@ -692,7 +707,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     try {
       return await this.fetchImpl(input, { ...init, signal: controller.signal });
     } catch (err) {
-      if (controller.signal.aborted && !outer?.aborted) throw new Error("Timed out waiting for OpenCode");
+      if (controller.signal.aborted && !outer?.aborted) throw new RequestTimeoutError();
       throw err;
     } finally {
       clearTimeout(timer);
@@ -704,12 +719,16 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     return this.fetchWithTimeout(url, { headers: this.headers() });
   }
 
-  private send(method: string, url: string, body?: unknown): Promise<Response> {
-    return this.fetchWithTimeout(url, {
-      method,
-      headers: this.headers(body !== undefined),
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
+  private send(method: string, url: string, body?: unknown, timeoutMs?: number): Promise<Response> {
+    return this.fetchWithTimeout(
+      url,
+      {
+        method,
+        headers: this.headers(body !== undefined),
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      },
+      timeoutMs,
+    );
   }
 
   /** A response's `data`, failing with the server's reason when not ok. */
@@ -1724,15 +1743,20 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
   ): Promise<void> {
     if (agent) await this.bindAgent(sessionId, agent);
     if (model) await this.bindModel(sessionId, model, variant);
-    const res = await this.send("POST", this.url(this.sessionPath(sessionId, "/prompt")), {
-      text,
-      // Attachments ride inline (data: URLs) so a vision model actually sees
-      // them; the text still names them, so the agent can also open the
-      // workspace copy with its own tools (#88).
-      ...(files?.length
-        ? { files: files.map((f) => ({ uri: f.url, name: f.filename, source: { type: "inline" } })) }
-        : {}),
-    });
+    const res = await this.send(
+      "POST",
+      this.url(this.sessionPath(sessionId, "/prompt")),
+      {
+        text,
+        // Attachments ride inline (data: URLs) so a vision model actually sees
+        // them; the text still names them, so the agent can also open the
+        // workspace copy with its own tools (#88).
+        ...(files?.length
+          ? { files: files.map((f) => ({ uri: f.url, name: f.filename, source: { type: "inline" } })) }
+          : {}),
+      },
+      PROMPT_ACCEPT_TIMEOUT_MS,
+    );
     if (!res.ok) throw await this.apiError(res, "Failed to send prompt");
   }
 

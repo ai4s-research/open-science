@@ -146,6 +146,28 @@ describe("foldEvent", () => {
     expect(foldEvent(replaced, { type: "session.idle", sessionId: S }).todos).toBeUndefined();
   });
 
+  it("keeps a reopened session's task list only when its last turn made one", () => {
+    // Reproduced from a real install: a finished checklist from an earlier
+    // turn sat above the composer while the user worked on something new.
+    const todoTurn = {
+      role: "assistant" as const,
+      parts: [
+        {
+          type: "tool",
+          tool: "todowrite",
+          state: { status: "completed", input: { todos: [{ content: "Fix Unit 1", status: "completed" }] } },
+        },
+      ],
+      completed: 2,
+    };
+    const ask = (text: string) => ({ role: "user" as const, parts: [{ type: "text", text }] });
+    const answer = { role: "assistant" as const, parts: [{ type: "text", text: "ok" }], completed: 4 };
+    expect(historyToThread([ask("fix it"), todoTurn] as never).todos).toEqual([
+      { content: "Fix Unit 1", status: "completed" },
+    ]);
+    expect(historyToThread([ask("fix it"), todoTurn, ask("next subject"), answer] as never).todos).toBeUndefined();
+  });
+
   it("upserts a tool call by callId and reflects status transitions", () => {
     const s = foldAll([
       { type: "tool.updated", sessionId: S, callId: "c1", tool: "search", status: "running", title: "search" },

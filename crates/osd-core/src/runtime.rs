@@ -1885,6 +1885,57 @@ pub fn start_runtime(env: &Env) -> Result<String, String> {
 /// Takes a NEW port rather than reusing the old one: the process being killed
 /// is by definition not responding, and kill() does not guarantee the port is
 /// released by the time we rebind. The caller adopts the returned URL.
+///
+/// Killing a runtime also kills every turn it is running, so this only acts on
+/// one that is really wedged: still answering HTTP means alive (a loaded
+/// machine can be slow to open the event stream while turns run fine), and
+/// younger than `WEDGE_MIN_AGE_MS` means still booting. Each concurrent
+/// reconnect loop asks once; without these checks they took turns killing the
+/// fresh process before it ever listened, ten restarts in under a minute.
+pub fn restart_wedged_runtime(env: &Env) -> Result<String, String> {
+    // Probe before taking the lock: the probe can take seconds and start_runtime
+    // callers must not wait on it.
+    if let Some(url) = sidecar_url(env.runtime()) {
+        if answers_http(&url) {
+            crate::debug_log::append(env, "runtime restart skipped: it still answers");
+            return Ok(url);
+        }
+    }
+    {
+        let lifecycle = env.runtime().lifecycle.lock().unwrap();
+        let age = now_ms().saturating_sub(lifecycle.started_at.unwrap_or(0));
+        if let (Some(_), Some(url)) = (&lifecycle.child, &lifecycle.url) {
+            if age < WEDGE_MIN_AGE_MS {
+                crate::debug_log::append(env, "runtime restart skipped: it is still booting");
+                return Ok(url.clone());
+            }
+        }
+    }
+    restart_runtime(env)
+}
+
+/// A sidecar younger than this is still booting, not wedged. Measured: a
+/// MacBook Air with a few dozen sessions takes ~30 s from spawn to listening.
+const WEDGE_MIN_AGE_MS: u64 = 90_000;
+
+/// True when the sidecar answers an HTTP request at all, whatever the status.
+fn answers_http(base: &str) -> bool {
+    let Ok(client) = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    else {
+        return false;
+    };
+    client
+        .get(format!("{base}/api/session?limit=1"))
+        .basic_auth("opencode", Some(server_password()))
+        .send()
+        .is_ok()
+}
+
+/// Kill and respawn unconditionally, for a deliberate restart (a new model
+/// catalog to load). The reconnect loop uses `restart_wedged_runtime`.
 pub fn restart_runtime(env: &Env) -> Result<String, String> {
     let mut lifecycle = env.runtime().lifecycle.lock().unwrap();
     if let Some(child) = lifecycle.child.take() {
@@ -2216,6 +2267,60 @@ mod tests {
             crate::env::Env::new(dir.clone(), dir.join("res"), None, "0.0.0".into()),
             dir,
         )
+    }
+
+    /// Puts a stand-in process in the lifecycle as the "running sidecar".
+    fn fake_sidecar(env: &crate::env::Env, url: &str, started_at: u64) {
+        let child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        let mut lifecycle = env.runtime().lifecycle.lock().unwrap();
+        lifecycle.child = Some(child);
+        lifecycle.url = Some(url.to_string());
+        lifecycle.started_at = Some(started_at);
+    }
+
+    fn sidecar_still_alive(env: &crate::env::Env) -> bool {
+        let mut lifecycle = env.runtime().lifecycle.lock().unwrap();
+        let child = lifecycle.child.as_mut().expect("child kept");
+        let alive = child.try_wait().unwrap().is_none();
+        let _ = child.kill();
+        alive
+    }
+
+    /// Reproduced from a real install: concurrent reconnect loops each forced a
+    /// restart, killing the fresh sidecar before it ever listened (a cold boot
+    /// takes ~30 s) and every turn with it, ten times in under a minute.
+    #[cfg(unix)]
+    #[test]
+    fn wedge_restart_spares_a_booting_runtime() {
+        let (env, dir) = temp_env("boot");
+        // Nothing listens there, so only the boot window can spare it.
+        let url = format!("http://127.0.0.1:{}", super::free_port());
+        fake_sidecar(&env, &url, super::now_ms());
+        assert_eq!(super::restart_wedged_runtime(&env).unwrap(), url);
+        assert!(sidecar_still_alive(&env));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A loaded machine can be slow to open the event stream while the runtime
+    /// still serves requests and runs turns; that runtime is alive, not wedged.
+    #[cfg(unix)]
+    #[test]
+    fn wedge_restart_spares_a_runtime_that_answers() {
+        use std::io::{Read, Write};
+        let (env, dir) = temp_env("answers");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = s.read(&mut buf);
+                let _ = s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}");
+            }
+        });
+        fake_sidecar(&env, &url, 1); // long past its boot window
+        assert_eq!(super::restart_wedged_runtime(&env).unwrap(), url);
+        assert!(sidecar_still_alive(&env));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// The whole point of the atomic write: a reader never sees a partial file,

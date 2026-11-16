@@ -480,6 +480,7 @@
       "send": "Send"
     },
     "revert": "Revert",
+    "retry": "Retry",
     "confirm": {
       "title": "Discard everything after this?",
       "body": "This rolls the conversation back to this message and discards it and every message after it, along with the file changes those turns made. This can't be undone.",

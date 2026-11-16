@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import { threadAnchors } from "@/lib/links";
 import { LinkAnchors } from "@/components/markdown-viewer/MarkdownViewer";
-import type { ArtifactBlock, FigureAnnotation, ThreadBlock } from "@ai4s/shared";
+import type { ArtifactBlock, FigureAnnotation, ThreadBlock, UserMessageBlock } from "@ai4s/shared";
 import type { MessageSender } from "@/lib/messageSenders";
 import {
   AgentMessage,
@@ -34,6 +34,9 @@ export interface BlockHandlers {
   /** Revert to a past user message (drop it + everything after) and prefill the
    *  composer with its text. Present only in the live session. */
   onRevertMessage?: (messageID: string, text: string) => void | Promise<void>;
+  /** Send a failed message again, as typed or edited. Present only in the live
+   *  session. */
+  onResendMessage?: (block: UserMessageBlock, text: string) => void | Promise<void>;
   /** Open the subagents panel on the subagent a task row spawned. Present only
    *  in the live session — a nested transcript has no panel of its own. */
   onOpenSubagent?: (childSessionId: string) => void;
@@ -68,6 +71,7 @@ export function renderBlock(
           sender={handlers?.senderOf?.(block.text)}
           onEdit={handlers?.onEditMessage}
           onRevert={handlers?.onRevertMessage}
+          onResend={handlers?.onResendMessage}
         />
       );
     case "agent":

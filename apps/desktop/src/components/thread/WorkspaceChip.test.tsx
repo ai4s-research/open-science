@@ -49,7 +49,8 @@ vi.mock("@ai4s/sdk", () => {
     }
     close() {}
   }
-  return { OpenCodeClient, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
+  class RequestTimeoutError extends Error {}
+  return { OpenCodeClient, RequestTimeoutError, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
 });
 
 describe("WorkspaceChip", () => {

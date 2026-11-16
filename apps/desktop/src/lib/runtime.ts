@@ -19,6 +19,7 @@ import {
   type SkillInfo,
   type TodoItem,
   type ToolCallStatus,
+  RequestTimeoutError,
 } from "@ai4s/sdk";
 import { AcpRuntime, toAcpMcpServers, type AcpConfigOption } from "@ai4s/sdk/acp";
 import type {
@@ -27,6 +28,7 @@ import type {
   RuntimeStatus,
   ThreadBlock,
   ToolVerb,
+  UserMessageBlock,
 } from "@ai4s/shared";
 import {
   adoptWorkspaceSkills,
@@ -609,6 +611,9 @@ interface RuntimeState {
     draftKey?: string,
     attachments?: string[],
   ) => Promise<string | null>;
+  /** Take a failed message (and the error line right after it) out of thread
+   *  `key`, ahead of sending it again. */
+  dropFailedMessage: (key: string, block: UserMessageBlock) => void;
   /** Run a "!" shell command directly in the session's workspace folder —
    *  no model turn; the output folds into the thread as a bash tool row. */
   runShell: (command: string, sessionId?: string, draftKey?: string) => Promise<string | null>;
@@ -739,11 +744,9 @@ function looksLikeSkillFile(text: string): boolean {
  *  long and only shown if the stream does not come back. */
 const STATUS_BLIP_GRACE_MS = 2000;
 
-/** Failed reconnect attempts to tolerate before forcing a brand-new sidecar.
- *  Plain retries already cover first boot, a slow start, and a process that
- *  died and was respawned; eight attempts span roughly four seconds, past all
- *  of those. Beyond that the runtime is not coming back on its own — it is
- *  alive but no longer serving, which nothing else in the app can detect. */
+/** Failed reconnect attempts before asking for a brand-new sidecar. The Rust
+ *  side only grants it to a runtime that is really wedged: one that stopped
+ *  answering HTTP and is past its boot window (a cold boot can take ~30 s). */
 const RECONNECT_FORCE_RESTART_AFTER = 8;
 
 /** Sidecar exits, within one reconnect attempt, that mean the next spawn is
@@ -1253,11 +1256,14 @@ export interface QueuedPrompt {
 }
 let queueSeq = 0;
 /** One bounded retry for the first POSTs after a sidecar restart — the old
- *  connection occasionally dies mid-handshake ("Load failed"). */
+ *  connection occasionally dies mid-handshake ("Load failed"). Never after a
+ *  timeout: the server may have accepted the first one, and a resend would
+ *  start the same turn twice. */
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
-  } catch {
+  } catch (err) {
+    if (err instanceof RequestTimeoutError) throw err;
     await sleep(600);
     return await fn();
   }
@@ -1758,6 +1764,15 @@ export function turnIsOver(messages: HistoryMessage[]): boolean {
   return !!last && last.role === "assistant" && !!last.completed;
 }
 
+/** The turn died with an earlier runtime: its last message was written before
+ *  the current runtime started, so nothing alive can still finish it. A runtime
+ *  killed mid-answer leaves an assistant message with neither `completed` nor
+ *  `error`, which `turnIsOver` reads as running forever. */
+export function turnOrphaned(messages: HistoryMessage[], runtimeStartedAt: number): boolean {
+  const last = messages[messages.length - 1];
+  return !!last && !!runtimeStartedAt && !!last.created && last.created < runtimeStartedAt;
+}
+
 /** Server truth that a session is mid-answer RIGHT NOW: its last message is an
  *  assistant message that has not finished streaming. Deliberately narrower
  *  than `!turnIsOver` — that also reads a trailing USER message as running, a
@@ -2114,6 +2129,15 @@ async function createFromDraftOnce(set: StoreSet, get: StoreGet, draftSrc: strin
   return id;
 }
 
+/** `threads` with session `sid`'s task list dropped. The list belongs to its
+ *  turn (as in DeepSeek Harness): a finished turn keeps its checklist on show,
+ *  and the next turn starts without one. */
+function withoutTodos(threads: Record<string, Thread>, sid: string): Record<string, Thread> {
+  const cur = threads[sid];
+  if (!cur?.todos) return threads;
+  return { ...threads, [sid]: { ...cur, todos: undefined } };
+}
+
 /**
  * The one send lifecycle (new → input → send → response), shared by plain
  * prompts, "!" shell commands and "/" slash commands:
@@ -2147,6 +2171,10 @@ async function performTurn(
   // one global DRAFT_KEY. Legacy single-pane sends omit it → fall back to
   // currentId/DRAFT_KEY exactly as before.
   draftKey?: string,
+  // A prompt's resend data. When the send fails, the echo is marked with it so
+  // the message can be retried or edited. Absent for shell/command turns,
+  // which are never resent automatically (a resend would run them twice).
+  resend?: { attachments?: string[] },
 ): Promise<string | null> {
   if (!client) {
     set({ error: "Not connected to the OpenCode runtime." });
@@ -2165,6 +2193,8 @@ async function performTurn(
   // echoing it would put words in the user's mouth, and reloaded history hides
   // it too (historyToThread), so the live thread must agree.
   const showEcho = !isGoalInjectedPrompt(echo);
+  // Kept by reference: a failed send finds its own echo by identity.
+  const echoBlock: UserMessageBlock = { kind: "user", text: echo };
   set((s) => {
     const cur = s.threads[echoKey] ?? emptyThread();
     return {
@@ -2175,7 +2205,7 @@ async function performTurn(
         [echoKey]: {
           ...cur,
           loaded: true,
-          blocks: showEcho ? [...cur.blocks, { kind: "user", text: echo }] : cur.blocks,
+          blocks: showEcho ? [...cur.blocks, echoBlock] : cur.blocks,
         },
       },
     };
@@ -2214,6 +2244,7 @@ async function performTurn(
       set((s) => ({
         runningSessions: { ...s.runningSessions, [sid]: true },
         ...(shell ? { shellTurns: { ...s.shellTurns, [sid]: true as const } } : {}),
+        threads: withoutTodos(s.threads, sid),
       }));
       const mark = sseSeq;
       try {
@@ -2258,7 +2289,11 @@ async function performTurn(
       await post(sid);
       void logDebug(`send POST ok ${sid} ${Math.round(performance.now() - t0)}ms`);
       turnPostAt.set(sid, performance.now());
-      set((s) => ({ runningSessions: { ...s.runningSessions, [sid]: true } }));
+      set((s) => ({
+        runningSessions: { ...s.runningSessions, [sid]: true },
+        // A message steered into a running turn joins that turn and its list.
+        threads: s.runningSessions[sid] ? s.threads : withoutTodos(s.threads, sid),
+      }));
     }
     void logDebug("turn OK");
     return sid;
@@ -2278,6 +2313,11 @@ async function performTurn(
     const key = lockKey;
     set((s) => {
       const cur = s.threads[key] ?? emptyThread();
+      // The echo still unconfirmed (no server id was folded onto it) never
+      // reached the server: mark it so it offers Retry and Edit.
+      const blocks = resend
+        ? cur.blocks.map((b) => (b === echoBlock ? { ...echoBlock, failed: resend } : b))
+        : cur.blocks;
       return {
         error: msg,
         threads: {
@@ -2285,7 +2325,7 @@ async function performTurn(
           [key]: {
             ...cur,
             loaded: true,
-            blocks: [...cur.blocks, { kind: "status-line", text: `Send failed: ${msg}`, tone: "error" }],
+            blocks: [...blocks, { kind: "status-line", text: `Send failed: ${msg}`, tone: "error" }],
           },
         },
       };
@@ -4981,8 +5021,27 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       false,
       sessionId,
       draftKey,
+      { attachments },
     );
   },
+
+  dropFailedMessage: (key, block) =>
+    set((s) => {
+      const cur = s.threads[key];
+      const at = cur ? cur.blocks.indexOf(block) : -1;
+      if (!cur || at < 0) return {};
+      const next = cur.blocks[at + 1];
+      const count = next?.kind === "status-line" && next.tone === "error" ? 2 : 1;
+      const blocks = cur.blocks.filter((_, i) => i < at || i >= at + count);
+      // The index maps part ids to block positions: drop the removed ones and
+      // shift everything after them.
+      const index = Object.fromEntries(
+        Object.entries(cur.index)
+          .filter(([, v]) => v < at || v >= at + count)
+          .map(([k, v]) => [k, v >= at + count ? v - count : v]),
+      );
+      return { threads: { ...s.threads, [key]: { ...cur, blocks, index } } };
+    }),
 
   // No retry for shell/command: re-POSTing would run the command twice.
   runShell: (command, sessionId, draftKey) => {
@@ -5164,7 +5223,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       try {
         const messages = await c.getMessages(sid);
         // Still ours to answer for? The lock may have cleared while we fetched.
-        if (!turnIsOver(messages) || !get().runningSessions[sid]) continue;
+        const over = turnIsOver(messages) || turnOrphaned(messages, get().runtimeStartedAt);
+        if (!over || !get().runningSessions[sid]) continue;
         void logDebug(`reconcile: missed idle for ${sid} — unlocking`);
         set((s) => {
           const runningSessions = { ...s.runningSessions };
@@ -5887,7 +5947,9 @@ export function foldUserMessage(
     return next;
   }
   const squash = (t: string) => t.split(/\s+/).filter(Boolean).join(" ");
-  const untagged = (b: ThreadBlock) => b.kind === "user" && !b.messageID && !b.text.startsWith("! ");
+  // A failed echo never reached the server, so no server message is its copy.
+  const untagged = (b: ThreadBlock) =>
+    b.kind === "user" && !b.messageID && !b.failed && !b.text.startsWith("! ");
   let at = -1;
   for (let i = blocks.length - 1; i >= 0; i--) {
     const b = blocks[i];
@@ -5993,6 +6055,8 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
       continue;
     }
     if (m.role === "user") {
+      // The task list belongs to its turn: a later prompt starts with none.
+      todos = undefined;
       shellTurn = m.parts.some((p) => p.type === "text" && p.synthetic);
       if (shellTurn) continue;
       const text = m.parts

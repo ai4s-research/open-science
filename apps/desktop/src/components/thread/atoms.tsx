@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Loader2, Paperclip, Pencil, RotateCcw, Wrench } from "lucide-react";
+import { Check, Copy, Loader2, Paperclip, Pencil, RefreshCw, RotateCcw, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/lib/toast";
@@ -62,10 +62,13 @@ const SealedSegment = memo(function SealedSegment({ text }: { text: string }) {
 // (open inline, correct, resend) and Revert (roll back to here, prefill the
 // composer). Edit and Revert both discard this message and everything after it
 // and roll back the files those turns changed, so each confirms first.
+// A message whose send failed never reached the server: it offers Retry and
+// Edit instead, with no confirmation, since there is nothing to roll back.
 export const UserMessage = memo(function UserMessage({
   block,
   onEdit,
   onRevert,
+  onResend,
   sender,
 }: {
   block: UserMessageBlock;
@@ -73,6 +76,7 @@ export const UserMessage = memo(function UserMessage({
   sender?: MessageSender;
   onEdit?: (messageID: string, newText: string) => void | Promise<void>;
   onRevert?: (messageID: string, text: string) => void | Promise<void>;
+  onResend?: (block: UserMessageBlock, text: string) => void | Promise<void>;
 }) {
   const { t } = useTranslation(["session", "common"]);
   const [editing, setEditing] = useState(false);
@@ -81,8 +85,18 @@ export const UserMessage = memo(function UserMessage({
   // Which destructive action is awaiting confirmation, if any.
   const [confirm, setConfirm] = useState<null | "edit" | "revert">(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
-  const canEdit = !!onEdit && !!block.messageID;
+  const canResend = !!onResend && !!block.failed;
+  const canEdit = (!!onEdit && !!block.messageID) || canResend;
   const canRevert = !!onRevert && !!block.messageID;
+  /** Send the edited text: a failed message goes straight out again, a sent
+   *  one rolls the conversation back first and so asks to confirm. */
+  const submitEdit = () => {
+    const text = draft.trim();
+    if (!text) return;
+    if (!canResend) return setConfirm("edit");
+    setEditing(false);
+    void onResend?.(block, text);
+  };
 
   const copy = async () => {
     try {
@@ -145,7 +159,7 @@ export const UserMessage = memo(function UserMessage({
                 setEditing(false);
               } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault();
-                if (draft.trim()) setConfirm("edit");
+                submitEdit();
               }
             }}
             rows={Math.min(12, Math.max(2, draft.split("\n").length))}
@@ -159,7 +173,7 @@ export const UserMessage = memo(function UserMessage({
               {t("message.editing.cancel")}
             </button>
             <button
-              onClick={() => draft.trim() && setConfirm("edit")}
+              onClick={submitEdit}
               disabled={!draft.trim()}
               className="rounded-input bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
             >
@@ -198,6 +212,16 @@ export const UserMessage = memo(function UserMessage({
             className="rounded p-0.5 text-muted hover:bg-surface-2 hover:text-text"
           >
             <Pencil size={14} />
+          </button>
+        )}
+        {canResend && (
+          <button
+            onClick={() => void onResend?.(block, block.text)}
+            title={t("message.retry")}
+            aria-label={t("message.retry")}
+            className="rounded p-0.5 text-muted hover:bg-surface-2 hover:text-text"
+          >
+            <RefreshCw size={14} />
           </button>
         )}
         {canRevert && (

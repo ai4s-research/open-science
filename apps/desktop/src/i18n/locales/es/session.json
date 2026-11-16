@@ -480,6 +480,7 @@
       "send": "Enviar"
     },
     "revert": "Revertir",
+    "retry": "Reintentar",
     "confirm": {
       "title": "¿Descartar todo lo posterior?",
       "body": "Esto revierte la conversación a este mensaje y lo descarta junto con todos los mensajes posteriores y los cambios de archivos que hicieron esos turnos. No se puede deshacer.",

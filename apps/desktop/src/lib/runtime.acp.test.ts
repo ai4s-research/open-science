@@ -94,7 +94,8 @@ vi.mock("@ai4s/sdk", () => {
     }
   }
   const isApiStatus = () => false;
-  return { OpenCodeClient, isApiStatus, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
+  class RequestTimeoutError extends Error {}
+  return { OpenCodeClient, RequestTimeoutError, isApiStatus, DEFAULT_OPENCODE_URL: "http://127.0.0.1:4096" };
 });
 
 /** One fake agent, reused across reconnects: `connect()` runs again whenever the

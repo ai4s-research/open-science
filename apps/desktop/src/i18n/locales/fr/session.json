@@ -480,6 +480,7 @@
       "send": "Envoyer"
     },
     "revert": "Revenir",
+    "retry": "Réessayer",
     "confirm": {
       "title": "Tout supprimer après ceci ?",
       "body": "Cela ramène la conversation à ce message et le supprime, ainsi que tous les messages suivants et les modifications de fichiers effectuées lors de ces tours. Action irréversible.",
