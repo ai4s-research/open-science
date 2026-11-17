@@ -1,5 +1,7 @@
 # Progress
 
+2026-11-17 13:30 · Terminals no longer die with "Connection reset by peer" after an update: a 0.7.0 host had run out of file descriptors (256) on leaked dead readers. Each build now runs its own host (termd-v1-<version>.json), old hosts keep their running terminals until empty and then quit, and a pre-0.7.3 host's dead readers are swept through its own control connection. Also: phone web fits the visible viewport and the terminal keyboard opens only on a tap; overlapping connects share one event stream; a failed background history load says so; one compaction shows once; a press on the composer or edit box padding focuses the input. Installed and verified by the user.
+
 2026-11-17 11:34 · A session its agent moved into a git worktree (OpenCode 2 location switch) no longer goes silent: the folder filter dropped every later event, so a 13-minute stretch with three subagents never reached the app and the subagent panel showed one of four. A session stays with the folder it was first seen in, and a subagent goes with its parent. Typecheck, lint, 2051 tests green.
 
 2026-11-17 00:45 · v0.7.3 released: 17 assets, both DMGs notarized (Gatekeeper accepted, after re-accepting Apple's updated Program License Agreement); Windows upgrade 0.7.2 → 0.7.3 verified on a real machine (data kept, runtime ready in 1.8 s, real model reply); Zenodo DOI 10.5281/zenodo.24286110 synced to CITATION.cff and seven READMEs with a News entry; #177 and #181 closed.
