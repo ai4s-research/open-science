@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
-use osd_core::termd::{self, strip_queries, Client, Control, Controller, Output, Spawn, Viewer};
+use osd_core::termd::{self, strip_queries, Control, Controller, Hosts, Output, Spawn, Viewer};
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -40,7 +40,8 @@ struct Attached {
 
 #[derive(Default)]
 struct Inner {
-    host: Option<Client>,
+    /// This build's host and any older ones still running terminals.
+    host: Option<Hosts>,
     terminals: HashMap<String, Attached>,
 }
 
@@ -53,11 +54,11 @@ pub struct TerminalState(Mutex<Inner>);
 impl Inner {
     /// A request to the host, starting the host if none runs. A connection the
     /// host dropped (it restarted) is dialled again, once.
-    fn call<T>(&mut self, app: &AppHandle, f: impl Fn(&mut Client) -> Result<T, String>) -> Result<T, String> {
+    fn call<T>(&mut self, app: &AppHandle, f: impl Fn(&mut Hosts) -> Result<T, String>) -> Result<T, String> {
         for _ in 0..2 {
             let host = match &mut self.host {
                 Some(host) => host,
-                None => self.host.insert(termd::ensure(&data_dir(app)?, &bundled_osd()?)?),
+                None => self.host.insert(Hosts::ensure(&data_dir(app)?, &bundled_osd()?)?),
             };
             let result = f(host);
             if !host.is_broken() {
@@ -96,7 +97,7 @@ pub fn pids(state: &TerminalState) -> HashMap<String, u32> {
 /// The terminal host's process id, once this app has reached it: what the
 /// terminals' programs (a dev server, say) run under.
 pub fn host_pid(state: &TerminalState) -> Option<u32> {
-    state.0.lock().ok()?.host.as_ref().map(|h| h.welcome.pid)
+    state.0.lock().ok()?.host.as_ref().map(Hosts::pid)
 }
 
 /// The shell to run. `$SHELL` is the user's actual choice; the fallbacks only
@@ -168,7 +169,7 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
     } else {
         load_saved(app, &id, pid, cols, rows)
     };
-    let host = inner.host.as_ref().ok_or("terminal host gone")?;
+    let host = inner.host.as_ref().ok_or("terminal host gone")?.client_for(&id);
     let (output, stream, screen): (Output, Box<dyn Iterator<Item = String> + Send>, _) = if host.welcome.offsets {
         let screen = saved.map(|s| s.screen);
         let (recent, from, stream) = host.attach_from(&id, screen.as_ref().map_or(0, |s| s.end))?;
@@ -583,11 +584,12 @@ fn close(app: &AppHandle, id: &str) -> Result<(), String> {
 pub fn prune(app: &AppHandle, open: &[String]) {
     let state = app.state::<TerminalState>();
     let Ok(mut inner) = state.0.lock() else { return };
-    // Only a host that already runs: there is nothing to prune in a new one.
+    // Only when some host already runs: there is nothing to prune in a new one.
     if inner.host.is_none() {
         let Ok(dir) = data_dir(app) else { return };
-        let Ok(client) = Client::connect(&dir) else { return };
-        inner.host = Some(client);
+        if !termd::any_host(&dir) {
+            return;
+        }
     }
     let open: HashSet<&str> = open.iter().map(String::as_str).collect();
     let Ok(running) = inner.call(app, |host| host.list()) else { return };

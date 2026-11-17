@@ -19,6 +19,14 @@
 // to an older host. Requests and replies only ever gain optional fields; a
 // change that cannot be additive bumps PROTOCOL, and the state file name with
 // it, so hosts of different protocols run side by side, never misread.
+//
+// Updates: each build's host has its own state file, so an update starts its
+// own host beside an older one that still runs terminals. The older one keeps
+// only the terminals it has until they close, and new terminals open in the new
+// one (`Hosts`). A host is never replaced while it has terminals, so before
+// this, a machine that always had a terminal open ran its first host forever,
+// and no host fix reached it (2026-11-17: a 0.7.0 host out of files under a
+// 0.7.3 app).
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -444,17 +452,37 @@ struct State {
     pid: u32,
 }
 
-fn state_path(dir: &Path) -> PathBuf {
-    dir.join(format!("termd-v{PROTOCOL}.json"))
+/// The state file of `version`'s host.
+fn state_path(dir: &Path, version: &str) -> PathBuf {
+    dir.join(format!("termd-v{PROTOCOL}-{version}.json"))
 }
 
-fn read_state(dir: &Path) -> Result<State, String> {
-    let text = std::fs::read_to_string(state_path(dir)).map_err(|e| e.to_string())?;
+/// State files of other builds' hosts, which may still run terminals. Hosts
+/// before 0.7.4 all shared `termd-v{PROTOCOL}.json`.
+fn older_state_paths(dir: &Path, version: &str) -> Vec<PathBuf> {
+    let mine = state_path(dir, version);
+    let shared = format!("termd-v{PROTOCOL}.json");
+    let prefix = format!("termd-v{PROTOCOL}-");
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut paths: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| *p != mine)
+        .filter(|p| {
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            name == shared || (name.starts_with(&prefix) && name.ends_with(".json"))
+        })
+        .collect();
+    paths.sort();
+    paths
+}
+
+fn read_state(path: &Path) -> Result<State, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
-fn write_state(dir: &Path, state: &State) -> Result<(), String> {
-    let path = state_path(dir);
+fn write_state(dir: &Path, path: &Path, state: &State) -> Result<(), String> {
     let tmp = dir.join(format!(".termd-{}.tmp", std::process::id()));
     {
         let mut options = std::fs::OpenOptions::new();
@@ -465,7 +493,7 @@ fn write_state(dir: &Path, state: &State) -> Result<(), String> {
         file.write_all(serde_json::to_string(state).unwrap().as_bytes())
             .map_err(|e| e.to_string())?;
     }
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 fn send<T: Serialize>(out: &mut TcpStream, value: &T) -> std::io::Result<()> {
@@ -495,31 +523,39 @@ struct Term {
 struct Host {
     terms: Mutex<HashMap<String, Term>>,
     clients: AtomicUsize,
-    dir: PathBuf,
+    /// This host's state file.
+    state: PathBuf,
+    version: String,
     port: u16,
+    /// Run inside another process (tests): leaving only withdraws the state
+    /// file, never exits that process.
+    in_process: bool,
 }
 
 /// Run the host for the app whose data folder is `dir`, until it has had no
 /// terminals and no clients for a while. Returns at once if one is running.
 pub fn serve(dir: &Path) -> Result<(), String> {
-    run(dir, Some(IDLE_EXIT))
+    run(dir, Some(IDLE_EXIT), VERSION)
 }
 
-fn run(dir: &Path, idle_exit: Option<Duration>) -> Result<(), String> {
-    if Client::connect(dir).is_ok() {
-        return Ok(()); // One host per data folder.
+fn run(dir: &Path, idle_exit: Option<Duration>, version: &str) -> Result<(), String> {
+    let state = state_path(dir, version);
+    if Client::connect_at(&state).is_ok() {
+        return Ok(()); // One host per build and data folder.
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let token = random_token()?;
-    write_state(dir, &State { port, token: token.clone(), pid: std::process::id() })?;
+    write_state(dir, &state, &State { port, token: token.clone(), pid: std::process::id() })?;
 
     let host = Arc::new(Host {
         terms: Mutex::new(HashMap::new()),
         clients: AtomicUsize::new(0),
-        dir: dir.to_path_buf(),
+        state,
+        version: version.to_string(),
         port,
+        in_process: idle_exit.is_none(),
     });
     if let Some(idle) = idle_exit {
         let host = host.clone();
@@ -563,11 +599,13 @@ fn watch_idle(host: &Host, idle: Duration) {
 impl Host {
     /// Stop serving: the state file goes first (only if it still names this
     /// host), so nobody dials a host that is on its way out.
-    fn leave(&self) -> ! {
-        if read_state(&self.dir).is_ok_and(|s| s.port == self.port && s.pid == std::process::id()) {
-            let _ = std::fs::remove_file(state_path(&self.dir));
+    fn leave(&self) {
+        if read_state(&self.state).is_ok_and(|s| s.port == self.port && s.pid == std::process::id()) {
+            let _ = std::fs::remove_file(&self.state);
         }
-        std::process::exit(0)
+        if !self.in_process {
+            std::process::exit(0)
+        }
     }
 
     fn handle(self: &Arc<Self>, stream: TcpStream, token: &str) -> std::io::Result<()> {
@@ -580,7 +618,7 @@ impl Host {
             return send(&mut out, &json!({ "error": "not authorized" }));
         }
         out.set_read_timeout(None)?;
-        send(&mut out, &Welcome { version: VERSION.into(), protocol: PROTOCOL, pid: std::process::id(), offsets: true })?;
+        send(&mut out, &Welcome { version: self.version.clone(), protocol: PROTOCOL, pid: std::process::id(), offsets: true })?;
         loop {
             let request: Request = match receive(&mut input) {
                 Ok(Some(r)) => r,
@@ -595,11 +633,12 @@ impl Host {
                 Request::Attach { id, since } => return self.stream(&id, since, out),
                 Request::Quit => {
                     if self.terms.lock().map(|t| t.is_empty()).unwrap_or(false) {
-                        if read_state(&self.dir).is_ok_and(|s| s.port == self.port) {
-                            let _ = std::fs::remove_file(state_path(&self.dir));
+                        if read_state(&self.state).is_ok_and(|s| s.port == self.port) {
+                            let _ = std::fs::remove_file(&self.state);
                         }
                         let _ = send(&mut out, &json!({ "ok": true }));
                         self.leave();
+                        return Ok(());
                     }
                     send(&mut out, &json!({ "error": "terminals are running" }))?;
                 }
@@ -793,9 +832,13 @@ fn dial(port: u16, token: &str) -> Result<(BufReader<TcpStream>, TcpStream, Welc
 }
 
 impl Client {
-    /// The running host of this data folder, if there is one.
+    /// This build's running host of this data folder, if there is one.
     pub fn connect(dir: &Path) -> Result<Client, String> {
-        let state = read_state(dir)?;
+        Client::connect_at(&state_path(dir, VERSION))
+    }
+
+    fn connect_at(state: &Path) -> Result<Client, String> {
+        let state = read_state(state)?;
         let (input, out, welcome) = dial(state.port, &state.token)?;
         Ok(Client { port: state.port, token: state.token, input, out, welcome, broken: false })
     }
@@ -915,15 +958,11 @@ impl Iterator for Attached {
 
 // ---- starting the host ------------------------------------------------------
 
-/// A client of the host for `dir`, starting one from `osd` (the bundled CLI)
-/// when none runs. An idle host of another build is swapped for this one's;
-/// a busy one is kept, because its terminals are the point.
+/// A client of this build's host for `dir`, starting one from `osd` (the
+/// bundled CLI) when none runs. Older builds' hosts are `Hosts`' business.
 pub fn ensure(dir: &Path, osd: &Path) -> Result<Client, String> {
-    if let Ok(mut client) = Client::connect(dir) {
-        if client.welcome.version == VERSION || !client.list().is_ok_and(|l| l.is_empty()) {
-            return Ok(client);
-        }
-        let _ = client.quit();
+    if let Ok(client) = Client::connect(dir) {
+        return Ok(client);
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let exe = host_binary(dir, osd)?;
@@ -935,6 +974,108 @@ pub fn ensure(dir: &Path, osd: &Path) -> Result<Client, String> {
             Err(e) if Instant::now() > deadline => return Err(format!("terminal host did not start: {e}")),
             Err(_) => std::thread::sleep(Duration::from_millis(50)),
         }
+    }
+}
+
+/// True when some host of `dir`, of any build, may be running.
+pub fn any_host(dir: &Path) -> bool {
+    state_path(dir, VERSION).is_file() || !older_state_paths(dir, VERSION).is_empty()
+}
+
+/// Every host the app uses: this build's, which starts every new terminal, and
+/// older builds' that still run terminals from before an update. Each terminal
+/// is reached on the host that runs it. An older host left with no terminals is
+/// asked to exit; the control connection held here would keep it alive.
+pub struct Hosts {
+    current: Client,
+    older: Vec<Client>,
+    /// Terminal id → its host in `older`.
+    owners: HashMap<String, usize>,
+}
+
+impl Hosts {
+    /// This build's host (started if need be) and every older one still running.
+    pub fn ensure(dir: &Path, osd: &Path) -> Result<Hosts, String> {
+        Ok(Hosts::around(ensure(dir, osd)?, dir, VERSION))
+    }
+
+    fn around(current: Client, dir: &Path, version: &str) -> Hosts {
+        let older = older_state_paths(dir, version).iter().filter_map(|p| Client::connect_at(p).ok()).collect();
+        let mut hosts = Hosts { current, older, owners: HashMap::new() };
+        let _ = hosts.list(); // learns the owners, retires idle older hosts
+        hosts
+    }
+
+    /// The process id of this build's host.
+    pub fn pid(&self) -> u32 {
+        self.current.welcome.pid
+    }
+
+    /// A connection failed mid-request: dial every host again before the next one.
+    pub fn is_broken(&self) -> bool {
+        self.current.is_broken() || self.older.iter().any(Client::is_broken)
+    }
+
+    /// Every running terminal, on any host.
+    pub fn list(&mut self) -> Result<Vec<Info>, String> {
+        let mut all = self.current.list()?;
+        self.owners.clear();
+        let mut kept = Vec::new();
+        for mut host in std::mem::take(&mut self.older) {
+            match host.list() {
+                Ok(list) if list.is_empty() => {
+                    let _ = host.quit();
+                }
+                Ok(list) => {
+                    for info in &list {
+                        self.owners.insert(info.id.clone(), kept.len());
+                    }
+                    all.extend(list);
+                    kept.push(host);
+                }
+                // Gone (it exited or was killed): its terminals went with it.
+                Err(_) => {}
+            }
+        }
+        self.older = kept;
+        Ok(all)
+    }
+
+    /// The host that runs `id`: an older one only for a terminal it already has.
+    pub fn client_for(&self, id: &str) -> &Client {
+        self.owners.get(id).map_or(&self.current, |&i| &self.older[i])
+    }
+
+    fn client_for_mut(&mut self, id: &str) -> &mut Client {
+        match self.owners.get(id) {
+            Some(&i) => &mut self.older[i],
+            None => &mut self.current,
+        }
+    }
+
+    /// Start `id` on this build's host, or find it running on any host.
+    pub fn open(&mut self, id: &str, spawn: &Spawn) -> Result<(bool, Option<u32>), String> {
+        // Fresh owners: an older host's terminal that has since exited must
+        // start again on this build's host, not on the older one.
+        self.list()?;
+        self.client_for_mut(id).open(id, spawn)
+    }
+
+    pub fn write(&mut self, id: &str, data: &str) -> Result<(), String> {
+        self.client_for_mut(id).write(id, data)
+    }
+
+    pub fn resize(&mut self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
+        self.client_for_mut(id).resize(id, cols, rows)
+    }
+
+    pub fn close(&mut self, id: &str) -> Result<(), String> {
+        let older = self.owners.contains_key(id);
+        self.client_for_mut(id).close(id)?;
+        if older {
+            let _ = self.list(); // the older host may have had its last terminal
+        }
+        Ok(())
     }
 }
 
@@ -1202,7 +1343,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let host_dir = dir.clone();
-        std::thread::spawn(move || run(&host_dir, None));
+        std::thread::spawn(move || run(&host_dir, None, VERSION));
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut first = loop {
             match Client::connect(&dir) {
@@ -1252,6 +1393,81 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A host of `version` serving `dir` in this process, once it answers.
+    #[cfg(unix)]
+    fn host_of(dir: &Path, version: &'static str) -> Client {
+        let host_dir = dir.to_path_buf();
+        std::thread::spawn(move || run(&host_dir, None, version));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match Client::connect_at(&state_path(dir, version)) {
+                Ok(c) => return c,
+                Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+                Err(e) => panic!("host {version} never came up: {e}"),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_update_opens_new_terminals_in_its_own_host_and_keeps_the_old_ones_where_they_run() {
+        let dir = std::env::temp_dir().join(format!("osd-termd-update-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let spawn = Spawn::from_command(&CommandBuilder::new("/bin/sh"), 80, 24);
+
+        // Before the update: the old build's host runs a terminal.
+        let mut old = host_of(&dir, "0.0.1");
+        old.open("old-term", &spawn).unwrap();
+        drop(old);
+
+        // After it: this build's host beside the old one, not instead of it.
+        let current = host_of(&dir, VERSION);
+        let mut hosts = Hosts::around(current, &dir, VERSION);
+        assert_eq!(hosts.older.len(), 1, "the old host still runs its terminal");
+        let (created, _) = hosts.open("old-term", &spawn).unwrap();
+        assert!(!created, "the old terminal is reached where it runs");
+        assert_eq!(hosts.client_for("old-term").welcome.version, "0.0.1");
+        let live = hosts.client_for("old-term").attach("old-term").unwrap();
+        hosts.write("old-term", "echo old-$((40+2))\n").unwrap();
+        read_until(live, "old-42");
+
+        let (created, _) = hosts.open("new-term", &spawn).unwrap();
+        assert!(created);
+        assert_eq!(hosts.client_for("new-term").welcome.version, VERSION, "a new terminal opens in this build's host");
+        let mut ids: Vec<String> = hosts.list().unwrap().into_iter().map(|i| i.id).collect();
+        ids.sort();
+        assert_eq!(ids, ["new-term", "old-term"]);
+
+        // The old host's last terminal closes: it is asked to go, and does.
+        hosts.close("old-term").unwrap();
+        assert!(hosts.older.is_empty());
+        assert!(!state_path(&dir, "0.0.1").exists(), "the old host withdrew its state file");
+        assert!(older_state_paths(&dir, VERSION).is_empty());
+        hosts.close("new-term").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hosts_from_before_versioned_state_files_count_as_older() {
+        let dir = std::env::temp_dir().join(format!("osd-termd-names-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let shared = format!("termd-v{PROTOCOL}.json");
+        let other = format!("termd-v{PROTOCOL}-0.0.1.json");
+        let mine = format!("termd-v{PROTOCOL}-{VERSION}.json");
+        for name in [&shared, &other, &mine, &"termd-v9.json".to_string(), &"other.json".to_string()] {
+            std::fs::write(dir.join(name), "{}").unwrap();
+        }
+        let names: Vec<String> = older_state_paths(&dir, VERSION)
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        // Another protocol's hosts are never ours to drive.
+        assert_eq!(names, [other, shared]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_reader_that_went_away_is_seen_without_a_write() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
@@ -1272,10 +1488,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let host_dir = dir.clone();
-        std::thread::spawn(move || run(&host_dir, None));
+        std::thread::spawn(move || run(&host_dir, None, VERSION));
         let deadline = Instant::now() + Duration::from_secs(5);
         let state = loop {
-            if let Ok(s) = read_state(&dir) {
+            if let Ok(s) = read_state(&state_path(&dir, VERSION)) {
                 break s;
             }
             assert!(Instant::now() < deadline, "host never came up");
