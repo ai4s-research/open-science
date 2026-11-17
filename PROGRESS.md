@@ -1,5 +1,7 @@
 # Progress
 
+2026-11-17 11:34 · A session its agent moved into a git worktree (OpenCode 2 location switch) no longer goes silent: the folder filter dropped every later event, so a 13-minute stretch with three subagents never reached the app and the subagent panel showed one of four. A session stays with the folder it was first seen in, and a subagent goes with its parent. Typecheck, lint, 2051 tests green.
+
 2026-11-17 00:45 · v0.7.3 released: 17 assets, both DMGs notarized (Gatekeeper accepted, after re-accepting Apple's updated Program License Agreement); Windows upgrade 0.7.2 → 0.7.3 verified on a real machine (data kept, runtime ready in 1.8 s, real model reply); Zenodo DOI 10.5281/zenodo.24286110 synced to CITATION.cff and seven READMEs with a News entry; #177 and #181 closed.
 
 2026-11-16 22:20 · Stuck and lost turns on a memory-starved 8 GB MacBook Air, all reproduced from its logs: the reconnect loop no longer kills a runtime that still answers HTTP or is under 90 s old (concurrent loops restarted it ten times in a minute, killing every turn); a turn orphaned by a runtime restart no longer holds "Working…" forever; the prompt POST waits up to 50 s (inline photos took past 15 s in deep swap) and a timed-out POST is never resent; a message whose send failed offers Retry and Edit; the composer's task list belongs to its turn, as in DeepSeek Harness. Typecheck, lint, 2054 tests green; installed and running on that Air.

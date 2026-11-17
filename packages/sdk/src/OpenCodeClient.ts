@@ -619,9 +619,14 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
   private readonly onHistoryUpgrade: ((progress: HistoryUpgrade | null) => void) | null;
 
   // ---- event-stream state ----
-  /** sessionID → its folder. The stream is global; this is how a client keeps
-   *  to its own folder's sessions. */
-  private readonly sessionDirs = new Map<string, string>();
+  /** The stream is global; these are how a client keeps to its own folder's
+   *  sessions. A session is ours once seen in our folder and STAYS ours when
+   *  its agent moves it (OpenCode 2 switches a session's location, e.g. into a
+   *  git worktree) — following the move dropped the rest of its turn. A
+   *  subagent belongs with its parent. */
+  private readonly owned = new Set<string>();
+  /** Sessions looked up and found to live elsewhere. */
+  private readonly foreign = new Set<string>();
   /** Events for a session whose folder is still being looked up, in order. */
   private readonly held = new Map<string, OpenCodeRawEvent[]>();
   /** `${messageID}#${ordinal}` → accumulated streaming text. */
@@ -1015,38 +1020,39 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
     if (!mine) return this.normalize(ev);
     const sid = sessionOf(ev);
     const where = ev.location?.directory;
-    if (sid && where) this.sessionDirs.set(sid, where);
     if (!sid) {
       if (!where || samePath(where, mine)) this.normalize(ev);
       return;
     }
-    const known = this.sessionDirs.get(sid);
-    if (known !== undefined) {
-      if (samePath(known, mine)) this.normalize(ev);
-      return;
+    if (where && samePath(where, mine)) {
+      this.owned.add(sid);
+      this.foreign.delete(sid);
     }
+    if (this.owned.has(sid)) return this.normalize(ev);
+    if (this.foreign.has(sid)) return;
     const queue = this.held.get(sid);
     if (queue) {
       queue.push(ev);
       return;
     }
     this.held.set(sid, [ev]);
-    void this.sessionDirectory(sid).then((dir) => {
+    void this.lookupSession(sid).then((s) => {
       // Unknown even to the server: deliver rather than drop — a duplicate is
       // folded idempotently, a lost event is not recovered.
-      this.sessionDirs.set(sid, dir ?? mine);
+      const dir = s?.location?.directory;
+      const ours = !s || !dir || samePath(dir, mine) || (!!s.parentID && this.owned.has(s.parentID));
+      (ours ? this.owned : this.foreign).add(sid);
       const pending = this.held.get(sid) ?? [];
       this.held.delete(sid);
       for (const e of pending) this.accept(e);
     });
   }
 
-  private async sessionDirectory(sessionId: string): Promise<string | undefined> {
+  private async lookupSession(sessionId: string): Promise<WireSession | undefined> {
     try {
       const res = await this.get(this.url(this.sessionPath(sessionId)));
       if (!res.ok) return undefined;
-      const s = (await res.json()) as { data?: WireSession };
-      return s.data?.location?.directory;
+      return ((await res.json()) as { data?: WireSession }).data;
     } catch {
       return undefined;
     }
@@ -1063,7 +1069,7 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       }),
       "Failed to create session",
     );
-    if (this.directory) this.sessionDirs.set(s.id, this.directory);
+    this.owned.add(s.id);
     return s.id;
   }
 
@@ -1108,7 +1114,10 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
       const rows = body.data ?? [];
       const fresh = rows.filter((s) => !seen.has(s.id));
       fresh.forEach((s) => seen.add(s.id));
-      for (const s of fresh) if (s.location?.directory) this.sessionDirs.set(s.id, s.location.directory);
+      // Only ever ADOPTS: a listed session elsewhere may be one of ours that
+      // moved, or a subagent of ours — the lookup on its first event decides.
+      const mine = this.directory;
+      for (const s of fresh) if (mine && s.location?.directory && samePath(s.location.directory, mine)) this.owned.add(s.id);
       const metas = fresh.map(toSessionMeta);
       out.push(...(query.archived ? metas : metas.filter((s) => s.archived == null)));
       cursor = rows.length < limit ? null : body.cursor?.next ?? null;

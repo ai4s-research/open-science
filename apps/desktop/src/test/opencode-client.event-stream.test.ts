@@ -93,7 +93,8 @@ describe("OpenCodeClient with a carried event stream", () => {
       return new Response(JSON.stringify({ data: { id: "x", location: { directory: dir } } }), { status: 200 });
     };
     const { client, events, send } = await fed({ directory: "/work/", fetchImpl });
-    // Located events decide on their own (a trailing slash is the same folder).
+    // An event located here adopts its session (a trailing slash is the same
+    // folder); one located elsewhere is looked up, as it may be our subagent.
     send("session.text.ended", { sessionID: "ses_a", assistantMessageID: "m", ordinal: 0, text: "mine" }, "/work");
     send("session.text.ended", { sessionID: "ses_b", assistantMessageID: "m", ordinal: 0, text: "theirs" }, "/elsewhere");
     // Unlocated events go by what is known of their session…
@@ -103,7 +104,7 @@ describe("OpenCodeClient with a carried event stream", () => {
     send("session.step.started", { sessionID: "ses_mine", assistantMessageID: "m1" });
     send("session.execution.succeeded", { sessionID: "ses_mine" });
     send("session.execution.succeeded", { sessionID: "ses_other" });
-    await vi.waitFor(() => expect(lookups).toHaveLength(2));
+    await vi.waitFor(() => expect(lookups).toHaveLength(3));
     await vi.waitFor(() => expect(events.filter((e) => e.type === "session.idle")).toHaveLength(2));
     expect(events.filter((e) => e.type === "text.updated").map((e) => (e as { text: string }).text)).toEqual(["mine"]);
     expect(events.filter((e) => e.type === "session.idle").map((e) => (e as { sessionId: string }).sessionId)).toEqual([
@@ -113,7 +114,38 @@ describe("OpenCodeClient with a carried event stream", () => {
     // Held events kept their order: the step before the turn's end.
     const mine = events.filter((e) => "sessionId" in e && e.sessionId === "ses_mine").map((e) => e.type);
     expect(mine).toEqual(["step.updated", "session.idle"]);
-    expect(lookups).toEqual(["/api/session/ses_mine", "/api/session/ses_other"]);
+    expect(lookups).toEqual(["/api/session/ses_b", "/api/session/ses_mine", "/api/session/ses_other"]);
+    client.close();
+  });
+
+  it("keeps a session that moved into a worktree, and its subagents", async () => {
+    const lookups: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const id = new URL(String(input)).pathname.split("/").pop() ?? "";
+      lookups.push(id);
+      const data =
+        id === "ses_child"
+          ? { id, parentID: "ses_main", location: { directory: "/work/.wt" } }
+          : { id, location: { directory: "/elsewhere" } };
+      return new Response(JSON.stringify({ data }), { status: 200 });
+    };
+    const { client, events, send } = await fed({ directory: "/work", fetchImpl });
+    const text = (sid: string, t: string, dir: string) =>
+      send("session.text.ended", { sessionID: sid, assistantMessageID: "m", ordinal: 0, text: t }, dir);
+    text("ses_main", "before the move", "/work");
+    // The agent switched the session into a worktree: its turn goes on there.
+    text("ses_main", "after the move", "/work/.wt");
+    text("ses_child", "subagent", "/work/.wt");
+    text("ses_stranger", "not ours", "/work/.wt");
+    await vi.waitFor(() => expect(lookups).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.type === "text.updated").map((e) => (e as { text: string }).text)).toEqual([
+        "before the move",
+        "after the move",
+        "subagent",
+      ]),
+    );
+    expect(lookups).toEqual(["ses_child", "ses_stranger"]);
     client.close();
   });
 
