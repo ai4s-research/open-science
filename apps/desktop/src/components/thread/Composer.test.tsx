@@ -7,6 +7,21 @@ import { resetParkedDrafts } from "@/lib/composerStash";
 import { Composer } from "./Composer";
 
 describe("Composer", () => {
+  it("a press on the capsule's padding goes to the input, never starts a page selection", () => {
+    render(<Composer onSend={vi.fn()} />);
+    const input = screen.getByLabelText<HTMLTextAreaElement>("Ask anything");
+    fireEvent.change(input, { target: { value: "draft" } });
+    input.blur();
+    const capsule = input.closest(".rounded-\\[24px\\]") as HTMLElement;
+    const pressed = fireEvent.mouseDown(capsule, { button: 0 });
+    expect(pressed).toBe(false); // default prevented: no selection starts
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe("draft".length);
+
+    // A press on the input itself keeps its native behavior.
+    expect(fireEvent.mouseDown(input, { button: 0 })).toBe(true);
+  });
+
   it("appends a prepared draft below text the user was already typing", () => {
     useUiStore.setState({ composerDraft: null });
     render(<Composer onSend={vi.fn()} />);
