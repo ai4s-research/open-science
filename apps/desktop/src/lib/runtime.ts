@@ -773,6 +773,13 @@ let connectRetryDepth = 0;
 /** What the last connect() attempt failed with, masked or not — connectRetry
  *  reports it if the whole window is exhausted. */
 let lastConnectError: string | null = null;
+/** Bumped by every connect(). Two connects overlapping (a runtime restart's and
+ *  the reconnect loop's) each tore down "the old client" before either had made
+ *  a new one, then both made one: two live event streams, every event folded
+ *  twice (a compaction showed twice). Only the latest connect may make a client. */
+let connectGeneration = 0;
+/** The latest connect(), which a superseded one waits for instead of retrying. */
+let latestConnect: Promise<void> | null = null;
 /** The status the UI is allowed to see right now. */
 function visibleStatus(status: RuntimeStatus): RuntimeStatus {
   return connectRetryDepth > 0 && status !== "ready" ? "connecting" : status;
@@ -1022,6 +1029,18 @@ function acpSessionRows(records: Record<string, AcpSessionRecord>): SessionMeta[
 }
 
 const emptyThread = (): Thread => ({ blocks: [], index: {}, loaded: false });
+
+/** A thread whose history failed to load: one retryable error line. `historyError`
+ *  keeps the next load/Retry from being swallowed by the loaded-gate, so this is
+ *  the end of ONE attempt, not of the session. Deliberately NOT mirrored into the
+ *  global `error` (no stale banner): a session-level problem with a session-level
+ *  way out (#139). */
+const historyFailedThread = (msg: string): Thread => ({
+  ...emptyThread(),
+  loaded: true,
+  historyError: msg,
+  blocks: [{ kind: "status-line", text: `Failed to load messages: ${msg}`, tone: "error", retry: true }],
+});
 
 /** Retire a draft slot's folder — its session was created, or the user asked for
  *  a plain New. Absent means "give the next session a fresh dated folder". */
@@ -3543,776 +3562,788 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   },
 
   connect: async () => {
-    // This attempt failed. Inside a retry loop that is a step, not an outcome:
-    // the message is kept for connectRetry to report if the window runs out,
-    // and the UI stays on "connecting" instead of blinking the offline card.
-    const failed = (msg: string) => {
-      lastConnectError = msg;
-      if (connectRetryDepth > 0) set({ status: "connecting" });
-      else set({ error: msg, status: "error" });
-    };
-    // Quiet teardown of any previous connection: within a (re)connect the
-    // status must never pass through "offline" — on first boot the retry loop
-    // runs for minutes (macOS TCC) and each flip repaints the whole page.
-    // ACP agents are not part of this connection: they run beside it, keep
-    // their sessions across folder moves, and outlive every reconnect.
-    teardownClient();
-    let directory: string | null;
-    let password: string | null;
-    let baseUrl = get().serverUrl;
-    // Artifact path resolutions are relative to the workspace folder, so a
-    // connect that lands somewhere else must not reuse them (#92).
-    const previousWorkspace = get().workspace;
-    if (isGatewayWeb) {
-      // Web client: same-origin gateway; the pasted token is the OpenCodeClient
-      // password, and the workspace directory comes from /v1/whoami.
-      baseUrl = gatewayOrigin();
-      password = gatewayToken();
-      directory = null;
-      let readOnly = false;
-      let terminal = false;
-      let user: string | null = null;
-      try {
-        const r = await fetch(`${baseUrl}/v1/whoami`, {
-          headers: password ? { Authorization: `Bearer ${password}` } : {},
-        });
-        if (r.ok) {
-          const who = (await r.json()) as {
-            directory?: string;
-            mode?: string;
-            terminal?: boolean;
-            user?: string | null;
-          };
-          // The folder this browser opened, if any; otherwise the host's.
-          directory = get().webWorkspace ?? who.directory ?? null;
-          // A read-only token 403s every write — surface that in the UI
-          // instead of letting "New session" / the composer fail opaquely.
-          readOnly = who.mode === "read-only";
-          terminal = who.terminal === true;
-          user = who.user ?? null;
-        }
-      } catch {
-        /* whoami is best-effort; the client still connects */
-      }
-      set({ serverUrl: baseUrl, workspace: directory, webReadOnly: readOnly, webTerminal: terminal, webUser: user });
-      setSignedInAccount(user);
-      // An account's Screens live on the desktop, the same at every address;
-      // the token shares the desktop window's own, live.
-      void import("./layoutSync").then(({ adoptAccountLayout, mirrorDesktopLayout }) =>
-        user ? adoptAccountLayout() : mirrorDesktopLayout(),
-      );
-    } else {
-      // Scope skill discovery to the sidecar's workspace (null in browser dev).
-      directory = await workspacePath();
-      set({ workspace: directory, approvalMode: await getApprovalMode() });
-      if (!samePath(previousWorkspace, directory)) clearResolvedPaths();
-      // The bundled sidecar requires per-run Basic auth; browser dev (no Tauri)
-      // gets null and connects to a user-run passwordless server.
-      password = await runtimePassword();
-    }
-    const c = new OpenCodeClient({
-      baseUrl,
-      directory: directory ?? undefined,
-      password: password ?? undefined,
-      eventStream,
-      config: configStore(),
-      onHistoryUpgrade: (historyUpgrade) => set({ historyUpgrade }),
-    });
-    opencodeClient = c;
-    client = c;
-    // Background streams reuse the same sidecar; the foreground now streams
-    // this folder, so drop any background stream that was covering it (avoid a
-    // double fold of the same events).
-    streamBaseUrl = baseUrl;
-    streamPassword = password ?? undefined;
-    if (directory) removeStreamClient(directory);
-    clientStatusUnsub = c.onStatus((status) => {
-      const shown = visibleStatus(status);
-      // Log what the runtime said AND what the UI was given, so a report of
-      // "it flickered" can be read straight off the log.
-      void logDebug(`status → ${status}${shown === status ? "" : ` (held as ${shown})`}`);
-      if (status === "connecting" && get().status === "ready") {
-        // Hold the flip for STATUS_BLIP_GRACE_MS: if the SDK's own reconnect
-        // lands first ("ready" clears the timer), the UI never sees the blip.
-        if (statusBlipTimer === null)
-          statusBlipTimer = setTimeout(() => {
-            statusBlipTimer = null;
-            set({ status: "connecting" });
-          }, STATUS_BLIP_GRACE_MS);
-        return;
-      }
-      clearStatusBlip();
-      set({ status: shown });
-    });
-    if (!sharedEventHandler)
-      sharedEventHandler = (event) => {
-      // text.updated fires per streamed token, and a running bash tool fires
-      // per stdout write (tqdm redraws dozens of times a second) — logging
-      // each one would flood debug.log with an IPC call per event.
-      if (
-        event.type !== "text.updated" &&
-        event.type !== "reasoning.updated" &&
-        !(event.type === "tool.updated" && event.status === "running")
-      )
-        void logDebug(
-          `event ← ${event.type}${"sessionId" in event ? " " + event.sessionId : ""}` +
-            // An error's TEXT is the whole diagnostic value; logging only "error"
-            // meant a real report ("Request blocked." on every retry) could not be
-            // explained without reading the runtime's SQLite by hand. Redacted and
-            // capped: a provider echoing a credential back must not land on disk.
-            (event.type === "error" ? `: ${redactForLog(event.message)}` : ""),
-        );
-      if (
-        "sessionId" in event &&
-        event.sessionId &&
-        retiredBackgroundReviews.has(event.sessionId)
-      )
-        return;
-      const backgroundReviewParent =
-        "sessionId" in event && event.sessionId
-          ? backgroundReviewJobs.get(event.sessionId)?.parentId
-          : undefined;
-      const isBackgroundReviewResult =
-        event.type === "text.updated" &&
-        backgroundReviewResultParts.has(`${event.sessionId}:${event.partId}`);
-      if ("sessionId" in event && event.sessionId) {
-        const sid = event.sessionId;
-        sseLast.set(sid, ++sseSeq);
-        while (sseLast.size > 500) {
-          const oldest = sseLast.keys().next().value;
-          if (oldest === undefined) break;
-          sseLast.delete(oldest);
-        }
-        // Stall guard: feed the event into the session's ledger and check for a
-        // verdict. Excluded for a background review's own turn — its repetition
-        // is part of the parent turn the user is watching, and it is a hidden
-        // turn the user never sent. Subagent sessions are NOT excluded: a
-        // subagent stuck in a loop is exactly what the user wants to be told
-        // about (unlike a settlement notification, which would be noise). The
-        // interrupted flag is honoured: after the user hits Stop the abort's
-        // own trailing events must not raise a "stuck?" warning over a turn the
-        // user already chose to end.
-        if (
-          !backgroundReviewParent &&
-          !retiredBackgroundReviews.has(sid) &&
-          !interruptedSessions.has(sid)
-        ) {
-          feedStallEvent(sid, event, Date.now());
-        }
-        // First streamed token after a send → log latency (multi-pane probe).
-        const posted = turnPostAt.get(event.sessionId);
-        if (posted !== undefined && (event.type === "text.updated" || event.type === "reasoning.updated")) {
-          turnPostAt.delete(event.sessionId);
-          void logDebug(`first token ← ${event.sessionId} ${Math.round(performance.now() - posted)}ms`);
-        }
-        // A streamed sign of life re-locks the session even when THIS app never
-        // started its turn — after a reload the locks are gone (in-memory only)
-        // while the server keeps working. Without this the Stop affordance never
-        // comes back and a live turn can no longer be interrupted (#59). A
-        // session the user just interrupted is exempt: the abort's own trailing
-        // events must not resurrect its lock.
-        // A stale re-lock (an SSE replay of a finished turn) is self-healing —
-        // reconcileRunning checks the server and unlocks within one poll.
-        const active = event.sessionId;
-        if (
-          ACTIVITY_EVENTS.has(event.type) &&
-          !backgroundReviewParent &&
-          !isBackgroundReviewResult &&
-          !interruptedSessions.has(active) &&
-          !get().runningSessions[active]
-        ) {
-          set((s) => ({ runningSessions: { ...s.runningSessions, [active]: true } }));
-        }
-      }
-      // #157: coalesce streamed text/reasoning deltas. Everything above (stall
-      // guard, first-token latency, re-lock) still sees the raw stream; only
-      // the fold below is rate-capped. Leading edge folds immediately; a burst
-      // inside the window buffers (latest per part wins) and flushes trailing.
-      const eventSid = "sessionId" in event ? event.sessionId : undefined;
-      if (eventSid) {
-        const key = coalesceKey(event);
-        if (!key) {
-          // Any other event supersedes the pending deltas: fold them first so
-          // block order and causal order match the raw stream exactly.
-          flushStreamCoalesce(eventSid);
-        } else {
-          const now = Date.now();
-          const last = streamCoalesceLast.get(eventSid) ?? 0;
-          const pending = streamCoalesce.get(eventSid);
-          if (!pending && now - last >= STREAM_COALESCE_MS) {
-            streamCoalesceLast.set(eventSid, now);
-            // Leading edge: fall through to the normal path and fold now.
-          } else {
-            const entry = pending ?? { timer: null, queue: [] };
-            upsertCoalesced(entry.queue, key, event as CoalescedEntry["event"]);
-            if (entry.timer === null)
-              entry.timer = window.setTimeout(
-                () => flushStreamCoalesce(eventSid),
-                Math.max(1, STREAM_COALESCE_MS - (now - last)),
-              );
-            streamCoalesce.set(eventSid, entry);
-            // A retried attempt's first token still lifts the retry banner on
-            // time — the buffered path would otherwise skip the clear below.
-            if (get().retryNotices[eventSid]) {
-              set((s) => {
-                const retryNotices = { ...s.retryNotices };
-                delete retryNotices[eventSid];
-                return { retryNotices };
-              });
-            }
-            return;
-          }
-        }
-      }
-      if (event.type === "error") {
-        // A session-scoped error belongs IN the conversation (a red status
-        // line where the user is looking), and it ends that session's turn so
-        // the composer unlocks. Errors without a session keep the banner.
-        const sid = event.sessionId;
-        // After a user interrupt the abort's own "aborted" error is expected —
-        // the thread already says "Interrupted"; don't add a second red line.
-        if (sid) clearLiveFolds(sid);
-        if (sid) clearStreamCoalesce(sid);
-        if (sid && backgroundReviewParent) {
-          finishAutoReview(set, get, sid, false);
-          set((s) => {
-            const runningSessions = { ...s.runningSessions };
-            const retryNotices = { ...s.retryNotices };
-            delete runningSessions[sid];
-            delete retryNotices[sid];
-            return { runningSessions, retryNotices };
+    const generation = ++connectGeneration;
+    const attempt = async (): Promise<void> => {
+      // This attempt failed. Inside a retry loop that is a step, not an outcome:
+      // the message is kept for connectRetry to report if the window runs out,
+      // and the UI stays on "connecting" instead of blinking the offline card.
+      const failed = (msg: string) => {
+        lastConnectError = msg;
+        if (connectRetryDepth > 0) set({ status: "connecting" });
+        else set({ error: msg, status: "error" });
+      };
+      // Quiet teardown of any previous connection: within a (re)connect the
+      // status must never pass through "offline" — on first boot the retry loop
+      // runs for minutes (macOS TCC) and each flip repaints the whole page.
+      // ACP agents are not part of this connection: they run beside it, keep
+      // their sessions across folder moves, and outlive every reconnect.
+      teardownClient();
+      let directory: string | null;
+      let password: string | null;
+      let baseUrl = get().serverUrl;
+      // Artifact path resolutions are relative to the workspace folder, so a
+      // connect that lands somewhere else must not reuse them (#92).
+      const previousWorkspace = get().workspace;
+      if (isGatewayWeb) {
+        // Web client: same-origin gateway; the pasted token is the OpenCodeClient
+        // password, and the workspace directory comes from /v1/whoami.
+        baseUrl = gatewayOrigin();
+        password = gatewayToken();
+        directory = null;
+        let readOnly = false;
+        let terminal = false;
+        let user: string | null = null;
+        try {
+          const r = await fetch(`${baseUrl}/v1/whoami`, {
+            headers: password ? { Authorization: `Bearer ${password}` } : {},
           });
+          if (r.ok) {
+            const who = (await r.json()) as {
+              directory?: string;
+              mode?: string;
+              terminal?: boolean;
+              user?: string | null;
+            };
+            // The folder this browser opened, if any; otherwise the host's.
+            directory = get().webWorkspace ?? who.directory ?? null;
+            // A read-only token 403s every write — surface that in the UI
+            // instead of letting "New session" / the composer fail opaquely.
+            readOnly = who.mode === "read-only";
+            terminal = who.terminal === true;
+            user = who.user ?? null;
+          }
+        } catch {
+          /* whoami is best-effort; the client still connects */
+        }
+        set({ serverUrl: baseUrl, workspace: directory, webReadOnly: readOnly, webTerminal: terminal, webUser: user });
+        setSignedInAccount(user);
+        // An account's Screens live on the desktop, the same at every address;
+        // the token shares the desktop window's own, live.
+        void import("./layoutSync").then(({ adoptAccountLayout, mirrorDesktopLayout }) =>
+          user ? adoptAccountLayout() : mirrorDesktopLayout(),
+        );
+      } else {
+        // Scope skill discovery to the sidecar's workspace (null in browser dev).
+        directory = await workspacePath();
+        set({ workspace: directory, approvalMode: await getApprovalMode() });
+        if (!samePath(previousWorkspace, directory)) clearResolvedPaths();
+        // The bundled sidecar requires per-run Basic auth; browser dev (no Tauri)
+        // gets null and connects to a user-run passwordless server.
+        password = await runtimePassword();
+      }
+      // A newer connect started while this one was reading its settings: it owns
+      // the connection now.
+      if (generation !== connectGeneration) {
+        void logDebug("connect superseded by a newer one");
+        return latestConnect ?? undefined;
+      }
+      const c = new OpenCodeClient({
+        baseUrl,
+        directory: directory ?? undefined,
+        password: password ?? undefined,
+        eventStream,
+        config: configStore(),
+        onHistoryUpgrade: (historyUpgrade) => set({ historyUpgrade }),
+      });
+      opencodeClient = c;
+      client = c;
+      // Background streams reuse the same sidecar; the foreground now streams
+      // this folder, so drop any background stream that was covering it (avoid a
+      // double fold of the same events).
+      streamBaseUrl = baseUrl;
+      streamPassword = password ?? undefined;
+      if (directory) removeStreamClient(directory);
+      clientStatusUnsub = c.onStatus((status) => {
+        const shown = visibleStatus(status);
+        // Log what the runtime said AND what the UI was given, so a report of
+        // "it flickered" can be read straight off the log.
+        void logDebug(`status → ${status}${shown === status ? "" : ` (held as ${shown})`}`);
+        if (status === "connecting" && get().status === "ready") {
+          // Hold the flip for STATUS_BLIP_GRACE_MS: if the SDK's own reconnect
+          // lands first ("ready" clears the timer), the UI never sees the blip.
+          if (statusBlipTimer === null)
+            statusBlipTimer = setTimeout(() => {
+              statusBlipTimer = null;
+              set({ status: "connecting" });
+            }, STATUS_BLIP_GRACE_MS);
           return;
         }
-        if (sid && interruptedSessions.has(sid)) return;
-        // A real failure (not an interrupt's own "aborted"): remember it so the
-        // completion notification can say "failed" instead of "done".
-        // `remember`, not a bare add: this is only cleared when that same
-        // session starts another turn, so a session that errors and is never
-        // returned to would sit in the set for the life of the process. Every
-        // other marker here is capped for the same reason.
-        if (sid) remember(erroredSessions, sid);
-        // The retry notice this session is carrying (about to be cleared below)
-        // is the only place the CAUSE was ever named: the final error text says
-        // what failed, the action said why the account could not make the call.
-        // Any streamed output between the last attempt and the failure would
-        // have cleared the notice first; the two causes that set an action are
-        // both refused before a token is produced, so that window stays shut.
-        const message = explainRuntimeError(
-          event.message,
-          sid ? get().retryNotices[sid]?.action : undefined,
-        );
-        if (sid) {
-          // This path ends the turn instead of session.idle (and returns before
-          // the fold), so it owes the same auto-review bookkeeping: a turn that
-          // died is not reviewed — the work is half-finished — but a REVIEW that
-          // died must hand its slot back, or no session is ever reviewed again.
-          onTurnIdle(set, get, sid, false);
-          set((s) => {
-            const cur = s.threads[sid] ?? emptyThread();
-            const runningSessions = { ...s.runningSessions };
-            delete runningSessions[sid];
-            const retryNotices = { ...s.retryNotices };
-            delete retryNotices[sid];
-            return {
-              runningSessions,
-              retryNotices,
-              threads: {
-                ...s.threads,
-                [sid]: {
-                  ...cur,
-                  loaded: true,
-                  blocks: [...cur.blocks, { kind: "status-line", text: message, tone: "error" }],
+        clearStatusBlip();
+        set({ status: shown });
+      });
+      if (!sharedEventHandler)
+        sharedEventHandler = (event) => {
+        // text.updated fires per streamed token, and a running bash tool fires
+        // per stdout write (tqdm redraws dozens of times a second) — logging
+        // each one would flood debug.log with an IPC call per event.
+        if (
+          event.type !== "text.updated" &&
+          event.type !== "reasoning.updated" &&
+          !(event.type === "tool.updated" && event.status === "running")
+        )
+          void logDebug(
+            `event ← ${event.type}${"sessionId" in event ? " " + event.sessionId : ""}` +
+              // An error's TEXT is the whole diagnostic value; logging only "error"
+              // meant a real report ("Request blocked." on every retry) could not be
+              // explained without reading the runtime's SQLite by hand. Redacted and
+              // capped: a provider echoing a credential back must not land on disk.
+              (event.type === "error" ? `: ${redactForLog(event.message)}` : ""),
+          );
+        if (
+          "sessionId" in event &&
+          event.sessionId &&
+          retiredBackgroundReviews.has(event.sessionId)
+        )
+          return;
+        const backgroundReviewParent =
+          "sessionId" in event && event.sessionId
+            ? backgroundReviewJobs.get(event.sessionId)?.parentId
+            : undefined;
+        const isBackgroundReviewResult =
+          event.type === "text.updated" &&
+          backgroundReviewResultParts.has(`${event.sessionId}:${event.partId}`);
+        if ("sessionId" in event && event.sessionId) {
+          const sid = event.sessionId;
+          sseLast.set(sid, ++sseSeq);
+          while (sseLast.size > 500) {
+            const oldest = sseLast.keys().next().value;
+            if (oldest === undefined) break;
+            sseLast.delete(oldest);
+          }
+          // Stall guard: feed the event into the session's ledger and check for a
+          // verdict. Excluded for a background review's own turn — its repetition
+          // is part of the parent turn the user is watching, and it is a hidden
+          // turn the user never sent. Subagent sessions are NOT excluded: a
+          // subagent stuck in a loop is exactly what the user wants to be told
+          // about (unlike a settlement notification, which would be noise). The
+          // interrupted flag is honoured: after the user hits Stop the abort's
+          // own trailing events must not raise a "stuck?" warning over a turn the
+          // user already chose to end.
+          if (
+            !backgroundReviewParent &&
+            !retiredBackgroundReviews.has(sid) &&
+            !interruptedSessions.has(sid)
+          ) {
+            feedStallEvent(sid, event, Date.now());
+          }
+          // First streamed token after a send → log latency (multi-pane probe).
+          const posted = turnPostAt.get(event.sessionId);
+          if (posted !== undefined && (event.type === "text.updated" || event.type === "reasoning.updated")) {
+            turnPostAt.delete(event.sessionId);
+            void logDebug(`first token ← ${event.sessionId} ${Math.round(performance.now() - posted)}ms`);
+          }
+          // A streamed sign of life re-locks the session even when THIS app never
+          // started its turn — after a reload the locks are gone (in-memory only)
+          // while the server keeps working. Without this the Stop affordance never
+          // comes back and a live turn can no longer be interrupted (#59). A
+          // session the user just interrupted is exempt: the abort's own trailing
+          // events must not resurrect its lock.
+          // A stale re-lock (an SSE replay of a finished turn) is self-healing —
+          // reconcileRunning checks the server and unlocks within one poll.
+          const active = event.sessionId;
+          if (
+            ACTIVITY_EVENTS.has(event.type) &&
+            !backgroundReviewParent &&
+            !isBackgroundReviewResult &&
+            !interruptedSessions.has(active) &&
+            !get().runningSessions[active]
+          ) {
+            set((s) => ({ runningSessions: { ...s.runningSessions, [active]: true } }));
+          }
+        }
+        // #157: coalesce streamed text/reasoning deltas. Everything above (stall
+        // guard, first-token latency, re-lock) still sees the raw stream; only
+        // the fold below is rate-capped. Leading edge folds immediately; a burst
+        // inside the window buffers (latest per part wins) and flushes trailing.
+        const eventSid = "sessionId" in event ? event.sessionId : undefined;
+        if (eventSid) {
+          const key = coalesceKey(event);
+          if (!key) {
+            // Any other event supersedes the pending deltas: fold them first so
+            // block order and causal order match the raw stream exactly.
+            flushStreamCoalesce(eventSid);
+          } else {
+            const now = Date.now();
+            const last = streamCoalesceLast.get(eventSid) ?? 0;
+            const pending = streamCoalesce.get(eventSid);
+            if (!pending && now - last >= STREAM_COALESCE_MS) {
+              streamCoalesceLast.set(eventSid, now);
+              // Leading edge: fall through to the normal path and fold now.
+            } else {
+              const entry = pending ?? { timer: null, queue: [] };
+              upsertCoalesced(entry.queue, key, event as CoalescedEntry["event"]);
+              if (entry.timer === null)
+                entry.timer = window.setTimeout(
+                  () => flushStreamCoalesce(eventSid),
+                  Math.max(1, STREAM_COALESCE_MS - (now - last)),
+                );
+              streamCoalesce.set(eventSid, entry);
+              // A retried attempt's first token still lifts the retry banner on
+              // time — the buffered path would otherwise skip the clear below.
+              if (get().retryNotices[eventSid]) {
+                set((s) => {
+                  const retryNotices = { ...s.retryNotices };
+                  delete retryNotices[eventSid];
+                  return { retryNotices };
+                });
+              }
+              return;
+            }
+          }
+        }
+        if (event.type === "error") {
+          // A session-scoped error belongs IN the conversation (a red status
+          // line where the user is looking), and it ends that session's turn so
+          // the composer unlocks. Errors without a session keep the banner.
+          const sid = event.sessionId;
+          // After a user interrupt the abort's own "aborted" error is expected —
+          // the thread already says "Interrupted"; don't add a second red line.
+          if (sid) clearLiveFolds(sid);
+          if (sid) clearStreamCoalesce(sid);
+          if (sid && backgroundReviewParent) {
+            finishAutoReview(set, get, sid, false);
+            set((s) => {
+              const runningSessions = { ...s.runningSessions };
+              const retryNotices = { ...s.retryNotices };
+              delete runningSessions[sid];
+              delete retryNotices[sid];
+              return { runningSessions, retryNotices };
+            });
+            return;
+          }
+          if (sid && interruptedSessions.has(sid)) return;
+          // A real failure (not an interrupt's own "aborted"): remember it so the
+          // completion notification can say "failed" instead of "done".
+          // `remember`, not a bare add: this is only cleared when that same
+          // session starts another turn, so a session that errors and is never
+          // returned to would sit in the set for the life of the process. Every
+          // other marker here is capped for the same reason.
+          if (sid) remember(erroredSessions, sid);
+          // The retry notice this session is carrying (about to be cleared below)
+          // is the only place the CAUSE was ever named: the final error text says
+          // what failed, the action said why the account could not make the call.
+          // Any streamed output between the last attempt and the failure would
+          // have cleared the notice first; the two causes that set an action are
+          // both refused before a token is produced, so that window stays shut.
+          const message = explainRuntimeError(
+            event.message,
+            sid ? get().retryNotices[sid]?.action : undefined,
+          );
+          if (sid) {
+            // This path ends the turn instead of session.idle (and returns before
+            // the fold), so it owes the same auto-review bookkeeping: a turn that
+            // died is not reviewed — the work is half-finished — but a REVIEW that
+            // died must hand its slot back, or no session is ever reviewed again.
+            onTurnIdle(set, get, sid, false);
+            set((s) => {
+              const cur = s.threads[sid] ?? emptyThread();
+              const runningSessions = { ...s.runningSessions };
+              delete runningSessions[sid];
+              const retryNotices = { ...s.retryNotices };
+              delete retryNotices[sid];
+              return {
+                runningSessions,
+                retryNotices,
+                threads: {
+                  ...s.threads,
+                  [sid]: {
+                    ...cur,
+                    loaded: true,
+                    blocks: [...cur.blocks, { kind: "status-line", text: message, tone: "error" }],
+                  },
+                },
+              };
+            });
+            // This one failure the user cannot act on without help: the bad
+            // message is indistinguishable by eye, and every retry resends it.
+            if (MALFORMED_HISTORY.test(event.message)) {
+              void diagnoseMalformedHistory(set, get, sid);
+            }
+          } else {
+            set({ error: message });
+          }
+          return;
+        }
+        // Interactive requests live outside the thread blocks (transient UI).
+        switch (event.type) {
+          case "question.asked":
+            set((s) => ({
+              questions: [...s.questions.filter((q) => q.requestId !== event.requestId), event],
+            }));
+            return;
+          case "question.resolved":
+            set((s) => ({ questions: s.questions.filter((q) => q.requestId !== event.requestId) }));
+            return;
+          case "permission.asked":
+            // A folder the session's project has indexed is part of its work —
+            // the user already said so by moving the session in. Answered here,
+            // once per ask, never saved as a standing rule; anything else, or a
+            // reply that fails, still reaches the user.
+            if (withinLinkedFolders(event, get().sessions, get().projects, get().sessionParents)) {
+              const c = clientForSession(get, event.sessionId);
+              if (c) {
+                void c.replyPermission(event.requestId, "once").catch(() =>
+                  set((s) => ({
+                    permissions: [...s.permissions.filter((p) => p.requestId !== event.requestId), event],
+                  })),
+                );
+                return;
+              }
+            }
+            if (!notifiedPermissions.has(event.requestId)) {
+              remember(notifiedPermissions, event.requestId);
+              void notifyPermissionRequest({ action: event.action, resources: event.resources });
+            }
+            set((s) => {
+              const permissions = [
+                ...s.permissions.filter((p) => p.requestId !== event.requestId),
+                event,
+              ];
+              // Mark the tool the agent is blocked on — the newest running/pending
+              // step in this session — as waiting-approval, right in the transcript
+              // (not just the separate permission card). The permission event has
+              // no callID to match on, but the blocked tool is always the latest
+              // active one. The next tool.updated restores its real status.
+              const sid = event.sessionId;
+              const cur = sid ? s.threads[sid] : undefined;
+              if (!cur) return { permissions };
+              const blocks = [...cur.blocks];
+              for (let i = blocks.length - 1; i >= 0; i--) {
+                const b = blocks[i];
+                if (b.kind === "tool-call" && (b.status === "running" || b.status === "pending")) {
+                  blocks[i] = { ...b, status: "waiting-approval" };
+                  return { permissions, threads: { ...s.threads, [sid]: { ...cur, blocks } } };
+                }
+              }
+              return { permissions };
+            });
+            return;
+          case "permission.resolved":
+            set((s) => {
+              const permissions = s.permissions.filter((p) => p.requestId !== event.requestId);
+              const sid = event.sessionId;
+              const cur = sid ? s.threads[sid] : undefined;
+              if (!cur) return { permissions };
+              let changed = false;
+              const blocks = cur.blocks.map((b) => {
+                if (b.kind === "tool-call" && b.status === "waiting-approval") {
+                  changed = true;
+                  return { ...b, status: "running" as const };
+                }
+                return b;
+              });
+              return changed
+                ? { permissions, threads: { ...s.threads, [sid]: { ...cur, blocks } } }
+                : { permissions };
+            });
+            return;
+          case "step.updated":
+            set((s) => ({ stepCounts: { ...s.stepCounts, [event.sessionId]: event.step } }));
+            return;
+          case "session.retry":
+            set((s) => ({
+              retryNotices: {
+                ...s.retryNotices,
+                [event.sessionId]: {
+                  attempt: event.attempt,
+                  message: event.message,
+                  ...(event.action ? { action: event.action } : {}),
                 },
               },
-            };
-          });
-          // This one failure the user cannot act on without help: the bad
-          // message is indistinguishable by eye, and every retry resends it.
-          if (MALFORMED_HISTORY.test(event.message)) {
-            void diagnoseMalformedHistory(set, get, sid);
+            }));
+            return;
+          case "user.message": {
+            const text = event.text.trim();
+            // The app's own injected turns are not the user's words (see historyToThread).
+            if (!text || text === AUTO_REVIEW_PROMPT || isGoalInjectedPrompt(text)) return;
+            set((s) => {
+              const cur = s.threads[event.sessionId];
+              if (!cur) return {};
+              const blocks = foldUserMessage(cur.blocks, event.messageID, text, {
+                sendingHere: !!s.sendingSessions[event.sessionId],
+                asTypedCommand: commandEchoReader(s.commands),
+              });
+              return blocks ? { threads: { ...s.threads, [event.sessionId]: { ...cur, blocks } } } : {};
+            });
+            return;
           }
-        } else {
-          set({ error: message });
-        }
-        return;
-      }
-      // Interactive requests live outside the thread blocks (transient UI).
-      switch (event.type) {
-        case "question.asked":
-          set((s) => ({
-            questions: [...s.questions.filter((q) => q.requestId !== event.requestId), event],
-          }));
-          return;
-        case "question.resolved":
-          set((s) => ({ questions: s.questions.filter((q) => q.requestId !== event.requestId) }));
-          return;
-        case "permission.asked":
-          // A folder the session's project has indexed is part of its work —
-          // the user already said so by moving the session in. Answered here,
-          // once per ask, never saved as a standing rule; anything else, or a
-          // reply that fails, still reaches the user.
-          if (withinLinkedFolders(event, get().sessions, get().projects, get().sessionParents)) {
-            const c = clientForSession(get, event.sessionId);
-            if (c) {
-              void c.replyPermission(event.requestId, "once").catch(() =>
+          case "message.agent": {
+            // A user message names its agent. This is how the pill follows
+            // OpenCode's own plan_exit "Yes" (it injects a build user message)
+            // — and it self-confirms our own sends. Any OTHER agent (the auto-review
+            // turn's `reviewer`, or a custom primary) is left alone: the pill only
+            // speaks for the two modes it can actually show, and must not claim
+            // "Build" because a turn the user did not send ran on something else.
+            if (event.agent === "plan" || event.agent === "build") {
+              const mode: AgentMode = event.agent;
+              if (get().sessionAgents[event.sessionId] !== mode)
                 set((s) => ({
-                  permissions: [...s.permissions.filter((p) => p.requestId !== event.requestId), event],
-                })),
-              );
-              return;
-            }
-          }
-          if (!notifiedPermissions.has(event.requestId)) {
-            remember(notifiedPermissions, event.requestId);
-            void notifyPermissionRequest({ action: event.action, resources: event.resources });
-          }
-          set((s) => {
-            const permissions = [
-              ...s.permissions.filter((p) => p.requestId !== event.requestId),
-              event,
-            ];
-            // Mark the tool the agent is blocked on — the newest running/pending
-            // step in this session — as waiting-approval, right in the transcript
-            // (not just the separate permission card). The permission event has
-            // no callID to match on, but the blocked tool is always the latest
-            // active one. The next tool.updated restores its real status.
-            const sid = event.sessionId;
-            const cur = sid ? s.threads[sid] : undefined;
-            if (!cur) return { permissions };
-            const blocks = [...cur.blocks];
-            for (let i = blocks.length - 1; i >= 0; i--) {
-              const b = blocks[i];
-              if (b.kind === "tool-call" && (b.status === "running" || b.status === "pending")) {
-                blocks[i] = { ...b, status: "waiting-approval" };
-                return { permissions, threads: { ...s.threads, [sid]: { ...cur, blocks } } };
-              }
-            }
-            return { permissions };
-          });
-          return;
-        case "permission.resolved":
-          set((s) => {
-            const permissions = s.permissions.filter((p) => p.requestId !== event.requestId);
-            const sid = event.sessionId;
-            const cur = sid ? s.threads[sid] : undefined;
-            if (!cur) return { permissions };
-            let changed = false;
-            const blocks = cur.blocks.map((b) => {
-              if (b.kind === "tool-call" && b.status === "waiting-approval") {
-                changed = true;
-                return { ...b, status: "running" as const };
-              }
-              return b;
-            });
-            return changed
-              ? { permissions, threads: { ...s.threads, [sid]: { ...cur, blocks } } }
-              : { permissions };
-          });
-          return;
-        case "step.updated":
-          set((s) => ({ stepCounts: { ...s.stepCounts, [event.sessionId]: event.step } }));
-          return;
-        case "session.retry":
-          set((s) => ({
-            retryNotices: {
-              ...s.retryNotices,
-              [event.sessionId]: {
-                attempt: event.attempt,
-                message: event.message,
-                ...(event.action ? { action: event.action } : {}),
-              },
-            },
-          }));
-          return;
-        case "user.message": {
-          const text = event.text.trim();
-          // The app's own injected turns are not the user's words (see historyToThread).
-          if (!text || text === AUTO_REVIEW_PROMPT || isGoalInjectedPrompt(text)) return;
-          set((s) => {
-            const cur = s.threads[event.sessionId];
-            if (!cur) return {};
-            const blocks = foldUserMessage(cur.blocks, event.messageID, text, {
-              sendingHere: !!s.sendingSessions[event.sessionId],
-              asTypedCommand: commandEchoReader(s.commands),
-            });
-            return blocks ? { threads: { ...s.threads, [event.sessionId]: { ...cur, blocks } } } : {};
-          });
-          return;
-        }
-        case "message.agent": {
-          // A user message names its agent. This is how the pill follows
-          // OpenCode's own plan_exit "Yes" (it injects a build user message)
-          // — and it self-confirms our own sends. Any OTHER agent (the auto-review
-          // turn's `reviewer`, or a custom primary) is left alone: the pill only
-          // speaks for the two modes it can actually show, and must not claim
-          // "Build" because a turn the user did not send ran on something else.
-          if (event.agent === "plan" || event.agent === "build") {
-            const mode: AgentMode = event.agent;
-            if (get().sessionAgents[event.sessionId] !== mode)
-              set((s) => ({
-                sessionAgents: { ...s.sessionAgents, [event.sessionId]: mode },
-              }));
-          }
-          return;
-        }
-      }
-      const sid = event.sessionId;
-      if (!sid) return;
-      // Any other sign of life from the session supersedes its retry notice:
-      // an attempt is streaming again (text/tool events) or the turn is over.
-      if (get().retryNotices[sid]) {
-        set((s) => {
-          const retryNotices = { ...s.retryNotices };
-          delete retryNotices[sid];
-          return { retryNotices };
-        });
-      }
-      if (event.type === "session.idle") clearLiveFolds(sid);
-      if (event.type === "session.idle") clearStreamCoalesce(sid);
-      // A manual compaction finished: the "Context compacted" seam just folded
-      // in, so subsequent turns already run on the bounded context. Clear the
-      // composer spinner and confirm. Idle also clears, as a safety net: a
-      // compaction that ends without a visible part must not pin the flag and
-      // leave the button spinning forever.
-      if (
-        get().compactingSessions[sid] &&
-        (event.type === "session.compacted" || event.type === "session.idle")
-      ) {
-        set((s) => {
-          const compactingSessions = { ...s.compactingSessions };
-          delete compactingSessions[sid];
-          return { compactingSessions };
-        });
-        if (event.type === "session.compacted") toast.success(i18n.t("runtime.compact.done"));
-      }
-      // Idle after a user interrupt: the thread already ends with "Interrupted"
-      // — keep the locks clear and skip the fold. An abort can emit MORE than
-      // one idle, so the guard must survive every trailing idle (`.has`, not
-      // `.delete`); it is cleared when the next turn starts (see `turn → sid`).
-      if (event.type === "session.idle" && interruptedSessions.has(sid)) {
-        set((s) => {
-          const runningSessions = { ...s.runningSessions };
-          const shellTurns = { ...s.shellTurns };
-          delete runningSessions[sid];
-          delete shellTurns[sid];
-          return { runningSessions, shellTurns };
-        });
-        // A turn the user stopped is not reviewed — half-finished work is not
-        // what a review is for — but a stopped REVIEW still has to hand back
-        // its slot.
-        onTurnIdle(set, get, sid, false);
-        void get().refreshSessions();
-        return;
-      }
-      // Only a file the agent actually wrote earns a review; a read-only turn
-      // (questions, searches, plain analysis) has nothing to audit.
-      if (
-        event.type === "tool.updated" &&
-        !backgroundReviewParent &&
-        isMutatingTool(event.tool, event.status)
-      ) {
-        // Credited to the session at the top of the subagent chain, not to the one
-        // that ran the tool. A subagent's own session is never reviewed (see the
-        // `isSubagent` gate) because its parent's turn is what gets reviewed — so
-        // attributing the write to the child meant a turn that delegated ALL of
-        // its file work was reviewed by nobody.
-        const root = rootSessionOf(get().sessionParents, sid);
-        dirtyTurns.add(root);
-        const directPath = str(event.input?.filePath) || str(event.input?.path);
-        mergePaths(
-          dirtyTurnPaths,
-          root,
-          directPath
-            ? [directPath, ...provenanceInputsFromEvent(event).map((input) => input.path)]
-            : provenanceInputsFromEvent(event).map((input) => input.path),
-        );
-      }
-      // The agent reached a compute host that authenticates interactively and
-      // asked us to sign in (#73). The dialog opens here, in the conversation the
-      // user is already watching, and the tool waits for the shared connection —
-      // so the run continues instead of dying on "Permission denied".
-      if (
-        event.type === "tool.updated" &&
-        event.tool === "ssh_connect" &&
-        (event.status === "running" || event.status === "pending")
-      ) {
-        const host = str(event.input?.host);
-        if (host && !relayedSignIns.has(event.callId)) {
-          remember(relayedSignIns, event.callId);
-          void useSshStore.getState().connect(host);
-        }
-      }
-      // A task tool names the subagent session it spawned — remember the
-      // parent link so the child's permission/question asks surface in THIS
-      // conversation, and refresh the list so the child's title is known.
-      if (
-        event.type === "tool.updated" &&
-        event.childSessionId &&
-        get().sessionParents[event.childSessionId] !== sid
-      ) {
-        const child = event.childSessionId;
-        set((s) => ({ sessionParents: { ...s.sessionParents, [child]: sid } }));
-        void get().refreshSessions();
-      }
-      const applyFold = (ev: typeof event) =>
-        set((s) => {
-          const cur = s.threads[sid] ?? emptyThread();
-          const folded = foldEvent(
-            { blocks: cur.blocks, index: cur.index },
-            ev,
-            { shellTurn: !!s.shellTurns[sid] },
-          );
-          const threads = { ...s.threads, [sid]: { ...cur, ...folded, loaded: true } };
-          // The turn is over — unlock the composer and drop the "Working…" row.
-          // The shell flag clears HERE (not when the POST settles): within the
-          // SSE stream the bash-output event always precedes session.idle.
-          //
-          // ONLY session.idle may touch these three maps. Cloning them on every
-          // folded event handed a NEW identity to every whole-map subscriber on
-          // every streamed token — repainting every pane and the sidebar for a
-          // BACKGROUND session's stream, which is exactly what #34's per-field
-          // selectors exist to prevent. With concurrent subagents that fan-out
-          // multiplied per live child and starved the main thread (#50).
-          if (ev.type !== "session.idle") return { threads };
-          const runningSessions = { ...s.runningSessions };
-          const shellTurns = { ...s.shellTurns };
-          const stepCounts = { ...s.stepCounts };
-          delete runningSessions[sid];
-          delete shellTurns[sid];
-          delete stepCounts[sid];
-          return { runningSessions, shellTurns, stepCounts, threads };
-        });
-      // A running bash tool streams its stdout tail on every write — dozens
-      // of events per second under a progress bar. Fold at most one partial
-      // update per LIVE_FOLD_MS per call (latest wins); everything else
-      // (status changes, completion) folds immediately and supersedes.
-      if (event.type === "tool.updated" && !backgroundReviewParent) {
-        if (event.status === "running" && event.partialOutput !== undefined) {
-          const now = Date.now();
-          const last = liveFoldLast.get(event.callId) ?? 0;
-          if (now - last < LIVE_FOLD_MS) {
-            const pending = liveFoldPending.get(event.callId);
-            if (pending) pending.event = event;
-            else {
-              const callId = event.callId;
-              const timer = window.setTimeout(() => {
-                const p = liveFoldPending.get(callId);
-                liveFoldPending.delete(callId);
-                if (!p) return;
-                liveFoldLast.set(callId, Date.now());
-                applyFold(p.event);
-              }, LIVE_FOLD_MS - (now - last));
-              liveFoldPending.set(event.callId, { sessionId: sid, timer, event });
+                  sessionAgents: { ...s.sessionAgents, [event.sessionId]: mode },
+                }));
             }
             return;
           }
-          liveFoldLast.set(event.callId, now);
-        } else {
-          const pending = liveFoldPending.get(event.callId);
-          if (pending) {
-            window.clearTimeout(pending.timer);
-            liveFoldPending.delete(event.callId);
-          }
-          liveFoldLast.delete(event.callId);
         }
-      }
-      applyFold(event);
-      // After the fold, which is what clears this session's running lock — the
-      // review claims it again for its own turn.
-      if (event.type === "session.idle") onTurnIdle(set, get, sid, true);
-      const presentationEventKey =
-        event.type === "tool.updated" ? `${sid}:${event.callId}` : null;
-      if (
-        event.type === "tool.updated" &&
-        presentationEventKey &&
-        !handledPresentations.has(presentationEventKey)
-      ) {
-        const presentation = deriveArtifactPresentation(event);
-        if (presentation?.display === "panel") {
-          remember(handledPresentations, presentationEventKey);
-          if (presentation.target === "new-session") {
-            void (async () => {
-              const sourceDirectory =
-                get().sessions.find((session) => session.id === sid)?.directory ?? get().workspace;
-              let presentationClient: AgentRuntime | null = client;
-              let temporaryClient: OpenCodeClient | null = null;
-              try {
-                if (sourceDirectory && sourceDirectory !== get().workspace) {
-                  presentationClient = streamClients.get(sourceDirectory) ?? null;
-                  if (!presentationClient && streamBaseUrl) {
-                    temporaryClient = new OpenCodeClient({
-                      baseUrl: streamBaseUrl,
-                      directory: sourceDirectory,
-                      password: streamPassword,
-                      eventStream,
-                    });
-                    await temporaryClient.connect();
-                    presentationClient = temporaryClient;
-                  }
-                }
-                if (!presentationClient) throw new Error("The source workspace is not connected.");
-                const title =
-                  presentation.artifact.presentation?.title ?? presentation.artifact.filename;
-                const dedicatedSessionId = await presentationClient.createSession(title);
-                await get().refreshSessions();
-                set((state) => ({
-                  sessions: state.sessions.some((session) => session.id === dedicatedSessionId)
-                    ? state.sessions
-                    : [
-                        {
-                          id: dedicatedSessionId,
-                          title,
-                          ...(sourceDirectory ? { directory: sourceDirectory } : {}),
-                          created: Date.now(),
-                          updated: Date.now(),
-                        },
-                        ...state.sessions,
-                      ],
-                  threads: {
-                    ...state.threads,
-                    [dedicatedSessionId]: {
-                      ...(state.threads[dedicatedSessionId] ?? emptyThread()),
-                      loaded: true,
-                    },
-                  },
-                }));
-                useLayoutStore
-                  .getState()
-                  .presentArtifact(
-                    dedicatedSessionId,
-                    presentation.artifact,
-                    presentation.placement,
-                    "new-screen",
-                  );
-              } finally {
-                temporaryClient?.close();
-              }
-            })().catch((error) =>
-              set({ error: error instanceof Error ? error.message : String(error) }),
-            );
-          } else {
-            useLayoutStore
-              .getState()
-              .presentArtifact(
-                sid,
-                presentation.artifact,
-                presentation.placement,
-                presentation.target,
-              );
-          }
+        const sid = event.sessionId;
+        if (!sid) return;
+        // Any other sign of life from the session supersedes its retry notice:
+        // an attempt is streaming again (text/tool events) or the turn is over.
+        if (get().retryNotices[sid]) {
+          set((s) => {
+            const retryNotices = { ...s.retryNotices };
+            delete retryNotices[sid];
+            return { retryNotices };
+          });
         }
-      }
-      // A completed live write becomes a provenance version. One apply_patch call
-      // can touch many files, so dedupe per (call, path) rather than per call.
-      if (event.type === "tool.updated") {
-        for (const input of provenanceInputsFromEvent(event)) {
-          const key = `${event.callId}:${input.path}`;
-          if (recordedProvenance.has(key)) continue;
-          remember(recordedProvenance, key);
-          void recordProvenance(input, sid, get().defaultModel, event.callId);
+        if (event.type === "session.idle") clearLiveFolds(sid);
+        if (event.type === "session.idle") clearStreamCoalesce(sid);
+        // A manual compaction finished: the "Context compacted" seam just folded
+        // in, so subsequent turns already run on the bounded context. Clear the
+        // composer spinner and confirm. Idle also clears, as a safety net: a
+        // compaction that ends without a visible part must not pin the flag and
+        // leave the button spinning forever.
+        if (
+          get().compactingSessions[sid] &&
+          (event.type === "session.compacted" || event.type === "session.idle")
+        ) {
+          set((s) => {
+            const compactingSessions = { ...s.compactingSessions };
+            delete compactingSessions[sid];
+            return { compactingSessions };
+          });
+          if (event.type === "session.compacted") toast.success(i18n.t("runtime.compact.done"));
         }
-      }
-      // A completed experiment execution (bash running code) becomes a run —
-      // its reproducibility recipe (once per call).
-      if (
-        event.type === "tool.updated" &&
-        !backgroundReviewParent &&
-        !recordedRuns.has(event.callId)
-      ) {
-        const run = runInputFromEvent(event);
-        if (run) {
-          remember(recordedRuns, event.callId);
-          void recordRun(run, sid, get().defaultModel);
+        // Idle after a user interrupt: the thread already ends with "Interrupted"
+        // — keep the locks clear and skip the fold. An abort can emit MORE than
+        // one idle, so the guard must survive every trailing idle (`.has`, not
+        // `.delete`); it is cleared when the next turn starts (see `turn → sid`).
+        if (event.type === "session.idle" && interruptedSessions.has(sid)) {
+          set((s) => {
+            const runningSessions = { ...s.runningSessions };
+            const shellTurns = { ...s.shellTurns };
+            delete runningSessions[sid];
+            delete shellTurns[sid];
+            return { runningSessions, shellTurns };
+          });
+          // A turn the user stopped is not reviewed — half-finished work is not
+          // what a review is for — but a stopped REVIEW still has to hand back
+          // its slot.
+          onTurnIdle(set, get, sid, false);
+          void get().refreshSessions();
+          return;
         }
-      }
-      if (event.type === "session.idle" && !backgroundReviewParent) {
-        syncAcpConfig(set, get, sid);
-        void get().refreshSessions();
-        // Name the session in the snapshot: a project folder is shared by many
-        // sessions, and its git history must say which one made each change.
-        const sessionName = get().sessions.find((s) => s.id === sid)?.title || sid;
-        void commitWorkspaceSnapshot(`Snapshot session changes (${sessionName})`)
-          .then((committed) => {
-            if (committed) void logDebug(`git snapshot ✓ ${sid}`);
-          })
-          .catch((err) =>
-            logDebug(`git snapshot skipped for ${sid}: ${err instanceof Error ? err.message : String(err)}`),
+        // Only a file the agent actually wrote earns a review; a read-only turn
+        // (questions, searches, plain analysis) has nothing to audit.
+        if (
+          event.type === "tool.updated" &&
+          !backgroundReviewParent &&
+          isMutatingTool(event.tool, event.status)
+        ) {
+          // Credited to the session at the top of the subagent chain, not to the one
+          // that ran the tool. A subagent's own session is never reviewed (see the
+          // `isSubagent` gate) because its parent's turn is what gets reviewed — so
+          // attributing the write to the child meant a turn that delegated ALL of
+          // its file work was reviewed by nobody.
+          const root = rootSessionOf(get().sessionParents, sid);
+          dirtyTurns.add(root);
+          const directPath = str(event.input?.filePath) || str(event.input?.path);
+          mergePaths(
+            dirtyTurnPaths,
+            root,
+            directPath
+              ? [directPath, ...provenanceInputsFromEvent(event).map((input) => input.path)]
+              : provenanceInputsFromEvent(event).map((input) => input.path),
           );
-      }
-      // The agent finished a skill install: it wrote the skill into THIS
-      // session's workspace, which the next dated session folder would leave
-      // behind — copy it into the profile's user skills dir, where OpenCode
-      // finds it from every workspace (#61).
-      if (event.type === "session.idle" && pendingSkillInstall?.sessionId === sid) {
-        const pending = pendingSkillInstall;
-        // Disarmed while the copy runs, so a second idle cannot adopt twice.
-        pendingSkillInstall = null;
-        void get()
-          .reloadRuntimeConfig(async () => {
-            const adopted = await adoptWorkspaceSkills(pending.known);
-            if (!adopted.length) {
-              // The turn may have stopped to ask a question or wait for an
-              // approval — stay armed for the turn that finishes the install
-              // (unless another install has started meanwhile).
-              pendingSkillInstall ??= pending;
+        }
+        // The agent reached a compute host that authenticates interactively and
+        // asked us to sign in (#73). The dialog opens here, in the conversation the
+        // user is already watching, and the tool waits for the shared connection —
+        // so the run continues instead of dying on "Permission denied".
+        if (
+          event.type === "tool.updated" &&
+          event.tool === "ssh_connect" &&
+          (event.status === "running" || event.status === "pending")
+        ) {
+          const host = str(event.input?.host);
+          if (host && !relayedSignIns.has(event.callId)) {
+            remember(relayedSignIns, event.callId);
+            void useSshStore.getState().connect(host);
+          }
+        }
+        // A task tool names the subagent session it spawned — remember the
+        // parent link so the child's permission/question asks surface in THIS
+        // conversation, and refresh the list so the child's title is known.
+        if (
+          event.type === "tool.updated" &&
+          event.childSessionId &&
+          get().sessionParents[event.childSessionId] !== sid
+        ) {
+          const child = event.childSessionId;
+          set((s) => ({ sessionParents: { ...s.sessionParents, [child]: sid } }));
+          void get().refreshSessions();
+        }
+        const applyFold = (ev: typeof event) =>
+          set((s) => {
+            const cur = s.threads[sid] ?? emptyThread();
+            const folded = foldEvent(
+              { blocks: cur.blocks, index: cur.index },
+              ev,
+              { shellTurn: !!s.shellTurns[sid] },
+            );
+            const threads = { ...s.threads, [sid]: { ...cur, ...folded, loaded: true } };
+            // The turn is over — unlock the composer and drop the "Working…" row.
+            // The shell flag clears HERE (not when the POST settles): within the
+            // SSE stream the bash-output event always precedes session.idle.
+            //
+            // ONLY session.idle may touch these three maps. Cloning them on every
+            // folded event handed a NEW identity to every whole-map subscriber on
+            // every streamed token — repainting every pane and the sidebar for a
+            // BACKGROUND session's stream, which is exactly what #34's per-field
+            // selectors exist to prevent. With concurrent subagents that fan-out
+            // multiplied per live child and starved the main thread (#50).
+            if (ev.type !== "session.idle") return { threads };
+            const runningSessions = { ...s.runningSessions };
+            const shellTurns = { ...s.shellTurns };
+            const stepCounts = { ...s.stepCounts };
+            delete runningSessions[sid];
+            delete shellTurns[sid];
+            delete stepCounts[sid];
+            return { runningSessions, shellTurns, stepCounts, threads };
+          });
+        // A running bash tool streams its stdout tail on every write — dozens
+        // of events per second under a progress bar. Fold at most one partial
+        // update per LIVE_FOLD_MS per call (latest wins); everything else
+        // (status changes, completion) folds immediately and supersedes.
+        if (event.type === "tool.updated" && !backgroundReviewParent) {
+          if (event.status === "running" && event.partialOutput !== undefined) {
+            const now = Date.now();
+            const last = liveFoldLast.get(event.callId) ?? 0;
+            if (now - last < LIVE_FOLD_MS) {
+              const pending = liveFoldPending.get(event.callId);
+              if (pending) pending.event = event;
+              else {
+                const callId = event.callId;
+                const timer = window.setTimeout(() => {
+                  const p = liveFoldPending.get(callId);
+                  liveFoldPending.delete(callId);
+                  if (!p) return;
+                  liveFoldLast.set(callId, Date.now());
+                  applyFold(p.event);
+                }, LIVE_FOLD_MS - (now - last));
+                liveFoldPending.set(event.callId, { sessionId: sid, timer, event });
+              }
               return;
             }
-            toast.success(
-              i18n.t("pages:skills.install.installed", { name: adopted.join(", ") }),
+            liveFoldLast.set(event.callId, now);
+          } else {
+            const pending = liveFoldPending.get(event.callId);
+            if (pending) {
+              window.clearTimeout(pending.timer);
+              liveFoldPending.delete(event.callId);
+            }
+            liveFoldLast.delete(event.callId);
+          }
+        }
+        applyFold(event);
+        // After the fold, which is what clears this session's running lock — the
+        // review claims it again for its own turn.
+        if (event.type === "session.idle") onTurnIdle(set, get, sid, true);
+        const presentationEventKey =
+          event.type === "tool.updated" ? `${sid}:${event.callId}` : null;
+        if (
+          event.type === "tool.updated" &&
+          presentationEventKey &&
+          !handledPresentations.has(presentationEventKey)
+        ) {
+          const presentation = deriveArtifactPresentation(event);
+          if (presentation?.display === "panel") {
+            remember(handledPresentations, presentationEventKey);
+            if (presentation.target === "new-session") {
+              void (async () => {
+                const sourceDirectory =
+                  get().sessions.find((session) => session.id === sid)?.directory ?? get().workspace;
+                let presentationClient: AgentRuntime | null = client;
+                let temporaryClient: OpenCodeClient | null = null;
+                try {
+                  if (sourceDirectory && sourceDirectory !== get().workspace) {
+                    presentationClient = streamClients.get(sourceDirectory) ?? null;
+                    if (!presentationClient && streamBaseUrl) {
+                      temporaryClient = new OpenCodeClient({
+                        baseUrl: streamBaseUrl,
+                        directory: sourceDirectory,
+                        password: streamPassword,
+                        eventStream,
+                      });
+                      await temporaryClient.connect();
+                      presentationClient = temporaryClient;
+                    }
+                  }
+                  if (!presentationClient) throw new Error("The source workspace is not connected.");
+                  const title =
+                    presentation.artifact.presentation?.title ?? presentation.artifact.filename;
+                  const dedicatedSessionId = await presentationClient.createSession(title);
+                  await get().refreshSessions();
+                  set((state) => ({
+                    sessions: state.sessions.some((session) => session.id === dedicatedSessionId)
+                      ? state.sessions
+                      : [
+                          {
+                            id: dedicatedSessionId,
+                            title,
+                            ...(sourceDirectory ? { directory: sourceDirectory } : {}),
+                            created: Date.now(),
+                            updated: Date.now(),
+                          },
+                          ...state.sessions,
+                        ],
+                    threads: {
+                      ...state.threads,
+                      [dedicatedSessionId]: {
+                        ...(state.threads[dedicatedSessionId] ?? emptyThread()),
+                        loaded: true,
+                      },
+                    },
+                  }));
+                  useLayoutStore
+                    .getState()
+                    .presentArtifact(
+                      dedicatedSessionId,
+                      presentation.artifact,
+                      presentation.placement,
+                      "new-screen",
+                    );
+                } finally {
+                  temporaryClient?.close();
+                }
+              })().catch((error) =>
+                set({ error: error instanceof Error ? error.message : String(error) }),
+              );
+            } else {
+              useLayoutStore
+                .getState()
+                .presentArtifact(
+                  sid,
+                  presentation.artifact,
+                  presentation.placement,
+                  presentation.target,
+                );
+            }
+          }
+        }
+        // A completed live write becomes a provenance version. One apply_patch call
+        // can touch many files, so dedupe per (call, path) rather than per call.
+        if (event.type === "tool.updated") {
+          for (const input of provenanceInputsFromEvent(event)) {
+            const key = `${event.callId}:${input.path}`;
+            if (recordedProvenance.has(key)) continue;
+            remember(recordedProvenance, key);
+            void recordProvenance(input, sid, get().defaultModel, event.callId);
+          }
+        }
+        // A completed experiment execution (bash running code) becomes a run —
+        // its reproducibility recipe (once per call).
+        if (
+          event.type === "tool.updated" &&
+          !backgroundReviewParent &&
+          !recordedRuns.has(event.callId)
+        ) {
+          const run = runInputFromEvent(event);
+          if (run) {
+            remember(recordedRuns, event.callId);
+            void recordRun(run, sid, get().defaultModel);
+          }
+        }
+        if (event.type === "session.idle" && !backgroundReviewParent) {
+          syncAcpConfig(set, get, sid);
+          void get().refreshSessions();
+          // Name the session in the snapshot: a project folder is shared by many
+          // sessions, and its git history must say which one made each change.
+          const sessionName = get().sessions.find((s) => s.id === sid)?.title || sid;
+          void commitWorkspaceSnapshot(`Snapshot session changes (${sessionName})`)
+            .then((committed) => {
+              if (committed) void logDebug(`git snapshot ✓ ${sid}`);
+            })
+            .catch((err) =>
+              logDebug(`git snapshot skipped for ${sid}: ${err instanceof Error ? err.message : String(err)}`),
             );
-          })
-          .catch((err) => {
-            // This used to go only to the debug log, so a skill that never made
-            // it out of the session folder simply vanished when the next one was
-            // created and the user had nothing to go on (#103).
-            const detail = err instanceof Error ? err.message : String(err);
-            void logDebug(`skill adoption failed: ${detail}`);
-            toast.error(i18n.t("pages:skills.install.adoptFailed", { detail }));
-          });
+        }
+        // The agent finished a skill install: it wrote the skill into THIS
+        // session's workspace, which the next dated session folder would leave
+        // behind — copy it into the profile's user skills dir, where OpenCode
+        // finds it from every workspace (#61).
+        if (event.type === "session.idle" && pendingSkillInstall?.sessionId === sid) {
+          const pending = pendingSkillInstall;
+          // Disarmed while the copy runs, so a second idle cannot adopt twice.
+          pendingSkillInstall = null;
+          void get()
+            .reloadRuntimeConfig(async () => {
+              const adopted = await adoptWorkspaceSkills(pending.known);
+              if (!adopted.length) {
+                // The turn may have stopped to ask a question or wait for an
+                // approval — stay armed for the turn that finishes the install
+                // (unless another install has started meanwhile).
+                pendingSkillInstall ??= pending;
+                return;
+              }
+              toast.success(
+                i18n.t("pages:skills.install.installed", { name: adopted.join(", ") }),
+              );
+            })
+            .catch((err) => {
+              // This used to go only to the debug log, so a skill that never made
+              // it out of the session folder simply vanished when the next one was
+              // created and the user had nothing to go on (#103).
+              const detail = err instanceof Error ? err.message : String(err);
+              void logDebug(`skill adoption failed: ${detail}`);
+              toast.error(i18n.t("pages:skills.install.adoptFailed", { detail }));
+            });
+        }
+        };
+      c.onEvent(sharedEventHandler);
+      try {
+        void logDebug(`connect → ${get().serverUrl}`);
+        await c.connect();
+        void logDebug("connect OK");
+        // Take the status from the runtime rather than waiting for a transition:
+        // a REUSED ACP agent is already "ready", so its idempotent connect emits
+        // nothing and the store would sit on the "connecting" this attempt set.
+        lastConnectError = null;
+        set({ error: null, status: c.getStatus() });
+        await get().refreshSessions();
+        void get().refreshProjects();
+        // Catalog (skills/agents/commands) fills in behind the page — a session
+        // switch must not wait on it to show the conversation.
+        void get().loadCatalog();
+        // Every reconnect is a window where session.idle can have been missed
+        // (the event stream is directory-scoped and torn down on purpose) —
+        // check any session still holding a running lock against the server.
+        void get().reconcileRunning();
+        // Older versions wrote a blind 128k context limit for custom-endpoint
+        // models with an unknown window; on models whose real window is larger
+        // that guess made OpenCode manufacture a context-overflow and abort (#52).
+        // Reset those once per run. Desktop only: a gateway web client may hold a
+        // read-only token, and the host app does this anyway.
+        // (OpenCode config; an ACP agent has no such config to clean.)
+        const oc = opencodeClient;
+        if (!isGatewayWeb && !contextLimitsCleaned && oc) {
+          contextLimitsCleaned = true;
+          // Best-effort: deferred into a promise chain so no failure — even a
+          // synchronous throw — can flip an otherwise successful connect.
+          void Promise.resolve()
+            .then(() => oc.clearDefaultCustomModelContextLimits())
+            .catch((err) =>
+              logDebug(`context-limit cleanup skipped: ${err instanceof Error ? err.message : String(err)}`),
+            );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        void logDebug(`connect FAILED: ${msg}`);
+        failed(msg);
       }
-      };
-    c.onEvent(sharedEventHandler);
-    try {
-      void logDebug(`connect → ${get().serverUrl}`);
-      await c.connect();
-      void logDebug("connect OK");
-      // Take the status from the runtime rather than waiting for a transition:
-      // a REUSED ACP agent is already "ready", so its idempotent connect emits
-      // nothing and the store would sit on the "connecting" this attempt set.
-      lastConnectError = null;
-      set({ error: null, status: c.getStatus() });
-      await get().refreshSessions();
-      void get().refreshProjects();
-      // Catalog (skills/agents/commands) fills in behind the page — a session
-      // switch must not wait on it to show the conversation.
-      void get().loadCatalog();
-      // Every reconnect is a window where session.idle can have been missed
-      // (the event stream is directory-scoped and torn down on purpose) —
-      // check any session still holding a running lock against the server.
-      void get().reconcileRunning();
-      // Older versions wrote a blind 128k context limit for custom-endpoint
-      // models with an unknown window; on models whose real window is larger
-      // that guess made OpenCode manufacture a context-overflow and abort (#52).
-      // Reset those once per run. Desktop only: a gateway web client may hold a
-      // read-only token, and the host app does this anyway.
-      // (OpenCode config; an ACP agent has no such config to clean.)
-      const oc = opencodeClient;
-      if (!isGatewayWeb && !contextLimitsCleaned && oc) {
-        contextLimitsCleaned = true;
-        // Best-effort: deferred into a promise chain so no failure — even a
-        // synchronous throw — can flip an otherwise successful connect.
-        void Promise.resolve()
-          .then(() => oc.clearDefaultCustomModelContextLimits())
-          .catch((err) =>
-            logDebug(`context-limit cleanup skipped: ${err instanceof Error ? err.message : String(err)}`),
-          );
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      void logDebug(`connect FAILED: ${msg}`);
-      failed(msg);
-    }
+    };
+    const run = attempt();
+    latestConnect = run;
+    return run;
   },
 
   // First boot can be slow far beyond the process spawn: on a fresh install
@@ -4905,30 +4936,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (seq !== openSessionSeq || get().currentId !== id) return;
-      set((s) => ({
-        threads: {
-          ...s.threads,
-          [id]: {
-            ...emptyThread(),
-            loaded: true,
-            historyError: msg,
-            // The thread renders a retryable error line: `historyError` keeps
-            // the next open/Retry from being swallowed by the loaded-gate, so
-            // this failure is the end of ONE attempt, not of the session. The
-            // error is deliberately NOT mirrored into the global `error` (no
-            // stale banner): it is a session-level problem with a session-level
-            // way out (#139).
-            blocks: [
-              {
-                kind: "status-line",
-                text: `Failed to load messages: ${msg}`,
-                tone: "error",
-                retry: true,
-              },
-            ],
-          },
-        },
-      }));
+      void logDebug(`history FAILED ${id}: ${msg}`);
+      set((s) => ({ threads: { ...s.threads, [id]: historyFailedThread(msg) } }));
     }
   },
 
@@ -4940,6 +4949,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     // background pane self-heal on the next pass, and what powers the error
     // line's Retry action (#139).
     if (cur?.loaded && !cur?.historyError) return;
+    const started = Date.now();
     try {
       // getMessages is session-scoped (server routes by the session's folder),
       // so any connected client works — no folder switch, unlike openSession.
@@ -4948,6 +4958,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // Same reason as openSession: without the command templates a stored
       // slash-command expansion renders raw.
       if (catalogInFlight && get().commands.length === 0) await catalogInFlight;
+      void logDebug(`history ← ${id} ${messages.length} messages ${Date.now() - started}ms`);
       // Only skip when a REAL load landed meanwhile. A live fold sets `loaded`
       // but cannot clear a prior `historyError`, so it must not swallow our
       // reload — the fold's partial content would leave the stale error line
@@ -4963,11 +4974,17 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           ? { runningSessions: { ...s.runningSessions, [id]: true as const } }
           : {}),
       }));
-    } catch {
-      /* best-effort: a never-loaded pane keeps its skeleton; a thread that had
-       * already failed keeps its retryable error line. Either way a later
-       * load — focus via openSession, another pass here, or the Retry button —
-       * tries again. */
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      void logDebug(`history FAILED ${id} after ${Date.now() - started}ms: ${msg}`);
+      // A never-loaded pane said nothing: it kept its skeleton until some
+      // unrelated reconnect happened to load it again, minutes later. It gets
+      // the same retryable error line as a focused one. A live fold that
+      // landed meanwhile is kept; a later load (another pass, focus, Retry)
+      // replaces the error line.
+      if (!get().threads[id]?.loaded) {
+        set((s) => ({ threads: { ...s.threads, [id]: historyFailedThread(msg) } }));
+      }
     }
   },
 
@@ -5807,7 +5824,9 @@ export function foldEvent(
       return { blocks, index, todos: event.todos };
     case "session.compacted": {
       // One marker per compaction, appended where it happened so the reader
-      // can see which stretch of the conversation was summarized away.
+      // can see which stretch of the conversation was summarized away. Nothing
+      // since the last marker means this is the same compaction delivered again.
+      if (blocks[blocks.length - 1]?.kind === "compaction") return { blocks, index };
       blocks.push({
         kind: "compaction",
         auto: event.auto,

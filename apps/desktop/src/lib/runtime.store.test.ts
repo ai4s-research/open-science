@@ -321,7 +321,7 @@ vi.mock("@ai4s/sdk", () => {
 });
 
 import type { ArtifactBlock, ThreadBlock } from "@ai4s/shared";
-import { DRAFT_KEY, __resetStreamCoalesceForTests, adoptSourceFolder, rootSessionOf, useRuntimeStore } from "./runtime";
+import { DRAFT_KEY, __resetStreamCoalesceForTests, adoptSourceFolder, foldEvent, rootSessionOf, useRuntimeStore } from "./runtime";
 import { useSshStore } from "./ssh";
 import { useToastStore } from "./toast";
 import { leaves, makeLeaf, useLayoutStore } from "./layout";
@@ -658,6 +658,27 @@ describe("runtime authentication", () => {
     expect(mocks.clientOpts[mocks.clientOpts.length - 1]).toMatchObject({
       password: "pw-test",
     });
+  });
+
+  it("two overlapping connects make ONE client, so no event is folded twice", async () => {
+    // A runtime restart and the reconnect loop connected at the same moment:
+    // each tore down "the old client" before either had made one, both made
+    // one, and every event arrived twice (a compaction showed twice).
+    mocks.clientOpts.length = 0;
+    const first = useRuntimeStore.getState().connect();
+    const second = useRuntimeStore.getState().connect();
+    await Promise.all([first, second]);
+    expect(mocks.clientOpts).toHaveLength(1);
+    // The superseded caller waited for the winner instead of failing.
+    expect(useRuntimeStore.getState().status).toBe("ready");
+  });
+
+  it("folds one compaction once, however many times it is delivered", () => {
+    let t = { blocks: [] as ThreadBlock[], index: {} as Record<string, number> };
+    const compacted = { type: "session.compacted", sessionId: "s", auto: false } as const;
+    t = foldEvent(t, compacted);
+    t = foldEvent(t, compacted);
+    expect(t.blocks.filter((b) => b.kind === "compaction")).toHaveLength(1);
   });
 });
 
@@ -1296,6 +1317,29 @@ describe("per-session workspace folders", () => {
     expect(thread.historyError).toBeUndefined();
     expect(thread.blocks.some((b) => b.kind === "user" && b.text === "hi")).toBe(true);
     expect(useRuntimeStore.getState().currentId).toBe("ses_other");
+  });
+
+  it("a background pane whose first history load fails says so, instead of a skeleton forever", async () => {
+    mocks.failMessages = true;
+    useRuntimeStore.setState({
+      sessions: [{ id: "ses_bg", title: "Background", directory: "/ws/base" }],
+      currentId: "ses_other",
+      threads: {},
+    });
+    await useRuntimeStore.getState().loadHistory("ses_bg");
+    const failed = useRuntimeStore.getState().threads.ses_bg;
+    expect(failed.historyError).toBe("history hung");
+    expect(failed.blocks).toEqual([
+      { kind: "status-line", text: "Failed to load messages: history hung", tone: "error", retry: true },
+    ]);
+
+    // Retry (or the next pass) replaces the error line with the history.
+    mocks.failMessages = false;
+    mocks.messages = [{ role: "user", agent: "build", parts: [{ type: "text", text: "hi" }] }];
+    await useRuntimeStore.getState().loadHistory("ses_bg");
+    const thread = useRuntimeStore.getState().threads.ses_bg;
+    expect(thread.historyError).toBeUndefined();
+    expect(thread.blocks.some((b) => b.kind === "user" && b.text === "hi")).toBe(true);
   });
 
   it("switchWorkspace pins the chosen folder; startDraft un-pins it", async () => {
