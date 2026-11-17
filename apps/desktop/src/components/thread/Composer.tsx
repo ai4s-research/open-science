@@ -48,6 +48,7 @@ import { useUiStore } from "@/lib/store";
 import { parkDraft, unparkDraft } from "@/lib/composerStash";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
+import { pressOnPadding } from "@/lib/padPress";
 import { useLabelsOverflow } from "@/lib/useCompactWidth";
 import { isGatewayWeb } from "@/lib/webMode";
 import { discardUpload, uploadToWorkspace } from "@/lib/artifactFile";
@@ -958,19 +959,7 @@ export function Composer({
   return (
     <div
       {...webDrop}
-      // A press on the capsule's own padding is a press on the input: it must
-      // not start a page selection (a drag from there swept the conversation
-      // above into a selection, with the whole input box highlighted).
-      onMouseDown={(e) => {
-        const target = e.target as HTMLElement;
-        if (e.button !== 0 || target.closest("textarea, input, button, a, [role='option'], [role='listbox']")) return;
-        e.preventDefault();
-        const ta = taRef.current;
-        if (ta && document.activeElement !== ta) {
-          ta.focus();
-          ta.setSelectionRange(ta.value.length, ta.value.length);
-        }
-      }}
+      onMouseDown={(e) => pressOnPadding(e, taRef.current)}
       className={cn(
         // A capsule with no layout border: a hairline ring plus a soft wide
         // shadow (after DSH's composer card), so it floats over the thread.

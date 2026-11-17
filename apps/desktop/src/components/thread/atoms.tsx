@@ -16,6 +16,7 @@ import type {
 } from "@ai4s/shared";
 import { MessageMeta } from "./MessageMeta";
 import { cn } from "@/lib/cn";
+import { pressOnPadding } from "@/lib/padPress";
 import { LinkFolder, MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
 import { extractArtifactRefs, refToArtifactBlock } from "@/lib/artifacts";
 import { resolveArtifactPath } from "@/lib/artifactFile";
@@ -148,7 +149,10 @@ export const UserMessage = memo(function UserMessage({
   if (editing) {
     return (
       <div className="flex flex-col items-end">
-        <div className="w-full rounded-card border border-border bg-surface-2 p-2">
+        <div
+          className="w-full rounded-card border border-border bg-surface-2 p-2"
+          onMouseDown={(e) => pressOnPadding(e, areaRef.current)}
+        >
           <textarea
             ref={areaRef}
             value={draft}
