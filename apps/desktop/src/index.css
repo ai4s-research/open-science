@@ -295,6 +295,16 @@ body {
   overscroll-behavior: none;
 }
 
+/* Web client: the shell covers exactly the visible part of the page, keyboard
+   excluded (see lib/visibleViewport). */
+.app-viewport {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--vv-top, 0px);
+  height: var(--vv-height, 100%);
+}
+
 /* A real scroller reaching its end must not hand the leftover gesture to its
    ancestors (which is what made the window bounce from inside a list). Keyed to
    the utility classes the app actually scrolls with. */

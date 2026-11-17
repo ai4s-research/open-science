@@ -224,7 +224,12 @@ export function AppShell() {
     //
     // The window background lives on <main>, not the shell: under vibrancy
     // the area behind the (translucent) sidebar must stay transparent.
-    <div className="flex h-screen w-screen flex-col overflow-hidden text-text">
+    <div
+      className={cn(
+        "flex h-full w-full flex-col overflow-hidden text-text",
+        isGatewayWeb && "app-viewport",
+      )}
+    >
       <div className="flex min-h-0 flex-1">
         <Sidebar project={mockProject} />
         {/* Mobile: dim + close the overlay drawer by tapping outside it. */}

@@ -8,7 +8,8 @@ import { ThemeProvider } from "./app/providers/ThemeProvider";
 import { ZoomProvider } from "./app/providers/ZoomProvider";
 import { router } from "./app/router";
 import { logDebug } from "./lib/tauri";
-import { consumeUrlToken, installGatewayAuthGuard } from "./lib/webMode";
+import { consumeUrlToken, installGatewayAuthGuard, isGatewayWeb } from "./lib/webMode";
+import { installVisibleViewport } from "./lib/visibleViewport";
 import "./index.css";
 
 // Web client: adopt a token from the opened link (so a copied URL just works),
@@ -16,6 +17,7 @@ import "./index.css";
 // OpenCodeClient binds fetch or the app reads the stored token.
 consumeUrlToken();
 installGatewayAuthGuard();
+if (isGatewayWeb) installVisibleViewport();
 
 // Errors nothing caught go to debug.log too: a callback that throws can leave
 // a view stuck with no other trace (the console is not kept).

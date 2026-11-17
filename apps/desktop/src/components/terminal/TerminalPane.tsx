@@ -43,6 +43,7 @@ import { createImeGate, createKeyTranslator, createPunctuationPassThrough } from
 import { REPAINT_START, readRepaint, spliceRepaint, type Repaint } from "./terminalResize";
 import { openEscape } from "./terminalScreen";
 import { readCopiedFiles } from "./terminalPaste";
+import { installTapToType } from "./terminalTouch";
 
 /**
  * A real shell in a pane.
@@ -241,6 +242,7 @@ export function TerminalPane({
         return true;
       });
       term.open(container);
+      const untouch = installTapToType(container, term.textarea);
       // Files copied in Finder or Explorer reach the paste event with no
       // usable text, so xterm pasted nothing: paste their paths instead.
       // Caught before xterm's own listener; text pastes are left to it.
@@ -652,6 +654,7 @@ export function TerminalPane({
           void terminalTransport.release?.(leafId);
           container.removeEventListener("paste", onPaste, true);
           container.removeEventListener("input", onInput, true);
+          untouch();
           clearTimeout(pasteWait);
           input.dispose();
           links.dispose();
