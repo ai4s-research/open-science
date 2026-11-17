@@ -977,6 +977,15 @@ pub fn ensure(dir: &Path, osd: &Path) -> Result<Client, String> {
     }
 }
 
+/// `version` ("0.7.2", "0.7.3-beta.1") is before `than`. Unreadable is old.
+fn older_than(version: &str, than: (u32, u32, u32)) -> bool {
+    let mut parts = version.split(|c: char| !c.is_ascii_digit()).map(|p| p.parse::<u32>());
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(Ok(a)), Some(Ok(b)), Some(Ok(c))) => (a, b, c) < than,
+        _ => true,
+    }
+}
+
 /// True when some host of `dir`, of any build, may be running.
 pub fn any_host(dir: &Path) -> bool {
     state_path(dir, VERSION).is_file() || !older_state_paths(dir, VERSION).is_empty()
@@ -1003,7 +1012,39 @@ impl Hosts {
         let older = older_state_paths(dir, version).iter().filter_map(|p| Client::connect_at(p).ok()).collect();
         let mut hosts = Hosts { current, older, owners: HashMap::new() };
         let _ = hosts.list(); // learns the owners, retires idle older hosts
+        hosts.sweep_dead_readers();
         hosts
+    }
+
+    /// A host before 0.7.3 notices a reader that went away only when it writes
+    /// to it, and a quiet terminal writes nothing: each app restart left the
+    /// last app's readers open in it, until it ran out of files and refused
+    /// every pane (2026-11-17: 78 dead readers, 259 of 256 files). Resizing each
+    /// of its terminals one column wider and back makes the programs repaint
+    /// twice; writing those repaints, the host drops its dead readers. Run on
+    /// each connect, it clears the last app's readers before this one adds its
+    /// own. A newer host checks its readers itself.
+    fn sweep_dead_readers(&mut self) {
+        let mut swept = Vec::new();
+        for host in self.older.iter_mut().filter(|h| older_than(&h.welcome.version, (0, 7, 3))) {
+            let Ok(list) = host.list() else { continue };
+            for t in &list {
+                let _ = host.resize(&t.id, t.cols.saturating_add(1), t.rows);
+            }
+            swept.push(list);
+        }
+        if swept.is_empty() {
+            return;
+        }
+        // A program takes a moment to repaint; two resizes in a row would be
+        // read as one, back at the size it already had, and repaint nothing.
+        std::thread::sleep(Duration::from_millis(300));
+        let older = self.older.iter_mut().filter(|h| older_than(&h.welcome.version, (0, 7, 3)));
+        for (host, list) in older.zip(swept) {
+            for t in &list {
+                let _ = host.resize(&t.id, t.cols, t.rows);
+            }
+        }
     }
 
     /// The process id of this build's host.
@@ -1446,6 +1487,16 @@ mod tests {
         assert!(older_state_paths(&dir, VERSION).is_empty());
         hosts.close("new-term").unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_hosts_before_the_reader_check_are_swept() {
+        assert!(older_than("0.7.0", (0, 7, 3)));
+        assert!(older_than("0.7.2", (0, 7, 3)));
+        assert!(!older_than("0.7.3", (0, 7, 3)));
+        assert!(!older_than("0.8.0", (0, 7, 3)));
+        assert!(!older_than("1.0.0-beta.1", (0, 7, 3)));
+        assert!(older_than("garbage", (0, 7, 3)));
     }
 
     #[test]
