@@ -25,6 +25,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 vt100 = "0.18"
 # The terminal host (termd.rs) owns the PTYs; same version the desktop uses.
 portable-pty = "0.9"
+# Dated OpenAI list prices for ids the models.dev catalog does not carry.
+llm-prices = "1.8.0"
 
 # System proxy on Windows is read through WinHTTP (manual proxy, bypass list
 # and PAC evaluation) rather than by parsing the registry — see system_proxy.rs.

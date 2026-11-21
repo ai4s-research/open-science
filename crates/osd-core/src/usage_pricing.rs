@@ -358,11 +358,8 @@ fn builtin_codex_pricing(n: &str) -> Option<CodexPricing> {
     // Most specific first: `gpt-5.4-pro` must not be read as `gpt-5.4`.
     Some(match () {
         _ if has("gpt-5.5-pro") || has("gpt-5.4-pro") => price(30.0, 30.0, 180.0),
-        _ if has("gpt-5.6-luna") => price(1.0, 0.1, 6.0),
-        _ if has("gpt-5.6-sol") || has("gpt-5.5") => price(5.0, 0.5, 30.0),
-        _ if has("gpt-5.6-terra") || has("gpt-5.4") && !has("mini") && !has("nano") => {
-            price(2.5, 0.25, 15.0)
-        }
+        _ if has("gpt-5.5") => price(5.0, 0.5, 30.0),
+        _ if has("gpt-5.4") && !has("mini") && !has("nano") => price(2.5, 0.25, 15.0),
         _ if has("gpt-5.4-mini") => price(0.75, 0.075, 4.5),
         _ if has("gpt-5.4-nano") => price(0.2, 0.02, 1.25),
         _ if has("gpt-5.3") || has("gpt-5.2") => price(1.75, 0.175, 14.0),
@@ -382,6 +379,18 @@ fn codex_pricing(prices: &Prices, model: &str) -> Option<CodexPricing> {
                 cached_input: cost.cache_read.unwrap_or(cost.input / 10.0),
                 output: cost.output,
             });
+        }
+    }
+    // Dated OpenAI list prices, retired rows included, before the family table.
+    for id in codex_catalog_ids(&n) {
+        if let Some(p) = llm_prices::Provider::OpenAi.lookup(&id) {
+            if let (Some(input), Some(output)) = (p.input, p.output) {
+                return Some(CodexPricing {
+                    input,
+                    cached_input: p.cache_read.unwrap_or(input / 10.0),
+                    output,
+                });
+            }
         }
     }
     builtin_codex_pricing(&n)
@@ -567,6 +576,15 @@ mod tests {
         let base = codex_cost_usd(&prices, Some("gpt-5.4"), 1_000_000, 0, 0).unwrap();
         assert!((pro - 30.0).abs() < 1e-9);
         assert!((base - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gpt_5_6_bills_at_openai_list_price() {
+        let prices = builtin();
+        let cost = |m| codex_cost_usd(&prices, Some(m), 1_000_000, 0, 1_000_000).unwrap();
+        assert!((cost("gpt-5.6-luna") - 1.4).abs() < 1e-9);
+        assert!((cost("gpt-5.6-terra") - 14.0).abs() < 1e-9);
+        assert!((cost("gpt-5.6-sol-codex") - 24.0).abs() < 1e-9);
     }
 
     #[test]
