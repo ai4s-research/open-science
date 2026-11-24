@@ -66,8 +66,9 @@ const commitAfterKeydown: Step[] = [ime("keydown", "Comma"), { commit: "，" }, 
 
 describe("IME punctuation", () => {
   it("xterm still drops it on its own (remove the workaround once this fails)", async () => {
-    expect(await replay(shiftTwice, false)).toEqual(["？"]);
-    expect(await replay(rollover, false)).toEqual([]);
+    // 6.1.0-beta.336 sends both presses of one key; overlapping keys still lose the second.
+    expect(await replay(shiftTwice, false)).toEqual(["？", "？"]);
+    expect(await replay(rollover, false)).toEqual(["（"]);
   });
 
   it("reaches the shell on the first press with Shift held", async () => {
