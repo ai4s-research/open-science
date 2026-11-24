@@ -514,7 +514,11 @@ fn receive<T: for<'de> Deserialize<'de>>(input: &mut BufReader<TcpStream>) -> st
 // ---- host -------------------------------------------------------------------
 
 struct Term {
-    writer: Box<dyn Write + Send>,
+    /// What the shell is sent, written in order by this terminal's own thread.
+    /// A write waits while the program is not reading (macOS holds about 1 KB:
+    /// a paste into Claude Code while it starts), and it must not wait under
+    /// the terms lock, or every terminal's keystrokes wait with it.
+    input: Sender<Vec<u8>>,
     master: Box<dyn portable_pty::MasterPty + Send>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
     output: Arc<Mutex<Output>>,
@@ -535,7 +539,16 @@ struct Host {
 /// Run the host for the app whose data folder is `dir`, until it has had no
 /// terminals and no clients for a while. Returns at once if one is running.
 pub fn serve(dir: &Path) -> Result<(), String> {
-    run(dir, Some(IDLE_EXIT), VERSION)
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    run(dir, Some(IDLE_EXIT), &build_of(&exe)?)
+}
+
+/// Which build a host is: its version and the size of its binary. Two builds
+/// of one version (a test package over a release) are two hosts, or the newer
+/// app would keep using the older host's code until every terminal closed.
+fn build_of(osd: &Path) -> Result<String, String> {
+    let len = std::fs::metadata(osd).map_err(|e| format!("{}: {e}", osd.display()))?.len();
+    Ok(format!("{VERSION}-{len}"))
 }
 
 fn run(dir: &Path, idle_exit: Option<Duration>, version: &str) -> Result<(), String> {
@@ -667,8 +680,7 @@ impl Host {
             }
             Request::Write { id, data } => {
                 let term = terms.get_mut(&id).ok_or("no such terminal")?;
-                term.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
-                term.writer.flush().map_err(|e| e.to_string())?;
+                term.input.send(data.into_bytes()).map_err(|_| "the shell no longer takes input")?;
                 Ok(json!({ "ok": true }))
             }
             Request::Resize { id, cols, rows } => {
@@ -678,7 +690,11 @@ impl Host {
                 Ok(json!({ "ok": true }))
             }
             Request::Close { id } => {
-                if let Some(mut term) = terms.remove(&id) {
+                // Waiting for the shell to exit is outside the lock: Claude Code
+                // takes a moment, and other terminals keep working meanwhile.
+                let term = terms.remove(&id);
+                drop(terms);
+                if let Some(mut term) = term {
                     let _ = term.child.kill();
                     let _ = term.child.wait();
                 }
@@ -712,8 +728,18 @@ impl Host {
         let child = pair.slave.spawn_command(spawn.command()).map_err(|e| e.to_string())?;
         // Or the master never sees EOF when the shell exits.
         drop(pair.slave);
-        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+        let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+        let (input, pending) = channel::<Vec<u8>>();
+        // Ends when the terminal is dropped (its sender with it) or the shell
+        // stops taking input.
+        std::thread::spawn(move || {
+            for data in pending {
+                if writer.write_all(&data).and_then(|()| writer.flush()).is_err() {
+                    break;
+                }
+            }
+        });
         let output = Arc::new(Mutex::new(Output::starting_at(0)));
 
         let host = self.clone();
@@ -749,7 +775,7 @@ impl Host {
                 let _ = term.child.wait(); // reap it
             }
         });
-        Ok(Term { writer, master: pair.master, child, output })
+        Ok(Term { input, master: pair.master, child, output })
     }
 
     /// Serve one terminal's output on this connection until the shell exits
@@ -832,11 +858,6 @@ fn dial(port: u16, token: &str) -> Result<(BufReader<TcpStream>, TcpStream, Welc
 }
 
 impl Client {
-    /// This build's running host of this data folder, if there is one.
-    pub fn connect(dir: &Path) -> Result<Client, String> {
-        Client::connect_at(&state_path(dir, VERSION))
-    }
-
     fn connect_at(state: &Path) -> Result<Client, String> {
         let state = read_state(state)?;
         let (input, out, welcome) = dial(state.port, &state.token)?;
@@ -961,7 +982,8 @@ impl Iterator for Attached {
 /// A client of this build's host for `dir`, starting one from `osd` (the
 /// bundled CLI) when none runs. Older builds' hosts are `Hosts`' business.
 pub fn ensure(dir: &Path, osd: &Path) -> Result<Client, String> {
-    if let Ok(client) = Client::connect(dir) {
+    let state = state_path(dir, &build_of(osd)?);
+    if let Ok(client) = Client::connect_at(&state) {
         return Ok(client);
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -969,7 +991,7 @@ pub fn ensure(dir: &Path, osd: &Path) -> Result<Client, String> {
     spawn_detached(&exe, dir)?;
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        match Client::connect(dir) {
+        match Client::connect_at(&state) {
             Ok(client) => return Ok(client),
             Err(e) if Instant::now() > deadline => return Err(format!("terminal host did not start: {e}")),
             Err(_) => std::thread::sleep(Duration::from_millis(50)),
@@ -988,7 +1010,8 @@ fn older_than(version: &str, than: (u32, u32, u32)) -> bool {
 
 /// True when some host of `dir`, of any build, may be running.
 pub fn any_host(dir: &Path) -> bool {
-    state_path(dir, VERSION).is_file() || !older_state_paths(dir, VERSION).is_empty()
+    // Older than no build: every state file there is.
+    !older_state_paths(dir, "").is_empty()
 }
 
 /// Every host the app uses: this build's, which starts every new terminal, and
@@ -1005,7 +1028,7 @@ pub struct Hosts {
 impl Hosts {
     /// This build's host (started if need be) and every older one still running.
     pub fn ensure(dir: &Path, osd: &Path) -> Result<Hosts, String> {
-        Ok(Hosts::around(ensure(dir, osd)?, dir, VERSION))
+        Ok(Hosts::around(ensure(dir, osd)?, dir, &build_of(osd)?))
     }
 
     fn around(current: Client, dir: &Path, version: &str) -> Hosts {
@@ -1127,10 +1150,9 @@ impl Hosts {
 /// macOS a manual install (closing the app, dragging the new one over it) must
 /// not meet a running file inside the old bundle.
 fn host_binary(dir: &Path, osd: &Path) -> Result<PathBuf, String> {
-    let len = std::fs::metadata(osd).map_err(|e| format!("{}: {e}", osd.display()))?.len();
     let folder = dir.join("termd");
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
-    let name = format!("osd-{VERSION}-{len}{}", std::env::consts::EXE_SUFFIX);
+    let name = format!("osd-{}{}", build_of(osd)?, std::env::consts::EXE_SUFFIX);
     let target = folder.join(&name);
     if !target.is_file() {
         let tmp = folder.join(format!(".{name}.{}", std::process::id()));
@@ -1387,7 +1409,7 @@ mod tests {
         std::thread::spawn(move || run(&host_dir, None, VERSION));
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut first = loop {
-            match Client::connect(&dir) {
+            match Client::connect_at(&state_path(&dir, VERSION)) {
                 Ok(c) => break c,
                 Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
                 Err(e) => panic!("host never came up: {e}"),
@@ -1406,7 +1428,7 @@ mod tests {
 
         // The app goes away (update, crash, quit); the shell does not.
         drop(first);
-        let mut second = Client::connect(&dir).unwrap();
+        let mut second = Client::connect_at(&state_path(&dir, VERSION)).unwrap();
         let (created, again) = second.open("t1", &spawn).unwrap();
         assert!(!created, "a running terminal is found, not started again");
         assert_eq!(again, pid);
@@ -1489,6 +1511,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A paste into a program that is not reading yet (Claude Code starting)
+    /// fills the PTY's input queue; the other terminals must not wait for it.
+    #[cfg(unix)]
+    #[test]
+    fn a_paste_nobody_reads_yet_holds_up_no_other_terminal() {
+        let dir = std::env::temp_dir().join(format!("osd-termd-paste-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut host = host_of(&dir, VERSION);
+        let mut starting = CommandBuilder::new("/bin/sh");
+        starting.args(["-c", "sleep 4; cat > /dev/null"]);
+        host.open("starting", &Spawn::from_command(&starting, 80, 24)).unwrap();
+        host.open("other", &Spawn::from_command(&CommandBuilder::new("/bin/sh"), 80, 24)).unwrap();
+        let other = host.attach("other").unwrap();
+
+        let at = Instant::now();
+        host.write("starting", &"pasted line\n".repeat(700)).unwrap(); // ~8 KB, far past the queue
+        host.write("other", "echo other-$((40+2))\n").unwrap();
+        read_until(other, "other-42");
+        assert!(at.elapsed() < Duration::from_secs(2), "waited {:?} behind the paste", at.elapsed());
+
+        host.close("starting").unwrap();
+        host.close("other").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn only_hosts_before_the_reader_check_are_swept() {
         assert!(older_than("0.7.0", (0, 7, 3)));
@@ -1497,6 +1545,25 @@ mod tests {
         assert!(!older_than("0.8.0", (0, 7, 3)));
         assert!(!older_than("1.0.0-beta.1", (0, 7, 3)));
         assert!(older_than("garbage", (0, 7, 3)));
+        assert!(!older_than("0.7.3-33839312", (0, 7, 3)), "a build reads as its version");
+    }
+
+    #[test]
+    fn two_builds_of_one_version_are_two_hosts() {
+        let dir = std::env::temp_dir().join(format!("osd-termd-builds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (release, test) = (dir.join("osd-release"), dir.join("osd-test"));
+        std::fs::write(&release, [0u8; 10]).unwrap();
+        std::fs::write(&test, [0u8; 11]).unwrap();
+        let (a, b) = (build_of(&release).unwrap(), build_of(&test).unwrap());
+        assert_ne!(a, b);
+        assert!(a.starts_with(VERSION) && b.starts_with(VERSION));
+        // The release's host, still running terminals, is older to the test build.
+        std::fs::write(state_path(&dir, &a), "{}").unwrap();
+        assert_eq!(older_state_paths(&dir, &b), [state_path(&dir, &a)]);
+        assert!(any_host(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

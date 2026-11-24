@@ -361,7 +361,7 @@ pub enum TerminalEvent {
     Exit,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn terminal_subscribe(app: AppHandle, id: String, since: Option<u64>, on_event: Channel<TerminalEvent>) {
     let followed = follow(&app, &id, since.unwrap_or(0));
     if let Some(changes) = watch(&app, &id) {
@@ -479,7 +479,12 @@ pub fn terminal_probe(app: AppHandle) -> HashMap<String, crate::terminal_probe::
 }
 
 /// Keystrokes, paste, anything the pane types.
-#[tauri::command]
+///
+/// Off the main thread, like every command here that takes the state lock: an
+/// open holds it while the host starts a shell, and a main thread waiting on
+/// it freezes the whole window. Off it, commands may run out of order, so the
+/// pane sends one terminal's requests one at a time (terminalTransport.ts).
+#[tauri::command(async)]
 pub fn terminal_write(app: AppHandle, id: String, data: String) -> Result<(), String> {
     write(&app, &id, &data)
 }
@@ -507,19 +512,19 @@ pub fn clipboard_file_paths() -> Vec<String> {
         .unwrap_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn terminal_resize(app: AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
     resize(&app, &id, Viewer::desktop(), false, cols, rows)
 }
 
 /// The window takes control of the terminal from a web tab, at its own size.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn terminal_claim(app: AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
     resize(&app, &id, Viewer::desktop(), true, cols, rows)
 }
 
 /// The window no longer shows the terminal (its pane closed).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn terminal_release(app: AppHandle, id: String) {
     release(&app, &id, &Viewer::desktop().id);
 }
@@ -560,7 +565,7 @@ fn watch(app: &AppHandle, id: &str) -> Option<Receiver<Control>> {
 }
 
 /// Kill the shell and forget it. Called when the pane closes.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn terminal_close(app: AppHandle, id: String) -> Result<(), String> {
     close(&app, &id)
 }

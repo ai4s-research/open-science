@@ -273,7 +273,37 @@ const web: TerminalTransport = {
 };
 
 
-export const terminalTransport: TerminalTransport = isGatewayWeb ? web : desktop;
+/** One terminal's requests, sent one at a time in the order made. The desktop
+ *  runs them off its main thread and a web tab sends each as a request of its
+ *  own, so two in flight could land the other way round: keystrokes swapped,
+ *  an older size winning, a close after the reopen it came before. A failed
+ *  request does not hold up the next. */
+export function inOrder(transport: TerminalTransport): TerminalTransport {
+  const tails = new Map<string, Promise<unknown>>();
+  const queue = <T>(id: string, run: () => Promise<T>): Promise<T> => {
+    const next = (tails.get(id) ?? Promise.resolve()).then(run, run);
+    const tail = next.catch(() => {});
+    tails.set(id, tail);
+    void tail.then(() => {
+      if (tails.get(id) === tail) tails.delete(id);
+    });
+    return next;
+  };
+  const { release, saveScreen } = transport;
+  return {
+    ...transport,
+    open: (id, cwd, cols, rows) => queue(id, () => transport.open(id, cwd, cols, rows)),
+    write: (id, data) => queue(id, () => transport.write(id, data)),
+    resize: (id, cols, rows) => queue(id, () => transport.resize(id, cols, rows)),
+    claim: (id, cols, rows) => queue(id, () => transport.claim(id, cols, rows)),
+    release: release && ((id) => queue(id, () => release.call(transport, id))),
+    close: (id) => queue(id, () => transport.close(id)),
+    subscribe: (id, output, since) => queue(id, () => transport.subscribe(id, output, since)),
+    saveScreen: saveScreen && ((id, screen) => queue(id, () => saveScreen.call(transport, id, screen))),
+  };
+}
+
+export const terminalTransport: TerminalTransport = inOrder(isGatewayWeb ? web : desktop);
 
 /** The id the gateway knows a pane's shell by — what `osd term` takes. The
  *  desktop names a shell after its pane; a browser after itself and the pane
